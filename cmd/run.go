@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pulseaiclub/phi/internal/agent"
 	"github.com/pulseaiclub/phi/internal/session"
@@ -20,6 +21,7 @@ type runOptions struct {
 	prompt       string
 	jsonl        bool
 	maxRounds    int
+	timeout      time.Duration
 	session      string
 	continueLast bool
 	sessionDir   string
@@ -114,7 +116,14 @@ func runCmd(args []string) int {
 		fmt.Fprintf(os.Stderr, "file: %s\n", f)
 	}
 
-	return runLoop(ctx, engine, opts)
+	runCtx := ctx
+	if opts.timeout > 0 {
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithTimeout(ctx, opts.timeout)
+		defer cancel()
+	}
+
+	return runLoop(runCtx, engine, opts)
 }
 
 // runLoop consumes the same engine.Loop the TUI uses — no second loop is
@@ -152,8 +161,12 @@ func runLoop(ctx context.Context, engine *agent.Engine, opts runOptions) int {
 		}
 	}
 
-	if ctx.Err() != nil && exit == ExitOK {
-		exit = ExitError // interrupted (Ctrl-C) is not success
+	if ctxErr := ctx.Err(); ctxErr != nil && exit == ExitOK {
+		exit = ExitError // context cancellation is not success
+		if errors.Is(ctxErr, context.DeadlineExceeded) {
+			enc.errorEvent(ctxErr.Error())
+			fmt.Fprintln(os.Stderr, "error:", ctxErr)
+		}
 	}
 
 	if !opts.jsonl && exit == ExitOK && strings.TrimSpace(finalText) != "" {
@@ -212,6 +225,23 @@ func parseRunArgs(args []string) (runOptions, error) {
 				return o, fmt.Errorf("--max-rounds must be a positive integer, got %q", v)
 			}
 			o.maxRounds = n
+		case arg == "--timeout":
+			v, err := next(arg)
+			if err != nil {
+				return o, err
+			}
+			d, err := time.ParseDuration(v)
+			if err != nil || d <= 0 {
+				return o, fmt.Errorf("--timeout must be a positive duration, got %q", v)
+			}
+			o.timeout = d
+		case strings.HasPrefix(arg, "--timeout="):
+			v := strings.TrimPrefix(arg, "--timeout=")
+			d, err := time.ParseDuration(v)
+			if err != nil || d <= 0 {
+				return o, fmt.Errorf("--timeout must be a positive duration, got %q", v)
+			}
+			o.timeout = d
 		case arg == "--session":
 			v, err := next(arg)
 			if err != nil {
@@ -245,6 +275,7 @@ flags:
   -p, --prompt STRING   prompt to run (required)
       --jsonl           emit JSONL events to stdout
       --max-rounds N    cap tool rounds (default 64)
+      --timeout DURATION stop after a wall-clock duration (e.g. 10m; default unlimited)
       --session ID      resume a persisted session by id or unique prefix
       --continue-last   resume the newest persisted session for this directory
       --session-dir DIR override the session storage directory
