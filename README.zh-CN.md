@@ -232,6 +232,7 @@ phi run -p "fix the failing test in internal/tools"
 | `-p, --prompt STRING` | 要运行的提示词（必填） |
 | `--jsonl` | 向 stdout 输出 JSONL 事件 |
 | `--max-rounds N` | 限制工具轮数（默认 64） |
+| `--timeout DURATION` | 限制 Agent 运行总时长（例如 `10m`，默认不限制） |
 | `--session ID` | 按 id 或唯一前缀恢复已持久化的会话 |
 | `--continue-last` | 恢复当前目录最新的持久化会话 |
 | `--session-dir DIR` | 覆盖会话存储目录 |

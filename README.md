@@ -241,6 +241,7 @@ Flags:
 | `-p, --prompt STRING`| Prompt to run (required)                       |
 | `--jsonl`            | Emit JSONL events to stdout                    |
 | `--max-rounds N`     | Cap tool rounds (default 64)                   |
+| `--timeout DURATION` | Limit the agent run wall-clock time (e.g. `10m`; disabled by default) |
 | `--session ID`       | Resume a persisted session by id or unique prefix |
 | `--continue-last`    | Resume the newest persisted session for this directory |
 | `--session-dir DIR`  | Override the session storage directory         |
