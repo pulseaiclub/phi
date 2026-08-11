@@ -1,7 +1,6 @@
 package bashtool
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -19,7 +18,7 @@ const (
 var bashDescription = `Run a shell command and return combined stdout/stderr.
 
 Use for one-off build, test, git, or inspection commands. Large output is
-truncated with the full log written to a temp file.`
+truncated with the retained output written to a temp file.`
 
 // BashTool returns the bash tool definition + handler.
 func BashTool() tooldef.Tool {
@@ -80,12 +79,14 @@ func runBash(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 	if err != nil {
 		return tooldef.Result{}, err
 	}
-	var buf bytes.Buffer
-	c.Stdout = &buf
-	c.Stderr = &buf
+	// Bound the shared stdout/stderr collector so runaway output cannot be
+	// buffered unboundedly.
+	cb := newCappedBuffer(BashMaxCollectBytes)
+	c.Stdout = cb
+	c.Stderr = cb
 	err = c.Run()
 
-	out := FormatBashOutput(buf.String())
+	out := formatBashOutput(cb.String(), cb.Truncated())
 	if strings.TrimSpace(out) == "" {
 		out = "(no output)"
 	}

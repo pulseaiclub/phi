@@ -24,10 +24,10 @@ const (
 //	$ ls
 //	  parser.go
 //	  ...
-//	  [Showing lines 10-100 of 100. Full output: /tmp/phi-bash-….log]
+//	  [Showing lines 10-100 of 100. Full/retained output: /tmp/phi-bash-….log]
 //
-// Long output is truncated at the source (tools.FormatBashOutput) with a
-// /tmp dump — this widget does not invent a useless "Show more" chrome.
+// Long output is truncated by the bash tool with a /tmp dump — this widget
+// does not invent a useless "Show more" chrome.
 type BashBlock struct {
 	Command  string
 	Output   string

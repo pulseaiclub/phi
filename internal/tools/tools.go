@@ -31,9 +31,18 @@ var (
 type (
 	ShellExecResult  = bashtool.ShellExecResult
 	ShellExecOptions = bashtool.ShellExecOptions
+	BashOutputTail   = bashtool.BashOutputTail
 )
 
-var ExecShell = bashtool.ExecShell
+const (
+	BashMaxOutputLines = bashtool.BashMaxOutputLines
+	BashMaxOutputBytes = bashtool.BashMaxOutputBytes
+)
+
+var (
+	ExecShell         = bashtool.ExecShell
+	NewBashOutputTail = bashtool.NewBashOutputTail
+)
 
 // Agent helpers used by the TUI / mapper.
 type (

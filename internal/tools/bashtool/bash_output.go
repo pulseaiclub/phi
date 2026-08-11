@@ -14,23 +14,29 @@ const (
 	BashMaxOutputLines = 1000
 	// BashMaxOutputBytes is the maximum bytes kept in displayed bash output (50KB).
 	BashMaxOutputBytes = 50 * 1024
+	// BashMaxCollectBytes caps how much of a command's output is buffered in
+	// memory (and retained in the temp-file dump) before display truncation.
+	// Guards against runaway output (`cat /dev/urandom | base64`, `yes`):
+	// the newest 8 MB is kept, the rest is dropped at the source.
+	BashMaxCollectBytes = 8 * 1024 * 1024
 )
 
-// FormatBashOutput keeps the last BashMaxOutputLines / BashMaxOutputBytes of
-// output (tail). When truncated, the full output is written to a temp file and
-// a panda-style notice with the path is appended — no in-UI "Show more".
-func FormatBashOutput(output string) string {
-	display, path := truncateBashTail(output, BashMaxOutputLines, BashMaxOutputBytes)
-	if path == "" {
-		return display
+// formatBashOutput keeps the last BashMaxOutputLines / BashMaxOutputBytes of
+// real output. Collection metadata is appended afterward so it does not alter
+// the display budget or reported line range.
+func formatBashOutput(output string, collectionTruncated bool) string {
+	label := "Full output"
+	if collectionTruncated {
+		label = "Retained output"
 	}
-	if !strings.Contains(display, path) {
-		display += fmt.Sprintf("\n\n[Full output: %s]", path)
+	display, _ := truncateBashTail(output, BashMaxOutputLines, BashMaxOutputBytes, label)
+	if collectionTruncated {
+		display += collectTruncationNote
 	}
 	return display
 }
 
-func truncateBashTail(output string, maxLines, maxBytes int) (display, fullPath string) {
+func truncateBashTail(output string, maxLines, maxBytes int, outputLabel string) (display, fullPath string) {
 	if maxLines <= 0 {
 		maxLines = BashMaxOutputLines
 	}
@@ -38,12 +44,14 @@ func truncateBashTail(output string, maxLines, maxBytes int) (display, fullPath 
 		maxBytes = BashMaxOutputBytes
 	}
 	totalBytes := len(output)
-	lines := strings.Split(output, "\n")
-	// Trailing empty from final newline shouldn't inflate the line count for limits.
-	totalLines := len(lines)
-	if totalLines > 0 && lines[totalLines-1] == "" {
-		totalLines--
-		lines = lines[:totalLines]
+	totalLines := strings.Count(output, "\n")
+	bodyEnd := len(output)
+	if bodyEnd > 0 && output[bodyEnd-1] == '\n' {
+		// A final newline terminates the last line; exclude only the empty
+		// element that strings.Split would otherwise produce after it.
+		bodyEnd--
+	} else if bodyEnd > 0 {
+		totalLines++
 	}
 
 	if totalLines <= maxLines && totalBytes <= maxBytes {
@@ -55,40 +63,47 @@ func truncateBashTail(output string, maxLines, maxBytes int) (display, fullPath 
 		path = ""
 	}
 
-	// Keep a tail that respects both limits.
-	start := 0
+	// Locate the display tail without splitting every retained line. Dense
+	// output can contain millions of newlines even within the collection cap.
+	tailStart := 0
 	if totalLines > maxLines {
-		start = totalLines - maxLines
-	}
-	tail := lines[start:]
-	for len(tail) > 1 && joinedBytes(tail) > maxBytes {
-		tail = tail[1:]
-	}
-	if len(tail) == 1 && len(tail[0]) > maxBytes {
-		s := tail[0]
-		tail = []string{s[len(s)-maxBytes:]}
+		cursor := bodyEnd
+		for range maxLines {
+			newline := strings.LastIndexByte(output[:cursor], '\n')
+			if newline < 0 {
+				cursor = 0
+				break
+			}
+			cursor = newline
+		}
+		tailStart = cursor + 1
 	}
 
-	display = strings.Join(tail, "\n")
-	startLine := totalLines - len(tail) + 1
-	endLine := totalLines
-	if path != "" {
-		display += fmt.Sprintf("\n\n[Showing lines %d-%d of %d. Full output: %s]", startLine, endLine, totalLines, path)
-	} else {
-		display += fmt.Sprintf("\n\n[Showing lines %d-%d of %d. Full output unavailable]", startLine, endLine, totalLines)
-	}
-	return display, path
-}
-
-func joinedBytes(lines []string) int {
-	n := 0
-	for i, line := range lines {
-		n += len(line)
-		if i > 0 {
-			n++ // newline
+	if bodyEnd-tailStart > maxBytes {
+		minStart := bodyEnd - maxBytes
+		searchStart := minStart - 1
+		if searchStart < tailStart {
+			searchStart = tailStart
+		}
+		if newline := strings.IndexByte(output[searchStart:bodyEnd], '\n'); newline >= 0 {
+			// Prefer a line boundary, even when that keeps fewer than maxBytes.
+			tailStart = searchStart + newline + 1
+		} else {
+			// The final line alone exceeds maxBytes; keep its byte tail.
+			tailStart = minStart
 		}
 	}
-	return n
+
+	display = output[tailStart:bodyEnd]
+	displayLines := strings.Count(display, "\n") + 1
+	startLine := totalLines - displayLines + 1
+	endLine := totalLines
+	if path != "" {
+		display += fmt.Sprintf("\n\n[Showing lines %d-%d of %d. %s: %s]", startLine, endLine, totalLines, outputLabel, path)
+	} else {
+		display += fmt.Sprintf("\n\n[Showing lines %d-%d of %d. %s unavailable]", startLine, endLine, totalLines, outputLabel)
+	}
+	return display, path
 }
 
 func writeBashTempFile(content string) (string, error) {
