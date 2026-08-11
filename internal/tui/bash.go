@@ -58,14 +58,12 @@ func (editor *Editor) runBash(id, command string) {
 		editor.bashMu.Unlock()
 	}()
 
-	var (
-		outMu sync.Mutex
-		out   strings.Builder
-	)
-	publishOutput := func() {
-		outMu.Lock()
-		cur := out.String()
-		outMu.Unlock()
+	// Live updates publish at most this often and carry only a display-sized
+	// tail. This keeps both the event payload and BashBlock layout bounded while
+	// the final event still carries the formatted command result.
+	const bashPublishInterval = 100 * time.Millisecond
+
+	liveOutput := newBashLiveOutput(bashPublishInterval, func(cur string) {
 		editor.Publish(SessionEventMsg{Event: session.ToolData{Run: session.ToolRun{
 			ToolUseID: id,
 			Name:      "bash",
@@ -74,16 +72,15 @@ func (editor *Editor) runBash(id, command string) {
 			Output:    cur,
 			Local:     true,
 		}}})
-	}
+	})
 
 	result, err := tools.ExecShell(ctx, command, tools.ShellExecOptions{
-		OnChunk: func(chunk string) {
-			outMu.Lock()
-			out.WriteString(chunk)
-			outMu.Unlock()
-			publishOutput()
-		},
+		OnChunk: liveOutput.Append,
 	})
+	// Cmd.Run waits for all writer callbacks, so no Append can race with Close.
+	// Closing before the final event prevents a trailing in-progress update from
+	// replacing the completed state.
+	liveOutput.Close()
 	if err != nil {
 		editor.Publish(SessionEventMsg{Event: session.ToolData{Run: session.ToolRun{
 			ToolUseID: id,
@@ -115,6 +112,76 @@ func (editor *Editor) runBash(id, command string) {
 		ExitCode:  result.ExitCode,
 		Local:     true,
 	}}})
+}
+
+// bashLiveOutput publishes a bounded live tail immediately, then at most once
+// per interval. A skipped update always schedules one trailing publication.
+type bashLiveOutput struct {
+	mu          sync.Mutex
+	tail        *tools.BashOutputTail
+	interval    time.Duration
+	lastPublish time.Time
+	timer       *time.Timer
+	stopped     bool
+	publish     func(output string)
+}
+
+func newBashLiveOutput(interval time.Duration, publish func(output string)) *bashLiveOutput {
+	return &bashLiveOutput{
+		tail:     tools.NewBashOutputTail(tools.BashMaxOutputLines, tools.BashMaxOutputBytes),
+		interval: interval,
+		publish:  publish,
+	}
+}
+
+func (o *bashLiveOutput) Append(chunk string) {
+	_, _ = o.tail.WriteString(chunk)
+
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.stopped || o.timer != nil {
+		return
+	}
+	now := time.Now()
+	if o.lastPublish.IsZero() || now.Sub(o.lastPublish) >= o.interval {
+		o.publishLocked(now)
+		return
+	}
+	delay := o.interval - now.Sub(o.lastPublish)
+	o.timer = time.AfterFunc(delay, o.publishTrailing)
+}
+
+func (o *bashLiveOutput) publishTrailing() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.timer = nil
+	if o.stopped {
+		return
+	}
+	o.publishLocked(time.Now())
+}
+
+func (o *bashLiveOutput) publishLocked(now time.Time) {
+	cur, truncated := o.tail.Snapshot()
+	if truncated {
+		cur = "[live output truncated; showing latest output]\n" + cur
+	}
+	o.lastPublish = now
+	if o.publish != nil {
+		o.publish(cur)
+	}
+}
+
+// Close synchronizes with any active timer callback and prevents future
+// in-progress publications.
+func (o *bashLiveOutput) Close() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.stopped = true
+	if o.timer != nil {
+		o.timer.Stop()
+		o.timer = nil
+	}
 }
 
 // cancelBash aborts a running user "!cmd". Returns true if one was cancelled.
