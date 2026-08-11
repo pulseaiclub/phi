@@ -16,6 +16,8 @@ import (
 	"github.com/pulseaiclub/phi/internal/util/githubrelease"
 )
 
+const compatibleReleaseLookback = 10
+
 // BinDir returns the default directory for downloaded tool binaries.
 func BinDir() (string, error) {
 	home, err := os.UserHomeDir()
@@ -152,6 +154,53 @@ func findBinaryRecursively(rootDir, binaryFileName string) (string, error) {
 	return found, nil
 }
 
+func findReleaseAsset(assets []githubrelease.Asset, candidates []string) (githubrelease.Asset, bool) {
+	assetsByName := make(map[string]githubrelease.Asset, len(assets))
+	for _, asset := range assets {
+		assetsByName[asset.Name] = asset
+	}
+	for _, candidate := range candidates {
+		if asset, ok := assetsByName[candidate]; ok {
+			return asset, true
+		}
+	}
+	return githubrelease.Asset{}, false
+}
+
+func selectCompatibleAsset(
+	config ToolConfig,
+	releases []githubrelease.Release,
+	targetPlatform, targetArch string,
+	goos, goarch string,
+) (githubrelease.Asset, error) {
+	if len(config.AssetNames.getAssetNames("", targetPlatform, targetArch)) == 0 {
+		return githubrelease.Asset{}, fmt.Errorf("unsupported platform: %s/%s", goos, goarch)
+	}
+
+	checkedTags := make([]string, 0, len(releases))
+	for _, release := range releases {
+		checkedTags = append(checkedTags, release.TagName)
+		version := githubrelease.TagVersion(release.TagName)
+		candidates := config.AssetNames.getAssetNames(version, targetPlatform, targetArch)
+		asset, ok := findReleaseAsset(release.Assets, candidates)
+		if !ok {
+			continue
+		}
+		if asset.BrowserDownloadURL == "" {
+			return githubrelease.Asset{}, fmt.Errorf("%s release asset %s has no download URL", config.Name, asset.Name)
+		}
+		return asset, nil
+	}
+
+	return githubrelease.Asset{}, fmt.Errorf(
+		"%s has no compatible release asset for %s/%s (checked: %s)",
+		config.Name,
+		goos,
+		goarch,
+		strings.Join(checkedTags, ", "),
+	)
+}
+
 // DownloadTool downloads the specified tool from GitHub releases and installs
 // it to the phi bin directory (~/.phi/bin/).
 func DownloadTool(ctx context.Context, tool string) (string, error) {
@@ -164,23 +213,17 @@ func DownloadTool(ctx context.Context, tool string) (string, error) {
 		return "", fmt.Errorf("unsupported platform: %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
 
-	version, err := githubrelease.GetLatestVersion(ctx, config.Repo)
+	releases, err := githubrelease.FetchRecent(ctx, config.Repo, compatibleReleaseLookback)
 	if err != nil {
 		return "", err
 	}
 
-	assetName := config.GetAssetName(version)
-	if assetName == "" {
-		return "", fmt.Errorf("unsupported platform: %s/%s", platform, arch)
+	asset, err := selectCompatibleAsset(config, releases, platform, arch, runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		return "", err
 	}
-
-	downloadURL := fmt.Sprintf(
-		"https://github.com/%s/releases/download/%s%s/%s",
-		config.Repo,
-		config.TagPrefix,
-		version,
-		assetName,
-	)
+	assetName := asset.Name
+	downloadURL := asset.BrowserDownloadURL
 
 	toolsDir, err := BinDir()
 	if err != nil {

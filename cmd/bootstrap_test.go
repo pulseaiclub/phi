@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -56,6 +57,21 @@ func TestShouldBootstrapWhenOnPATH(t *testing.T) {
 
 	assert.False(t, shouldBootstrap(p, "rg"))
 	assert.True(t, shouldBootstrap(p, "fd"))
+}
+
+func TestEnsureSearchToolsAttemptsAllDownloads(t *testing.T) {
+	p, _ := testProject(t)
+	var downloaded []string
+	download := func(_ context.Context, tool string) (string, error) {
+		downloaded = append(downloaded, tool)
+		return "", errors.New("download failed")
+	}
+
+	err := ensureSearchTools(context.Background(), p, download)
+	require.Error(t, err)
+	assert.Equal(t, []string{"fd", "rg"}, downloaded)
+	assert.ErrorContains(t, err, "fd: download failed")
+	assert.ErrorContains(t, err, "rg: download failed")
 }
 
 func TestHeadlessGateDefaultsToStrict(t *testing.T) {

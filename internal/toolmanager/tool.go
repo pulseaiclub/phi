@@ -44,11 +44,8 @@ type ToolConfig struct {
 	Repo string
 	// BinaryName is the name of the executable binary.
 	BinaryName string
-	// TagPrefix is the prefix used in version tags (e.g., "v" for "v1.0.0").
-	TagPrefix string
-	// GetAssetName returns the asset filename for the given version.
-	// Platform and architecture are detected automatically from current runtime.
-	GetAssetName func(version string) string
+	// AssetNames builds release asset candidates for the current platform.
+	AssetNames AssetName
 }
 
 // Tools is a registry of downloadable tool configurations.
@@ -58,29 +55,33 @@ var Tools = map[string]ToolConfig{
 		Name:       "fd",
 		Repo:       "sharkdp/fd",
 		BinaryName: "fd",
-		TagPrefix:  "v",
-		GetAssetName: AssetName{
-			toolName:      "fd",
-			versionPrefix: "v",
-			archMap:       defaultArchMap,
-			darwinSuffix:  "-apple-darwin.tar.gz",
-			linuxSuffix:   "-unknown-linux-gnu.tar.gz",
-			winSuffix:     "-pc-windows-msvc.zip",
-		}.GetAssetName,
+		AssetNames: AssetName{
+			toolName:       "fd",
+			versionPrefix:  "v",
+			archMap:        defaultArchMap,
+			darwinSuffixes: []string{"-apple-darwin.tar.gz"},
+			linuxSuffixes: []string{
+				"-unknown-linux-gnu.tar.gz",
+				"-unknown-linux-musl.tar.gz",
+			},
+			winSuffixes: []string{"-pc-windows-msvc.zip"},
+		},
 	},
 	"rg": {
 		Name:       "ripgrep",
 		Repo:       "BurntSushi/ripgrep",
 		BinaryName: "rg",
-		TagPrefix:  "",
-		GetAssetName: AssetName{
-			toolName:      "ripgrep",
-			versionPrefix: "",
-			archMap:       defaultArchMap,
-			darwinSuffix:  "-apple-darwin.tar.gz",
-			linuxSuffix:   "-unknown-linux-gnu.tar.gz",
-			winSuffix:     "-pc-windows-msvc.zip",
-		}.GetAssetName,
+		AssetNames: AssetName{
+			toolName:       "ripgrep",
+			versionPrefix:  "",
+			archMap:        defaultArchMap,
+			darwinSuffixes: []string{"-apple-darwin.tar.gz"},
+			linuxSuffixes: []string{
+				"-unknown-linux-musl.tar.gz",
+				"-unknown-linux-gnu.tar.gz",
+			},
+			winSuffixes: []string{"-pc-windows-msvc.zip"},
+		},
 	},
 }
 
@@ -89,12 +90,12 @@ type archMapping map[string]map[string]string
 
 // AssetName builds the full asset filename for a tool release.
 type AssetName struct {
-	toolName      string
-	versionPrefix string
-	archMap       archMapping
-	darwinSuffix  string
-	linuxSuffix   string
-	winSuffix     string
+	toolName       string
+	versionPrefix  string
+	archMap        archMapping
+	darwinSuffixes []string
+	linuxSuffixes  []string
+	winSuffixes    []string
 }
 
 func normalizePlatform(goos string) string {
@@ -128,20 +129,24 @@ var (
 	arch     = normalizeArch(runtime.GOARCH)
 )
 
-// GetAssetName returns the full asset filename for the given version,
-// based on the current platform and architecture.
-func (a AssetName) GetAssetName(version string) string {
-	if platform == "" || arch == "" {
-		return ""
+// GetAssetNames returns release asset candidates in preference order for the
+// current platform and architecture.
+func (a AssetName) GetAssetNames(version string) []string {
+	return a.getAssetNames(version, platform, arch)
+}
+
+func (a AssetName) getAssetNames(version, targetPlatform, targetArch string) []string {
+	if targetPlatform == "" || targetArch == "" {
+		return nil
 	}
 
-	platformArchs, ok := a.archMap[platform]
+	platformArchs, ok := a.archMap[targetPlatform]
 	if !ok {
-		return ""
+		return nil
 	}
-	archName, ok := platformArchs[arch]
+	archName, ok := platformArchs[targetArch]
 	if !ok {
-		return ""
+		return nil
 	}
 
 	fullVersion := version
@@ -149,14 +154,21 @@ func (a AssetName) GetAssetName(version string) string {
 		fullVersion = a.versionPrefix + version
 	}
 
-	switch platform {
+	var suffixes []string
+	switch targetPlatform {
 	case PlatformDarwin:
-		return fmt.Sprintf("%s-%s-%s%s", a.toolName, fullVersion, archName, a.darwinSuffix)
+		suffixes = a.darwinSuffixes
 	case PlatformLinux:
-		return fmt.Sprintf("%s-%s-%s%s", a.toolName, fullVersion, archName, a.linuxSuffix)
+		suffixes = a.linuxSuffixes
 	case PlatformWin32:
-		return fmt.Sprintf("%s-%s-%s%s", a.toolName, fullVersion, archName, a.winSuffix)
+		suffixes = a.winSuffixes
 	default:
-		return ""
+		return nil
 	}
+
+	names := make([]string, 0, len(suffixes))
+	for _, suffix := range suffixes {
+		names = append(names, fmt.Sprintf("%s-%s-%s%s", a.toolName, fullVersion, archName, suffix))
+	}
+	return names
 }

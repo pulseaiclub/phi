@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -81,18 +82,25 @@ func loadRunBootstrap(ctx context.Context, sessionDirOverride string) (*runBoots
 // Failures are non-fatal: the search tools fall back to PATH at runtime
 // and report a clear error if truly unavailable.
 func EnsureSearchTools(ctx context.Context, proj *project.Project) error {
+	return ensureSearchTools(ctx, proj, toolmanager.DownloadTool)
+}
+
+type searchToolDownloader func(context.Context, string) (string, error)
+
+func ensureSearchTools(ctx context.Context, proj *project.Project, download searchToolDownloader) error {
+	var installErrors []error
 	for _, tool := range []string{"fd", "rg"} {
 		if !shouldBootstrap(proj, tool) {
 			continue
 		}
 		dlCtx, cancel := context.WithTimeout(ctx, bootstrapDownloadTimeout)
-		_, err := toolmanager.DownloadTool(dlCtx, tool)
+		_, err := download(dlCtx, tool)
 		cancel()
 		if err != nil {
-			return fmt.Errorf("%s: %w", tool, err)
+			installErrors = append(installErrors, fmt.Errorf("%s: %w", tool, err))
 		}
 	}
-	return nil
+	return errors.Join(installErrors...)
 }
 
 // shouldBootstrap is true when the tool binary is missing from the phi bin
