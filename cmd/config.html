@@ -344,8 +344,9 @@
 
   .field { min-width: 0; }
 
-  .field-name { grid-column: span 5; }
-  .field-base { grid-column: span 7; }
+  .field-name { grid-column: span 4; }
+  .field-provider { grid-column: span 3; }
+  .field-base { grid-column: span 5; }
   .field-key { grid-column: span 9; }
   .field-context { grid-column: span 3; }
 
@@ -675,7 +676,7 @@
 
   @media (max-width: 900px) {
     .model-fields { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-    .field-name, .field-base { grid-column: span 3; }
+    .field-name, .field-provider, .field-base { grid-column: span 3; }
     .field-key { grid-column: span 4; }
     .field-context { grid-column: span 2; }
   }
@@ -693,7 +694,7 @@
     .model-card-actions { width: 100%; justify-content: flex-end; }
     .default-control { flex: 1 1 auto; }
     .model-fields, .settings-fields, .rules-grid, .rule-body { grid-template-columns: minmax(0, 1fr); }
-    .field-name, .field-base, .field-key, .field-context, .settings-fields .field-full, .rule-body .field-wide { grid-column: auto; }
+    .field-name, .field-provider, .field-base, .field-key, .field-context, .settings-fields .field-full, .rule-body .field-wide { grid-column: auto; }
     .panel { padding-right: 0; }
     .panel + .panel { margin-top: 26px; padding-top: 26px; padding-left: 0; border-top: 1px solid var(--border); border-left: 0; }
     .rule-group + .rule-group { padding-top: 24px; padding-left: 0; border-top: 1px solid var(--border); border-left: 0; }
@@ -993,6 +994,11 @@ const I18N = {
     modelName: "Model name",
     modelNameHelp: "Type a name, or fetch the list from the current API base URL and pick one.",
     modelNamePlaceholder: "e.g. gpt-4o",
+    provider: "Provider",
+    providerHelp: "Controls the API protocol; auto keeps the existing detection rules.",
+    providerAuto: "Auto-detect",
+    providerOpenAI: "OpenAI-compatible",
+    providerAnthropic: "Anthropic Messages API",
     apiBase: "API base URL",
     apiBaseHelp: "OpenAI-compatible or Anthropic-compatible endpoint.",
     apiBasePlaceholder: "e.g. https://api.openai.com/v1",
@@ -1106,6 +1112,11 @@ const I18N = {
     modelName: "模型名称",
     modelNameHelp: "可手动填写，也可以从当前 API 地址获取列表后选择。",
     modelNamePlaceholder: "例如 gpt-4o",
+    provider: "服务商协议",
+    providerHelp: "决定 API 协议；自动探测会保留原有判断规则。",
+    providerAuto: "自动探测",
+    providerOpenAI: "OpenAI 兼容",
+    providerAnthropic: "Anthropic Messages API",
     apiBase: "API 地址",
     apiBaseHelp: "OpenAI-compatible 或 Anthropic 兼容地址。",
     apiBasePlaceholder: "例如 https://api.openai.com/v1",
@@ -1352,6 +1363,7 @@ async function fetchModels(row) {
         baseUrl: row.base.value.trim(),
         apiKey: row.key.value.trim(),
         model: row.name.value.trim(),
+        provider: row.provider.value,
       }),
       signal: controller.signal,
     });
@@ -1454,6 +1466,14 @@ function addModelRow(model) {
     placeholder: t("apiBasePlaceholder"),
     autocomplete: "url",
   });
+  const provider = el("select", { id: "model-provider-" + id });
+  for (const option of [
+    ["auto", "providerAuto"],
+    ["openai", "providerOpenAI"],
+    ["anthropic", "providerAnthropic"],
+  ]) {
+    provider.appendChild(el("option", { value: option[0], "data-i18n": option[1] }, t(option[1])));
+  }
   const context = el("input", {
     id: "model-context-" + id,
     type: "number",
@@ -1491,6 +1511,7 @@ function addModelRow(model) {
   if (value.name) name.value = value.name;
   if (value.apiKey) key.value = value.apiKey;
   if (value.baseUrl) base.value = value.baseUrl;
+  provider.value = value.provider || "auto";
   if (value.contextWindow) context.value = value.contextWindow;
   if (value.default || (!model && modelRows.length === 0)) def.checked = true;
 
@@ -1501,6 +1522,7 @@ function addModelRow(model) {
     name,
     key,
     base,
+    provider,
     context,
     def,
     fetchButton,
@@ -1527,6 +1549,7 @@ function addModelRow(model) {
   );
   const fields = el("div", { class: "model-fields" },
     field("modelName", "modelNameHelp", nameControl, "field-name", name.id, null, fetchButton),
+    field("provider", "providerHelp", provider, "field-provider", provider.id),
     field("apiBase", "apiBaseHelp", base, "field-base", base.id),
     field("apiKey", "apiKeyHelp", keyShell, "field-key", key.id),
     field("contextWindow", "contextWindowHelp", context, "field-context", context.id, "tokens"),
@@ -1562,6 +1585,7 @@ function addModelRow(model) {
   });
   fetchButton.addEventListener("click", () => fetchModels(row));
   base.addEventListener("input", () => { clearModelOptions(row); markDirty("models"); });
+  provider.addEventListener("change", () => { clearModelOptions(row); markDirty("models"); });
   key.addEventListener("input", () => {
     key.setAttribute("aria-invalid", "false");
     clearModelOptions(row);
@@ -1729,6 +1753,7 @@ function buildPayload() {
       name: row.name.value.trim(),
       apiKey: row.key.value.trim(),
       baseUrl: row.base.value.trim(),
+      provider: row.provider.value === "auto" ? null : row.provider.value,
       contextWindow: readOptionalInteger(row.context),
       default: row.def.checked,
     })),

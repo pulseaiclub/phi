@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/pulseaiclub/phi/internal/llm"
 )
 
 // discoverInTempHome runs Discover("") with HOME redirected to a temp dir so
@@ -66,6 +68,7 @@ models:
 	assert.Equal(t, "deepseek-chat", cfg.Model().Name)
 	assert.Equal(t, "sk-test", cfg.Model().APIKey)
 	assert.Equal(t, "https://api.openai.com/v1", cfg.Model().BaseURL)
+	assert.Equal(t, llm.ProviderAuto, cfg.Model().Provider)
 	assert.Equal(t, p.Global().SkillsDir(), cfg.SkillPath)
 	// Model() carries the skill path for agent.NewEngine.
 	assert.Equal(t, p.Global().SkillsDir(), cfg.Model().SkillPath)
@@ -101,6 +104,20 @@ func TestLoadConfigMissingAPIKey(t *testing.T) {
 	err := p.LoadConfig()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "api_key")
+}
+
+func TestLoadConfigRejectsUnknownProvider(t *testing.T) {
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: custom
+    api_key: key
+    provider: llama
+`), 0o644))
+
+	err := p.LoadConfig()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `unknown provider "llama"`)
 }
 
 func TestLoadConfigConfigFileMissing(t *testing.T) {
@@ -215,11 +232,13 @@ models:
   - name: p
     api_key: pk
     base_url: https://primary.example/v1
+    provider: anthropic
     context_window: 1000
     default: true
   - name: a1
     api_key: ak1
     base_url: https://a1.example/v1
+    provider: openai
   - name: a2
     api_key: ak2
     base_url: https://a2.example/v1
@@ -230,7 +249,9 @@ models:
 	cfg := p.Config()
 	require.Len(t, cfg.Models, 3)
 	assert.Equal(t, "p", cfg.Models[0].Name)
+	assert.Equal(t, llm.ProviderAnthropic, cfg.Models[0].Provider)
 	assert.Equal(t, "ak1", cfg.Models[1].APIKey)
+	assert.Equal(t, llm.ProviderOpenAI, cfg.Models[1].Provider)
 	assert.Equal(t, 2000, cfg.Models[2].ContextWindow)
 	assert.Equal(t, "p", cfg.DefaultModel)
 

@@ -113,14 +113,16 @@ phi 读取 `~/.phi/config.yaml`（标准 YAML）。环境变量可覆盖配置�
 ```yaml
 # ~/.phi/config.yaml
 models:
-  - name: gpt-4o            # 模型名；"claude-*" 走 Anthropic API
+  - name: gpt-4o            # 模型名
     api_key: sk-...         # 或设置 PHI_API_KEY
     base_url: https://api.openai.com/v1   # 默认；PHI_BASE_URL 可覆盖
+    provider: auto          # auto | openai | anthropic；默认 auto
     context_window: 128000  # 可选
     default: true           # 启动时使用的模型；缺省时第一项生效
   - name: claude-sonnet-4-20250514   # 额外模型；运行时可切换
     api_key: sk-ant-...
     base_url: https://api.anthropic.com
+    provider: anthropic
     context_window: 200000
 
 skill_path: ~/.phi/skills # SKILL.md 文件的加载目录
@@ -151,8 +153,23 @@ permissions:
 | `PHI_BASE_URL` | `models[].base_url`（默认模型） |
 | `PHI_SKILL_PATH` | `skill_path` |
 
-提供商路由：base URL 包含 `anthropic` 或模型名以 `claude` 开头时使用
-Anthropic Messages API；其余走 OpenAI 兼容的 `/chat/completions` 路径。
+提供商路由默认使用 `auto`：base URL 包含 `anthropic` 或模型名以
+`claude` 开头时使用 Anthropic Messages API；其余走 OpenAI 兼容的
+`/chat/completions` 路径。对于 OpenAI 兼容网关，即使模型名是
+`claude-*`，也应设置 `provider: openai`；如果模型名不含 `claude` 但后端
+使用 Anthropic Messages API，则设置 `provider: anthropic`。Provider 控制
+API 协议，不代表模型家族。
+
+例如，Claude 模型位于 OpenAI 兼容网关后面时：
+
+```yaml
+models:
+  - name: claude-sonnet
+    provider: openai
+    base_url: https://gateway.example.com/v1
+    api_key: sk-...
+    default: true
+```
 
 ### 工作区布局
 

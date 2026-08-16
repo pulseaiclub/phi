@@ -17,6 +17,15 @@ func TestIsAnthropicProvider(t *testing.T) {
 		{llm.ModelConfig{Name: "claude-sonnet-4-20250514", BaseURL: "https://api.anthropic.com"}, true},
 		{llm.ModelConfig{Name: "gpt-4o", BaseURL: "https://api.anthropic.com"}, true},
 		{llm.ModelConfig{Name: "claude-3-5-sonnet", BaseURL: "https://api.openai.com/v1"}, true},
+		{llm.ModelConfig{Name: "gpt-5", BaseURL: "https://api.openai.com/v1", Provider: llm.ProviderAnthropic}, true},
+		{
+			llm.ModelConfig{
+				Name:     "claude-3-5-sonnet",
+				BaseURL:  "https://api.anthropic.com",
+				Provider: llm.ProviderOpenAI,
+			},
+			false,
+		},
 		{llm.ModelConfig{Name: "gpt-4o", BaseURL: "https://api.openai.com/v1"}, false},
 		{llm.ModelConfig{Name: "deepseek-chat", BaseURL: "https://api.deepseek.com/v1"}, false},
 	}
@@ -48,7 +57,7 @@ func TestClientStreamAnthropicEndToEnd(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(
-		llm.ModelConfig{Name: "claude-sonnet-4-20250514", BaseURL: srv.URL, APIKey: "sk-test"},
+		llm.ModelConfig{Name: "gpt-5", BaseURL: srv.URL, APIKey: "sk-test", Provider: llm.ProviderAnthropic},
 		nil,
 		"be brief",
 	)
@@ -102,7 +111,11 @@ func TestClientStreamOpenAIEndToEnd(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewClient(llm.ModelConfig{Name: "gpt-4o", BaseURL: srv.URL, APIKey: "sk-test"}, nil, "")
+	client := NewClient(
+		llm.ModelConfig{Name: "claude-sonnet", BaseURL: srv.URL, APIKey: "sk-test", Provider: llm.ProviderOpenAI},
+		nil,
+		"",
+	)
 	events := collectEvents(client.Stream(t.Context(), []llm.Message{{Role: llm.RoleUser, Content: "hello"}}))
 
 	if gotPath != "/chat/completions" {

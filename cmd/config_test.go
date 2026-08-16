@@ -23,11 +23,13 @@ const configUIFixture = `models:
   - name: model-a
     api_key: key-a
     base_url: https://a.example/v1
+    provider: openai
     context_window: 1000
     default: true
   - name: model-b
     api_key: key-b
     base_url: https://b.example/v1
+    provider: anthropic
 permissions:
   mode: readonly
   dangerously_allow_all: true
@@ -56,6 +58,7 @@ func TestConfigHandlerGETAndRoundTrip(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &got))
 	require.Len(t, got.Models, 2)
 	assert.Equal(t, "model-a", got.Models[0].Name)
+	assert.Equal(t, "openai", got.Models[0].Provider)
 	assert.True(t, got.Models[0].Default)
 	require.NotNil(t, got.Permissions)
 	require.NotNil(t, got.Permissions.Bash)
@@ -115,6 +118,7 @@ func TestConfigHandlerValidation(t *testing.T) {
 	}{
 		{"no models", configDoc{}},
 		{"default missing api_key", configDoc{Models: []modelDoc{{Name: "m"}}}},
+		{"unknown provider", configDoc{Models: []modelDoc{{Name: "m", Provider: "llama", APIKey: "k", Default: true}}}},
 		{
 			"two defaults",
 			configDoc{
@@ -161,12 +165,14 @@ func TestConfigHandlerServesPage(t *testing.T) {
 	assert.Contains(t, body, "seconds")
 	assert.Contains(t, body, "/api/config")
 	assert.Contains(t, body, "/api/models")
+	assert.Contains(t, body, "providerAuto")
 }
 
 func TestConfigHandlerListsModels(t *testing.T) {
 	cases := []struct {
 		name       string
 		model      string
+		provider   string
 		response   string
 		wantPath   string
 		wantModels []string
@@ -194,6 +200,30 @@ func TestConfigHandlerListsModels(t *testing.T) {
 				assert.Equal(t, "2023-06-01", r.Header.Get("Anthropic-Version"))
 			},
 		},
+		{
+			name:       "explicit anthropic",
+			model:      "gpt-5",
+			provider:   "anthropic",
+			response:   `{"data":[{"id":"gpt-5"}]}`,
+			wantPath:   "/v1/models",
+			wantModels: []string{"gpt-5"},
+			checkAuth: func(t *testing.T, r *http.Request) {
+				assert.Equal(t, "test-key", r.Header.Get("X-Api-Key"))
+				assert.Equal(t, "2023-06-01", r.Header.Get("Anthropic-Version"))
+			},
+		},
+		{
+			name:       "explicit openai",
+			model:      "claude-sonnet-4-20250514",
+			provider:   "openai",
+			response:   `{"data":[{"id":"claude-sonnet-4-20250514"}]}`,
+			wantPath:   "/v1/models",
+			wantModels: []string{"claude-sonnet-4-20250514"},
+			checkAuth: func(t *testing.T, r *http.Request) {
+				assert.Equal(t, "Bearer test-key", r.Header.Get("Authorization"))
+				assert.Empty(t, r.Header.Get("Anthropic-Version"))
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -207,9 +237,10 @@ func TestConfigHandlerListsModels(t *testing.T) {
 			defer server.Close()
 
 			body, err := json.Marshal(modelListRequest{
-				BaseURL: server.URL + "/v1",
-				APIKey:  "test-key",
-				Model:   tc.model,
+				BaseURL:  server.URL + "/v1",
+				APIKey:   "test-key",
+				Model:    tc.model,
+				Provider: tc.provider,
 			})
 			require.NoError(t, err)
 
@@ -225,6 +256,13 @@ func TestConfigHandlerListsModels(t *testing.T) {
 			assert.Equal(t, tc.wantModels, got.Models)
 		})
 	}
+}
+
+func TestConfigHandlerRejectsUnknownModelProvider(t *testing.T) {
+	rr := requestModelListWithProvider(t, "http://127.0.0.1:1", "model", "llama")
+	require.Equal(t, http.StatusBadRequest, rr.Code)
+	assert.Contains(t, rr.Body.String(), "unknown provider")
+	assert.Contains(t, rr.Body.String(), "llama")
 }
 
 func TestConfigHandlerModelListRedirects(t *testing.T) {
@@ -405,11 +443,16 @@ func TestConfigHandlerRejectsNonLoopbackGET(t *testing.T) {
 }
 
 func requestModelList(t *testing.T, baseURL, model string) *httptest.ResponseRecorder {
+	return requestModelListWithProvider(t, baseURL, model, "")
+}
+
+func requestModelListWithProvider(t *testing.T, baseURL, model, provider string) *httptest.ResponseRecorder {
 	t.Helper()
 	body, err := json.Marshal(modelListRequest{
-		BaseURL: baseURL,
-		APIKey:  "test-key",
-		Model:   model,
+		BaseURL:  baseURL,
+		APIKey:   "test-key",
+		Model:    model,
+		Provider: provider,
 	})
 	require.NoError(t, err)
 

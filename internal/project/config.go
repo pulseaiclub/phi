@@ -135,8 +135,11 @@ func parseConfigFile(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 
-	for _, m := range raw.Models {
-		mc := modelEntryToConfig(m)
+	for i, m := range raw.Models {
+		mc, err := modelEntryToConfig(m)
+		if err != nil {
+			return nil, fmt.Errorf("model %d %q: %w", i+1, m.Name, err)
+		}
 		if m.Default && cfg.DefaultModel == "" {
 			cfg.DefaultModel = mc.Name
 		}
@@ -154,12 +157,16 @@ func parseConfigFile(path string) (*Config, error) {
 	return cfg, nil
 }
 
-func modelEntryToConfig(m modelEntry) llm.ModelConfig {
-	cfg := llm.ModelConfig{Name: m.Name, APIKey: m.APIKey, BaseURL: m.BaseURL}
+func modelEntryToConfig(m modelEntry) (llm.ModelConfig, error) {
+	provider, err := llm.ParseProvider(m.Provider)
+	if err != nil {
+		return llm.ModelConfig{}, err
+	}
+	cfg := llm.ModelConfig{Name: m.Name, APIKey: m.APIKey, BaseURL: m.BaseURL, Provider: provider}
 	if m.ContextWindow != nil && *m.ContextWindow > 0 {
 		cfg.ContextWindow = *m.ContextWindow
 	}
-	return cfg
+	return cfg, nil
 }
 
 // fileConfig mirrors the YAML keys in ~/.phi/config.yaml.
@@ -178,6 +185,7 @@ type modelEntry struct {
 	Name          string `yaml:"name"`
 	APIKey        string `yaml:"api_key"`
 	BaseURL       string `yaml:"base_url"`
+	Provider      string `yaml:"provider"`
 	ContextWindow *int   `yaml:"context_window"`
 	Default       bool   `yaml:"default"`
 }

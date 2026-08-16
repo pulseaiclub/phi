@@ -113,14 +113,16 @@ file in your browser.
 ```yaml
 # ~/.phi/config.yaml
 models:
-  - name: gpt-4o            # model name; "claude-*" routes to the Anthropic API
+  - name: gpt-4o            # model name
     api_key: sk-...         # or set PHI_API_KEY
     base_url: https://api.openai.com/v1   # default; PHI_BASE_URL overrides
+    provider: auto           # auto | openai | anthropic; defaults to auto
     context_window: 128000  # optional
     default: true           # the model used at startup; first entry wins if absent
   - name: claude-sonnet-4-20250514   # extra models; switchable at runtime
     api_key: sk-ant-...
     base_url: https://api.anthropic.com
+    provider: anthropic
     context_window: 200000
 
 skill_path: ~/.phi/skills # where SKILL.md files are loaded from
@@ -151,9 +153,24 @@ Environment overrides:
 | `PHI_BASE_URL`   | `models[].base_url` (default model) |
 | `PHI_SKILL_PATH` | `skill_path`       |
 
-Provider routing: a base URL containing `anthropic` or a model name starting
-with `claude` uses the Anthropic Messages API; everything else uses the
-OpenAI-compatible `/chat/completions` path.
+Provider routing defaults to `auto`: a base URL containing `anthropic` or a
+model name starting with `claude` uses the Anthropic Messages API; everything
+else uses the OpenAI-compatible `/chat/completions` path. Set `provider` to
+`openai` for an OpenAI-compatible gateway even when its model is named
+`claude-*`, or set it to `anthropic` when the model name does not include
+`claude`. Provider controls the API protocol, not the model family.
+
+For example, a Claude model behind an OpenAI-compatible gateway is configured
+as:
+
+```yaml
+models:
+  - name: claude-sonnet
+    provider: openai
+    base_url: https://gateway.example.com/v1
+    api_key: sk-...
+    default: true
+```
 
 ### Workspace layout
 

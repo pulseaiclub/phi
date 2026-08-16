@@ -12,9 +12,10 @@ type Compactor interface {
 // OpenAI-compatible endpoint or the Anthropic Messages API. It also carries
 // agent-wide settings like the skill directory path.
 type ModelConfig struct {
-	Name    string
-	APIKey  string
-	BaseURL string
+	Name     string
+	APIKey   string
+	BaseURL  string
+	Provider Provider `json:"provider,omitempty" yaml:"provider,omitempty"`
 	// SkillPath is the directory to scan for SKILL.md files.
 	// Defaults to ~/.phi/skills if empty.
 	SkillPath string

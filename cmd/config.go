@@ -21,6 +21,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/util"
 )
@@ -45,6 +46,7 @@ type modelDoc struct {
 	Name          string `yaml:"name"                     json:"name"`
 	APIKey        string `yaml:"api_key"                  json:"apiKey"`
 	BaseURL       string `yaml:"base_url"                 json:"baseUrl"`
+	Provider      string `yaml:"provider,omitempty"       json:"provider,omitempty"`
 	ContextWindow *int   `yaml:"context_window,omitempty" json:"contextWindow,omitempty"`
 	Default       bool   `yaml:"default,omitempty"        json:"default"`
 }
@@ -74,9 +76,10 @@ type agentsDoc struct {
 }
 
 type modelListRequest struct {
-	BaseURL string `json:"baseUrl"`
-	APIKey  string `json:"apiKey"`
-	Model   string `json:"model"`
+	BaseURL  string `json:"baseUrl"`
+	APIKey   string `json:"apiKey"`
+	Model    string `json:"model"`
+	Provider string `json:"provider"`
 }
 
 type modelListItem struct {
@@ -222,7 +225,17 @@ func (*configHandler) handleModels(w http.ResponseWriter, r *http.Request) {
 
 	baseURL := strings.TrimSpace(input.BaseURL)
 	apiKey := strings.TrimSpace(input.APIKey)
-	anthropic := isAnthropicModelRequest(baseURL, input.Model)
+	provider, err := llm.ParseProvider(input.Provider)
+	if err != nil {
+		writeConfigErr(w, http.StatusBadRequest, err)
+		return
+	}
+	resolved := llm.ResolveProvider(llm.ModelConfig{
+		Name:     input.Model,
+		BaseURL:  baseURL,
+		Provider: provider,
+	})
+	anthropic := resolved == llm.ProviderAnthropic
 	if baseURL == "" {
 		if anthropic {
 			baseURL = "https://api.anthropic.com"
@@ -305,11 +318,6 @@ func modelListHTTPClient() *http.Client {
 		return nil
 	}
 	return &client
-}
-
-func isAnthropicModelRequest(baseURL, model string) bool {
-	return strings.Contains(strings.ToLower(baseURL), "anthropic") ||
-		strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "claude")
 }
 
 func modelListEndpoint(baseURL string, anthropic bool) (string, error) {
@@ -422,6 +430,13 @@ func validateConfigDoc(doc *configDoc) error {
 		m := &doc.Models[i]
 		if m.Name == "" {
 			return fmt.Errorf("model %d has no name", i+1)
+		}
+		provider, err := llm.ParseProvider(m.Provider)
+		if err != nil {
+			return fmt.Errorf("model %d %q: %w", i+1, m.Name, err)
+		}
+		if m.Provider != "" {
+			m.Provider = string(provider)
 		}
 		if !m.Default {
 			continue

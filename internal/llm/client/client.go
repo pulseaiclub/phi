@@ -4,7 +4,6 @@ import (
 	"context"
 	"iter"
 	"net/http"
-	"strings"
 
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/llm/anthropic"
@@ -14,13 +13,13 @@ import (
 
 // Client talks to the configured LLM endpoint: the OpenAI-compatible
 // /chat/completions API by default, or the Anthropic Messages API when the
-// config targets anthropic (see isAnthropicProvider).
+// config targets Anthropic.
 type Client struct {
 	httpClient *http.Client
 	cfg        llm.ModelConfig
 	tools      []llm.ToolDefinition
 	system     string
-	anthropic  bool
+	provider   llm.Provider
 }
 
 // NewClient builds a streaming chat client.
@@ -30,14 +29,14 @@ func NewClient(cfg llm.ModelConfig, tools []llm.ToolDefinition, systemPrompt str
 		cfg:        cfg,
 		tools:      tools,
 		system:     systemPrompt,
-		anthropic:  isAnthropicProvider(cfg),
+		provider:   llm.ResolveProvider(cfg),
 	}
 }
 
 // Stream runs a streaming chat completion over messages (+ optional system prompt / tools).
 func (c *Client) Stream(ctx context.Context, messages []llm.Message) iter.Seq2[llm.StreamEvent, error] {
 	return func(yield func(llm.StreamEvent, error) bool) {
-		if c.anthropic {
+		if c.provider == llm.ProviderAnthropic {
 			req := anthropic.BuildRequest(c.cfg, c.system, messages, c.tools)
 			for ev, err := range anthropic.Stream(ctx, c.httpClient, c.cfg, &req) {
 				if !yield(ev, err) {
@@ -58,18 +57,15 @@ func (c *Client) Stream(ctx context.Context, messages []llm.Message) iter.Seq2[l
 // Compact sends a single non-streaming chat request and returns the
 // assistant text. It satisfies llm.Compactor for session compaction.
 func (c *Client) Compact(ctx context.Context, prompt string) (string, error) {
-	if c.anthropic {
+	if c.provider == llm.ProviderAnthropic {
 		return anthropic.Compact(ctx, c.httpClient, c.cfg, prompt)
 	}
 	return openai.Compact(ctx, c.httpClient, c.cfg, prompt)
 }
 
-// isAnthropicProvider reports whether the config targets the Anthropic
-// Messages API: either an anthropic base URL or a claude model name.
+// isAnthropicProvider reports whether the config resolves to the Anthropic
+// Messages API. It remains as a small package-local compatibility helper for
+// the routing tests.
 func isAnthropicProvider(cfg llm.ModelConfig) bool {
-	base := strings.ToLower(cfg.BaseURL)
-	if strings.Contains(base, "anthropic") {
-		return true
-	}
-	return strings.HasPrefix(strings.ToLower(cfg.Name), "claude")
+	return llm.ResolveProvider(cfg) == llm.ProviderAnthropic
 }

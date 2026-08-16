@@ -36,7 +36,8 @@ func TestBuildMCPCatalog(t *testing.T) {
 	if !strings.Contains(got, "- browsermcp") || !strings.Contains(got, "- github") {
 		t.Fatalf("expected server names in catalog, got:\n%s", got)
 	}
-	if !strings.Contains(got, "mcp_list") || !strings.Contains(got, "mcp_inspect") || !strings.Contains(got, "mcp_call") {
+	if !strings.Contains(got, "mcp_list") || !strings.Contains(got, "mcp_inspect") ||
+		!strings.Contains(got, "mcp_call") {
 		t.Fatal("expected mcp_* usage guidance")
 	}
 	if strings.Contains(got, `"properties"`) || strings.Contains(got, "inputSchema") {
