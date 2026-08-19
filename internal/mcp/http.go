@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -55,6 +56,7 @@ func newHTTPTransport(name string, cfg ServerConfig) (*httpTransport, error) {
 }
 
 func (t *httpTransport) call(ctx context.Context, method string, params map[string]any) (json.RawMessage, error) {
+	hadSession := t.sessionID != ""
 	id := nextID(&t.id)
 	payload, err := marshalRequest(id, method, params)
 	if err != nil {
@@ -68,19 +70,30 @@ func (t *httpTransport) call(ctx context.Context, method string, params map[stri
 
 	resp, err := t.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("mcp http %s: %w", method, err)
+		if isContextError(err) {
+			return nil, fmt.Errorf("mcp http %s: %w", method, err)
+		}
+		return nil, t.brokenError(method, err)
 	}
 	defer resp.Body.Close()
 
-	if sid := resp.Header.Get(headerSessionID); sid != "" {
-		t.sessionID = sid
+	if method == "initialize" && resp.StatusCode < http.StatusBadRequest {
+		if sid := resp.Header.Get(headerSessionID); sid != "" {
+			t.sessionID = sid
+		}
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, httpMaxBody))
 	if err != nil {
-		return nil, fmt.Errorf("mcp http %s read: %w", method, err)
+		if isContextError(err) {
+			return nil, fmt.Errorf("mcp http %s read: %w", method, err)
+		}
+		return nil, t.brokenError(method, err)
 	}
 	if resp.StatusCode >= 400 {
+		if resp.StatusCode == http.StatusNotFound && hadSession {
+			return nil, t.brokenError(method, fmt.Errorf("HTTP %d: %s", resp.StatusCode, truncate(string(body), 300)))
+		}
 		return nil, fmt.Errorf("mcp http %s: HTTP %d: %s", method, resp.StatusCode, truncate(string(body), 300))
 	}
 
@@ -92,6 +105,7 @@ func (t *httpTransport) call(ctx context.Context, method string, params map[stri
 }
 
 func (t *httpTransport) notify(ctx context.Context, method string, params map[string]any) error {
+	hadSession := t.sessionID != ""
 	payload, err := marshalNotification(method, params)
 	if err != nil {
 		return err
@@ -104,18 +118,40 @@ func (t *httpTransport) notify(ctx context.Context, method string, params map[st
 	}
 	resp, err := t.client.Do(req)
 	if err != nil {
-		return nil // fire-and-forget
+		if isContextError(err) {
+			return fmt.Errorf("mcp http notify %s: %w", method, err)
+		}
+		return t.brokenError("notify "+method, err)
 	}
+	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, resp.Body)
-	_ = resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		if resp.StatusCode == http.StatusNotFound && hadSession {
+			return t.brokenError("notify "+method, fmt.Errorf("HTTP %d", resp.StatusCode))
+		}
+		return fmt.Errorf("mcp http notify %s: HTTP %d", method, resp.StatusCode)
+	}
 	return nil
 }
 
-func (t *httpTransport) close() error {
+func (t *httpTransport) brokenError(method string, err error) error {
+	t.resetSession()
+	return fmt.Errorf("mcp http %s: %w: %w", method, errTransportBroken, err)
+}
+
+func (t *httpTransport) resetSession() {
 	t.sessionID = ""
 	if t.client != nil {
 		t.client.CloseIdleConnections()
 	}
+}
+
+func isContextError(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+func (t *httpTransport) close() error {
+	t.resetSession()
 	return nil
 }
 

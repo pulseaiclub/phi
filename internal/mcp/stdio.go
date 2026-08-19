@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -40,9 +41,14 @@ func newStdioTransport(name string, cfg ServerConfig) (*stdioTransport, error) {
 }
 
 func (t *stdioTransport) call(ctx context.Context, method string, params map[string]any) (json.RawMessage, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err := t.ensureStarted(); err != nil {
 		return nil, err
 	}
+	stdin := t.stdin
+	stdout := t.stdout
 	id := nextID(&t.id)
 	payload, err := marshalRequest(id, method, params)
 	if err != nil {
@@ -56,12 +62,14 @@ func (t *stdioTransport) call(ctx context.Context, method string, params map[str
 		err error
 	}
 	ch := make(chan outcome, 1)
+	done := make(chan struct{})
 	go func() {
-		if _, werr := t.stdin.Write(payload); werr != nil {
-			ch <- outcome{err: fmt.Errorf("write %s: %w", method, werr)}
+		defer close(done)
+		if _, werr := stdin.Write(payload); werr != nil {
+			ch <- outcome{err: fmt.Errorf("write %s: %w: %w", method, errTransportBroken, werr)}
 			return
 		}
-		rpc, rerr := t.readResponse()
+		rpc, rerr := t.readResponse(stdout)
 		if rerr != nil {
 			ch <- outcome{err: fmt.Errorf("read %s: %w", method, rerr)}
 			return
@@ -74,10 +82,18 @@ func (t *stdioTransport) call(ctx context.Context, method string, params map[str
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		_ = t.close()
+		<-done
+		return nil, fmt.Errorf("mcp %s: %w: %w", method, errTransportBroken, ctx.Err())
 	case <-timer.C:
-		return nil, fmt.Errorf("mcp %s: timeout after %s", method, deadline)
+		_ = t.close()
+		<-done
+		return nil, fmt.Errorf("mcp %s: timeout after %s: %w", method, deadline, errTransportBroken)
 	case out := <-ch:
+		<-done
+		if out.err != nil && errors.Is(out.err, errTransportBroken) {
+			_ = t.close()
+		}
 		return out.raw, out.err
 	}
 }
@@ -92,6 +108,10 @@ func (t *stdioTransport) notify(_ context.Context, method string, params map[str
 	}
 	payload = append(payload, '\n')
 	_, err = t.stdin.Write(payload)
+	if err != nil {
+		_ = t.close()
+		return fmt.Errorf("write notification %s: %w: %w", method, errTransportBroken, err)
+	}
 	return err
 }
 
@@ -103,7 +123,11 @@ func (t *stdioTransport) close() error {
 	var err error
 	if t.cmd != nil && t.cmd.Process != nil {
 		_ = t.cmd.Process.Kill()
-		err = t.cmd.Wait()
+		waitErr := t.cmd.Wait()
+		var exitErr *exec.ExitError
+		if waitErr != nil && !errors.As(waitErr, &exitErr) {
+			err = waitErr
+		}
 		t.cmd = nil
 	}
 	if t.stderr != nil {
@@ -164,15 +188,20 @@ func (t *stdioTransport) ensureStarted() error {
 	return nil
 }
 
-func (t *stdioTransport) readResponse() (jsonRPCResponse, error) {
+func (*stdioTransport) readResponse(stdout *bufio.Reader) (jsonRPCResponse, error) {
 	for {
-		line, err := t.stdout.ReadBytes('\n')
+		line, err := stdout.ReadBytes('\n')
 		if err != nil {
-			return jsonRPCResponse{}, err
+			return jsonRPCResponse{}, fmt.Errorf("%w: %w", errTransportBroken, err)
 		}
 		var rpc jsonRPCResponse
 		if err := json.Unmarshal(line, &rpc); err != nil {
-			return jsonRPCResponse{}, fmt.Errorf("parse response: %w; raw=%q", err, truncate(string(line), 200))
+			return jsonRPCResponse{}, fmt.Errorf(
+				"%w: parse response: %w; raw=%q",
+				errTransportBroken,
+				err,
+				truncate(string(line), 200),
+			)
 		}
 		// Skip server notifications (method set, no id).
 		if rpc.Method != "" && rpc.ID == nil {

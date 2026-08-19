@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -10,6 +11,8 @@ import (
 const (
 	protocolVersion = "2024-11-05"
 )
+
+var errTransportBroken = errors.New("mcp transport broken")
 
 // ToolDef is a subset of an MCP tools/list entry.
 type ToolDef struct {
@@ -22,6 +25,7 @@ type ToolDef struct {
 type Client interface {
 	Initialize(ctx context.Context) error
 	ListTools(ctx context.Context) ([]ToolDef, error)
+	RefreshTools(ctx context.Context) ([]ToolDef, error)
 	FindTool(ctx context.Context, name string) (*ToolDef, error)
 	CallTool(ctx context.Context, name string, args map[string]any) (string, error)
 	Close() error
