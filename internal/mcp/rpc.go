@@ -49,14 +49,20 @@ func nextID(counter *atomic.Int64) int64 {
 	return counter.Add(1)
 }
 
-func decodeToolsList(raw json.RawMessage) ([]ToolDef, error) {
+type toolsListPage struct {
+	Tools      []ToolDef
+	NextCursor *string
+}
+
+func decodeToolsList(raw json.RawMessage) (toolsListPage, error) {
 	var parsed struct {
-		Tools []ToolDef `json:"tools"`
+		Tools      []ToolDef `json:"tools"`
+		NextCursor *string   `json:"nextCursor"`
 	}
 	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return nil, fmt.Errorf("decode tools/list: %w", err)
+		return toolsListPage{}, fmt.Errorf("decode tools/list: %w", err)
 	}
-	return parsed.Tools, nil
+	return toolsListPage{Tools: parsed.Tools, NextCursor: parsed.NextCursor}, nil
 }
 
 // extractToolContent turns a tools/call result into model-facing text.

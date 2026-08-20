@@ -77,6 +77,15 @@ func (p *Pool) ListTools(ctx context.Context, server string) ([]ToolDef, error) 
 	return c.ListTools(ctx)
 }
 
+// RefreshTools forces a fresh tool list for a server.
+func (p *Pool) RefreshTools(ctx context.Context, server string) ([]ToolDef, error) {
+	c, err := p.client(server)
+	if err != nil {
+		return nil, err
+	}
+	return c.RefreshTools(ctx)
+}
+
 // Inspect returns one tool definition.
 func (p *Pool) Inspect(ctx context.Context, server, tool string) (*ToolDef, error) {
 	c, err := p.client(server)

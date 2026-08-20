@@ -38,6 +38,10 @@ Returns space-separated tool names. Schemas never enter the model context — us
 						"type":        "string",
 						"description": "MCP server name",
 					},
+					"refresh": llm.Object{
+						"type":        "boolean",
+						"description": "Force a fresh tools/list request",
+					},
 				},
 				Required: []string{"server"},
 			},
@@ -51,7 +55,8 @@ Returns space-separated tool names. Schemas never enter the model context — us
 		},
 		Run: func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
 			var in struct {
-				Server string `json:"server"`
+				Server  string `json:"server"`
+				Refresh bool   `json:"refresh"`
 			}
 			if err := json.Unmarshal(input, &in); err != nil {
 				return tooldef.Result{}, fmt.Errorf("mcp_list: %w", err)
@@ -59,7 +64,13 @@ Returns space-separated tool names. Schemas never enter the model context — us
 			if in.Server == "" {
 				return tooldef.Result{}, errors.New("mcp_list: server is required")
 			}
-			tools, err := pool.ListTools(ctx, in.Server)
+			var tools []mcp.ToolDef
+			var err error
+			if in.Refresh {
+				tools, err = pool.RefreshTools(ctx, in.Server)
+			} else {
+				tools, err = pool.ListTools(ctx, in.Server)
+			}
 			if err != nil {
 				return tooldef.Result{}, err
 			}

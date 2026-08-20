@@ -22,13 +22,14 @@ That is the main difference from hosts that dump every `tools/list` schema into 
 
 Agent-facing tools:
 
-- `mcp_list` — list tool **names** on one server (compact text)
+- `mcp_list` — list tool **names** on one server (compact text; `refresh=true` forces a fresh fetch)
 - `mcp_inspect` — slim parameter summary for one tool
 - `mcp_call` — actually invoke
 
 Configured **server names** are listed in the system prompt (like Skills), so the model knows what exists without calling `mcp_list` first. Schemas still stay out of context.
 
 Typical rhythm: pick a server from the prompt → `mcp_list(server=…)` → `mcp_inspect` → `mcp_call`.
+Use `mcp_list(server=…, refresh=true)` when the server's tool set may have changed.
 
 ---
 
@@ -142,7 +143,12 @@ Logs: `~/.phi/logs/mcp/<name>.log` (override with `PHI_MCP_LOG_DIR`).
 
 - Transports: **stdio** and **http** (POST JSON / SSE `data:` bodies, `Mcp-Session-Id`)
 - MCP tools are not registered individually into the model tool list (by design)
-- Dead subprocesses reconnect on the next call; no elaborate self-heal state machine
+- Tool lists are cached for 5 minutes; `mcp_list(refresh=true)` bypasses the cache. A refresh transfers the full `tools/list` definitions, but only compact names are shown to the model.
+- Empty tool lists are cached, and paginated `tools/list` responses are merged before caching.
+- Stdio EOF, write failures, malformed responses, timeouts, and cancellations retire the current subprocess; the next call starts a new process and initializes again.
+- A stdio tool call that exceeds the 60-second request deadline is terminated with its subprocess; long-running calls may lose server-local state.
+- HTTP session expiry is recognized from `404` responses to requests that carried a session ID; HTTP GET SSE and `tools/list_changed` notifications are not implemented.
+- The HTTP client negotiates protocol revision `2024-11-05` while using a compatibility subset of newer session-header behavior; the required Streamable HTTP headers and capability negotiation are not implemented.
 - Some third-party packages may crash on start — use `doctor` + logs.
 
 ---

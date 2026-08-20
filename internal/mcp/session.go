@@ -3,8 +3,15 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
+	"time"
+)
+
+const (
+	toolsCacheTTL     = 5 * time.Minute
+	maxToolsListPages = 100
 )
 
 // transport is the wire protocol for one MCP connection.
@@ -21,9 +28,11 @@ type session struct {
 	name string
 	tr   transport
 
-	mu    sync.Mutex
-	tools []ToolDef
-	ready bool
+	mu             sync.Mutex
+	tools          []ToolDef
+	toolsValid     bool
+	toolsFetchedAt time.Time
+	ready          bool
 }
 
 func newSession(name string, tr transport) *session {
@@ -45,11 +54,11 @@ func (s *session) initLocked(ctx context.Context) error {
 		"capabilities":    map[string]any{},
 		"clientInfo":      map[string]string{"name": "phi", "version": "0.1"},
 	}); err != nil {
-		_ = s.tr.close()
+		s.handleInitErrorLocked(err)
 		return err
 	}
 	if err := s.tr.notify(ctx, "notifications/initialized", map[string]any{}); err != nil {
-		_ = s.tr.close()
+		s.handleInitErrorLocked(err)
 		return err
 	}
 	s.ready = true
@@ -59,26 +68,73 @@ func (s *session) initLocked(ctx context.Context) error {
 func (s *session) ListTools(ctx context.Context) ([]ToolDef, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.listToolsLocked(ctx, false)
+}
+
+func (s *session) RefreshTools(ctx context.Context) ([]ToolDef, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.listToolsLocked(ctx, true)
+}
+
+func (s *session) listToolsLocked(ctx context.Context, force bool) ([]ToolDef, error) {
 	if err := s.initLocked(ctx); err != nil {
 		return nil, err
 	}
-	if len(s.tools) > 0 {
+	if !force && s.toolsValid && time.Since(s.toolsFetchedAt) < toolsCacheTTL {
 		return cloneTools(s.tools), nil
 	}
-	raw, err := s.tr.call(ctx, "tools/list", map[string]any{})
+
+	tools, err := s.fetchToolsLocked(ctx)
 	if err != nil {
-		return nil, err
-	}
-	tools, err := decodeToolsList(raw)
-	if err != nil {
+		s.handleToolsErrorLocked(err)
 		return nil, err
 	}
 	s.tools = tools
+	s.toolsValid = true
+	s.toolsFetchedAt = time.Now()
 	return cloneTools(tools), nil
 }
 
+func (s *session) fetchToolsLocked(ctx context.Context) ([]ToolDef, error) {
+	var tools []ToolDef
+	seen := make(map[string]struct{})
+	cursor := ""
+	hasCursor := false
+
+	for range maxToolsListPages {
+		params := map[string]any{}
+		if hasCursor {
+			params["cursor"] = cursor
+		}
+		raw, err := s.tr.call(ctx, "tools/list", params)
+		if err != nil {
+			return nil, err
+		}
+		result, err := decodeToolsList(raw)
+		if err != nil {
+			return nil, err
+		}
+		tools = append(tools, result.Tools...)
+		if result.NextCursor == nil {
+			return tools, nil
+		}
+		nextCursor := *result.NextCursor
+		if _, ok := seen[nextCursor]; ok {
+			return nil, fmt.Errorf("server %q returned repeated tools/list cursor %q", s.name, nextCursor)
+		}
+		seen[nextCursor] = struct{}{}
+		cursor = nextCursor
+		hasCursor = true
+	}
+
+	return nil, fmt.Errorf("server %q tools/list exceeded %d pages", s.name, maxToolsListPages)
+}
+
 func (s *session) FindTool(ctx context.Context, name string) (*ToolDef, error) {
-	tools, err := s.ListTools(ctx)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tools, err := s.listToolsLocked(ctx, false)
 	if err != nil {
 		return nil, err
 	}
@@ -88,6 +144,7 @@ func (s *session) FindTool(ctx context.Context, name string) (*ToolDef, error) {
 			return &t, nil
 		}
 	}
+	s.invalidateToolsLocked()
 	return nil, fmt.Errorf("tool %q not found on server %q", name, s.name)
 }
 
@@ -105,6 +162,9 @@ func (s *session) CallTool(ctx context.Context, name string, args map[string]any
 		"arguments": args,
 	})
 	if err != nil {
+		if errors.Is(err, errTransportBroken) {
+			s.resetSessionLocked()
+		}
 		return "", err
 	}
 	return extractToolContent(raw), nil
@@ -113,9 +173,35 @@ func (s *session) CallTool(ctx context.Context, name string, args map[string]any
 func (s *session) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.resetSessionLocked()
+	return s.tr.close()
+}
+
+func (s *session) handleInitErrorLocked(err error) {
+	if errors.Is(err, errTransportBroken) {
+		s.resetSessionLocked()
+		return
+	}
+	_ = s.tr.close()
+	s.resetSessionLocked()
+}
+
+func (s *session) handleToolsErrorLocked(err error) {
+	s.invalidateToolsLocked()
+	if errors.Is(err, errTransportBroken) {
+		s.resetSessionLocked()
+	}
+}
+
+func (s *session) invalidateToolsLocked() {
+	s.toolsValid = false
+	s.toolsFetchedAt = time.Time{}
+}
+
+func (s *session) resetSessionLocked() {
 	s.ready = false
 	s.tools = nil
-	return s.tr.close()
+	s.invalidateToolsLocked()
 }
 
 func cloneTools(in []ToolDef) []ToolDef {
