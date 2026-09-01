@@ -103,10 +103,16 @@ func scanDir(dir, source string) ([]Discovered, []Warning, error) {
 
 	for _, ent := range entries {
 		name := ent.Name()
-		if strings.HasPrefix(name, ".") || !ent.IsDir() {
+		if strings.HasPrefix(name, ".") {
 			continue
 		}
 		full := filepath.Join(dir, name)
+		// Stat follows symlinks so `ln -s examples/foo .phi/extensions/foo` works.
+		// ReadDir's IsDir is false for symlink entries on Unix.
+		st, err := os.Stat(full)
+		if err != nil || !st.IsDir() {
+			continue
+		}
 		m, err := ReadManifest(full)
 		if err != nil {
 			if os.IsNotExist(err) {

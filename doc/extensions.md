@@ -154,7 +154,7 @@ m.registerCommand("hello", {
 await m.run();
 ```
 
-`phi.yaml` `exec` can be `./hello.mjs` or `node dist/main.js`. Package sources live under `ext/ts/`.
+`phi.yaml` `exec` can be `./hello.mjs` or `node dist/main.js`. Package sources live under `ext/ts/`. Demo extension: [`examples/ext-hello-ts`](../examples/ext-hello-ts).
 
 ## Install from GitHub
 

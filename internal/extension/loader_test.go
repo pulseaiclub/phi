@@ -26,6 +26,24 @@ func TestDiscoverManifest(t *testing.T) {
 	assert.Equal(t, "hello", found[0].ID)
 }
 
+func TestDiscoverFollowsSymlinkDir(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "real-hello")
+	require.NoError(t, os.MkdirAll(real, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(real, "phi.yaml"), []byte("name: hello\nexec: ./hello\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(real, "hello"), []byte("#!/bin/true\n"), 0o755))
+
+	extRoot := filepath.Join(root, "extensions")
+	require.NoError(t, os.MkdirAll(extRoot, 0o755))
+	require.NoError(t, os.Symlink(real, filepath.Join(extRoot, "hello")))
+
+	found, warns, err := extension.Discover(extRoot, "")
+	require.NoError(t, err)
+	assert.Empty(t, warns)
+	require.Len(t, found, 1)
+	assert.Equal(t, "hello", found[0].ID)
+}
+
 func TestExtensionsDisabled(t *testing.T) {
 	t.Setenv(extension.EnvExtensions, "off")
 	root := t.TempDir()
