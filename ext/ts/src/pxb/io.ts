@@ -1,5 +1,5 @@
 import { Readable, Writable } from "node:stream";
-import { decodeHeader, encodeFrame, type Frame } from "./fields.js";
+import { decodeHeader, encodeHeader, type Frame } from "./fields.js";
 import { HeaderSize, MaxPayload } from "./types.js";
 
 /** Async frame reader over a Node readable stream (stdin). */
@@ -53,7 +53,8 @@ export class FrameReader {
       throw new Error("pxb: payload too large");
     }
     await this.fill(total);
-    const body = Uint8Array.from(this.buf.subarray(HeaderSize, total));
+    // Copy body so it survives the next read (matches Go CloneBody semantics).
+    const body = Buffer.from(this.buf.subarray(HeaderSize, total));
     this.buf = this.buf.subarray(total);
     return { type: hdr.type, flags: hdr.flags, id: hdr.id, body };
   }
@@ -61,10 +62,21 @@ export class FrameReader {
 
 /** Frame writer over a Node writable stream (stdout). */
 export class FrameWriter {
+  private readonly hdr = Buffer.allocUnsafe(HeaderSize);
+
   constructor(private readonly stream: Writable) {}
 
   write(type: number, flags: number, id: number, body: Uint8Array): void {
-    const frame = encodeFrame(type, flags, id, body);
-    this.stream.write(Buffer.from(frame.buffer, frame.byteOffset, frame.byteLength));
+    if (body.length > MaxPayload) {
+      throw new Error("pxb: payload too large");
+    }
+    encodeHeader(this.hdr, { type, flags, id, payload: body.length });
+    // Two writes: reuse header scratch, avoid allocating a combined frame.
+    this.stream.write(this.hdr);
+    if (body.length > 0) {
+      this.stream.write(
+        Buffer.from(body.buffer, body.byteOffset, body.byteLength),
+      );
+    }
   }
 }

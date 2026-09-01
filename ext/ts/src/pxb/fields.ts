@@ -27,13 +27,56 @@ export interface Frame {
   body: Uint8Array;
 }
 
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
+const emptyBytes = new Uint8Array(0);
+
+/** Write u16 LE into buf at offset. */
+function writeU16(buf: Uint8Array, off: number, v: number): void {
+  buf[off] = v & 0xff;
+  buf[off + 1] = (v >>> 8) & 0xff;
+}
+
+/** Write u32 LE into buf at offset. */
+function writeU32(buf: Uint8Array, off: number, v: number): void {
+  buf[off] = v & 0xff;
+  buf[off + 1] = (v >>> 8) & 0xff;
+  buf[off + 2] = (v >>> 16) & 0xff;
+  buf[off + 3] = (v >>> 24) & 0xff;
+}
+
+/** Write u64 LE (value must fit in JS safe integer / protocol u32 range). */
+function writeU64(buf: Uint8Array, off: number, v: number): void {
+  // Protocol values are u16/u32; high dword is always 0 on the hot path.
+  writeU32(buf, off, v >>> 0);
+  buf[off + 4] = 0;
+  buf[off + 5] = 0;
+  buf[off + 6] = 0;
+  buf[off + 7] = 0;
+}
+
+function readU16(buf: Uint8Array, off: number): number {
+  return buf[off]! | (buf[off + 1]! << 8);
+}
+
+function readU32(buf: Uint8Array, off: number): number {
+  return (
+    buf[off]! |
+    (buf[off + 1]! << 8) |
+    (buf[off + 2]! << 16) |
+    (buf[off + 3]! << 24)
+  ) >>> 0;
+}
+
 export function encodeHeader(dst: Uint8Array, h: Header): void {
-  dst.set(Magic, 0);
-  const view = new DataView(dst.buffer, dst.byteOffset, HeaderSize);
-  view.setUint16(4, h.type, true);
-  view.setUint16(6, h.flags, true);
-  view.setUint32(8, h.id, true);
-  view.setUint32(12, h.payload, true);
+  dst[0] = Magic[0]!;
+  dst[1] = Magic[1]!;
+  dst[2] = Magic[2]!;
+  dst[3] = Magic[3]!;
+  writeU16(dst, 4, h.type);
+  writeU16(dst, 6, h.flags);
+  writeU32(dst, 8, h.id);
+  writeU32(dst, 12, h.payload);
 }
 
 export function decodeHeader(src: Uint8Array): Header {
@@ -48,15 +91,14 @@ export function decodeHeader(src: Uint8Array): Header {
   ) {
     throw new PxbError("pxb: bad magic");
   }
-  const view = new DataView(src.buffer, src.byteOffset, HeaderSize);
-  const payload = view.getUint32(12, true);
+  const payload = readU32(src, 12);
   if (payload > MaxPayload) {
     throw new PxbError("pxb: payload too large");
   }
   return {
-    type: view.getUint16(4, true),
-    flags: view.getUint16(6, true),
-    id: view.getUint32(8, true),
+    type: readU16(src, 4),
+    flags: readU16(src, 6),
+    id: readU32(src, 8),
     payload,
   };
 }
@@ -71,12 +113,7 @@ export function encodeFrame(
     throw new PxbError("pxb: payload too large");
   }
   const out = new Uint8Array(HeaderSize + body.length);
-  encodeHeader(out.subarray(0, HeaderSize), {
-    type,
-    flags,
-    id,
-    payload: body.length,
-  });
+  encodeHeader(out, { type, flags, id, payload: body.length });
   out.set(body, HeaderSize);
   return out;
 }
@@ -100,29 +137,37 @@ export class FieldWriter {
 
   /** Returns an owned copy of the current payload. */
   toUint8Array(): Uint8Array {
-    return this.buf.slice(0, this.len);
+    const n = this.len;
+    if (n === 0) return emptyBytes;
+    const out = new Uint8Array(n);
+    out.set(this.buf.subarray(0, n));
+    return out;
   }
 
-  private grow(n: number): void {
-    if (this.len + n <= this.buf.length) return;
-    const next = new Uint8Array(Math.max(this.buf.length * 2, this.len + n + 256));
+  private ensure(n: number): void {
+    const need = this.len + n;
+    if (need <= this.buf.length) return;
+    let cap = this.buf.length || 256;
+    while (cap < need) cap <<= 1;
+    const next = new Uint8Array(cap);
     next.set(this.buf.subarray(0, this.len));
     this.buf = next;
   }
 
   private putHdr(tag: number, kind: number): void {
-    this.grow(3);
-    this.buf[this.len] = tag & 0xff;
-    this.buf[this.len + 1] = (tag >> 8) & 0xff;
-    this.buf[this.len + 2] = kind;
-    this.len += 3;
+    this.ensure(3);
+    const i = this.len;
+    const b = this.buf;
+    b[i] = tag & 0xff;
+    b[i + 1] = (tag >>> 8) & 0xff;
+    b[i + 2] = kind;
+    this.len = i + 3;
   }
 
-  putU64(tag: number, v: number | bigint): void {
+  putU64(tag: number, v: number): void {
     this.putHdr(tag, WireU64);
-    this.grow(8);
-    const view = new DataView(this.buf.buffer, this.buf.byteOffset + this.len, 8);
-    view.setBigUint64(0, BigInt(v), true);
+    this.ensure(8);
+    writeU64(this.buf, this.len, v);
     this.len += 8;
   }
 
@@ -141,9 +186,8 @@ export class FieldWriter {
   putBytes(tag: number, p: Uint8Array): void {
     if (p.length === 0) return;
     this.putHdr(tag, WireBytes);
-    this.grow(4 + p.length);
-    const view = new DataView(this.buf.buffer, this.buf.byteOffset + this.len, 4);
-    view.setUint32(0, p.length, true);
+    this.ensure(4 + p.length);
+    writeU32(this.buf, this.len, p.length);
     this.len += 4;
     this.buf.set(p, this.len);
     this.len += p.length;
@@ -151,25 +195,50 @@ export class FieldWriter {
 
   putString(tag: number, s: string): void {
     if (s === "") return;
-    this.putBytes(tag, new TextEncoder().encode(s));
+    this.putHdr(tag, WireBytes);
+    // UTF-8 worst case: 4 bytes per JS code unit (surrogate pairs).
+    const max = s.length * 4;
+    this.ensure(4 + max);
+    const dest = this.buf.subarray(this.len + 4, this.len + 4 + max);
+    const { written } = textEncoder.encodeInto(s, dest);
+    writeU32(this.buf, this.len, written);
+    this.len += 4 + written;
   }
 
   putU16s(tag: number, vs: number[]): void {
     if (vs.length === 0) return;
-    const inner = new Uint8Array(2 + vs.length * 2);
-    const view = new DataView(inner.buffer);
-    view.setUint16(0, vs.length, true);
+    const innerLen = 2 + vs.length * 2;
+    this.putHdr(tag, WireBytes);
+    this.ensure(4 + innerLen);
+    writeU32(this.buf, this.len, innerLen);
+    this.len += 4;
+    writeU16(this.buf, this.len, vs.length);
+    this.len += 2;
     for (let i = 0; i < vs.length; i++) {
-      view.setUint16(2 + i * 2, vs[i]!, true);
+      writeU16(this.buf, this.len, vs[i]!);
+      this.len += 2;
     }
-    this.putBytes(tag, inner);
   }
 }
 
+/** Module-level scratch writer — safe because encode* is sync and single-threaded. */
+const scratchWriter = new FieldWriter(512);
+
+/** Encode a payload with the shared scratch FieldWriter. */
+export function encodeFields(fn: (fw: FieldWriter) => void): Uint8Array {
+  scratchWriter.reset();
+  fn(scratchWriter);
+  return scratchWriter.toUint8Array();
+}
+
 export class FieldReader {
+  private b: Uint8Array = emptyBytes;
   private i = 0;
 
-  constructor(private readonly b: Uint8Array) {}
+  reset(b: Uint8Array): void {
+    this.b = b;
+    this.i = 0;
+  }
 
   done(): boolean {
     return this.i >= this.b.length;
@@ -186,9 +255,11 @@ export class FieldReader {
       throw new PxbError("pxb: truncated payload");
     }
     this.need(3);
-    const tag = this.b[this.i]! | (this.b[this.i + 1]! << 8);
-    const kind = this.b[this.i + 2]!;
-    this.i += 3;
+    const b = this.b;
+    const i = this.i;
+    const tag = b[i]! | (b[i + 1]! << 8);
+    const kind = b[i + 2]!;
+    this.i = i + 3;
     if (kind !== WireU64 && kind !== WireBytes) {
       throw new PxbError("pxb: bad wire kind");
     }
@@ -198,21 +269,17 @@ export class FieldReader {
     return { tag, kind };
   }
 
-  u64(): bigint {
+  /** Read WireU64 as number (protocol values fit in u32). */
+  u64(): number {
     this.need(8);
-    const view = new DataView(this.b.buffer, this.b.byteOffset + this.i, 8);
-    const v = view.getBigUint64(0, true);
+    const v = readU32(this.b, this.i); // high dword unused on wire for protocol fields
     this.i += 8;
     return v;
   }
 
   bytes(): Uint8Array {
     this.need(4);
-    const n =
-      this.b[this.i]! |
-      (this.b[this.i + 1]! << 8) |
-      (this.b[this.i + 2]! << 16) |
-      (this.b[this.i + 3]! << 24);
+    const n = readU32(this.b, this.i);
     this.i += 4;
     this.need(n);
     const out = this.b.subarray(this.i, this.i + n);
@@ -230,17 +297,19 @@ export class FieldReader {
     }
   }
 
-  /** Current read offset (for Walk auto-skip). */
   get offset(): number {
     return this.i;
   }
 }
 
+const scratchReader = new FieldReader();
+
 export function walk(
   b: Uint8Array,
   fn: (tag: number, kind: number, fr: FieldReader) => void,
 ): void {
-  const fr = new FieldReader(b);
+  const fr = scratchReader;
+  fr.reset(b);
   while (!fr.done()) {
     const { tag, kind } = fr.next();
     const before = fr.offset;
@@ -256,7 +325,7 @@ export function takeU64(kind: number, fr: FieldReader): number {
     fr.skip(kind);
     throw new PxbError("pxb: bad wire kind");
   }
-  return Number(fr.u64());
+  return fr.u64();
 }
 
 export function takeBytes(kind: number, fr: FieldReader): Uint8Array {
@@ -268,24 +337,20 @@ export function takeBytes(kind: number, fr: FieldReader): Uint8Array {
 }
 
 export function takeString(kind: number, fr: FieldReader): string {
-  return new TextDecoder().decode(takeBytes(kind, fr));
+  return textDecoder.decode(takeBytes(kind, fr));
 }
-
-const textDecoder = new TextDecoder();
-const textEncoder = new TextEncoder();
 
 export function decodeU16s(p: Uint8Array): number[] {
   if (p.length < 2) throw new PxbError("pxb: truncated payload");
-  const view = new DataView(p.buffer, p.byteOffset, p.byteLength);
-  const n = view.getUint16(0, true);
-  const out: number[] = [];
+  const n = readU16(p, 0);
+  const out = new Array<number>(n);
   let off = 2;
   for (let i = 0; i < n; i++) {
     if (off + 2 > p.length) throw new PxbError("pxb: truncated payload");
-    out.push(view.getUint16(off, true));
+    out[i] = readU16(p, off);
     off += 2;
   }
   return out;
 }
 
-export { textDecoder, textEncoder };
+export { textDecoder, textEncoder, emptyBytes };

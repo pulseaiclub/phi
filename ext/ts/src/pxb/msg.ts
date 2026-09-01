@@ -1,12 +1,13 @@
 import {
-  FieldWriter,
   decodeU16s,
+  emptyBytes,
+  encodeFields,
   takeBytes,
   takeString,
   takeU64,
+  textEncoder,
   walk,
 } from "./fields.js";
-import { textEncoder } from "./fields.js";
 
 const f = {
   helloName: 1,
@@ -93,12 +94,12 @@ export interface Hello {
 }
 
 export function encodeHello(h: Hello): Uint8Array {
-  const fw = new FieldWriter();
-  fw.putString(f.helloName, h.name);
-  fw.putString(f.helloVersion, h.version);
-  fw.putU32(f.helloCaps, h.caps);
-  fw.putU16(f.helloProtocol, h.protocol);
-  return fw.toUint8Array();
+  return encodeFields((fw) => {
+    fw.putString(f.helloName, h.name);
+    fw.putString(f.helloVersion, h.version);
+    fw.putU32(f.helloCaps, h.caps);
+    fw.putU16(f.helloProtocol, h.protocol);
+  });
 }
 
 export function decodeHello(b: Uint8Array): Hello {
@@ -133,13 +134,13 @@ export interface HelloAck {
 }
 
 export function encodeHelloAck(h: HelloAck): Uint8Array {
-  const fw = new FieldWriter();
-  fw.putU16(f.ackProtocol, h.protocol);
-  fw.putString(f.ackPhiVersion, h.phiVersion);
-  fw.putString(f.ackCwd, h.cwd);
-  fw.putString(f.ackSessionID, h.sessionID);
-  fw.putString(f.ackExtDir, h.extensionDir);
-  return fw.toUint8Array();
+  return encodeFields((fw) => {
+    fw.putU16(f.ackProtocol, h.protocol);
+    fw.putString(f.ackPhiVersion, h.phiVersion);
+    fw.putString(f.ackCwd, h.cwd);
+    fw.putString(f.ackSessionID, h.sessionID);
+    fw.putString(f.ackExtDir, h.extensionDir);
+  });
 }
 
 export function decodeHelloAck(b: Uint8Array): HelloAck {
@@ -180,10 +181,10 @@ export interface RegisterCommand {
 }
 
 export function encodeRegisterCommand(r: RegisterCommand): Uint8Array {
-  const fw = new FieldWriter();
-  fw.putString(f.regCmdName, r.name);
-  fw.putString(f.regCmdDesc, r.description);
-  return fw.toUint8Array();
+  return encodeFields((fw) => {
+    fw.putString(f.regCmdName, r.name);
+    fw.putString(f.regCmdDesc, r.description);
+  });
 }
 
 export interface RegisterTool {
@@ -193,11 +194,11 @@ export interface RegisterTool {
 }
 
 export function encodeRegisterTool(r: RegisterTool): Uint8Array {
-  const fw = new FieldWriter();
-  fw.putString(f.regToolName, r.name);
-  fw.putString(f.regToolDesc, r.description);
-  fw.putBytes(f.regToolSchema, r.schemaJSON);
-  return fw.toUint8Array();
+  return encodeFields((fw) => {
+    fw.putString(f.regToolName, r.name);
+    fw.putString(f.regToolDesc, r.description);
+    fw.putBytes(f.regToolSchema, r.schemaJSON);
+  });
 }
 
 export interface Subscribe {
@@ -206,10 +207,10 @@ export interface Subscribe {
 }
 
 export function encodeSubscribe(s: Subscribe): Uint8Array {
-  const fw = new FieldWriter();
-  fw.putU16s(f.subEvents, s.events);
-  fw.putU16s(f.subIntercept, s.intercept);
-  return fw.toUint8Array();
+  return encodeFields((fw) => {
+    fw.putU16s(f.subEvents, s.events);
+    fw.putU16s(f.subIntercept, s.intercept);
+  });
 }
 
 export function decodeSubscribe(b: Uint8Array): Subscribe {
@@ -259,12 +260,12 @@ export interface CommandResponse {
 }
 
 export function encodeCommandResponse(c: CommandResponse): Uint8Array {
-  const fw = new FieldWriter();
-  fw.putBool(f.cmdResOK, c.ok);
-  fw.putString(f.cmdResError, c.error);
-  fw.putString(f.cmdResNotify, c.notify);
-  fw.putString(f.cmdResSubmit, c.submit);
-  return fw.toUint8Array();
+  return encodeFields((fw) => {
+    fw.putBool(f.cmdResOK, c.ok);
+    fw.putString(f.cmdResError, c.error);
+    fw.putString(f.cmdResNotify, c.notify);
+    fw.putString(f.cmdResSubmit, c.submit);
+  });
 }
 
 export interface ToolInvoke {
@@ -300,13 +301,13 @@ export interface ToolResultMsg {
 }
 
 export function encodeToolResult(t: ToolResultMsg): Uint8Array {
-  const fw = new FieldWriter();
-  fw.putString(f.toolResContent, t.content);
-  fw.putString(f.toolResDetail, t.detail);
-  fw.putString(f.toolResOutput, t.output);
-  fw.putBool(f.toolResIsError, t.isError);
-  fw.putString(f.toolResError, t.error);
-  return fw.toUint8Array();
+  return encodeFields((fw) => {
+    fw.putString(f.toolResContent, t.content);
+    fw.putString(f.toolResDetail, t.detail);
+    fw.putString(f.toolResOutput, t.output);
+    fw.putBool(f.toolResIsError, t.isError);
+    fw.putString(f.toolResError, t.error);
+  });
 }
 
 export interface InterceptReq {
@@ -324,19 +325,19 @@ export interface InterceptReq {
 }
 
 export function encodeInterceptReq(r: InterceptReq): Uint8Array {
-  const fw = new FieldWriter();
-  fw.putU16(f.ixReqEvent, r.event);
-  fw.putString(f.ixReqToolName, r.toolName);
-  fw.putString(f.ixReqToolCallID, r.toolCallID);
-  fw.putBytes(f.ixReqInput, r.input);
-  fw.putString(f.ixReqContent, r.content);
-  fw.putBool(f.ixReqIsError, r.isError);
-  fw.putString(f.ixReqErrText, r.errText);
-  fw.putString(f.ixReqPrompt, r.prompt);
-  fw.putString(f.ixReqReason, r.reason);
-  fw.putString(f.ixReqTargetID, r.targetID);
-  fw.putU32(f.ixReqTurnIndex, r.turnIndex);
-  return fw.toUint8Array();
+  return encodeFields((fw) => {
+    fw.putU16(f.ixReqEvent, r.event);
+    fw.putString(f.ixReqToolName, r.toolName);
+    fw.putString(f.ixReqToolCallID, r.toolCallID);
+    fw.putBytes(f.ixReqInput, r.input);
+    fw.putString(f.ixReqContent, r.content);
+    fw.putBool(f.ixReqIsError, r.isError);
+    fw.putString(f.ixReqErrText, r.errText);
+    fw.putString(f.ixReqPrompt, r.prompt);
+    fw.putString(f.ixReqReason, r.reason);
+    fw.putString(f.ixReqTargetID, r.targetID);
+    fw.putU32(f.ixReqTurnIndex, r.turnIndex);
+  });
 }
 
 export function decodeInterceptReq(b: Uint8Array): InterceptReq {
@@ -411,20 +412,20 @@ export interface InterceptResp {
 }
 
 export function encodeInterceptResp(r: InterceptResp): Uint8Array {
-  const fw = new FieldWriter();
-  fw.putBool(f.ixResBlock, !!r.block);
-  fw.putBool(f.ixResStop, !!r.stop);
-  fw.putBool(f.ixResCancel, !!r.cancel);
-  fw.putString(f.ixResReason, r.reason ?? "");
-  fw.putBytes(f.ixResInput, r.input ?? new Uint8Array());
-  fw.putString(f.ixResContent, r.content ?? "");
-  fw.putString(f.ixResContext, r.context ?? "");
-  fw.putString(f.ixResSysAppend, r.systemPromptAppend ?? "");
-  fw.putString(f.ixResToast, r.toast ?? "");
-  fw.putBool(f.ixResHandled, !!r.handled);
-  fw.putString(f.ixResPrompt, r.prompt ?? "");
-  fw.putBool(f.ixResContinue, !!r.continue);
-  return fw.toUint8Array();
+  return encodeFields((fw) => {
+    fw.putBool(f.ixResBlock, !!r.block);
+    fw.putBool(f.ixResStop, !!r.stop);
+    fw.putBool(f.ixResCancel, !!r.cancel);
+    fw.putString(f.ixResReason, r.reason ?? "");
+    fw.putBytes(f.ixResInput, r.input ?? emptyBytes);
+    fw.putString(f.ixResContent, r.content ?? "");
+    fw.putString(f.ixResContext, r.context ?? "");
+    fw.putString(f.ixResSysAppend, r.systemPromptAppend ?? "");
+    fw.putString(f.ixResToast, r.toast ?? "");
+    fw.putBool(f.ixResHandled, !!r.handled);
+    fw.putString(f.ixResPrompt, r.prompt ?? "");
+    fw.putBool(f.ixResContinue, !!r.continue);
+  });
 }
 
 export interface EventNotify {
@@ -505,12 +506,12 @@ export interface NotifyMsg {
 }
 
 export function encodeNotify(n: NotifyMsg): Uint8Array {
-  const fw = new FieldWriter();
-  fw.putString(f.notifyLevel, n.level ?? "");
-  fw.putString(f.notifyMessage, n.message ?? "");
-  fw.putString(f.notifyStatus, n.status ?? "");
-  fw.putBool(f.notifyStatusSet, !!n.statusSet);
-  return fw.toUint8Array();
+  return encodeFields((fw) => {
+    fw.putString(f.notifyLevel, n.level ?? "");
+    fw.putString(f.notifyMessage, n.message ?? "");
+    fw.putString(f.notifyStatus, n.status ?? "");
+    fw.putBool(f.notifyStatusSet, !!n.statusSet);
+  });
 }
 
 export interface HostRequest {
@@ -519,10 +520,10 @@ export interface HostRequest {
 }
 
 export function encodeHostRequest(r: HostRequest): Uint8Array {
-  const fw = new FieldWriter();
-  fw.putString(f.hostReqMethod, r.method);
-  fw.putString(f.hostReqArg, r.arg);
-  return fw.toUint8Array();
+  return encodeFields((fw) => {
+    fw.putString(f.hostReqMethod, r.method);
+    fw.putString(f.hostReqArg, r.arg);
+  });
 }
 
 export interface HostResult {
