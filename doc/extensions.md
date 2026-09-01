@@ -37,7 +37,7 @@ Tool loop order remains **ExtensionPre → Gate/Ask → Run → ExtensionPost**.
 PXB uses a fixed 16-byte little-endian header (`PXB\x01` + type + flags + id +
 length) and **tagged-field** payloads (`tag u16 | kind u8 | value`). Decoders
 skip unknown tags; new events are new `Ev*` codes; new frame types are skipped
-by `payload_len`. See `ext/pxb` package doc for the full evolution rules.
+by `payload_len`. See `ext/go/pxb` package doc for the full evolution rules.
 
 ## Layout
 
@@ -59,6 +59,14 @@ enabled: true          # optional, default true
 ```
 
 ## Authoring (Go SDK)
+
+Lightweight module (no TUI deps):
+
+```bash
+go get github.com/pulseaiclub/phi/ext@v0.19.0
+```
+
+(`scripts/bump.sh` tags both `vX.Y.Z` and `ext/vX.Y.Z`.)
 
 ```go
 package main
@@ -124,6 +132,30 @@ cp hello phi.yaml ~/.phi/extensions/hello/
 
 Reload: **Ctrl+K → extensions → reload**.
 
+## Authoring (TypeScript SDK)
+
+Same PXB wire protocol; Node 20+ (Bun works — pure JS):
+
+```bash
+npm install @pulseaiclub/phi-ext
+```
+
+```ts
+#!/usr/bin/env node
+import { createExtension } from "@pulseaiclub/phi-ext";
+
+const m = createExtension("hello", "0.1.0");
+m.registerCommand("hello", {
+  description: "Say hi",
+  handler: async () => {
+    m.notify("info", "Hello!");
+  },
+});
+await m.run();
+```
+
+`phi.yaml` `exec` can be `./hello.mjs` or `node dist/main.js`. Package sources live under `ext/ts/`.
+
 ## Install from GitHub
 
 ```bash
@@ -146,9 +178,10 @@ release asset layout that includes it). Source-only yaegi repos no longer load.
 
 | Path | Role |
 |------|------|
-| `ext/` | Shared types (`Tool`, events) |
-| `ext/pxb` | Binary wire protocol |
-| `ext/phi` | Author SDK (`ExtensionAPI.Run`) |
+| `ext/go/` (module `github.com/pulseaiclub/phi/ext`) | Shared types (`Tool`, events) |
+| `ext/go/pxb` | Binary wire protocol |
+| `ext/go/phi` | Go author SDK (`ExtensionAPI.Run`) |
+| `ext/ts` (`@pulseaiclub/phi-ext`) | TypeScript author SDK |
 | `internal/extension` | Discover, spawn, Runner shims |
 
 ## Migration from yaegi

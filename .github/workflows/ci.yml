@@ -38,6 +38,32 @@ jobs:
       - name: Run tests
         run: ${{ matrix.test-command }}
 
+  ext-sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: ext/ts/package-lock.json
+
+      - name: Test Go ext module
+        run: go test ./...
+        working-directory: ext/go
+
+      - name: Test TypeScript SDK
+        run: npm ci && npm test
+        working-directory: ext/ts
+
   lint:
     runs-on: ubuntu-latest
     steps:

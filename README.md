@@ -340,8 +340,14 @@ palette's settings → permissions entry toggles session-wide bypass.
 ## Extensions
 
 Extensions are native binaries speaking the **PXB** binary protocol over
-stdin/stdout (author SDK: `ext/phi`). They subscribe to tool/session events,
-register LLM tools, and add slash commands.
+stdin/stdout. Author SDKs: Go (`github.com/pulseaiclub/phi/ext/phi`) and
+TypeScript (`@pulseaiclub/phi-ext`).
+
+```bash
+go get github.com/pulseaiclub/phi/ext@v0.19.0
+# or
+npm install @pulseaiclub/phi-ext
+```
 
 ```go
 package main

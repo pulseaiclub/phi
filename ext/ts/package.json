@@ -1,0 +1,50 @@
+{
+  "name": "@pulseaiclub/phi-ext",
+  "version": "0.19.0",
+  "description": "High-performance TypeScript author SDK for Phi PXB extensions",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./pxb": {
+      "types": "./dist/pxb/index.d.ts",
+      "import": "./dist/pxb/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "npm run build && node --test dist/**/*.test.js test/**/*.test.js",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pulseaiclub/phi.git",
+    "directory": "ext/ts"
+  },
+  "keywords": [
+    "phi",
+    "pxb",
+    "extension",
+    "sdk"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "tsup": "^8.4.0",
+    "typescript": "^5.8.2"
+  }
+}

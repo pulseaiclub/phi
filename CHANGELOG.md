@@ -10,6 +10,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Publishable author SDKs: nested Go module `github.com/pulseaiclub/phi/ext` (`go get …@vX.Y.Z` via `ext/vX.Y.Z` tags) and TypeScript package `@pulseaiclub/phi-ext` (npm). See [doc/extensions.md](doc/extensions.md).
+
 ### Changed
 
 ### Deprecated

@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write      # allow creating a Release
+  id-token: write      # npm provenance
 
 jobs:
   goreleaser:
@@ -52,3 +53,28 @@ jobs:
         run: goreleaser release --clean --release-notes="${{ steps.changelog.outputs.path }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  npm-publish:
+    runs-on: ubuntu-latest
+    needs: goreleaser
+    defaults:
+      run:
+        working-directory: ext/ts
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+          cache: npm
+          cache-dependency-path: ext/ts/package-lock.json
+
+      - name: Publish @pulseaiclub/phi-ext
+        run: |
+          npm ci
+          npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

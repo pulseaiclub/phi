@@ -11,7 +11,7 @@ Minimal Go terminal coding-agent harness. Layout: [doc/project-layout.md](doc/pr
 ## Constraints
 
 - **Tool loop is ExtensionPre → Gate/Ask → Run → ExtensionPost.** Don't bypass the permission gate when changing the executor. Don't put MCP server tool schemas on the model — only `mcp_list` / `mcp_inspect` / `mcp_call`.
-- **Extensions are PXB subprocesses** (`phi.yaml` + native binary under `~/.phi/extensions` / `.phi/extensions`). Wire: `ext/pxb`. Author SDK: `ext/phi`. Host: `internal/extension`. See [doc/extensions.md](doc/extensions.md).
+- **Extensions are PXB subprocesses** (`phi.yaml` + native binary under `~/.phi/extensions` / `.phi/extensions`). Wire: `ext/go/pxb`. Author SDKs: Go `ext/go/phi` (module `github.com/pulseaiclub/phi/ext`), TS `@pulseaiclub/phi-ext` (`ext/ts`). Host: `internal/extension`. See [doc/extensions.md](doc/extensions.md).
 - **Keep hashline `edit`.** Don't replace it with whole-file rewrite. Stale `@file path#TAG` / `LINE#HASH` must fail closed.
 - **Sub-agent transcripts stay under `~/.phi/jobs/<id>/`.** Parent context gets the wait/task summary only. Child engines have no `agent_*` tools (no nesting). Default child role is explore (read-only).
 - **UI split:** `internal/components` render; `internal/tui` wires the shell. Non-shell pieces live under `internal/tui/controller` (Engine/Bus/Msg), `internal/tui/transcript` (Mapper); version in `internal/version`. Keep widgets dumb.
