@@ -17,6 +17,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/mention"
 	"github.com/pulseaiclub/phi/internal/components/palette"
 	"github.com/pulseaiclub/phi/internal/components/sessionlist"
+	"github.com/pulseaiclub/phi/internal/components/sessiontree"
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
@@ -35,6 +36,7 @@ type ComposerPane struct {
 	cwd   string
 
 	Chat       chat.ChatInput
+	Tree       sessiontree.Picker
 	mention    mention.Picker
 	slash      mention.Picker
 	question   mention.Picker
@@ -394,6 +396,7 @@ func (c *ComposerPane) SetTheme(th components.Theme) {
 	c.Chat.TopRightLabel.Style = th.IdentityOrSuccess()
 	c.palette.Theme = th
 	c.listPicker.Theme = th
+	c.Tree.Theme = th
 	c.mention.Theme = th
 	c.slash.Theme = th
 	c.question.Theme = th
@@ -430,6 +433,9 @@ func (c *ComposerPane) PreferredHeight(width int, method xui.WidthMethod) int {
 	if c == nil {
 		return 5
 	}
+	if c.Tree.Open {
+		return c.Tree.PreferredHeight(width, method)
+	}
 	chatH := c.Chat.PreferredHeight(width, method)
 	minChatH := 5
 	if len(c.Chat.PendingSkills) > 0 {
@@ -445,6 +451,9 @@ func (c *ComposerPane) PreferredHeight(width int, method xui.WidthMethod) int {
 func (c *ComposerPane) DrawChat(ctx components.DrawContext, width, height int) components.Surface {
 	if c == nil {
 		return components.Surface{}
+	}
+	if c.Tree.Open {
+		return c.Tree.Draw(ctx.WithConstraints(components.Size{}, components.Size{Width: width, Height: height}))
 	}
 	return c.Chat.Draw(
 		ctx.WithConstraints(components.Size{}, components.Size{Width: width, Height: height}),
@@ -513,6 +522,10 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			if c.requestFocusEditor != nil {
 				c.requestFocusEditor()
 			}
+		} else if c.Tree.Open {
+			if c.requestFocusEditor != nil {
+				c.requestFocusEditor()
+			}
 		} else if c.listPicker.Open {
 			if c.requestFocus != nil {
 				c.requestFocus(&c.listPicker)
@@ -539,6 +552,10 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			return
 		}
 		if c.handleConfirmKey != nil && c.handleConfirmKey(ctx, ev) {
+			return
+		}
+		if c.Tree.Open {
+			c.Tree.Handle(ctx, ev)
 			return
 		}
 		if c.handleCopyKey != nil && c.handleCopyKey(ctx, ev) {
@@ -614,6 +631,10 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 		c.Chat.Handle(ctx, ev)
 	case xui.MouseEvent:
+		if c.Tree.Open {
+			c.Tree.Handle(ctx, ev)
+			return
+		}
 		if c.listPicker.Open {
 			c.listPicker.Handle(ctx, ev)
 			return
@@ -626,6 +647,10 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			c.transcript.HandleMouse(ctx, ev, c.FocusChat)
 		}
 	case xui.PasteEvent:
+		if c.Tree.Open {
+			c.Tree.Handle(ctx, ev)
+			return
+		}
 		if c.listPicker.Open {
 			c.listPicker.Handle(ctx, ev)
 			return

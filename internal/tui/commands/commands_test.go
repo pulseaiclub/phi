@@ -128,7 +128,7 @@ func TestSkillsCommand_Empty(t *testing.T) {
 func TestFilterSlashCommands(t *testing.T) {
 	r := NewBuiltinRegistry()
 	all := r.FilterSlash("")
-	require.Len(t, all, 3)
+	require.Len(t, all, 4)
 
 	resu := r.FilterSlash("resu")
 	require.Len(t, resu, 1)
@@ -145,6 +145,7 @@ func TestFilterSlashCommands(t *testing.T) {
 	assert.Equal(t, "/resume ", r.LookupInsert("resume"))
 	assert.Equal(t, "/sessions", r.LookupInsert("sessions"))
 	assert.Equal(t, "/clear", r.LookupInsert("clear"))
+	assert.Equal(t, "/tree", r.LookupInsert("tree"))
 }
 
 func TestCommandRegistry_DispatchSlash(t *testing.T) {
@@ -195,8 +196,14 @@ func TestCommandRegistry_BuildPalette(t *testing.T) {
 	require.GreaterOrEqual(t, len(cmds), 6)
 
 	// settings → model → gpt
-	require.NotEmpty(t, cmds[0].Submenu)
-	cmds[0].Submenu[0].Run()
+	var modelCommand palette.PaletteCommand
+	for _, cmd := range cmds {
+		if cmd.ID == "settings-model" {
+			modelCommand = cmd
+		}
+	}
+	require.NotEmpty(t, modelCommand.Submenu)
+	modelCommand.Submenu[0].Run()
 	assert.Equal(t, "gpt", model)
 
 	// extensions → list uses PushSubmenu

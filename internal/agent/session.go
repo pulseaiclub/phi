@@ -194,11 +194,19 @@ func (s *Session) BuildContext() []llm.Message {
 		case session.EntryMessage:
 			m := entry.(session.SessionMessageEntry)
 			msgs = append(msgs, m.Message)
+		case session.EntryBranchSummary:
+			m := entry.(session.BranchSummaryEntry)
+			msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: "Context from another branch:\n" + m.Summary})
+		case session.EntryHistory:
+			m := entry.(session.HistoryEntry)
+			if m.Kind == "custom" {
+				msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: m.Text})
+			}
 		}
 	}
-	s.contextCache = msgs
+	s.contextCache = normalizeToolResults(msgs)
 	s.contextCacheValid = true
-	return msgs
+	return s.contextCache
 }
 
 // Len returns the number of stored entries (including the session header).

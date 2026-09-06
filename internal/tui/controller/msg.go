@@ -26,7 +26,10 @@ type CancelStreamMsg struct{}
 func (CancelStreamMsg) isMsg() {}
 
 // SessionEventMsg carries a session model event from the agent pipeline.
-type SessionEventMsg struct{ Event session.Event }
+type SessionEventMsg struct {
+	Event session.Event
+	Gen   int
+}
 
 func (SessionEventMsg) isMsg() {}
 
@@ -41,6 +44,7 @@ const (
 
 // FooterMsg drives footer activity status and update hints.
 type FooterMsg struct {
+	Gen  int
 	Kind FooterKind
 
 	Activity Activity // FooterSetActivity

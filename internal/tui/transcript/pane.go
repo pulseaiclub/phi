@@ -205,6 +205,15 @@ func (t *TranscriptPane) LoadReplay(snap session.Snapshot) {
 		return
 	}
 	t.snap = snap
+	if t.onUsage != nil {
+		var usage session.TokenUsage
+		for _, message := range snap.Messages {
+			if message.Usage.Reported() {
+				usage = message.Usage
+			}
+		}
+		t.onUsage(usage)
+	}
 	t.list.Entries = nil
 	t.listIDs = nil
 	t.list.InvalidateHeights()

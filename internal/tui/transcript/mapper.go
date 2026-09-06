@@ -13,10 +13,12 @@ import (
 // Mapper converts session.Snapshot items into transcript widgets.
 // It owns expand-state and has no dependency on Editor / xui / agent.
 type Mapper struct {
-	theme        components.Theme
-	spinner      *status.Spinner
-	expanded     map[string]bool
-	onInvalidate func() // e.g. MessageList.InvalidateHeights
+	theme            components.Theme
+	spinner          *status.Spinner
+	expanded         map[string]bool
+	thinkingDefault  bool
+	thinkingExpanded map[string]bool
+	onInvalidate     func() // e.g. MessageList.InvalidateHeights
 	// Children returns nested sub-agent tool rows for a parent tool_use id.
 	Children func(parentToolUseID string) []block.ChildTool
 	// ChildrenByJob returns nested rows keyed by job id (fallback for spawn/task).
@@ -26,10 +28,11 @@ type Mapper struct {
 // NewMapper builds a Mapper with the given theme, spinner, and invalidation callback.
 func NewMapper(theme components.Theme, spinner *status.Spinner, onInvalidate func()) *Mapper {
 	return &Mapper{
-		theme:        theme,
-		spinner:      spinner,
-		expanded:     make(map[string]bool),
-		onInvalidate: onInvalidate,
+		theme:            theme,
+		spinner:          spinner,
+		expanded:         make(map[string]bool),
+		thinkingExpanded: make(map[string]bool),
+		onInvalidate:     onInvalidate,
 	}
 }
 
@@ -58,7 +61,7 @@ func (m *Mapper) Sync(
 		byID[id] = i
 		switch b := w.(type) {
 		case *block.ThinkingBlock:
-			m.expanded[id] = b.Expanded
+			m.thinkingExpanded[id] = b.Expanded
 		case *block.ToolBlock:
 			m.expanded[id] = b.Expanded
 		case *block.BashBlock:
@@ -128,7 +131,7 @@ func (m *Mapper) patchItem(w components.Widget, it session.Item) (ok, dirty bool
 		t.Interrupted = it.Interrupted
 		t.Theme = m.theme
 		t.Spinner = m.spinner
-		if exp, ok := m.expanded[it.ID]; ok {
+		if exp, ok := m.thinkingExpanded[it.ID]; ok {
 			t.Expanded = exp
 		}
 		if t.Expanded != prevExp {
@@ -259,15 +262,19 @@ func (m *Mapper) widgetFor(it session.Item) components.Widget {
 	case session.ItemUser:
 		return &block.UserBlock{Text: it.Text, Theme: m.theme}
 	case session.ItemThinking:
+		exp = m.thinkingDefault
+		if saved, ok := m.thinkingExpanded[it.ID]; ok {
+			exp = saved
+		}
 		return &block.ThinkingBlock{
 			Text:        it.Thinking,
 			Streaming:   it.Streaming,
 			Interrupted: it.Interrupted,
-			Expanded:    exp || it.Streaming,
+			Expanded:    exp,
 			Theme:       m.theme,
 			Spinner:     m.spinner,
 			OnToggle: func(expanded bool) {
-				m.expanded[id] = expanded
+				m.thinkingExpanded[id] = expanded
 				if m.onInvalidate != nil {
 					m.onInvalidate()
 				}

@@ -82,6 +82,7 @@ func NewEditor(
 		footer:     footer.NewFooterChrome(theme, contextWindow),
 	}
 	e.transcript = transcript.NewTranscriptPane(theme, e.footer.Spinner(), "Phi "+version.Version)
+	e.transcript.SetThinkingExpanded(ctrl.ThinkingExpanded())
 	e.transcript.SetUsageCallback(e.footer.UpdateTokenDisplay)
 	e.footer.BindComposer(e.composer)
 	e.footer.SetLabelContext(e.transcript.Snapshot)
@@ -102,7 +103,7 @@ func NewEditor(
 		},
 		func() {
 			if e.App != nil {
-				e.composer.FocusChat()
+				e.composer.RestoreTreeFocus()
 			}
 		},
 	)
@@ -218,17 +219,30 @@ func (e *Editor) Update(m controller.Msg) {
 	case controller.SubmitMsg:
 		e.submitter.Submit(msg.Text)
 	case controller.CancelStreamMsg:
-		e.submitter.Cancel()
+		if e.ctrl != nil && e.ctrl.TreeBusy() {
+			e.ctrl.CancelTreeNavigation()
+		} else {
+			e.submitter.Cancel()
+		}
+	case controller.TreeOpenMsg:
+		e.showTree()
+	case controller.TreeResultMsg:
+		e.applyTreeResult(msg)
 	case controller.MentionResultsMsg:
 		e.composer.ApplyMentionResults(msg)
 	case controller.OverlayMsg:
 		e.overlays.Apply(msg)
 	case controller.FooterMsg:
+		if msg.Gen != 0 && e.ctrl != nil && !e.ctrl.Alive(msg.Gen) {
+			return
+		}
 		e.footer.Apply(msg)
 	case controller.ToastMsg:
 		e.toast.Show(msg.Message, msg.Kind, msg.Duration)
 	case controller.ThemeMsg:
 		e.applyTheme(msg.Name)
+	case controller.ThinkingExpandedMsg:
+		e.setThinkingExpanded(msg.Expanded)
 	case controller.ExtSessionEffectsMsg:
 		e.footer.ApplySessionEffects(msg)
 		if msg.Toast != "" {
@@ -260,6 +274,9 @@ func (e *Editor) drainBus() {
 	for _, m := range batch {
 		switch msg := m.(type) {
 		case controller.SessionEventMsg:
+			if msg.Gen != 0 && e.ctrl != nil && !e.ctrl.Alive(msg.Gen) {
+				continue
+			}
 			agentEvent = true
 			e.transcript.ApplySession(msg.Event)
 		case controller.JobProgressMsg:
@@ -331,9 +348,17 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 		chatH = maxSize.Height - listH - footerH
 		chatH = max(chatH, 5)
 	}
+	if e.composer.Tree.Open {
+		footerH = min(1, max(maxSize.Height, 0))
+		chatH = min(chatH, max(maxSize.Height-footerH, 0))
+		listH = max(0, maxSize.Height-chatH-footerH)
+	}
 
-	listSurf := e.transcript.Draw(ctx, maxSize.Width, listH)
-	listH = e.transcript.ListHeight()
+	var listSurf components.Surface
+	if listH > 0 {
+		listSurf = e.transcript.Draw(ctx, maxSize.Width, listH)
+		listH = e.transcript.ListHeight()
+	}
 
 	var chatSurf components.Surface
 	if surf, ok := e.overlays.DrawBottom(ctx, maxSize.Width, chatH); ok {

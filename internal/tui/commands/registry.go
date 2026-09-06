@@ -25,13 +25,14 @@ type CommandContext struct {
 	ResumeSession func(id string)
 	ClearSession  func() // may toast internally if busy
 
-	SetModel         func(name string)
-	ApplyTheme       func(name string)
-	SetPermissions   func(bypass bool)
-	SetAgents        func(enabled bool)
-	ReloadExtensions func()
-	ListExtensions   func() []palette.PaletteCommand
-	AddSkill         func(name string)
+	SetModel            func(name string)
+	ApplyTheme          func(name string)
+	SetThinkingExpanded func(expanded bool)
+	SetPermissions      func(bypass bool)
+	SetAgents           func(enabled bool)
+	ReloadExtensions    func()
+	ListExtensions      func() []palette.PaletteCommand
+	AddSkill            func(name string)
 
 	ModelNames []string
 	SkillPath  string

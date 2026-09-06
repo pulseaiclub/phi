@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Add inline `/tree` session branch navigation and configurable thinking-block visibility.
+
 ### Added
 
 ### Changed

@@ -83,7 +83,7 @@ type BeforeAgentStartEvent struct {
 
 // BeforeAgentStartResult may rewrite the prompt and/or append turn context.
 // Prompt non-empty replaces the user prompt; SystemPromptAppend is appended
-// to the user message (Phi has no per-turn system-prompt rewrite yet).
+// to the user message (Gi has no per-turn system-prompt rewrite yet).
 type BeforeAgentStartResult struct {
 	Prompt             string
 	SystemPromptAppend string

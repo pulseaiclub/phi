@@ -256,9 +256,19 @@ func (sm *Manager) AppendCompaction(compaction Compaction) (string, error) {
 	return entry.ID, nil
 }
 
-func (sm *Manager) appendEntry(entry MessageEntry) error {
+func (sm *Manager) appendEntry(entry MessageEntry) (err error) {
+	previous, hadAssistant := sm.leafID, sm.hasAssistantMsg
+	defer func() {
+		if err != nil {
+			sm.leafID, sm.hasAssistantMsg = previous, hadAssistant
+			delete(sm.byIDs, entry.GetID())
+			sm.entries = sm.entries[:len(sm.entries)-1]
+		}
+	}()
 	leafID := entry.GetID()
-	sm.leafID = &leafID
+	if entry.GetType() != EntryLabel {
+		sm.leafID = &leafID
+	}
 	sm.byIDs[leafID] = entry
 	sm.entries = append(sm.entries, entry)
 
@@ -269,7 +279,7 @@ func (sm *Manager) appendEntry(entry MessageEntry) error {
 	if msgEntry, ok := entry.(SessionMessageEntry); ok && msgEntry.Message.Role == llm.RoleAssistant {
 		sm.hasAssistantMsg = true
 	}
-	if !sm.hasAssistantMsg {
+	if !sm.hasAssistantMsg && !sm.flushed && entry.GetType() == EntryMessage {
 		return nil
 	}
 	return sm.flush(entry)
@@ -287,12 +297,19 @@ func (sm *Manager) flush(entry MessageEntry) error {
 }
 
 func (sm *Manager) flushAllEntries() error {
-	f, err := os.Create(sm.sessionFile)
+	f, err := os.CreateTemp(filepath.Dir(sm.sessionFile), ".session-*.tmp")
 	if err != nil {
 		return err
 	}
+	defer func() { _ = os.Remove(f.Name()) }()
 	defer f.Close()
-	return sm.encodeEntries(f, sm.entries)
+	if err := sm.encodeEntries(f, sm.entries); err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), sm.sessionFile)
 }
 
 func (sm *Manager) appendFile(entry MessageEntry) error {
@@ -301,7 +318,15 @@ func (sm *Manager) appendFile(entry MessageEntry) error {
 		return err
 	}
 	defer f.Close()
-	return sm.encodeEntries(f, []MessageEntry{entry})
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if err := sm.encodeEntries(f, []MessageEntry{entry}); err != nil {
+		_ = f.Truncate(info.Size())
+		return err
+	}
+	return nil
 }
 
 func (*Manager) encodeEntries(f *os.File, entries []MessageEntry) error {
@@ -397,7 +422,7 @@ func buildSessionContext(
 	}
 
 	appendMessage := func(entry MessageEntry) {
-		if entry.GetType() == EntryMessage {
+		if entry.GetType() == EntryMessage || entry.GetType() == EntryBranchSummary || entry.GetType() == EntryHistory {
 			messages = append(messages, entry)
 		}
 	}

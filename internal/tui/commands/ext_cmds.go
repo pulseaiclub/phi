@@ -38,6 +38,9 @@ type ExtCommands struct {
 	running atomic.Bool
 }
 
+// Running reports whether an extension command is currently executing.
+func (h *ExtCommands) Running() bool { return h != nil && h.running.Load() }
+
 func (h *ExtCommands) showToast(msg string, kind toast.ToastKind) {
 	if h == nil {
 		return

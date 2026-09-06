@@ -64,15 +64,16 @@ func (b *commandBridge) context() commands.CommandContext {
 			}
 			b.sessions.Clear()
 		},
-		SetModel:         b.setModel,
-		ApplyTheme:       b.applyTheme,
-		SetPermissions:   b.setPermissions,
-		SetAgents:        b.setAgents,
-		ReloadExtensions: b.reloadExtensions,
-		ListExtensions:   b.listExtensions,
-		AddSkill:         b.addSkill,
-		ModelNames:       b.modelNames,
-		SkillPath:        b.skillPath,
+		SetModel:            b.setModel,
+		ApplyTheme:          b.applyTheme,
+		SetThinkingExpanded: func(expanded bool) { b.bus.Publish(controller.ThinkingExpandedMsg{Expanded: expanded}) },
+		SetPermissions:      b.setPermissions,
+		SetAgents:           b.setAgents,
+		ReloadExtensions:    b.reloadExtensions,
+		ListExtensions:      b.listExtensions,
+		AddSkill:            b.addSkill,
+		ModelNames:          b.modelNames,
+		SkillPath:           b.skillPath,
 	}
 }
 

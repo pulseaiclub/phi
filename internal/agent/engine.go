@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/agent/prompt"
+	"github.com/pulseaiclub/phi/internal/debuglog"
 	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
@@ -492,9 +493,29 @@ func (engine *Engine) streamTurn(
 	var thinking, text string
 	var final llm.Message
 	gotDone := false
+	streamFailure := "Assistant response interrupted"
+	defer func() {
+		if gotDone {
+			return
+		}
+		kind, message := "error", streamFailure
+		if ctx.Err() != nil {
+			kind, message = "cancelled", "Assistant response cancelled"
+		}
+		if text != "" {
+			message += "\n" + text
+		}
+		if thinking != "" {
+			message += "\nThinking:\n" + thinking
+		}
+		if err := engine.session.AppendHistory(session.HistoryEntry{Kind: kind, Text: message}); err != nil {
+			debuglog.Logf("save interrupted assistant history: %v", err)
+		}
+	}()
 
 	for event, err := range engine.client.Stream(ctx, messages) {
 		if err != nil {
+			streamFailure = err.Error()
 			if thinking != "" || text != "" {
 				_ = yield(emitMessage(id, session.StateError, session.StopNone, thinking, text, nil, llm.Usage{}), nil)
 			}
@@ -508,6 +529,7 @@ func (engine *Engine) streamTurn(
 			if errText == "" {
 				errText = "stream error"
 			}
+			streamFailure = errText
 			yield(nil, fmt.Errorf("%s", errText))
 			return llm.Message{}, nil, false
 
@@ -527,6 +549,7 @@ func (engine *Engine) streamTurn(
 
 		case llm.StreamEventTypeDone:
 			if len(event.Partial.Choices) == 0 {
+				streamFailure = "stream finished with no assistant choice"
 				yield(nil, errors.New("agent: stream finished with no assistant choice"))
 				return llm.Message{}, nil, false
 			}
@@ -548,6 +571,7 @@ func (engine *Engine) streamTurn(
 			_ = yield(emitMessage(id, session.StateCancelled, session.StopNone, thinking, text, nil, llm.Usage{}), nil)
 			return llm.Message{}, nil, false
 		}
+		streamFailure = "stream closed without assistant output"
 		yield(nil, errors.New("agent: stream closed without assistant output"))
 		return llm.Message{}, nil, false
 	}

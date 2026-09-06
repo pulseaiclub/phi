@@ -36,6 +36,9 @@ type EngineController struct {
 	streamMu     sync.Mutex
 	streamCancel context.CancelFunc
 	streamGen    int
+	streamDone   chan struct{}
+	treeCancel   context.CancelFunc
+	treeBusy     atomic.Bool
 
 	bus *Bus
 
@@ -452,6 +455,9 @@ func (c *EngineController) askExtConfirm(req ext.ConfirmRequest) ext.ConfirmRepl
 
 // SetModel replaces the LLM client while keeping the same session tree.
 func (c *EngineController) SetModel(name string) error {
+	if c.Running() || c.TreeBusy() {
+		return errors.New("finish or cancel the current operation before switching models")
+	}
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return errors.New("empty model name")
@@ -484,7 +490,7 @@ func (c *EngineController) SetModel(name string) error {
 		return err
 	}
 	c.modelCfg = cfg
-	return nil
+	return c.RecordHistory(session.HistoryEntry{Kind: "model", Text: "Model: " + name})
 }
 
 // ImageEnabled reports whether the active model accepts attached images.
@@ -528,6 +534,9 @@ func (c *EngineController) SessionFile() string {
 // On success the engine session is replaced; caller should refresh the UI transcript.
 // If the resumed session cwd differs from the process cwd, cwdWarning is non-empty.
 func (c *EngineController) Resume(id string) (cwdWarning string, err error) {
+	if c.Running() || c.TreeBusy() {
+		return "", errors.New("finish or cancel the current operation before resuming a session")
+	}
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return "", errors.New("empty session id")
@@ -598,6 +607,9 @@ func (c *EngineController) Resume(id string) (cwdWarning string, err error) {
 // Clear starts a brand-new persisted session (empty transcript, new id).
 // Caller must ensure no agent stream / local bash is in flight.
 func (c *EngineController) Clear() error {
+	if c.Running() || c.TreeBusy() {
+		return errors.New("finish or cancel the current operation before clearing the session")
+	}
 	if c.sessionDir == "" {
 		return errors.New("session directory not configured")
 	}
@@ -665,15 +677,45 @@ func (c *EngineController) ReplaySnapshot() session.Snapshot {
 func (c *EngineController) StartPrompt(text string, pendingSkills []string, images []llm.Image) {
 	ctx, cancel := context.WithCancel(context.Background())
 	c.streamMu.Lock()
+	if c.treeBusy.Load() {
+		c.streamMu.Unlock()
+		cancel()
+		c.publish(
+			ToastMsg{
+				Message:  "Tree navigation is in progress; retry after it finishes",
+				Kind:     toast.ToastWarning,
+				Duration: 3 * time.Second,
+			},
+		)
+		return
+	}
 	if c.streamCancel != nil {
 		c.streamCancel()
 	}
+	previous := c.streamDone
+	done := make(chan struct{})
+	c.streamDone = done
 	c.streamCancel = cancel
 	c.streamGen++
 	gen := c.streamGen
 	c.streamMu.Unlock()
 
-	go c.runLoop(ctx, gen, text, pendingSkills, images)
+	go func() {
+		defer func() {
+			cancel()
+			c.streamMu.Lock()
+			if c.streamDone == done {
+				c.streamDone = nil
+				c.streamCancel = nil
+			}
+			close(done)
+			c.streamMu.Unlock()
+		}()
+		if previous != nil {
+			<-previous
+		}
+		c.runLoop(ctx, gen, text, pendingSkills, images)
+	}()
 }
 
 // Cancel aborts the current stream context (if any).
@@ -688,6 +730,7 @@ func (c *EngineController) Cancel() {
 
 // Close cancels the stream and shuts down jobs, MCP, and extensions.
 func (c *EngineController) Close() {
+	c.CancelTreeNavigation()
 	c.sessionShutdown("quit", c.SessionID())
 	c.Cancel()
 	if c.unsubJobs != nil {
@@ -787,14 +830,14 @@ func (c *EngineController) runLoop(
 	if !c.waitOrDone(ctx, gen, 120*time.Millisecond) {
 		return
 	}
-	c.publish(FooterMsg{Kind: FooterSetActivity, Activity: ActivityStreaming})
+	c.publish(FooterMsg{Kind: FooterSetActivity, Activity: ActivityStreaming, Gen: gen})
 
 	if c.engine == nil {
 		errText := "agent not configured"
 		if !c.Alive(gen) {
 			return
 		}
-		c.publish(SessionEventMsg{Event: session.AssistantMessageUpdate{Message: session.Message{
+		c.publish(SessionEventMsg{Gen: gen, Event: session.AssistantMessageUpdate{Message: session.Message{
 			ID:    fmt.Sprintf("assistant-error-%d", time.Now().UnixNano()),
 			State: session.StateError,
 			Text:  errText,
@@ -814,7 +857,7 @@ func (c *EngineController) runLoop(
 		}
 		if err != nil {
 			errText := err.Error()
-			c.publish(SessionEventMsg{Event: session.AssistantMessageUpdate{Message: session.Message{
+			c.publish(SessionEventMsg{Gen: gen, Event: session.AssistantMessageUpdate{Message: session.Message{
 				ID:    fmt.Sprintf("assistant-error-%d", time.Now().UnixNano()),
 				State: session.StateError,
 				Text:  errText,
@@ -825,7 +868,7 @@ func (c *EngineController) runLoop(
 			return
 		}
 		if ev != nil {
-			c.publish(SessionEventMsg{Event: ev})
+			c.publish(SessionEventMsg{Gen: gen, Event: ev})
 		}
 	}
 }

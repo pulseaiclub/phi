@@ -21,6 +21,18 @@ type Config struct {
 	SkillPath    string
 	Permissions  permission.Policy
 	Agents       AgentsConfig
+	Tree         TreeConfig
+	TUI          TUIConfig
+}
+
+type TUIConfig struct {
+	ThinkingExpanded bool `yaml:"thinking_expanded"`
+}
+
+type TreeConfig struct {
+	Filter  string            `yaml:"filter"`
+	Summary string            `yaml:"summary"`
+	Keys    map[string]string `yaml:"keys"`
 }
 
 // AgentsConfig controls whether the main agent may spawn sub-agents
@@ -151,6 +163,25 @@ func parseConfigFile(path string) (*Config, error) {
 	if raw.Agents != nil {
 		cfg.Agents.Enabled = raw.Agents.Enabled
 	}
+	if raw.TUI != nil {
+		cfg.TUI = *raw.TUI
+	}
+	if raw.Tree != nil {
+		cfg.Tree = *raw.Tree
+		switch cfg.Tree.Filter {
+		case "", "default", "no-tools", "user-only", "labeled-only", "all":
+		default:
+			return nil, fmt.Errorf(
+				"tree.filter %q: use default, no-tools, user-only, labeled-only, or all",
+				cfg.Tree.Filter,
+			)
+		}
+		switch cfg.Tree.Summary {
+		case "", "ask", "always", "never":
+		default:
+			return nil, fmt.Errorf("tree.summary %q: use ask, always, or never", cfg.Tree.Summary)
+		}
+	}
 	return cfg, nil
 }
 
@@ -168,6 +199,8 @@ type fileConfig struct {
 	SkillPath   *string       `yaml:"skill_path"`
 	Permissions *permConfig   `yaml:"permissions"`
 	Agents      *agentsConfig `yaml:"agents"`
+	Tree        *TreeConfig   `yaml:"tree"`
+	TUI         *TUIConfig    `yaml:"tui"`
 }
 
 type agentsConfig struct {

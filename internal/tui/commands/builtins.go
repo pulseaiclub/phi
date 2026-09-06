@@ -8,6 +8,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/palette"
 	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/llm/skills"
+	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
 // NewBuiltinRegistry returns the built-in slash + palette catalog.
@@ -18,6 +19,19 @@ func NewBuiltinRegistry() *CommandRegistry {
 }
 
 func registerBuiltinCommands(r *CommandRegistry) {
+	r.Register(Command{
+		Name: "tree", Description: "Navigate branches in the current session", Slash: true, Insert: "/tree",
+		Run: func(ctx CommandContext) error { ctx.Bus.Publish(controller.TreeOpenMsg{}); return nil },
+		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
+			return palette.PaletteCommand{
+				ID:       "tree",
+				Noun:     "session",
+				Verb:     "tree",
+				Keywords: []string{"branch", "history", "navigate"},
+				Run:      func() { ctx.Bus.Publish(controller.TreeOpenMsg{}) },
+			}
+		},
+	})
 	r.Register(Command{
 		Name:        "sessions",
 		Description: "Browse and resume sessions for this directory",
@@ -69,6 +83,12 @@ func registerBuiltinCommands(r *CommandRegistry) {
 		Name: "settings-theme",
 		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
 			return ThemeCommand(ctx.ApplyTheme)
+		},
+	})
+	r.Register(Command{
+		Name: "settings-thinking",
+		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
+			return ThinkingCommand(ctx.SetThinkingExpanded)
 		},
 	})
 	r.Register(Command{

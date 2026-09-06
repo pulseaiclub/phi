@@ -25,6 +25,7 @@ type BashRunner struct {
 	running atomic.Bool
 	mu      sync.Mutex
 	cancel  context.CancelFunc
+	done    chan struct{}
 }
 
 func newBashRunner(
@@ -82,13 +83,17 @@ func (b *BashRunner) HandleSubmit(text string) bool {
 func (b *BashRunner) run(id, command string) {
 	b.mu.Lock()
 	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
 	b.cancel = cancel
+	b.done = done
 	b.mu.Unlock()
 	b.running.Store(true)
 	defer func() {
 		b.running.Store(false)
 		b.mu.Lock()
 		b.cancel = nil
+		close(b.done)
+		b.done = nil
 		b.mu.Unlock()
 	}()
 
@@ -168,6 +173,17 @@ func (b *BashRunner) Cancel() bool {
 		cancel()
 	}
 	return true
+}
+
+func (b *BashRunner) stopAndWait() <-chan struct{} {
+	if b == nil || !b.running.Load() {
+		return nil
+	}
+	b.Cancel()
+	b.mu.Lock()
+	done := b.done
+	b.mu.Unlock()
+	return done
 }
 
 // SyncBorder paints the composer border for bash mode when text starts with "!".

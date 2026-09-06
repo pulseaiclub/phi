@@ -71,6 +71,8 @@ const (
 	EvTurnStopping        uint16 = 14
 	EvSessionCompact      uint16 = 15
 	EvPaneAction          uint16 = 16
+	EvSessionBeforeTree   uint16 = 17
+	EvSessionTree         uint16 = 18
 )
 
 // EventName maps a wire code to the public ext event string.
@@ -108,6 +110,10 @@ func EventName(code uint16) string {
 		return "session_compact"
 	case EvPaneAction:
 		return "pane_action"
+	case EvSessionBeforeTree:
+		return "session_before_tree"
+	case EvSessionTree:
+		return "session_tree"
 	default:
 		return ""
 	}
@@ -148,6 +154,10 @@ func EventCode(name string) uint16 {
 		return EvSessionCompact
 	case "pane_action":
 		return EvPaneAction
+	case "session_before_tree":
+		return EvSessionBeforeTree
+	case "session_tree":
+		return EvSessionTree
 	default:
 		return 0
 	}

@@ -26,6 +26,7 @@ type ExtensionAPI struct {
 	onToolResult          func(ext.ToolResultEvent) *ext.ToolResultResult
 	onBeforeAgentStart    func(ext.BeforeAgentStartEvent) *ext.BeforeAgentStartResult
 	onSessionBeforeSwitch func(ext.SessionBeforeSwitchEvent) *ext.SessionBeforeSwitchResult
+	onSessionBeforeTree   func(ext.SessionBeforeTreeEvent) *ext.SessionBeforeTreeResult
 	onUserInput           func(ext.UserInputEvent) *ext.UserInputResult
 	onTurnStopping        func(ext.TurnStoppingEvent) *ext.TurnStoppingResult
 	onEvent               map[uint16]func(pxb.EventNotify)
@@ -466,6 +467,27 @@ func (extension *ExtensionAPI) Run() error {
 
 func (extension *ExtensionAPI) handleIntercept(req pxb.InterceptReq) pxb.InterceptResp {
 	switch req.Event {
+	case pxb.EvSessionBeforeTree:
+		if extension.onSessionBeforeTree == nil {
+			return pxb.InterceptResp{}
+		}
+		v, err := pxb.DecodeTreeNavigation(req.Input)
+		if err != nil {
+			return pxb.InterceptResp{Cancel: true, Reason: err.Error()}
+		}
+		r := extension.onSessionBeforeTree(
+			ext.SessionBeforeTreeEvent{
+				FromID:       v.FromID,
+				TargetID:     v.TargetID,
+				SelectedID:   v.SelectedID,
+				Summarize:    v.Summarize,
+				Instructions: v.Instructions,
+			},
+		)
+		if r == nil {
+			return pxb.InterceptResp{}
+		}
+		return pxb.InterceptResp{Cancel: r.Cancel, Reason: r.Reason, Content: r.Summary, Prompt: r.Instructions}
 	case pxb.EvToolCall:
 		if extension.onToolCall == nil {
 			return pxb.InterceptResp{}

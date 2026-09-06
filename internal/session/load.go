@@ -224,7 +224,9 @@ func OpenSession(path string) (*Manager, error) {
 			id := entry.GetID()
 			byIDs[id] = entry
 			entries = append(entries, entry)
-			leafID = &id
+			if entry.GetType() != EntryLabel {
+				leafID = &id
+			}
 			if msg, ok := entry.(SessionMessageEntry); ok && msg.Message.Role == llm.RoleAssistant {
 				hasAssistantMsg = true
 			}
@@ -276,6 +278,7 @@ func decodeEntryLine(raw []byte, lineNo int) (MessageEntry, error) {
 		if err := json.Unmarshal(raw, &m); err != nil {
 			return nil, fmt.Errorf("session: line %d message: %w", lineNo, err)
 		}
+		m.Message.Usage = m.Usage
 		return m, nil
 	case EntryCompaction:
 		var c CompactionEntry
@@ -283,6 +286,18 @@ func decodeEntryLine(raw []byte, lineNo int) (MessageEntry, error) {
 			return nil, fmt.Errorf("session: line %d compaction: %w", lineNo, err)
 		}
 		return c, nil
+	case EntryBranchSummary:
+		var entry BranchSummaryEntry
+		err := json.Unmarshal(raw, &entry)
+		return entry, err
+	case EntryLabel:
+		var entry LabelEntry
+		err := json.Unmarshal(raw, &entry)
+		return entry, err
+	case EntryHistory:
+		var entry HistoryEntry
+		err := json.Unmarshal(raw, &entry)
+		return entry, err
 	default:
 		return nil, fmt.Errorf("session: line %d: unknown type %q", lineNo, probe.Type)
 	}
