@@ -56,13 +56,17 @@ func main() {
 	_, err = engine.NavigateTree(t.Context(), u, agent.TreeOptions{Summarize: true})
 	require.NoError(t, err)
 	assert.Contains(t, s.BuildContext()[0].Content, "extension branch summary")
+	want := a + "\n" + s.LastID() + "\n" + s.LastID() + "\nextension branch summary"
 	require.Eventually(
 		t,
-		func() bool { _, err := os.Stat(output); return err == nil },
+		func() bool {
+			data, err := os.ReadFile(output)
+			return err == nil && string(data) == want
+		},
 		3*time.Second,
 		10*time.Millisecond,
 	)
 	data, err := os.ReadFile(output)
 	require.NoError(t, err)
-	assert.Equal(t, a+"\n"+s.LastID()+"\n"+s.LastID()+"\nextension branch summary", string(data))
+	assert.Equal(t, want, string(data))
 }

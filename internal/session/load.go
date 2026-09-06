@@ -23,6 +23,7 @@ type SessionMeta struct {
 	Cwd       string
 	Mtime     time.Time
 	Preview   string // truncated last user text
+	Title     string // generated conversation title
 }
 
 // ListSessions returns session files under dir, newest mtime first.
@@ -93,6 +94,7 @@ func readSessionMeta(path string, e os.DirEntry) (SessionMeta, error) {
 			meta.ID = e.ID
 			meta.Timestamp = e.Timestamp
 			meta.Cwd = e.Cwd
+			meta.Title = e.Title
 		case SessionMessageEntry:
 			if e.Message.Role == llm.RoleUser && strings.TrimSpace(e.Message.Content) != "" {
 				meta.Preview = truncatePreview(e.Message.Content, 72)

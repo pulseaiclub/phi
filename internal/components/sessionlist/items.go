@@ -27,7 +27,10 @@ func Items(list []session.SessionMeta, currentID string, now time.Time) []listpi
 	}
 	out := make([]listpicker.Item, 0, len(list))
 	for _, m := range list {
-		detail := m.Preview
+		detail := m.Title
+		if detail == "" {
+			detail = m.Preview
+		}
 		if detail == "" {
 			detail = "(no preview)"
 		}
@@ -36,7 +39,7 @@ func Items(list []session.SessionMeta, currentID string, now time.Time) []listpi
 			Leading:  FormatRelative(m.Mtime, now),
 			Primary:  shortID(m.ID),
 			Detail:   detail,
-			Keywords: m.ID + " " + m.Preview,
+			Keywords: m.ID + " " + m.Title + " " + m.Preview,
 		}
 		if m.ID == currentID {
 			item.Badge = "current"

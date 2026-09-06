@@ -341,6 +341,11 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			yield(nil, err)
 			return
 		}
+		// Titles are user-facing session metadata; only persisted sessions need
+		// the asynchronous extra model request.
+		if engine.session.File() != "" && engine.session.Title() == "" {
+			go engine.ensureSessionTitle(content)
+		}
 
 		toolRounds := 0
 		for {
@@ -427,6 +432,40 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			}
 		}
 	}
+}
+
+// ensureSessionTitle follows OpenCode's first-real-prompt behavior. Title
+// generation is best-effort and never delays or fails the main agent loop.
+func (engine *Engine) ensureSessionTitle(prompt string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	client := llmclient.NewClient(engine.modelCfg, nil, "Generate concise conversation titles. Do not call tools.")
+	var title strings.Builder
+	for event, err := range client.Stream(ctx, []llm.Message{
+		{Role: llm.RoleUser, Content: "Generate a short title for this conversation. Return only the title, without quotes or punctuation at the end.\n\n" + prompt},
+	}) {
+		if err != nil {
+			return
+		}
+		if event.Type == llm.StreamEventTypeDone && len(event.Partial.Choices) > 0 {
+			title.WriteString(event.Partial.Choices[0].Message.Content)
+		}
+	}
+	text := strings.TrimSpace(title.String())
+	text = strings.TrimSpace(strings.ReplaceAll(text, "</think>", ""))
+	if i := strings.LastIndex(text, "\n"); i >= 0 {
+		text = strings.TrimSpace(text[:i])
+	}
+	if text == "" {
+		return
+	}
+	if len([]rune(text)) > 100 {
+		text = string([]rune(text)[:97]) + "..."
+	}
+	if engine.session.Title() != "" {
+		return
+	}
+	_ = engine.session.SetTitle(text)
 }
 
 // RunUntil is the reserved interface for task 007 (eval / until-goal): it

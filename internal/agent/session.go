@@ -142,6 +142,12 @@ func (s *Session) Cwd() string {
 	return s.manager.Cwd()
 }
 
+func (s *Session) SetTitle(title string) error {
+	return s.manager.SetTitle(title)
+}
+
+func (s *Session) Title() string { return s.manager.Title() }
+
 func (s *Session) invalidateContextCache() {
 	s.contextCacheValid = false
 }

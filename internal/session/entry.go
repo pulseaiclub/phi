@@ -31,6 +31,7 @@ type SessionHeader struct {
 	ID            string `json:"id"`
 	Timestamp     string `json:"timestamp"`
 	Cwd           string `json:"cwd"`
+	Title         string `json:"title,omitempty"`
 	ParentSession string `json:"parentSession,omitempty"`
 }
 

@@ -158,6 +158,38 @@ func (sm *Manager) BuildContext() []MessageEntry {
 	return buildSessionContext(sm.entries, *sm.leafID, sm.byIDs)
 }
 
+// SetTitle updates the session header without adding a conversation entry.
+func (sm *Manager) SetTitle(title string) error {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	if len(sm.entries) == 0 {
+		return fmt.Errorf("session: missing session header")
+	}
+	header, ok := sm.entries[0].(SessionHeader)
+	if !ok {
+		return fmt.Errorf("session: invalid session header")
+	}
+	header.Title = title
+	sm.entries[0] = header
+	if sm.shouldFlush {
+		return sm.flushAllEntries()
+	}
+	return nil
+}
+
+func (sm *Manager) Title() string {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	if len(sm.entries) == 0 {
+		return ""
+	}
+	header, ok := sm.entries[0].(SessionHeader)
+	if !ok {
+		return ""
+	}
+	return header.Title
+}
+
 // Append adds a message as a new leaf and returns its entry ID.
 func (sm *Manager) Append(msg llm.Message) (string, error) {
 	sm.mu.Lock()
