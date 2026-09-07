@@ -23,6 +23,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Fixed
 
 - Fix PowerShell installer parsing of checksum mismatch errors.
+- Extension footer status (e.g. plan-mode hints) is reset when extensions are reloaded or the model is switched, so stale text no longer outlives the extension subprocess.
 
 ### Security
 

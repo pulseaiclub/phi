@@ -276,6 +276,10 @@ func (c *EngineController) swapExtensionRunner(r *extension.Runner) {
 		prev.Close()
 	}
 	c.bindExtensionHost(r)
+	// The previous runner's UI state died with its subprocesses: reset the
+	// extension footer status slot so stale text (e.g. plan-mode hints) does
+	// not outlive an extension reload / model switch.
+	c.publish(ExtSessionEffectsMsg{Status: "", StatusSet: true})
 }
 
 // ListExtensions returns the current on-disk discovery (does not swap the runner).
