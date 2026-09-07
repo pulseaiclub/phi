@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -96,10 +97,15 @@ func TestInstallClonesWhenReleaseUnavailable(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	assert.Equal(
+	// git clones into a temp sibling of the extensions dir, then the staged
+	// tree is swapped into place (same volume, atomic update support).
+	require.Len(t, sawArgs, 7)
+	assert.Equal(t, []string{"clone", "--depth", "1", "--branch", "v1", spec.CloneURL()}, sawArgs[:6])
+	assert.True(
 		t,
-		[]string{"clone", "--depth", "1", "--branch", "v1", spec.CloneURL(), filepath.Join(dir, "greet")},
-		sawArgs,
+		strings.HasPrefix(sawArgs[6], filepath.Join(dir, ".phi-clone-")),
+		"clone into temp sibling of %s, got %s",
+		dir, sawArgs[6],
 	)
 
 	found, _, err := extension.Discover(dir, "")

@@ -289,6 +289,28 @@ When no matching release asset exists, install falls back to a shallow
 `git clone` — the cloned tree must already include the binary (source-only
 repos will fail). Source-only yaegi repos no longer load.
 
+### Managing installed plugins
+
+```bash
+phi plugin list                  # installed plugins: id, version, source, path
+phi plugin update                # update all managed plugins
+phi plugin update greet          # update one plugin
+phi plugin update greet@latest   # switch to the newest release
+phi plugin update --check        # report available updates without installing
+phi plugin remove greet          # uninstall (alias: rm)
+```
+
+Install records the GitHub source in `.phi-install.json` inside the extension
+directory. `update` re-resolves that source and swaps the directory atomically
+(the old tree is kept as a backup until the swap completes); release archives
+are preferred, with the same git-clone fallback as install. A pinned ref
+(`@v1.2.3`) stays pinned — override it with `phi plugin update greet@latest`
+or another tag.
+
+Extensions not installed via `phi plugin install` (manual copies) carry no
+metadata and are left untouched by `update`/`remove`; reinstall once to bring
+them under management.
+
 ## Lifecycle (process)
 
 1. Discover `phi.yaml`

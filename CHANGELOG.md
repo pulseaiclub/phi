@@ -11,6 +11,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Added
 
 - Gemini endpoints (Google AI Studio / Vertex AI): streaming chat and compaction with tool calling, image input, system prompts, and model thinking surfaced as reasoning. (`llm`)
+- `phi plugin list` / `phi plugin update [repo[@ref]] [--check]` / `phi plugin remove <repo>` (alias `rm`): audit and update extensions without manual removal. Install records the GitHub source in `~/.phi/extensions/<repo>/.phi-install.json`; `update` re-resolves that source and swaps the directory atomically (release archive preferred, git clone fallback, pinned tags stay pinned unless overridden). Extensions not installed via `phi plugin install` are left untouched.
 
 ### Changed
 

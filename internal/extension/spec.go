@@ -9,9 +9,9 @@ import (
 
 // Spec is a GitHub plugin install target: owner/repo with an optional ref (tag or branch).
 type Spec struct {
-	Owner string
-	Repo  string
-	Ref   string // empty = remote default branch
+	Owner string `json:"owner"`
+	Repo  string `json:"repo"`
+	Ref   string `json:"ref,omitempty"` // empty = remote default branch
 }
 
 // CloneURL returns the HTTPS git clone URL for the spec.

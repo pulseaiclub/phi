@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/pulseaiclub/phi/internal/util/githubrelease"
 )
@@ -65,30 +66,49 @@ func Install(ctx context.Context, opts InstallOptions) error {
 		return fmt.Errorf("create extensions dir %s: %w", opts.Dir, err)
 	}
 
-	relErr := installFromRelease(ctx, opts, dest)
+	return installInto(ctx, opts, opts.Spec, dest, false)
+}
+
+// installInto stages a plugin (release archive first, git clone fallback) and
+// places it at dest. replace allows overwriting an existing directory (plugin
+// update); install always passes false.
+func installInto(ctx context.Context, opts InstallOptions, spec Spec, dest string, replace bool) error {
+	relErr := installFromRelease(ctx, opts, spec, dest, replace)
 	if relErr == nil {
 		return nil
 	}
-	printf(opts.out(), "plugin install: release path unavailable (%v); trying git clone\n", relErr)
+	printf(opts.out(), "plugin: release path unavailable (%v); trying git clone\n", relErr)
 
-	if err := installFromGit(ctx, opts, dest); err != nil {
+	if err := installFromGit(ctx, opts, spec, dest, replace); err != nil {
 		return fmt.Errorf("git clone fallback failed after release error (%w): %w", relErr, err)
 	}
 	return nil
 }
 
-func installFromRelease(ctx context.Context, opts InstallOptions, dest string) error {
-	ownerRepo := opts.Spec.Owner + "/" + opts.Spec.Repo
+func installFromRelease(ctx context.Context, opts InstallOptions, spec Spec, dest string, replace bool) error {
+	ownerRepo := spec.Owner + "/" + spec.Repo
 	fetch := opts.FetchRelease
 	if fetch == nil {
 		fetch = defaultFetchRelease
 	}
-	rel, err := fetch(ctx, ownerRepo, opts.Spec.Ref)
+	rel, err := fetch(ctx, ownerRepo, spec.Ref)
 	if err != nil {
 		return err
 	}
+	return installReleaseTree(ctx, opts, spec, rel, dest, replace)
+}
 
-	asset, format, err := pickPlatformAsset(rel, opts.Spec.Repo)
+// installReleaseTree downloads/verifies/extracts a release archive, stages it,
+// records install metadata, and places it at dest.
+func installReleaseTree(
+	ctx context.Context,
+	opts InstallOptions,
+	spec Spec,
+	rel githubrelease.Release,
+	dest string,
+	replace bool,
+) error {
+	asset, format, err := pickPlatformAsset(rel, spec.Repo)
 	if err != nil {
 		return err
 	}
@@ -107,14 +127,14 @@ func installFromRelease(ctx context.Context, opts InstallOptions, dest string) e
 		download = githubrelease.DownloadFile
 	}
 
-	printf(opts.out(), "plugin install: downloading %s (%s)\n", asset.Name, rel.TagName)
+	printf(opts.out(), "plugin: downloading %s (%s)\n", asset.Name, rel.TagName)
 	archivePath := filepath.Join(tmp, asset.Name)
 	if err := download(ctx, asset.BrowserDownloadURL, archivePath); err != nil {
 		return fmt.Errorf("download %s: %w", asset.Name, err)
 	}
 
 	if sumAsset, ok := findChecksumAsset(rel); ok && sumAsset.BrowserDownloadURL != "" {
-		printf(opts.out(), "plugin install: verifying checksum...\n")
+		printf(opts.out(), "plugin: verifying checksum...\n")
 		sumsPath := filepath.Join(tmp, sumAsset.Name)
 		if err := download(ctx, sumAsset.BrowserDownloadURL, sumsPath); err != nil {
 			return fmt.Errorf("download checksums: %w", err)
@@ -136,7 +156,7 @@ func installFromRelease(ctx context.Context, opts InstallOptions, dest string) e
 	if err := os.MkdirAll(extractDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir extract: %w", err)
 	}
-	printf(opts.out(), "plugin install: extracting...\n")
+	printf(opts.out(), "plugin: extracting...\n")
 	if err := extractArchive(ctx, archivePath, format, extractDir); err != nil {
 		return fmt.Errorf("extract archive: %w", err)
 	}
@@ -156,23 +176,29 @@ func installFromRelease(ctx context.Context, opts InstallOptions, dest string) e
 	if err := ensureExecMode(entry); err != nil {
 		return err
 	}
+	if err := writeInstallMeta(staging, InstallMeta{
+		Spec:        spec,
+		Source:      SourceRelease,
+		ReleaseTag:  rel.TagName,
+		InstalledAt: time.Now().UTC(),
+	}); err != nil {
+		return fmt.Errorf("write install metadata: %w", err)
+	}
 
-	if err := os.Rename(staging, dest); err != nil {
-		// Cross-device rename: copy into place.
-		if err2 := copyTree(staging, dest); err2 != nil {
-			_ = os.RemoveAll(dest)
-			return fmt.Errorf("install to %s: rename: %w; copy: %w", dest, err, err2)
-		}
+	if err := placeTree(staging, dest, replace); err != nil {
+		return err
 	}
 
 	finalEntry, err := findInstallEntry(dest)
 	if err != nil {
-		_ = os.RemoveAll(dest)
+		if !replace {
+			_ = os.RemoveAll(dest)
+		}
 		return err
 	}
 
 	refNote := rel.TagName
-	printf(opts.out(), "installed %s/%s (%s) → %s\n", opts.Spec.Owner, opts.Spec.Repo, refNote, dest)
+	printf(opts.out(), "installed %s/%s (%s) → %s\n", spec.Owner, spec.Repo, refNote, dest)
 	printf(opts.out(), "entry: %s\n", finalEntry)
 	printf(opts.out(), "source: release asset %s\n", asset.Name)
 	printInstallWarnings(opts.out())
@@ -193,7 +219,7 @@ func defaultFetchRelease(ctx context.Context, ownerRepo, ref string) (githubrele
 	return githubrelease.FetchTag(ctx, ownerRepo, ref)
 }
 
-func installFromGit(ctx context.Context, opts InstallOptions, dest string) error {
+func installFromGit(ctx context.Context, opts InstallOptions, spec Spec, dest string, replace bool) error {
 	gitBin := opts.Git
 	if gitBin == "" {
 		var err error
@@ -203,35 +229,89 @@ func installFromGit(ctx context.Context, opts InstallOptions, dest string) error
 		}
 	}
 
-	args := []string{"clone", "--depth", "1"}
-	if opts.Spec.Ref != "" {
-		args = append(args, "--branch", opts.Spec.Ref)
+	// Clone into a temp sibling of dest so an update can swap directories
+	// atomically on the same volume (no window where dest is missing).
+	tmp, err := os.MkdirTemp(filepath.Dir(dest), ".phi-clone-")
+	if err != nil {
+		return fmt.Errorf("create temp dir: %w", err)
 	}
-	args = append(args, opts.Spec.CloneURL(), dest)
+	defer func() { _ = os.RemoveAll(tmp) }()
+	cloneDest := filepath.Join(tmp, "clone")
+
+	args := []string{"clone", "--depth", "1"}
+	if spec.Ref != "" {
+		args = append(args, "--branch", spec.Ref)
+	}
+	args = append(args, spec.CloneURL(), cloneDest)
 
 	run := opts.RunGit
 	if run == nil {
 		run = defaultRunGit
 	}
 	if err := run(ctx, gitBin, args...); err != nil {
-		_ = os.RemoveAll(dest)
 		return err
 	}
 
-	entry, err := findInstallEntry(dest)
+	if _, err := findInstallEntry(cloneDest); err != nil {
+		return err
+	}
+	if err := writeInstallMeta(cloneDest, InstallMeta{
+		Spec:        spec,
+		Source:      SourceGit,
+		InstalledAt: time.Now().UTC(),
+	}); err != nil {
+		return fmt.Errorf("write install metadata: %w", err)
+	}
+	if err := placeTree(cloneDest, dest, replace); err != nil {
+		return err
+	}
+
+	finalEntry, err := findInstallEntry(dest)
 	if err != nil {
-		_ = os.RemoveAll(dest)
+		if !replace {
+			_ = os.RemoveAll(dest)
+		}
 		return err
 	}
 
 	refNote := "default branch"
-	if opts.Spec.Ref != "" {
-		refNote = opts.Spec.Ref
+	if spec.Ref != "" {
+		refNote = spec.Ref
 	}
-	printf(opts.out(), "installed %s/%s (%s) → %s\n", opts.Spec.Owner, opts.Spec.Repo, refNote, dest)
-	printf(opts.out(), "entry: %s\n", entry)
+	printf(opts.out(), "installed %s/%s (%s) → %s\n", spec.Owner, spec.Repo, refNote, dest)
+	printf(opts.out(), "entry: %s\n", finalEntry)
 	printf(opts.out(), "source: git clone\n")
 	printInstallWarnings(opts.out())
+	return nil
+}
+
+// placeTree moves a staged tree into dest. When replace is set, dest is moved
+// aside first so it is never half-written, then the backup is removed.
+func placeTree(staging, dest string, replace bool) error {
+	if !replace {
+		if err := os.Rename(staging, dest); err != nil {
+			// Cross-device rename: copy into place.
+			if err2 := copyTree(staging, dest); err2 != nil {
+				_ = os.RemoveAll(dest)
+				return fmt.Errorf("install to %s: rename: %w; copy: %w", dest, err, err2)
+			}
+		}
+		return nil
+	}
+	bak := filepath.Join(filepath.Dir(dest), "."+filepath.Base(dest)+".old")
+	_ = os.RemoveAll(bak)
+	if err := os.Rename(dest, bak); err != nil {
+		return fmt.Errorf("move aside %s: %w", dest, err)
+	}
+	if err := os.Rename(staging, dest); err != nil {
+		if err2 := copyTree(staging, dest); err2 != nil {
+			_ = os.Rename(bak, dest) // best-effort restore
+			return fmt.Errorf("install new version to %s: rename: %w; copy: %w", dest, err, err2)
+		}
+	}
+	if err := os.RemoveAll(bak); err != nil {
+		return fmt.Errorf("installed %s but could not remove backup %s: %w", dest, bak, err)
+	}
 	return nil
 }
 
