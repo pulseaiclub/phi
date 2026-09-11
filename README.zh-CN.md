@@ -16,7 +16,7 @@
 
 **文档：** [pulseaiclub.github.io](https://pulseaiclub.github.io/)
 
-- **又快又小** — 发布二进制约 12 MB，空闲 RSS 约 21 MB，首帧约 40 ms；无 Node / Electron / Python 运行时
+- **又快又小** — 发布二进制约 15 MB，空闲 RSS 约 21 MB，首帧约 31 ms；无 Node / Electron / Python 运行时
 - **子代理（Sub-agents）** — 拉起隔离任务，在 TUI / job 日志里完整看到执行过程，而不是把每一步都塞进父会话上下文
 - **Hashline 编辑** — 用整文件 `@file path#TAG` 加上行级 `LINE#HASH` 锚点改文件（思路对齐 [oh-my-pi](https://github.com/can1357/oh-my-pi)）：模型瞄锚点改，而不是整文件重写；TAG/哈希对不上就拒绝，避免过度编辑和静默写坏
 - **权限门控** — 危险工具先过 Gate / Ask；代理能碰你的代码树时，安全不是可选项
@@ -98,15 +98,34 @@ TUI 给模型提供四个核心工具——`read`、`write`、`edit` 和 `bash`�
 
 ## 资源占用
 
-精简只是底线——phi 还要启动即开、负载下仍省内存。以下数据来自剥离的发布构建
-（`CGO_ENABLED=0`，`-ldflags="-s -w"`），除注明外均在 macOS arm64 上测得。
+精简只是底线——phi 还要启动即开、负载下仍省内存。phi 数字来自剥离的发布构建
+（`CGO_ENABLED=0`，`-ldflags="-s -w"`），在 macOS arm64 上测得。其他 harness
+用已公开的 Linux PSS / 交互式 PTY 数据。
+
+### 首帧时间
+
+<p align="center">
+  <img src="assets/perf-first-frame.png" alt="首帧时间：phi 0.031s，对比其他终端 harness" width="900">
+</p>
+
+### 空闲内存 · 1 个会话
+
+<p align="center">
+  <img src="assets/perf-ram-1.png" alt="空闲内存（1 个会话）：phi 21.2 MB，对比其他终端 harness" width="900">
+</p>
+
+### 空闲内存 · 10 个会话
+
+<p align="center">
+  <img src="assets/perf-ram-10.png" alt="空闲内存（10 个会话）：phi 221 MB，对比其他终端 harness" width="900">
+</p>
 
 | 指标 | phi |
 | --- | ---: |
-| 发布二进制 | **约 12 MB** |
+| 发布二进制 | **约 15 MB** |
 | 空闲 RSS（1 个会话） | **约 21 MB** |
-| 10 个空闲会话（RSS 总量） | **约 196 MB**（每个约 20 MB） |
-| 首帧时间 | **约 40 ms**（27–65 ms） |
+| 10 个空闲会话（RSS 总量） | **约 221 MB** |
+| 首帧时间 | **约 31 ms**（26–49 ms） |
 | 冷 `go build`（空 `GOCACHE`） | **约 5.5 s** |
 | 热重建 | **约 0.7 s** |
 | Go 源码（不含测试） | **约 22k 行** / 107 个文件 |

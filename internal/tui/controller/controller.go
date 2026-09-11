@@ -24,11 +24,10 @@ import (
 	"github.com/pulseaiclub/phi/internal/session"
 )
 
+const defaultAskTimeoutSec = 120
+
 // EngineController owns agent.Engine lifecycle and stream cancellation.
 // It talks to the UI only by publishing Msg values onto the Bus.
-//
-// Construction: NewController(bus, proj, cwd). Callers (cmd) assemble
-// collaborators; EngineController does not call project.GetDefaultProject.
 type EngineController struct {
 	engine *agent.Engine
 	proj   *project.Project
@@ -42,26 +41,23 @@ type EngineController struct {
 	sessionDir string
 	cwd        string
 	modelCfg   llm.ModelConfig
-	// roleModels maps sub-agent role → configured model name for this session.
-	// Empty / missing → inherit modelCfg. Seeded from config; palette can override.
+	// roleModels maps sub-agent role → model name. Empty → inherit modelCfg.
 	roleModels map[job.Role]string
 	jobs       *job.Manager
 	unsubJobs  func()
 
 	gate          permission.Gate
 	askTimeoutSec int
-	allowAll      atomic.Bool // session-wide allow-all for this process
-	agentsEnabled atomic.Bool // when false, agent_* tools are not registered
+	allowAll      atomic.Bool
+	agentsEnabled atomic.Bool
 	extRunner     atomic.Pointer[extension.Runner]
 	mcpPool       *mcp.Pool
 
-	// lastJobProgress dedupes identical Progress publishes (key → signature).
-	lastJobProgress sync.Map
+	lastJobProgress sync.Map // job slot key → last published signature
 }
 
-// NewController wires bus + project into a ready EngineController with a live Engine.
-// proj must be non-nil (typically already LoadConfig'd by cmd). On failure it
-// returns (nil, err) — never a half-initialized EngineController.
+// NewController returns a live EngineController. proj must be non-nil.
+// Failure returns (nil, err), never a half-initialized value.
 func NewController(bus *Bus, proj *project.Project, cwd string) (*EngineController, error) {
 	if bus == nil {
 		return nil, errors.New("tui: nil bus")
@@ -80,30 +76,29 @@ func NewController(bus *Bus, proj *project.Project, cwd string) (*EngineControll
 	if err := proj.LoadConfig(); err != nil {
 		return nil, err
 	}
+	config := proj.Config()
 
 	c := &EngineController{
 		bus:           bus,
 		proj:          proj,
 		cwd:           cwd,
 		sessionDir:    proj.SessionDir(),
-		askTimeoutSec: 120,
-		modelCfg:      proj.Config().Model(),
+		askTimeoutSec: defaultAskTimeoutSec,
+		modelCfg:      config.Model(),
 		roleModels:    make(map[job.Role]string),
 	}
-	// Default: no permission prompts. Toggle via command palette → settings → permissions.
+	// TUI defaults to bypass; palette → settings → permissions toggles it.
 	c.allowAll.Store(true)
-
-	config := proj.Config()
 
 	c.initGate(config.Permissions)
 	c.agentsEnabled.Store(config.Agents.Enabled)
-	if s := strings.TrimSpace(config.Agents.Models.Explore); s != "" {
+	if s := config.Agents.Models.Explore; s != "" {
 		c.roleModels[job.RoleExplore] = s
 	}
-	if s := strings.TrimSpace(config.Agents.Models.Review); s != "" {
+	if s := config.Agents.Models.Review; s != "" {
 		c.roleModels[job.RoleReview] = s
 	}
-	if s := strings.TrimSpace(config.Agents.Models.Worker); s != "" {
+	if s := config.Agents.Models.Worker; s != "" {
 		c.roleModels[job.RoleWorker] = s
 	}
 
@@ -123,22 +118,7 @@ func NewController(bus *Bus, proj *project.Project, cwd string) (*EngineControll
 		c.mcpPool = pool
 	}
 
-	sess, err := agent.NewSession(
-		agent.WithCwd(cwd),
-		agent.WithSessionDir(c.sessionDir),
-		agent.WithPersist(true),
-	)
-	if err != nil {
-		return nil, err
-	}
-	eng, err := agent.NewEngine(c.modelCfg, sess,
-		agent.WithGate(c.gate),
-		agent.WithAsk(c.askPermission),
-		agent.WithContinueAsk(c.askContinue),
-		agent.WithJobs(c.engineJobs()),
-		agent.WithExtensions(extRunner),
-		agent.WithMCP(c.mcpPool),
-	)
+	eng, err := c.openEngine(c.modelCfg, extRunner, "")
 	if err != nil {
 		return nil, err
 	}
@@ -149,9 +129,6 @@ func NewController(bus *Bus, proj *project.Project, cwd string) (*EngineControll
 }
 
 func (c *EngineController) startJobProgress() {
-	if c.jobs == nil || c.bus == nil {
-		return
-	}
 	ch, cancel := c.jobs.Subscribe()
 	c.unsubJobs = cancel
 	go func() {
@@ -163,8 +140,6 @@ func (c *EngineController) startJobProgress() {
 	}()
 }
 
-// shouldPublishJobProgress drops duplicate progress for the same child tool
-// slot (same status/detail/name). Status transitions and new children still publish.
 func (c *EngineController) shouldPublishJobProgress(p job.Progress) bool {
 	key := p.JobID + "\x00" + p.ToolUseID
 	if p.ToolUseID == "" {
@@ -190,53 +165,28 @@ func (c *EngineController) initGate(policy permission.Policy) {
 	}
 	// Do not clear allowAll when config omits dangerously_allow_all — TUI defaults
 	// to bypass, and the palette toggle must survive SetModel / re-init.
+	var inner permission.Gate
 	inner, err := permission.NewGate(policy, permission.WorkspaceRoot())
 	if err != nil {
 		inner, err = permission.NewGate(permission.DefaultPolicy(), permission.WorkspaceRoot())
-		if err != nil {
-			c.gate = &permission.BypassGate{Inner: permission.AllowAll{}, Enabled: &c.allowAll}
-			return
-		}
+	}
+	if err != nil {
+		inner = permission.AllowAll{}
 	}
 	c.gate = &permission.BypassGate{Inner: inner, Enabled: &c.allowAll}
 }
 
-// AllowAll reports whether permission prompts are bypassed for this session.
-func (c *EngineController) AllowAll() bool {
-	if c == nil {
-		return true
-	}
-	return c.allowAll.Load()
-}
-
-// SetAllowAll enables or disables session-wide permission bypass.
 func (c *EngineController) SetAllowAll(v bool) {
-	if c == nil {
-		return
-	}
 	c.allowAll.Store(v)
 }
 
-// AgentsEnabled reports whether sub-agent tools are registered on the main engine.
-func (c *EngineController) AgentsEnabled() bool {
-	if c == nil {
-		return false
-	}
-	return c.agentsEnabled.Load()
-}
-
-// SetAgentsEnabled registers or removes agent_* tools for this session.
 func (c *EngineController) SetAgentsEnabled(v bool) {
-	if c == nil {
-		return
-	}
 	c.agentsEnabled.Store(v)
 	if c.engine != nil {
 		c.engine.SetJobs(c.engineJobs())
 	}
 }
 
-// modelForRole returns the session override for role, or the parent modelCfg.
 func (c *EngineController) modelForRole(role job.Role) llm.ModelConfig {
 	role = job.NormalizeRole(string(role))
 	if name := c.roleModels[role]; name != "" {
@@ -267,33 +217,22 @@ func (c *EngineController) SetRoleModel(role, name string) error {
 	return nil
 }
 
-// engineJobs returns the job manager only when sub-agents are enabled.
 func (c *EngineController) engineJobs() *job.Manager {
-	if c == nil || !c.agentsEnabled.Load() {
+	if !c.agentsEnabled.Load() {
 		return nil
 	}
 	return c.jobs
 }
 
-// Extensions returns the currently loaded extension runner (may be nil).
 func (c *EngineController) Extensions() *extension.Runner {
-	if c == nil {
-		return nil
-	}
 	return c.extRunner.Load()
 }
 
-// ReloadExtensions re-discovers extensions from disk and swaps the runner on the
-// engine (and on future sub-agents via Extensions()).
 func (c *EngineController) ReloadExtensions() (loaded int, warns []extension.Warning, err error) {
-	if c == nil {
-		return 0, nil, errors.New("controller not initialized")
-	}
-	proj := c.proj
-	if proj == nil {
+	if c.proj == nil {
 		return 0, nil, errors.New("project not available")
 	}
-	r, warns, err := extension.Load(proj.Global().ExtensionsDir(), proj.ExtensionsDir())
+	r, warns, err := extension.Load(c.proj.Global().ExtensionsDir(), c.proj.ExtensionsDir())
 	if err != nil {
 		return 0, warns, err
 	}
@@ -308,36 +247,24 @@ func (c *EngineController) ReloadExtensions() (loaded int, warns []extension.War
 	return len(r.Loaded()), warns, nil
 }
 
-// swapExtensionRunner replaces the live runner, closing the previous one and
-// rebinding host UI callbacks onto the replacement.
 func (c *EngineController) swapExtensionRunner(r *extension.Runner) {
-	if c == nil {
-		return
-	}
 	if prev := c.extRunner.Swap(r); prev != nil {
 		prev.Close()
 	}
 	c.bindExtensionHost(r)
-	// The previous runner's UI state died with its subprocesses: reset the
-	// extension footer status slot so stale text (e.g. plan-mode hints) does
-	// not outlive an extension reload / model switch.
+	// Previous runner's UI state died with its subprocesses.
 	c.publish(ExtSessionEffectsMsg{Status: "", StatusSet: true})
 }
 
-// ListExtensions returns the current on-disk discovery (does not swap the runner).
 func (c *EngineController) ListExtensions() ([]extension.Discovered, []extension.Warning, error) {
-	if c == nil {
-		return nil, nil, errors.New("controller not initialized")
-	}
-	proj := c.proj
-	if proj == nil {
+	if c.proj == nil {
 		return nil, nil, errors.New("project not available")
 	}
-	return extension.Discover(proj.Global().ExtensionsDir(), proj.ExtensionsDir())
+	return extension.Discover(c.proj.Global().ExtensionsDir(), c.proj.ExtensionsDir())
 }
 
 // loadExtensions discovers ~/.phi/extensions and <cwd>/.phi/extensions.
-// Load errors are non-fatal (fail-open: no extensions). Child engines stay nil until spawn.
+// Load errors are non-fatal (fail-open: no extensions).
 func loadExtensions(proj *project.Project) *extension.Runner {
 	if proj == nil {
 		return nil
@@ -355,43 +282,36 @@ func logExtensionWarnings(warns []extension.Warning) {
 	for _, w := range warns {
 		debuglog.Logf("extension: %s", w.String())
 	}
-	if n := len(warns); n > 0 {
-		debuglog.Logf("extension: %d warning(s) while loading", n)
-	}
 }
 
 func (c *EngineController) bindExtensionHost(r *extension.Runner) {
-	if c == nil || r == nil {
+	if r == nil {
 		return
 	}
-	cwd := ""
-	sessionID := ""
+	cwd, sessionID := "", ""
 	if c.engine != nil {
 		cwd = c.engine.SessionCwd()
 		sessionID = c.engine.SessionID()
 	} else if c.proj != nil {
 		cwd = c.proj.Root()
 	}
-	ui := extension.BusUI{
-		NotifyFn: func(message, kind string) {
-			toastKind := toast.ToastSuccess
-			switch strings.ToLower(kind) {
-			case "warning":
-				toastKind = toast.ToastWarning
-			case "error":
-				toastKind = toast.ToastError
-			}
-			c.publish(ToastMsg{Message: message, Kind: toastKind, Duration: 3 * time.Second})
-		},
-		SetStatusFn: func(_, text string) {
-			c.publish(ExtSessionEffectsMsg{Status: text, StatusSet: true})
-		},
-		ConfirmFn: func(req ext.ConfirmRequest) ext.ConfirmReply {
-			return c.askExtConfirm(req)
-		},
-	}
 	r.Bind(ext.HostOpts{
-		UI:        ui,
+		UI: extension.BusUI{
+			NotifyFn: func(message, kind string) {
+				toastKind := toast.ToastSuccess
+				switch strings.ToLower(kind) {
+				case "warning":
+					toastKind = toast.ToastWarning
+				case "error":
+					toastKind = toast.ToastError
+				}
+				c.publish(ToastMsg{Message: message, Kind: toastKind, Duration: 3 * time.Second})
+			},
+			SetStatusFn: func(_, text string) {
+				c.publish(ExtSessionEffectsMsg{Status: text, StatusSet: true})
+			},
+			ConfirmFn: c.askExtConfirm,
+		},
 		Cwd:       cwd,
 		SessionID: sessionID,
 		HasUI:     true,
@@ -406,7 +326,29 @@ func (c *EngineController) bindExtensionHost(r *extension.Runner) {
 	})
 }
 
-// askPermission blocks until the confirmation UI answers.
+func (c *EngineController) askTimeout() time.Duration {
+	if c.askTimeoutSec > 0 {
+		return time.Duration(c.askTimeoutSec) * time.Second
+	}
+	return time.Duration(defaultAskTimeoutSec) * time.Second
+}
+
+func waitReply[T any](ctx context.Context, ch <-chan T, timeout time.Duration, onAbort func()) (T, error) {
+	var zero T
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case r := <-ch:
+		return r, nil
+	case <-ctx.Done():
+		onAbort()
+		return zero, ctx.Err()
+	case <-timer.C:
+		onAbort()
+		return zero, nil
+	}
+}
+
 func (c *EngineController) askPermission(
 	ctx context.Context,
 	req permission.Request,
@@ -417,59 +359,33 @@ func (c *EngineController) askPermission(
 	}
 	reply := make(chan AskReply, 1)
 	c.publish(OverlayMsg{Kind: OverlayPermissionAsk, Request: req, Reason: reason, PermReply: reply})
-
-	timeout := time.Duration(c.askTimeoutSec) * time.Second
-	if timeout <= 0 {
-		timeout = 120 * time.Second
-	}
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-
-	select {
-	case r := <-reply:
-		if r.AllowSession || r.AllowPersistent {
-			c.allowAll.Store(true)
-		}
-		if r.AllowPersistent {
-			if c.proj != nil {
-				_ = project.SetDangerouslyAllowAll(c.proj.Global(), true)
-			}
-		}
-		return permission.AskResult{Approved: r.Approved, Feedback: r.Feedback}, nil
-	case <-ctx.Done():
+	r, err := waitReply(ctx, reply, c.askTimeout(), func() {
 		c.publish(OverlayMsg{Kind: OverlayPermissionDismiss})
-		return permission.AskResult{}, ctx.Err()
-	case <-timer.C:
-		c.publish(OverlayMsg{Kind: OverlayPermissionDismiss})
-		return permission.AskResult{}, nil
+	})
+	if err != nil {
+		return permission.AskResult{}, err
 	}
+	if r.AllowSession || r.AllowPersistent {
+		c.allowAll.Store(true)
+	}
+	if r.AllowPersistent && c.proj != nil {
+		_ = project.SetDangerouslyAllowAll(c.proj.Global(), true)
+	}
+	return permission.AskResult{Approved: r.Approved, Feedback: r.Feedback}, nil
 }
 
-// askContinue blocks until the user chooses to continue or stop after max rounds.
 func (c *EngineController) askContinue(ctx context.Context, maxRounds int) (bool, error) {
 	reply := make(chan ContinueReply, 1)
 	c.publish(OverlayMsg{Kind: OverlayContinueAsk, MaxRounds: maxRounds, ContReply: reply})
-
-	timeout := time.Duration(c.askTimeoutSec) * time.Second
-	if timeout <= 0 {
-		timeout = 120 * time.Second
-	}
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-
-	select {
-	case r := <-reply:
-		return r.Continue, nil
-	case <-ctx.Done():
+	r, err := waitReply(ctx, reply, c.askTimeout(), func() {
 		c.publish(OverlayMsg{Kind: OverlayContinueDismiss})
-		return false, ctx.Err()
-	case <-timer.C:
-		c.publish(OverlayMsg{Kind: OverlayContinueDismiss})
-		return false, nil
+	})
+	if err != nil {
+		return false, err
 	}
+	return r.Continue, nil
 }
 
-// askExtConfirm blocks until the user answers an extension Confirm dialog.
 func (c *EngineController) askExtConfirm(req ext.ConfirmRequest) ext.ConfirmReply {
 	reply := make(chan ExtConfirmReply, 1)
 	c.publish(OverlayMsg{
@@ -481,22 +397,12 @@ func (c *EngineController) askExtConfirm(req ext.ConfirmRequest) ext.ConfirmRepl
 		Danger:       req.Danger,
 		ConfirmReply: reply,
 	})
-	timeout := time.Duration(c.askTimeoutSec) * time.Second
-	if timeout <= 0 {
-		timeout = 120 * time.Second
-	}
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	select {
-	case r := <-reply:
-		return ext.ConfirmReply{OK: r.OK}
-	case <-timer.C:
+	r, _ := waitReply(context.Background(), reply, c.askTimeout(), func() {
 		c.publish(OverlayMsg{Kind: OverlayExtConfirmDismiss})
-		return ext.ConfirmReply{}
-	}
+	})
+	return ext.ConfirmReply{OK: r.OK}
 }
 
-// SetModel replaces the LLM client while keeping the same session tree.
 func (c *EngineController) SetModel(name string) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -531,12 +437,10 @@ func (c *EngineController) SetModel(name string) error {
 	return nil
 }
 
-// ImageEnabled reports whether the active model accepts attached images.
 func (c *EngineController) ImageEnabled() bool {
-	return c != nil && c.modelCfg.ImageEnabled
+	return c.modelCfg.ImageEnabled
 }
 
-// SessionID returns the short-form-friendly session id.
 func (c *EngineController) SessionID() string {
 	if c.engine == nil {
 		return ""
@@ -544,23 +448,17 @@ func (c *EngineController) SessionID() string {
 	return c.engine.SessionID()
 }
 
-// SessionDir returns the directory where session JSONL files are stored.
 func (c *EngineController) SessionDir() string {
-	if c == nil {
-		return ""
-	}
 	return c.sessionDir
 }
 
-// LiveJobCount returns in-flight sub-agent jobs (0 if jobs disabled).
 func (c *EngineController) LiveJobCount() int {
-	if c == nil || c.jobs == nil {
+	if c.jobs == nil {
 		return 0
 	}
 	return c.jobs.LiveCount()
 }
 
-// SessionFile returns the JSONL path when persisting.
 func (c *EngineController) SessionFile() string {
 	if c.engine == nil {
 		return ""
@@ -568,69 +466,27 @@ func (c *EngineController) SessionFile() string {
 	return c.engine.SessionFile()
 }
 
-// Resume loads a prior session by id (exact or unique prefix).
-// On success the engine session is replaced; caller should refresh the UI transcript.
-// If the resumed session cwd differs from the process cwd, cwdWarning is non-empty.
 func (c *EngineController) Resume(id string) (cwdWarning string, err error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return "", errors.New("empty session id")
 	}
-	if c.sessionDir == "" {
-		return "", errors.New("session directory not configured")
-	}
-
-	prevID := c.SessionID()
-	out := c.sessionBeforeSwitch("resume", prevID, id)
-	c.publishSessionEffects(out)
-	if out.Denied {
-		reason := out.Reason
-		if reason == "" {
-			reason = "session switch denied by extension"
-		}
-		return "", errors.New(reason)
-	}
-
-	c.Cancel()
-	c.sessionShutdown("resume", prevID)
-
-	cfg := c.modelCfg
-	if cfg.Name == "" {
-		if c.proj == nil {
-			return "", errors.New("project not available")
-		}
-		if err := c.proj.LoadConfig(); err != nil {
-			return "", err
-		}
-		cfg = c.proj.Config().Model()
-	}
-
-	extRunner := loadExtensions(c.proj)
-	// Close the previous runner before attaching the new one so UI host
-	// callbacks and subprocesses do not leak across /resume.
-	c.swapExtensionRunner(extRunner)
-	sess, err := agent.NewSession(
-		agent.WithCwd(c.cwd),
-		agent.WithSessionDir(c.sessionDir),
-		agent.WithPersist(true),
-		agent.WithResumeID(id),
-	)
+	prevID, err := c.beginSessionSwitch("resume", id, true)
 	if err != nil {
 		return "", err
 	}
-	eng, err := agent.NewEngine(cfg, sess,
-		agent.WithGate(c.gate),
-		agent.WithAsk(c.askPermission),
-		agent.WithContinueAsk(c.askContinue),
-		agent.WithJobs(c.engineJobs()),
-		agent.WithExtensions(extRunner),
-		agent.WithMCP(c.mcpPool),
-	)
+	cfg, err := c.resolveModel()
+	if err != nil {
+		return "", err
+	}
+
+	extRunner := loadExtensions(c.proj)
+	c.swapExtensionRunner(extRunner)
+	eng, err := c.openEngine(cfg, extRunner, id)
 	if err != nil {
 		return "", err
 	}
 	if sessCwd := eng.SessionCwd(); sessCwd != "" && c.cwd != "" && sessCwd != c.cwd {
-		// Keep toast-friendly: basenames only, no full paths.
 		cwdWarning = fmt.Sprintf("cwd %s ≠ %s", filepath.Base(sessCwd), filepath.Base(c.cwd))
 	}
 	c.engine = eng
@@ -639,53 +495,18 @@ func (c *EngineController) Resume(id string) (cwdWarning string, err error) {
 	return cwdWarning, nil
 }
 
-// Clear starts a brand-new persisted session (empty transcript, new id).
-// Caller must ensure no agent stream / local bash is in flight.
+// Clear starts a brand-new persisted session. Caller must ensure no agent
+// stream / local bash is in flight.
 func (c *EngineController) Clear() error {
-	if c.sessionDir == "" {
-		return errors.New("session directory not configured")
-	}
-
-	prevID := c.SessionID()
-	out := c.sessionBeforeSwitch("new", prevID, "")
-	c.publishSessionEffects(out)
-	if out.Denied {
-		reason := out.Reason
-		if reason == "" {
-			reason = "session switch denied by extension"
-		}
-		return errors.New(reason)
-	}
-	c.sessionShutdown("new", prevID)
-
-	cfg := c.modelCfg
-	if cfg.Name == "" {
-		if c.proj == nil {
-			return errors.New("project not available")
-		}
-		if err := c.proj.LoadConfig(); err != nil {
-			return err
-		}
-		cfg = c.proj.Config().Model()
-	}
-
-	extRunner := c.Extensions()
-	sess, err := agent.NewSession(
-		agent.WithCwd(c.cwd),
-		agent.WithSessionDir(c.sessionDir),
-		agent.WithPersist(true),
-	)
+	prevID, err := c.beginSessionSwitch("new", "", false)
 	if err != nil {
 		return err
 	}
-	engine, err := agent.NewEngine(cfg, sess,
-		agent.WithGate(c.gate),
-		agent.WithAsk(c.askPermission),
-		agent.WithContinueAsk(c.askContinue),
-		agent.WithJobs(c.engineJobs()),
-		agent.WithExtensions(extRunner),
-		agent.WithMCP(c.mcpPool),
-	)
+	cfg, err := c.resolveModel()
+	if err != nil {
+		return err
+	}
+	engine, err := c.openEngine(cfg, c.Extensions(), "")
 	if err != nil {
 		return err
 	}
@@ -695,9 +516,67 @@ func (c *EngineController) Clear() error {
 	return nil
 }
 
-// ReplaySnapshot builds a UI transcript snapshot from the engine session,
-// resolving tool-call details through the live tool registry so resumed tool
-// rows match the original rendering.
+func (c *EngineController) beginSessionSwitch(reason, targetID string, cancelStream bool) (prevID string, err error) {
+	if c.sessionDir == "" {
+		return "", errors.New("session directory not configured")
+	}
+	prevID = c.SessionID()
+	out := c.sessionBeforeSwitch(reason, prevID, targetID)
+	c.publishSessionEffects(out)
+	if out.Denied {
+		msg := out.Reason
+		if msg == "" {
+			msg = "session switch denied by extension"
+		}
+		return "", errors.New(msg)
+	}
+	if cancelStream {
+		c.Cancel()
+	}
+	c.sessionShutdown(reason, prevID)
+	return prevID, nil
+}
+
+func (c *EngineController) resolveModel() (llm.ModelConfig, error) {
+	if c.modelCfg.Name != "" {
+		return c.modelCfg, nil
+	}
+	if c.proj == nil {
+		return llm.ModelConfig{}, errors.New("project not available")
+	}
+	if err := c.proj.LoadConfig(); err != nil {
+		return llm.ModelConfig{}, err
+	}
+	return c.proj.Config().Model(), nil
+}
+
+func (c *EngineController) openEngine(
+	cfg llm.ModelConfig,
+	extRunner *extension.Runner,
+	resumeID string,
+) (*agent.Engine, error) {
+	opts := []agent.SessionOption{
+		agent.WithCwd(c.cwd),
+		agent.WithSessionDir(c.sessionDir),
+		agent.WithPersist(true),
+	}
+	if resumeID != "" {
+		opts = append(opts, agent.WithResumeID(resumeID))
+	}
+	sess, err := agent.NewSession(opts...)
+	if err != nil {
+		return nil, err
+	}
+	return agent.NewEngine(cfg, sess,
+		agent.WithGate(c.gate),
+		agent.WithAsk(c.askPermission),
+		agent.WithContinueAsk(c.askContinue),
+		agent.WithJobs(c.engineJobs()),
+		agent.WithExtensions(extRunner),
+		agent.WithMCP(c.mcpPool),
+	)
+}
+
 func (c *EngineController) ReplaySnapshot() session.Snapshot {
 	if c.engine == nil || c.engine.Session() == nil {
 		return session.Snapshot{}
@@ -705,7 +584,6 @@ func (c *EngineController) ReplaySnapshot() session.Snapshot {
 	return session.ReplaySnapshot(c.engine.Session().PathEntries(), c.engine.ToolDetail)
 }
 
-// StartPrompt cancels any in-flight stream and starts a new agent loop.
 func (c *EngineController) StartPrompt(text string, pendingSkills []string, images []llm.Image) {
 	ctx, cancel := context.WithCancel(context.Background())
 	c.streamMu.Lock()
@@ -720,7 +598,6 @@ func (c *EngineController) StartPrompt(text string, pendingSkills []string, imag
 	go c.runLoop(ctx, gen, text, pendingSkills, images)
 }
 
-// Cancel aborts the current stream context (if any).
 func (c *EngineController) Cancel() {
 	c.streamMu.Lock()
 	cancel := c.streamCancel
@@ -730,7 +607,6 @@ func (c *EngineController) Cancel() {
 	}
 }
 
-// Close cancels the stream and shuts down jobs, MCP, and extensions.
 func (c *EngineController) Close() {
 	c.sessionShutdown("quit", c.SessionID())
 	c.Cancel()
@@ -768,10 +644,7 @@ func (c *EngineController) sessionShutdown(reason, sessionID string) {
 		return
 	}
 	r.SetMeta(sessionID, c.cwd)
-	out := r.EmitSessionShutdown(ext.SessionShutdownEvent{
-		Reason: reason,
-	})
-	c.publishSessionEffects(out)
+	c.publishSessionEffects(r.EmitSessionShutdown(ext.SessionShutdownEvent{Reason: reason}))
 }
 
 func (c *EngineController) emitSessionStart(reason, sessionID, previousID string) {
@@ -780,11 +653,10 @@ func (c *EngineController) emitSessionStart(reason, sessionID, previousID string
 		return
 	}
 	r.SetMeta(sessionID, c.cwd)
-	out := r.EmitSessionStart(ext.SessionStartEvent{
+	c.publishSessionEffects(r.EmitSessionStart(ext.SessionStartEvent{
 		Reason:            reason,
 		PreviousSessionID: previousID,
-	})
-	c.publishSessionEffects(out)
+	}))
 }
 
 func (c *EngineController) publishSessionEffects(out ext.SessionEffects) {
@@ -798,8 +670,7 @@ func (c *EngineController) publishSessionEffects(out ext.SessionEffects) {
 	})
 }
 
-// Alive reports whether the stream generation still matches gen.
-func (c *EngineController) Alive(gen int) bool {
+func (c *EngineController) alive(gen int) bool {
 	c.streamMu.Lock()
 	ok := c.streamGen == gen
 	c.streamMu.Unlock()
@@ -807,18 +678,34 @@ func (c *EngineController) Alive(gen int) bool {
 }
 
 func (c *EngineController) waitOrDone(ctx context.Context, gen int, d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
 	select {
 	case <-ctx.Done():
 		return false
-	case <-time.After(d):
+	case <-timer.C:
 	}
-	return c.Alive(gen)
+	return c.alive(gen)
 }
 
 func (c *EngineController) publish(m Msg) {
 	if c.bus != nil {
 		c.bus.Publish(m)
 	}
+}
+
+func (c *EngineController) publishLoopError(gen int, errText string) {
+	if !c.alive(gen) {
+		return
+	}
+	c.publish(SessionEventMsg{Event: session.AssistantMessageUpdate{Message: session.Message{
+		ID:    fmt.Sprintf("assistant-error-%d", time.Now().UnixNano()),
+		State: session.StateError,
+		Text:  errText,
+		Content: []session.ContentBlock{
+			{Type: session.BlockText, Text: errText},
+		},
+	}}})
 }
 
 func (c *EngineController) runLoop(
@@ -834,18 +721,7 @@ func (c *EngineController) runLoop(
 	c.publish(FooterMsg{Kind: FooterSetActivity, Activity: ActivityStreaming})
 
 	if c.engine == nil {
-		errText := "agent not configured"
-		if !c.Alive(gen) {
-			return
-		}
-		c.publish(SessionEventMsg{Event: session.AssistantMessageUpdate{Message: session.Message{
-			ID:    fmt.Sprintf("assistant-error-%d", time.Now().UnixNano()),
-			State: session.StateError,
-			Text:  errText,
-			Content: []session.ContentBlock{
-				{Type: session.BlockText, Text: errText},
-			},
-		}}})
+		c.publishLoopError(gen, "agent not configured")
 		return
 	}
 
@@ -853,19 +729,11 @@ func (c *EngineController) runLoop(
 		PendingSkills: pendingSkills,
 		Images:        images,
 	}) {
-		if !c.Alive(gen) {
+		if !c.alive(gen) {
 			return
 		}
 		if err != nil {
-			errText := err.Error()
-			c.publish(SessionEventMsg{Event: session.AssistantMessageUpdate{Message: session.Message{
-				ID:    fmt.Sprintf("assistant-error-%d", time.Now().UnixNano()),
-				State: session.StateError,
-				Text:  errText,
-				Content: []session.ContentBlock{
-					{Type: session.BlockText, Text: errText},
-				},
-			}}})
+			c.publishLoopError(gen, err.Error())
 			return
 		}
 		if ev != nil {

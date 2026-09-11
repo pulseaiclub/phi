@@ -482,7 +482,7 @@ func TestExecutorMixedBatchStaysSequential(t *testing.T) {
 	// The write tool must not start while the first call is still running.
 	select {
 	case name := <-entered:
-		require.Failf(t, "second call %q started before the first finished", name)
+		require.Failf(t, "second call started too early", "second call %q started before the first finished", name)
 	case <-time.After(150 * time.Millisecond):
 	}
 	close(release)

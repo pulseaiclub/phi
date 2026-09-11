@@ -218,8 +218,9 @@ func TestProcessStreamToolUseAndThinking(t *testing.T) {
 	tc := msg.ToolCalls[0]
 	require.Equal(t, "toolu_01", tc.ID)
 	require.Equal(t, "read", tc.Function.Name)
-	require.JSONEq(t, `{"path":"a.go"}`, tc.Function.Arguments)
-	require.JSONEq(t, `{"path":"a.go"}`, args)
+	// Fragments are concatenated, not remarshaled. JSONEq would hide whitespace/key-order drift.
+	require.Equal(t, `{"path":"a.go"}`, tc.Function.Arguments) //nolint:testifylint // json-eq
+	require.Equal(t, `{"path":"a.go"}`, args)                  //nolint:testifylint // json-eq
 }
 
 func TestNormalizeBaseURL(t *testing.T) {

@@ -16,7 +16,7 @@ A lean, high-performance terminal coding agent harness in Go — a sibling to Pi
 
 **Docs:** [pulseaiclub.github.io](https://pulseaiclub.github.io/)
 
-- **Fast and small** — ~12 MB release binary, ~21 MB idle RSS, ~40 ms to first frame; no Node / Electron / Python runtime
+- **Fast and small** — ~15 MB release binary, ~21 MB idle RSS, ~31 ms to first frame; no Node / Electron / Python runtime
 - **Sub-agents** — spawn isolated jobs and watch the full run unfold in the TUI / job logs, without stuffing every turn into the parent context
 - **Hashline edits** — edit by whole-file `@file path#TAG` plus line `LINE#HASH` anchors (same idea as [oh-my-pi](https://github.com/can1357/oh-my-pi)): the model points at anchors instead of rewriting whole files; stale tags/hashes are rejected so over-edits and silent corruption stop here
 - **Permission gate** — Gate / Ask before destructive tools fire; safety is not optional when an agent can touch your tree
@@ -98,15 +98,34 @@ fulfill your requests. External HTTP fetch is available via MCP when configured.
 ## Footprint
 
 Lean is not enough — phi is built to feel instant and stay cheap under load.
-Numbers below are for a stripped release build (`CGO_ENABLED=0`,
-`-ldflags="-s -w"`), measured on macOS arm64 unless noted.
+phi numbers are a stripped release build (`CGO_ENABLED=0`, `-ldflags="-s -w"`)
+on macOS arm64. Other harnesses use published Linux PSS / interactive PTY
+figures.
+
+### Time to first frame
+
+<p align="center">
+  <img src="assets/perf-first-frame.png" alt="Time to first frame: phi 0.031s vs other terminal harnesses" width="900">
+</p>
+
+### Idle RAM · 1 session
+
+<p align="center">
+  <img src="assets/perf-ram-1.png" alt="Idle RAM, 1 session: phi 21.2 MB vs other terminal harnesses" width="900">
+</p>
+
+### Idle RAM · 10 sessions
+
+<p align="center">
+  <img src="assets/perf-ram-10.png" alt="Idle RAM, 10 sessions: phi 221 MB vs other terminal harnesses" width="900">
+</p>
 
 | Metric | phi |
 | --- | ---: |
-| Release binary | **~12 MB** |
+| Release binary | **~15 MB** |
 | Idle RSS (1 session) | **~21 MB** |
-| 10 idle sessions (total RSS) | **~196 MB** (~20 MB each) |
-| Time to first frame | **~40 ms** (27–65 ms) |
+| 10 idle sessions (total RSS) | **~221 MB** |
+| Time to first frame | **~31 ms** (26–49 ms) |
 | Cold `go build` (empty `GOCACHE`) | **~5.5 s** |
 | Warm rebuild | **~0.7 s** |
 | Go source (excl. tests) | **~22k LOC** / 107 files |
