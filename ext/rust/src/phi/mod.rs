@@ -38,7 +38,7 @@ pub use schema::Schema;
 
 type Rd = io::StdinLock<'static>;
 type Wr = io::StdoutLock<'static>;
-type EventHandlers = HashMap<u16, Box<dyn FnMut(pxb::EventNotify)>>;
+type EventHandlers = HashMap<pxb::Event, Box<dyn FnMut(pxb::EventNotify)>>;
 
 /// Host metadata filled by the hello handshake (and refreshed by
 /// `SessionMeta` pushes).
@@ -304,6 +304,21 @@ struct Handlers {
     events: EventHandlers,
 }
 
+/// Bundles all mutable state owned by the run loop, so `serve` and
+/// `serve_command` can borrow individual fields without passing 7+
+/// separate `&mut` parameters.
+struct ServeState<'a> {
+    rd: &'a mut Rd,
+    wr: &'a mut Wr,
+    host: HostInfo,
+    tools: Vec<Tool>,
+    commands: Vec<(String, Command)>,
+    handlers: Handlers,
+    pending_submit: Option<String>,
+    next_host_id: u32,
+    rt: &'a tokio::runtime::Runtime,
+}
+
 /// The author-facing registration surface for a PXB extension binary.
 pub struct Extension {
     name: String,
@@ -402,12 +417,11 @@ impl Extension {
     /// Adds a fire-and-forget lifecycle listener; the payload is the wire
     /// `EventNotify`. Unknown events are ignored.
     pub fn subscribe(&mut self, event: pxb::Event, f: impl FnMut(pxb::EventNotify) + 'static) {
-        let code = event.code();
-        if code == 0 {
+        if event == pxb::Event::Unknown(0) {
             return;
         }
         push_unique(&mut self.events, event);
-        self.handlers.events.insert(code, Box::new(f));
+        self.handlers.events.insert(event, Box::new(f));
     }
 
     /// Speaks PXB on stdin/stdout until the host shuts down.
@@ -424,15 +438,24 @@ impl Extension {
         let host = handshake(&mut rd, &mut wr, &self)?;
         register(&mut wr, &self)?;
 
-        // Destructure so each handler owns only the state it mutates,
-        // instead of aliasing `self` (command handlers take `&mut` state).
         let Extension {
             tools,
             commands,
             handlers,
             ..
         } = self;
-        serve(&mut rd, &mut wr, host, tools, commands, handlers, &rt)
+        let mut state = ServeState {
+            rd: &mut rd,
+            wr: &mut wr,
+            host,
+            tools,
+            commands,
+            handlers,
+            pending_submit: None,
+            next_host_id: 0,
+            rt: &rt,
+        };
+        serve(&mut state)
     }
 }
 
@@ -509,46 +532,32 @@ fn register(wr: &mut Wr, ext: &Extension) -> Result<(), Error> {
 
 /// Dispatches frames until the host shuts down, handing each frame type to a
 /// focused handler that borrows only the state it mutates.
-fn serve(
-    rd: &mut Rd,
-    wr: &mut Wr,
-    mut host: HostInfo,
-    mut tools: Vec<Tool>,
-    mut commands: Vec<(String, Command)>,
-    mut handlers: Handlers,
-    rt: &tokio::runtime::Runtime,
-) -> Result<(), Error> {
-    let mut pending_submit: Option<String> = None;
-    let mut next_host_id: u32 = 0;
-
+fn serve(state: &mut ServeState<'_>) -> Result<(), Error> {
     loop {
-        let f = pxb::read_frame(rd)?;
+        let f = pxb::read_frame(state.rd)?;
         match pxb::FrameType::from_u16(f.header.typ) {
             pxb::FrameType::Shutdown => {
-                pxb::write_frame(wr, pxb::TYPE_SHUTDOWN_ACK, 0, 0, &[])?;
+                pxb::write_frame(state.wr, pxb::TYPE_SHUTDOWN_ACK, 0, 0, &[])?;
                 return Ok(());
             }
-            pxb::FrameType::CommandInvoked => serve_command(
-                rd,
-                wr,
-                &f,
-                &mut host,
-                &mut commands,
-                &mut handlers.events,
-                &mut pending_submit,
-                &mut next_host_id,
-            )?,
-            pxb::FrameType::ToolInvoke => serve_tool(wr, &f, &mut tools, rt)?,
-            pxb::FrameType::ToolDetailInvoke => serve_tool_detail(wr, &f, &mut tools)?,
-            pxb::FrameType::Intercept => serve_intercept(wr, &f, &mut handlers)?,
+            pxb::FrameType::CommandInvoked => serve_command(state, &f)?,
+            pxb::FrameType::ToolInvoke => {
+                serve_tool(state.wr, &f, &mut state.tools, state.rt)?
+            }
+            pxb::FrameType::ToolDetailInvoke => {
+                serve_tool_detail(state.wr, &f, &mut state.tools)?
+            }
+            pxb::FrameType::Intercept => {
+                serve_intercept(state.wr, &f, &mut state.handlers)?
+            }
             pxb::FrameType::Event => {
                 if let Ok(ev) = pxb::decode_event_notify(&f.body) {
-                    dispatch_event(&mut handlers.events, ev);
+                    dispatch_event(&mut state.handlers.events, ev);
                 }
             }
             pxb::FrameType::SessionMeta => {
                 if let Ok(meta) = pxb::decode_session_meta(&f.body) {
-                    apply_session_meta(&mut host, meta);
+                    apply_session_meta(&mut state.host, meta);
                 }
             }
             // Unknown frame types are already consumed by length; ignore.
@@ -563,33 +572,23 @@ fn serve(
 /// Commands stay synchronous: their [`Context`] reads nested PXB frames off
 /// the same pipe, which only works on the loop thread. Use async *tool*
 /// handlers for IO-heavy work.
-#[allow(clippy::too_many_arguments)] // the loop lends each state piece separately
-fn serve_command(
-    rd: &mut Rd,
-    wr: &mut Wr,
-    frame: &pxb::Frame,
-    host: &mut HostInfo,
-    commands: &mut [(String, Command)],
-    events: &mut EventHandlers,
-    pending_submit: &mut Option<String>,
-    next_host_id: &mut u32,
-) -> Result<(), Error> {
+fn serve_command(state: &mut ServeState<'_>, frame: &pxb::Frame) -> Result<(), Error> {
     let inv = pxb::decode_command_invoked(&frame.body)?;
     let mut resp = pxb::CommandResponse {
         ok: true,
         ..Default::default()
     };
-    if let Some((_, cmd)) = commands.iter_mut().find(|(n, _)| *n == inv.name) {
+    if let Some((_, cmd)) = state.commands.iter_mut().find(|(n, _)| *n == inv.name) {
         let mut ctx = Context {
-            cwd: host.cwd.clone(),
-            session_id: host.session_id.clone(),
+            cwd: state.host.cwd.clone(),
+            session_id: state.host.session_id.clone(),
             has_ui: true,
-            rd,
-            wr,
-            host,
-            pending_submit,
-            next_host_id,
-            events,
+            rd: state.rd,
+            wr: state.wr,
+            host: &mut state.host,
+            pending_submit: &mut state.pending_submit,
+            next_host_id: &mut state.next_host_id,
+            events: &mut state.handlers.events,
         };
         if let Err(e) = (cmd.handler)(&inv.args, &mut ctx) {
             resp.ok = false;
@@ -599,10 +598,10 @@ fn serve_command(
         resp.ok = false;
         resp.error = "unknown command".into();
     }
-    resp.submit = pending_submit.take().unwrap_or_default();
+    resp.submit = state.pending_submit.take().unwrap_or_default();
     let body = pxb::encode_command_response(&resp);
     pxb::write_frame(
-        wr,
+        state.wr,
         pxb::TYPE_COMMAND_RESPONSE,
         frame.header.flags,
         frame.header.id,
@@ -795,7 +794,8 @@ fn apply_session_meta(host: &mut HostInfo, meta: pxb::SessionMeta) {
 
 /// Dispatches an event push to its subscriber, if one is registered.
 fn dispatch_event(handlers: &mut EventHandlers, ev: pxb::EventNotify) {
-    if let Some(handler) = handlers.get_mut(&ev.event) {
+    let event = pxb::Event::from_code(ev.event);
+    if let Some(handler) = handlers.get_mut(&event) {
         handler(ev);
     }
 }
@@ -828,6 +828,21 @@ pub struct Context<'a> {
 }
 
 impl Context<'_> {
+    /// The working directory reported by the host.
+    pub fn cwd(&self) -> &str {
+        &self.cwd
+    }
+
+    /// The current session identifier.
+    pub fn session_id(&self) -> &str {
+        &self.session_id
+    }
+
+    /// Whether the host has a UI available.
+    pub fn has_ui(&self) -> bool {
+        self.has_ui
+    }
+
     /// Pushes a toast to the host (`level`: `info` | `warning` | `error`).
     pub fn notify(&mut self, level: &str, message: &str) {
         let body = pxb::encode_notify(&pxb::NotifyMsg {

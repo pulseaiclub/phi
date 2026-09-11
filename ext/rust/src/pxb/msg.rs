@@ -339,15 +339,11 @@ fn decode_u16s(p: &[u8]) -> Result<Vec<u16>, Error> {
         return Err(Error::Truncated);
     }
     let n = u16::from_le_bytes([p[0], p[1]]) as usize;
-    if p.len() < 2 + n * 2 {
-        return Err(Error::Truncated);
-    }
-    let mut out = Vec::with_capacity(n);
-    for i in 0..n {
-        let off = 2 + i * 2;
-        out.push(u16::from_le_bytes([p[off], p[off + 1]]));
-    }
-    Ok(out)
+    let data = p.get(2..2 + n * 2).ok_or(Error::Truncated)?;
+    Ok(data
+        .chunks_exact(2)
+        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .collect())
 }
 
 /// Host→ext when the user runs a slash command.

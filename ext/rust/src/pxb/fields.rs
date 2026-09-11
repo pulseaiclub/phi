@@ -92,9 +92,7 @@ impl FieldWriter {
         }
         let mut inner = Vec::with_capacity(2 + vs.len() * 2);
         inner.extend_from_slice(&(vs.len() as u16).to_le_bytes());
-        for v in vs {
-            inner.extend_from_slice(&v.to_le_bytes());
-        }
+        inner.extend(vs.iter().flat_map(|v| v.to_le_bytes()));
         self.put_bytes(tag, &inner);
     }
 }

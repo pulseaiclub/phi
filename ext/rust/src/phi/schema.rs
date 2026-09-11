@@ -159,11 +159,9 @@ impl Schema {
 
     /// Add an object property. No-op on non-object / raw schemas.
     pub fn property(mut self, name: impl Into<String>, schema: Schema) -> Self {
-        if let SchemaInner::Built(n) = &mut self.inner {
+        if let (SchemaInner::Built(n), SchemaInner::Built(child)) = (&mut self.inner, schema.inner) {
             if n.kind == Kind::Object {
-                if let SchemaInner::Built(child) = schema.inner {
-                    n.properties.insert(name.into(), child);
-                }
+                n.properties.insert(name.into(), child);
             }
         }
         self

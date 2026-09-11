@@ -133,7 +133,7 @@ impl FrameType {
 /// Lifecycle event codes (compact on the wire; strings only at SDK edges).
 /// Append-only: never reuse a code. Unknown codes are ignored by peers that
 /// did not Subscribe to them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Event {
     ToolCall,
     ToolResult,
