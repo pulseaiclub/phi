@@ -647,12 +647,20 @@ func (c *EngineController) Close() {
 	}
 }
 
-func (c *EngineController) sessionBeforeSwitch(reason, fromID, targetID string) ext.SessionEffects {
+func (c *EngineController) sessionRunner(sessionID string) *extension.Runner {
 	r := c.Extensions()
+	if r == nil {
+		return nil
+	}
+	r.SetMeta(sessionID, c.cwd)
+	return r
+}
+
+func (c *EngineController) sessionBeforeSwitch(reason, fromID, targetID string) ext.SessionEffects {
+	r := c.sessionRunner(fromID)
 	if r == nil {
 		return ext.SessionEffects{}
 	}
-	r.SetMeta(fromID, c.cwd)
 	return r.EmitSessionBeforeSwitch(ext.SessionBeforeSwitchEvent{
 		Reason:          reason,
 		TargetSessionID: targetID,
@@ -660,20 +668,18 @@ func (c *EngineController) sessionBeforeSwitch(reason, fromID, targetID string) 
 }
 
 func (c *EngineController) sessionShutdown(reason, sessionID string) {
-	r := c.Extensions()
+	r := c.sessionRunner(sessionID)
 	if r == nil {
 		return
 	}
-	r.SetMeta(sessionID, c.cwd)
 	c.publishSessionEffects(r.EmitSessionShutdown(ext.SessionShutdownEvent{Reason: reason}))
 }
 
 func (c *EngineController) emitSessionStart(reason, sessionID, previousID string) {
-	r := c.Extensions()
+	r := c.sessionRunner(sessionID)
 	if r == nil {
 		return
 	}
-	r.SetMeta(sessionID, c.cwd)
 	c.publishSessionEffects(r.EmitSessionStart(ext.SessionStartEvent{
 		Reason:            reason,
 		PreviousSessionID: previousID,
