@@ -40,6 +40,16 @@ func (m *Mapper) SetTheme(theme components.Theme) {
 	}
 }
 
+// onToggle returns a toggle callback that updates the expanded state for the given entry and triggers a layout invalidation.
+func (m *Mapper) onToggle(id string) func(bool) {
+	return func(expanded bool) {
+		m.expanded[id] = expanded
+		if m.onInvalidate != nil {
+			m.onInvalidate()
+		}
+	}
+}
+
 // Sync rebuilds the widget list from snap, reusing widgets when patchable.
 // dirty lists new-entry indices whose height-relevant content changed (or are new).
 func (m *Mapper) Sync(
@@ -56,16 +66,7 @@ func (m *Mapper) Sync(
 			continue
 		}
 		byID[id] = i
-		switch b := w.(type) {
-		case *block.ThinkingBlock:
-			m.expanded[id] = b.Expanded
-		case *block.ToolBlock:
-			m.expanded[id] = b.Expanded
-		case *block.BashBlock:
-			m.expanded[id] = b.Expanded
-		case *block.AgentBlock:
-			m.expanded[id] = b.Expanded
-		}
+		m.expanded[id] = expandedState(w)
 	}
 
 	newEntries = make([]components.Widget, 0, n)
@@ -249,6 +250,22 @@ func childToolsEqual(a, b []block.ChildTool) bool {
 	return true
 }
 
+// expandedState reads the expanded flag from a known widget type, returning
+// false for widget types that do not carry expand state.
+func expandedState(w components.Widget) bool {
+	switch b := w.(type) {
+	case *block.ThinkingBlock:
+		return b.Expanded
+	case *block.ToolBlock:
+		return b.Expanded
+	case *block.BashBlock:
+		return b.Expanded
+	case *block.AgentBlock:
+		return b.Expanded
+	}
+	return false
+}
+
 func (m *Mapper) widgetFor(it session.Item) components.Widget {
 	exp := m.expanded[it.ID]
 	id := it.ID
@@ -263,12 +280,7 @@ func (m *Mapper) widgetFor(it session.Item) components.Widget {
 			Expanded:    exp || it.Streaming,
 			Theme:       m.theme,
 			Spinner:     m.spinner,
-			OnToggle: func(expanded bool) {
-				m.expanded[id] = expanded
-				if m.onInvalidate != nil {
-					m.onInvalidate()
-				}
-			},
+			OnToggle:    m.onToggle(id),
 		}
 	case session.ItemCompaction:
 		return &block.CompactionBlock{Theme: m.theme, TokensBefore: it.TokensBefore}
@@ -298,24 +310,14 @@ func (m *Mapper) toolWidget(it session.Item, exp bool) components.Widget {
 			ExitCode: run.ExitCode,
 			Expanded: autoExp,
 			Theme:    m.theme,
-			OnToggle: func(expanded bool) {
-				m.expanded[id] = expanded
-				if m.onInvalidate != nil {
-					m.onInvalidate()
-				}
-			},
+			OnToggle: m.onToggle(id),
 		}
 	}
 	if isAgentTreeTool(run.Name) {
 		a := &block.AgentBlock{
-			Theme:   m.theme,
-			Spinner: m.spinner,
-			OnToggle: func(expanded bool) {
-				m.expanded[id] = expanded
-				if m.onInvalidate != nil {
-					m.onInvalidate()
-				}
-			},
+			Theme:    m.theme,
+			Spinner:  m.spinner,
+			OnToggle: m.onToggle(id),
 		}
 		m.fillAgentBlock(a, it)
 		return a
@@ -329,12 +331,7 @@ func (m *Mapper) toolWidget(it session.Item, exp bool) components.Widget {
 		Expanded: autoExp,
 		Theme:    m.theme,
 		Spinner:  m.spinner,
-		OnToggle: func(expanded bool) {
-			m.expanded[id] = expanded
-			if m.onInvalidate != nil {
-				m.onInvalidate()
-			}
-		},
+		OnToggle: m.onToggle(id),
 	}
 }
 
