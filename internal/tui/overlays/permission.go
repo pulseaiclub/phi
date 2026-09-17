@@ -46,16 +46,14 @@ func newPermAskState(req permission.Request, reason string, reply chan controlle
 	}
 }
 
-func (st *permAskState) accent(th components.Theme) (xui.Style, xui.Style) {
+func (*permAskState) accent(th components.Theme) (xui.Style, xui.Style) {
 	return chrome.DecisionPrimary(th), chrome.ModalBorder(th)
 }
 
-func (st *permAskState) preferredHeight(width int, _ xui.WidthMethod) int {
+func (st *permAskState) preferredHeight(_ int, _ xui.WidthMethod) int {
 	if st == nil {
 		return 8
 	}
-	innerW := width - 4
-	innerW = max(innerW, 20)
 	h := 2
 	h++
 	if st.detail != "" {
@@ -235,7 +233,7 @@ func (o *Overlays) handlePermissionKey(ctx *components.EventContext, e xui.KeyEv
 	if st.feedbackMode {
 		return o.handlePermissionFeedbackKey(ctx, e)
 	}
-	return o.handleListAskKey(ctx, e, &st.selected, len(askOptionLabels),
+	return handleListAskKey(ctx, e, &st.selected, len(askOptionLabels),
 		func() { o.resolvePermission(controller.AskReply{}) },
 		func() { o.acceptPermissionOption(askOption(st.selected)) })
 }

@@ -576,13 +576,13 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			}
 			return
 		}
-		if c.routePicker(&c.question, ctx, ev, func() { c.Chat.QuestionOpen = false }) {
+		if routePicker(&c.question, ctx, ev, func() { c.Chat.QuestionOpen = false }) {
 			return
 		}
-		if c.routePicker(&c.slash, ctx, ev, func() { c.Chat.SlashOpen = false }) {
+		if routePicker(&c.slash, ctx, ev, func() { c.Chat.SlashOpen = false }) {
 			return
 		}
-		if c.routePicker(&c.mention, ctx, ev, func() {
+		if routePicker(&c.mention, ctx, ev, func() {
 			c.Chat.MentionOpen = false
 			c.abandonMentionSearch()
 		}) {
@@ -681,13 +681,13 @@ func (c *ComposerPane) handleEscape(ctx *components.EventContext) bool {
 // routePicker drives an open mention-style picker (slash/@/question) when the
 // event is navigation the picker owns; on close it runs onClosed to clear the
 // composer-side open flag (and, for @, abandon the in-flight search).
-func (c *ComposerPane) routePicker(
+func routePicker(
 	p *mention.Picker,
 	ctx *components.EventContext,
 	ev xui.KeyEvent,
 	onClosed func(),
 ) bool {
-	if !(p.Open && mentionNavKey(ev)) {
+	if !p.Open || !mentionNavKey(ev) {
 		return false
 	}
 	p.Handle(ctx, ev)

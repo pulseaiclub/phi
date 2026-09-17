@@ -84,7 +84,7 @@ func (o *Overlays) drawAskPanel(p askPanel, ctx components.DrawContext, width, h
 // and continue asks: escape resolves empty, arrows/j/k/h/l move the selection
 // (wrapping), enter accepts. Kind-specific accept and resolve come in as
 // closures so the typed replies stay local to each ask.
-func (o *Overlays) handleListAskKey(
+func handleListAskKey(
 	ctx *components.EventContext, e xui.KeyEvent, sel *int, n int,
 	resolveEmpty, accept func(),
 ) bool {

@@ -24,7 +24,7 @@ func newContinueAskState(maxRounds int, reply chan controller.ContinueReply) *co
 	}
 }
 
-func (st *continueAskState) accent(th components.Theme) (xui.Style, xui.Style) {
+func (*continueAskState) accent(th components.Theme) (xui.Style, xui.Style) {
 	return chrome.DecisionPrimary(th), chrome.ModalBorder(th)
 }
 
@@ -89,7 +89,7 @@ func (o *Overlays) handleContinueKey(ctx *components.EventContext, e xui.KeyEven
 	if st == nil || !e.Press {
 		return false
 	}
-	return o.handleListAskKey(ctx, e, &st.selected, len(continueOptionLabels),
+	return handleListAskKey(ctx, e, &st.selected, len(continueOptionLabels),
 		func() { o.resolveContinue(controller.ContinueReply{}) },
 		func() { o.acceptContinueOption(st.selected) })
 }
