@@ -126,10 +126,7 @@ func (p *Pane) OpenText(input string, spec []string) {
 func (p *Pane) openParsed(input, loadErr string) {
 	p.active = true
 	p.err = loadErr
-	p.help = false
-	p.searchMode = false
-	p.commentEdit = false
-	p.picker.Hide()
+	p.resetUI()
 	p.pendingG = false
 	p.pendingBracket = 0
 	p.commentPath = diffreview.CommentPath(p.cwd)
@@ -179,10 +176,7 @@ func (p *Pane) Close() {
 		_ = p.saveComments()
 	}
 	p.active = false
-	p.help = false
-	p.searchMode = false
-	p.commentEdit = false
-	p.picker.Hide()
+	p.resetUI()
 }
 
 // Handle consumes keyboard input while the overlay is active.
@@ -312,8 +306,6 @@ func (p *Pane) handleRune(ctx *components.EventContext, r rune) {
 		p.xScroll += 4
 	case 'g':
 		p.pendingG = true
-		ctx.ConsumeAndRedraw()
-		return
 	case 'G':
 		p.setCursor(len(p.rows) - 1)
 	case 'J':
@@ -322,12 +314,8 @@ func (p *Pane) handleRune(ctx *components.EventContext, r rune) {
 		p.jumpFile(-1)
 	case ']':
 		p.pendingBracket = ']'
-		ctx.ConsumeAndRedraw()
-		return
 	case '[':
 		p.pendingBracket = '['
-		ctx.ConsumeAndRedraw()
-		return
 	case 's':
 		p.sideBySide = !p.sideBySide
 		p.revealCursor()
@@ -479,12 +467,7 @@ func (p *Pane) submitComment() {
 		}
 		p.drafts = append(p.drafts, d)
 	}
-	p.dirty = true
-	if err := p.saveComments(); err != nil {
-		p.toast(err.Error())
-		return
-	}
-	p.status = "note saved"
+	p.persistComments("note saved")
 }
 
 func (p *Pane) deleteNote() {
@@ -495,12 +478,7 @@ func (p *Pane) deleteNote() {
 		return
 	}
 	p.removeDraft(drafts[0])
-	p.dirty = true
-	if err := p.saveComments(); err != nil {
-		p.toast(err.Error())
-		return
-	}
-	p.status = "note deleted"
+	p.persistComments("note deleted")
 }
 
 func (p *Pane) removeDraft(target diffreview.CommentDraft) {
@@ -523,6 +501,22 @@ func (p *Pane) saveComments() error {
 		p.dirty = false
 	}
 	return err
+}
+
+func (p *Pane) resetUI() {
+	p.help = false
+	p.searchMode = false
+	p.commentEdit = false
+	p.picker.Hide()
+}
+
+func (p *Pane) persistComments(status string) {
+	p.dirty = true
+	if err := p.saveComments(); err != nil {
+		p.toast(err.Error())
+		return
+	}
+	p.status = status
 }
 
 func (p *Pane) sendToAgent() {
@@ -769,10 +763,7 @@ func (p *Pane) visList() []diffview.Vis {
 	for i := range p.rows {
 		out = append(out, diffview.Vis{Kind: diffview.VisRow, Doc: i, Active: i == p.cursor})
 		for _, d := range idx.DraftsForRow(i) {
-			out = append(
-				out,
-				diffview.Vis{Kind: diffview.VisNote, Doc: i, Active: i == p.cursor, Note: oneLine(d.Body)},
-			)
+			out = append(out, noteVis(i, i == p.cursor, d.Body))
 		}
 	}
 	return out
@@ -797,10 +788,7 @@ func (p *Pane) visSide(idx diffreview.CommentIndex) []diffview.Vis {
 					continue
 				}
 				seen[key] = true
-				out = append(
-					out,
-					diffview.Vis{Kind: diffview.VisNote, Doc: docRow, Active: active, Note: oneLine(d.Body)},
-				)
+				out = append(out, noteVis(docRow, active, d.Body))
 			}
 		}
 	}
@@ -907,6 +895,10 @@ func oneLine(s string) string {
 	s = strings.TrimSpace(s)
 	s = strings.ReplaceAll(s, "\n", " ")
 	return s
+}
+
+func noteVis(doc int, active bool, body string) diffview.Vis {
+	return diffview.Vis{Kind: diffview.VisNote, Doc: doc, Active: active, Note: oneLine(body)}
 }
 
 func emptyMessage(loadErr string, n int, spec []string) string {
