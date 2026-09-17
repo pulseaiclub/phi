@@ -282,20 +282,6 @@ func (c *ComposerPane) SyncBashBorder(text string) {
 	}
 }
 
-// CloseMentionSlash hides @ and / pickers.
-func (c *ComposerPane) CloseMentionSlash() {
-	if c == nil {
-		return
-	}
-	c.mention.Hide()
-	c.Chat.MentionOpen = false
-	c.abandonMentionSearch()
-	c.slash.Hide()
-	c.Chat.SlashOpen = false
-	c.question.Hide()
-	c.Chat.QuestionOpen = false
-}
-
 // SetBashBorderActive toggles bash-mode border styling.
 func (c *ComposerPane) SetBashBorderActive(active bool) {
 	if c == nil {
@@ -480,36 +466,26 @@ func (c *ComposerPane) PickerOverlays(ctx components.DrawContext, listH, width i
 	}
 	var out []components.SubSurface
 	if c.slash.Open {
-		c.slash.AnchorBottomY = listH
-		c.slash.AnchorX = 0
-		c.slash.AnchorWidth = width
-		out = append(out, components.SubSurface{
-			Origin:  components.Point{X: 0, Y: 0},
-			Surface: c.slash.Draw(ctx),
-			Z:       15,
-		})
+		out = append(out, pickerOverlay(&c.slash, ctx, listH, width))
 	}
 	if c.question.Open {
-		c.question.AnchorBottomY = listH
-		c.question.AnchorX = 0
-		c.question.AnchorWidth = width
-		out = append(out, components.SubSurface{
-			Origin:  components.Point{X: 0, Y: 0},
-			Surface: c.question.Draw(ctx),
-			Z:       15,
-		})
+		out = append(out, pickerOverlay(&c.question, ctx, listH, width))
 	}
 	if c.mention.Open {
-		c.mention.AnchorBottomY = listH
-		c.mention.AnchorX = 0
-		c.mention.AnchorWidth = width
-		out = append(out, components.SubSurface{
-			Origin:  components.Point{X: 0, Y: 0},
-			Surface: c.mention.Draw(ctx),
-			Z:       15,
-		})
+		out = append(out, pickerOverlay(&c.mention, ctx, listH, width))
 	}
 	return out
+}
+
+func pickerOverlay(p *mention.Picker, ctx components.DrawContext, listH, width int) components.SubSurface {
+	p.AnchorBottomY = listH
+	p.AnchorX = 0
+	p.AnchorWidth = width
+	return components.SubSurface{
+		Origin:  components.Point{X: 0, Y: 0},
+		Surface: p.Draw(ctx),
+		Z:       15,
+	}
 }
 
 // PaletteOverlay returns the Ctrl+K palette surface when open.
@@ -600,26 +576,16 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			}
 			return
 		}
-		if c.question.Open && mentionNavKey(ev) {
-			c.question.Handle(ctx, ev)
-			if !c.question.Open {
-				c.Chat.QuestionOpen = false
-			}
+		if c.routePicker(&c.question, ctx, ev, func() { c.Chat.QuestionOpen = false }) {
 			return
 		}
-		if c.slash.Open && mentionNavKey(ev) {
-			c.slash.Handle(ctx, ev)
-			if !c.slash.Open {
-				c.Chat.SlashOpen = false
-			}
+		if c.routePicker(&c.slash, ctx, ev, func() { c.Chat.SlashOpen = false }) {
 			return
 		}
-		if c.mention.Open && mentionNavKey(ev) {
-			c.mention.Handle(ctx, ev)
-			if !c.mention.Open {
-				c.Chat.MentionOpen = false
-				c.abandonMentionSearch()
-			}
+		if c.routePicker(&c.mention, ctx, ev, func() {
+			c.Chat.MentionOpen = false
+			c.abandonMentionSearch()
+		}) {
 			return
 		}
 		if ev.Code == xui.KeyPageUp || ev.Code == xui.KeyPageDown {
@@ -710,6 +676,25 @@ func (c *ComposerPane) handleEscape(ctx *components.EventContext) bool {
 		return true
 	}
 	return false
+}
+
+// routePicker drives an open mention-style picker (slash/@/question) when the
+// event is navigation the picker owns; on close it runs onClosed to clear the
+// composer-side open flag (and, for @, abandon the in-flight search).
+func (c *ComposerPane) routePicker(
+	p *mention.Picker,
+	ctx *components.EventContext,
+	ev xui.KeyEvent,
+	onClosed func(),
+) bool {
+	if !(p.Open && mentionNavKey(ev)) {
+		return false
+	}
+	p.Handle(ctx, ev)
+	if !p.Open {
+		onClosed()
+	}
+	return true
 }
 
 func (c *ComposerPane) onMentionChange(active bool, query string) {

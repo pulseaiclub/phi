@@ -29,7 +29,6 @@ func (s stubComposer) PendingImages() []imgutil.Attachment { return s.images }
 func (stubComposer) ClearPendingSkills()                   {}
 func (stubComposer) ClearPendingImages()                   {}
 func (stubComposer) SyncBashBorder(string)                 {}
-func (stubComposer) CloseMentionSlash()                    {}
 func (stubComposer) SetBashBorderActive(bool)              {}
 
 func newTestSubmitter(

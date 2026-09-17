@@ -99,7 +99,7 @@ func TestHideCompletersCancelsSearch(t *testing.T) {
 	inner := c.mentionCancel
 	c.mentionCancel = func() { close(done); inner() }
 
-	c.CloseMentionSlash()
+	c.HideCompleters()
 
 	select {
 	case <-done:

@@ -131,7 +131,7 @@ func (s *Submitter) handleUserInput(text string) {
 		return
 	}
 
-	s.composer.CloseMentionSlash()
+	s.composer.HideCompleters()
 
 	llmImages := make([]llm.Image, 0, len(pendingImages))
 	for _, att := range pendingImages {
