@@ -1,0 +1,2 @@
+true: Some listed command starts with `typed_so_far`, or `typed_so_far` is clearly an abbreviation or fragment of one of the listed commands.
+false: `typed_so_far` does not match the beginning, an abbreviation, or a fragment of any listed command; the user is typing something not in the list.
