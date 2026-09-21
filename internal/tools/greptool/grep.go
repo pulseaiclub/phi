@@ -31,7 +31,14 @@ const (
 	grepDefaultMaxBytes = 50 * 1024
 	grepMaxLineRunes    = 500
 	grepTruncatedSuffix = "... [truncated]"
+	// A --json event embeds the whole matched line, so a single minified bundle
+	// or sourcemap line can yield a multi-megabyte event. Events above this cap
+	// are skipped, never fatal.
+	grepMaxEventBytes = 2 << 20
 )
+
+// errOversizedEvent reports a ripgrep event larger than grepMaxEventBytes.
+var errOversizedEvent = errors.New("ripgrep event exceeds size cap")
 
 var grepDescription = fmt.Sprintf(
 	`Search file contents by regex or literal text and return matching lines as LINE#HASH anchors.
@@ -202,34 +209,43 @@ func runGrep(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 		return tooldef.Result{}, fmt.Errorf("ripgrep stderr: %w", err)
 	}
 	var stderrBuf bytes.Buffer
-	go func() { _, _ = io.Copy(&stderrBuf, stderr) }()
+	stderrDone := make(chan struct{})
+	go func() {
+		defer close(stderrDone)
+		_, _ = io.Copy(&stderrBuf, stderr)
+	}()
 
 	if err := cmd.Start(); err != nil {
 		return tooldef.Result{}, fmt.Errorf("failed to run ripgrep: %w", err)
 	}
 
-	scanner := bufio.NewScanner(stdout)
-	scanBuf := make([]byte, 64*1024)
-	scanner.Buffer(scanBuf, 1024*1024)
+	reader := bufio.NewReaderSize(stdout, 64*1024)
 
 	var matches []grepMatch
 	matchCount := 0
+	oversizedEvents := 0
 	matchLimitReached := false
 	killedForLimit := false
 
-	for scanner.Scan() {
+	for {
 		if ctx.Err() != nil {
-			_ = cmd.Process.Kill()
-			_, _ = io.Copy(io.Discard, stdout)
-			_ = cmd.Wait()
+			stopRipgrep(cmd, stdout)
 			return tooldef.Result{}, ctx.Err()
 		}
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || matchCount >= effectiveLimit {
+		line, err := readEvent(reader, grepMaxEventBytes)
+		if errors.Is(err, errOversizedEvent) {
+			oversizedEvents++
 			continue
 		}
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			stopRipgrep(cmd, stdout)
+			return tooldef.Result{}, fmt.Errorf("reading ripgrep output: %w", err)
+		}
 		var ev rgJSONEvent
-		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+		if err := json.Unmarshal(line, &ev); err != nil {
 			continue
 		}
 		if ev.Type != "match" {
@@ -245,20 +261,17 @@ func runGrep(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 		if matchCount >= effectiveLimit {
 			matchLimitReached = true
 			killedForLimit = true
-			_ = cmd.Process.Kill()
+			stopRipgrep(cmd, stdout)
 			break
 		}
 	}
 
-	if killedForLimit {
-		_, _ = io.Copy(io.Discard, stdout)
+	// Reap ripgrep. Paths that killed it early already waited inside stopRipgrep.
+	var waitErr error
+	if !killedForLimit {
+		waitErr = cmd.Wait()
 	}
-	if err := scanner.Err(); err != nil && ctx.Err() == nil && !killedForLimit {
-		_ = cmd.Wait()
-		return tooldef.Result{}, fmt.Errorf("reading ripgrep output: %w", err)
-	}
-
-	waitErr := cmd.Wait()
+	<-stderrDone
 	if ctx.Err() != nil {
 		return tooldef.Result{}, ctx.Err()
 	}
@@ -275,6 +288,14 @@ func runGrep(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 
 	if matchCount == 0 {
 		content := "No matches found"
+		if oversizedEvents > 0 {
+			content = fmt.Sprintf(
+				"No matches found: %d match lines exceeded %s and were skipped. "+
+					"Narrow the search with path or glob",
+				oversizedEvents,
+				formatBytes(grepMaxEventBytes),
+			)
+		}
 		return tooldef.Result{Content: content, Detail: "0 matches", Output: content}, nil
 	}
 
@@ -340,12 +361,62 @@ func runGrep(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 			grepMaxLineRunes,
 		))
 	}
+	if oversizedEvents > 0 {
+		notices = append(notices, fmt.Sprintf(
+			"%d match lines exceeded %s and were skipped. Narrow the search with path or glob",
+			oversizedEvents,
+			formatBytes(grepMaxEventBytes),
+		))
+	}
 	if len(notices) > 0 {
 		output += "\n\n[" + strings.Join(notices, ". ") + "]"
 	}
 
 	detail := fmt.Sprintf("%d matches", matchCount)
 	return tooldef.Result{Content: output, Detail: detail, Output: output}, nil
+}
+
+// readEvent reads one newline-terminated ripgrep JSON event, buffering at most
+// maxBytes of it. A larger event is consumed but reported as errOversizedEvent.
+//
+// Consuming it is the point: a reader that stops mid-stream leaves ripgrep
+// blocked writing into a full pipe, and cmd.Wait never returns.
+func readEvent(r *bufio.Reader, maxBytes int) ([]byte, error) {
+	buf := make([]byte, 0, 1024)
+	oversized := false
+	for {
+		chunk, err := r.ReadSlice('\n')
+		if len(chunk) > 0 {
+			if oversized || len(buf)+len(chunk) > maxBytes {
+				oversized = true
+				buf = nil
+			} else {
+				buf = append(buf, chunk...)
+			}
+		}
+		switch {
+		case err == nil:
+			if oversized {
+				return nil, errOversizedEvent
+			}
+			return buf, nil
+		case errors.Is(err, bufio.ErrBufferFull):
+			continue
+		case errors.Is(err, io.EOF) && !oversized && len(buf) > 0:
+			// Final event without a trailing newline; report EOF on the next read.
+			return buf, nil
+		default:
+			return nil, err
+		}
+	}
+}
+
+// stopRipgrep kills ripgrep, drains stdout and reaps it. The drain is required:
+// skipping it leaves Wait blocked on a pipe no one is reading.
+func stopRipgrep(cmd *exec.Cmd, stdout io.Reader) {
+	_ = cmd.Process.Kill()
+	_, _ = io.Copy(io.Discard, stdout)
+	_ = cmd.Wait()
 }
 
 func resolveRipgrepPath() (string, error) {
