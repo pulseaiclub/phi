@@ -256,6 +256,8 @@ func (e *Editor) Update(m controller.Msg) {
 		e.submitter.Cancel()
 	case controller.MentionResultsMsg:
 		e.composer.ApplyMentionResults(msg)
+	case controller.BashSuggestionsMsg:
+		e.composer.ApplyBashSuggestions(msg)
 	case controller.OverlayMsg:
 		e.overlays.Apply(msg)
 	case controller.FooterMsg:
