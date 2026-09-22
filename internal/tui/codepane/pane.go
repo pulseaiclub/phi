@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -800,20 +801,35 @@ func readFileLines(abs string) ([]string, error) {
 
 // loadMessage renders a load failure the way the status row wants it: the path
 // relative to cwd, not an absolute path the status row would truncate before
-// the reason becomes legible.
+// the reason becomes legible. The reason itself is mapped to short, OS-neutral
+// text — Windows syscall strings are long and hard to scan.
 func loadMessage(cwd string, err error) string {
 	if pe, ok := errors.AsType[*os.PathError](err); ok {
-		return fmt.Sprintf("%s: %v", relPath(cwd, pe.Path), pe.Err)
+		return fmt.Sprintf("%s: %s", relPath(cwd, pe.Path), statReason(pe.Err))
 	}
 	return err.Error()
 }
 
+func statReason(err error) string {
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return "no such file"
+	case errors.Is(err, fs.ErrPermission):
+		return "permission denied"
+	default:
+		return err.Error()
+	}
+}
+
+// relPath renders abs for the UI with forward slashes: titles, status rows and
+// copied locations are shown and pasted on every platform, and "src\\a.go:2"
+// is worthless in a terminal or editor on the other OS.
 func relPath(cwd, abs string) string {
 	rel, err := filepath.Rel(cwd, abs)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return abs
+		return filepath.ToSlash(abs)
 	}
-	return rel
+	return filepath.ToSlash(rel)
 }
 
 func humanBytes(n int64) string {

@@ -589,7 +589,9 @@ func uriToPath(uri string) (string, error) {
 		// The "file:C:/x" form parses into Opaque rather than Path.
 		p = u.Opaque
 	}
-	if runtime.GOOS == "windows" || isDrivePath(strings.TrimPrefix(p, "/")) {
+	// Only a Windows drive path may lose the leading slash; stripping it from
+	// a POSIX path would turn /home/x into home/x.
+	if isDrivePath(strings.TrimPrefix(p, "/")) {
 		p = strings.TrimPrefix(p, "/")
 	}
 	return filepath.FromSlash(p), nil

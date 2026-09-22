@@ -422,7 +422,9 @@ func TestRelPathFallsBackToAbsoluteOutsideCwd(t *testing.T) {
 	cwd := t.TempDir()
 	assert.Equal(t, "a/b.go", relPath(cwd, filepath.Join(cwd, "a", "b.go")))
 	outside := filepath.Join(t.TempDir(), "x.go")
-	assert.Equal(t, outside, relPath(cwd, outside))
+	// The fallback feeds titles and the clipboard, so it renders with forward
+	// slashes too, not the os-native form.
+	assert.Equal(t, filepath.ToSlash(outside), relPath(cwd, outside))
 }
 
 func TestHumanBytes(t *testing.T) {
