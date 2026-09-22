@@ -13,7 +13,7 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/listpicker"
-	"github.com/pulseaiclub/phi/internal/lsp"
+	"github.com/pulseaiclub/phi/internal/util/lsp"
 )
 
 // harness collects the pane's side effects so tests can assert on them.

@@ -1,6 +1,6 @@
 # Language servers
 
-`internal/lsp` is a small LSP client for one workspace root. It exists so the
+`internal/util/lsp` is a small LSP client for one workspace root. It exists so the
 `/code` pane can answer navigation questions with real type information instead
 of a regular-expression guess. It depends on the standard library only and
 touches neither disk nor network beyond reading files the server asks about.

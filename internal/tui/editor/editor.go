@@ -13,7 +13,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/chat"
 	"github.com/pulseaiclub/phi/internal/components/palette"
 	"github.com/pulseaiclub/phi/internal/components/toast"
-	"github.com/pulseaiclub/phi/internal/lsp"
+	"github.com/pulseaiclub/phi/internal/util/lsp"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/codepane"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
