@@ -6,6 +6,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sync"
+
+	"github.com/pulseaiclub/phi/internal/orca"
 )
 
 // GlobalLayout describes the global phi home directory (~/.phi).
@@ -88,6 +91,11 @@ type Project struct {
 	root   string
 	global GlobalLayout
 	config *Config
+	// orca is the OrcaRouter credential store, created on first use. It is the
+	// one place a provider secret is read from and written to, shared by the
+	// API-key path, the PKCE path, the catalog fetch, and the GUI.
+	orca     *orca.Store
+	orcaOnce sync.Once
 }
 
 // Root returns the working directory the project was resolved from.
@@ -99,10 +107,20 @@ func (p *Project) Global() GlobalLayout { return p.global }
 // Config returns the loaded configuration, or nil before LoadConfig.
 func (p *Project) Config() *Config { return p.config }
 
+// OrcaStore returns the OrcaRouter credential store for this workspace. The
+// store persists to the phi home directory that already holds config,
+// sessions, and jobs — no new secret store is introduced.
+func (p *Project) OrcaStore() *orca.Store {
+	p.orcaOnce.Do(func() {
+		p.orca = orca.NewStore(orca.DefaultStorePath(p.global.Root()))
+	})
+	return p.orca
+}
+
 // LoadConfig reads, env-overrides and finalizes the global configuration.
 // The result is cached on the Project until the next LoadConfig call.
 func (p *Project) LoadConfig() error {
-	cfg, err := loadConfig(p.global)
+	cfg, err := loadConfig(p.global, p.OrcaStore())
 	if err != nil {
 		return err
 	}

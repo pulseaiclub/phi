@@ -20,6 +20,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/util"
 )
 
@@ -84,7 +86,15 @@ type modelListRequest struct {
 	BaseURL string `json:"baseUrl"`
 	APIKey  string `json:"apiKey"`
 	Model   string `json:"model"`
-	API     string `json:"api"` // OpenAI | OpenAIResponses | Anthropic | Gemini; empty falls back to legacy heuristics
+	API     string `json:"api"` // OpenAI | OpenAIResponses | Anthropic | Gemini | OrcaRouter; empty falls back to legacy heuristics
+	// Capability selects which models this entry point may offer. It is
+	// required for OrcaRouter: the model list is filtered per AI entry point,
+	// and a request without one is treated as chat.
+	Capability string `json:"capability"`
+	// ImageInput requests the chat list restricted to models that declare an
+	// image input modality, so a text-only model is never offered where an
+	// attachment can be sent.
+	ImageInput bool `json:"imageInput"`
 }
 
 type modelListItem struct {
@@ -103,14 +113,45 @@ const (
 	anthropicAPIVersion   = "2023-06-01"
 	modelListRequestLimit = 15 * time.Second
 	modelListBodyLimit    = int64(4 << 20)
+	// orcaConnectTimeout bounds one browser authorization attempt driven from
+	// the config page. The authorization code itself expires after 10 minutes.
+	orcaConnectTimeout = 10 * time.Minute
 )
 
 // configHandler serves the embedded editor page and its /api/config endpoints.
 type configHandler struct {
 	configPath string
+	// proj supplies the OrcaRouter credential store and origins. It may be nil
+	// in tests that only exercise config parsing.
+	proj *project.Project
+	// orca holds the in-flight OrcaRouter authorization attempt.
+	orca orcaState
 }
 
 func (h *configHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	switch r.URL.Path {
+	case "/api/orca/connect":
+		if !isLoopbackHost(r.Host) {
+			writeConfigErr(w, http.StatusForbidden, errors.New("request origin is not allowed"))
+			return
+		}
+		h.handleOrcaConnect(w, r)
+		return
+	case "/api/orca/connect/status":
+		if !isLoopbackHost(r.Host) {
+			writeConfigErr(w, http.StatusForbidden, errors.New("request origin is not allowed"))
+			return
+		}
+		h.handleOrcaConnectStatus(w, r)
+		return
+	case "/api/orca/credential":
+		if !isLoopbackHost(r.Host) {
+			writeConfigErr(w, http.StatusForbidden, errors.New("request origin is not allowed"))
+			return
+		}
+		h.handleOrcaCredential(w, r)
+		return
+	}
 	if (r.URL.Path == "/api/config" || r.URL.Path == "/api/models") && !isLoopbackHost(r.Host) {
 		writeConfigErr(w, http.StatusForbidden, errors.New("request origin is not allowed"))
 		return
@@ -165,7 +206,7 @@ func (h *configHandler) handleConfig(w http.ResponseWriter, r *http.Request) {
 
 // handleModels fetches model IDs through the local config server so the page
 // does not need cross-origin access to a provider API.
-func (*configHandler) handleModels(w http.ResponseWriter, r *http.Request) {
+func (h *configHandler) handleModels(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -178,6 +219,14 @@ func (*configHandler) handleModels(w http.ResponseWriter, r *http.Request) {
 	var input modelListRequest
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeConfigErr(w, http.StatusBadRequest, fmt.Errorf("bad request: %w", err))
+		return
+	}
+
+	// OrcaRouter is a first-class route with its own catalog, credential seam,
+	// and capability filtering: it never falls through to the generic
+	// OpenAI-compatible path below.
+	if input.API == string(llm.OrcaRouter) {
+		h.handleOrcaModels(w, r, input)
 		return
 	}
 

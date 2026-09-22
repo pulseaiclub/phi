@@ -38,6 +38,7 @@ func buildRoot() *cli.Command {
 		Long: `phi                start the interactive TUI
 phi tui            start the interactive TUI
 phi config         open the HTML config editor (local web server)
+phi auth login     connect OrcaRouter (OAuth 2.0 + PKCE or an API key)
 phi update         install the latest release (see 'phi update --help')
 phi run -p "..."   run one agent loop headlessly (see 'phi run --help')
 phi sessions list  list persisted sessions for this directory
@@ -57,6 +58,7 @@ phi plugin …          install/list/update/remove extensions (see 'phi plugin -
 		&mcpCommand,
 		&pluginCommand,
 		&configCommand,
+		&authCommand,
 		&updateCommand,
 	)
 	return r

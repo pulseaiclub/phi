@@ -9,6 +9,9 @@ phi-debug.log
 
 # local lint report, not committed
 lint-report.md
+
+# generated UI evidence (recreated by orca-evidence-src/generate_evidence.py)
+/orca-evidence/
 .phi/
 
 # Rust extension SDK build output

@@ -587,7 +587,7 @@ func (c *EngineController) openEngine(
 	if err != nil {
 		return nil, err
 	}
-	return agent.NewEngine(cfg, sess,
+	engineOpts := []agent.EngineOption{
 		agent.WithGate(c.gate),
 		agent.WithAsk(c.askPermission),
 		agent.WithContinueAsk(c.askContinue),
@@ -595,7 +595,11 @@ func (c *EngineController) openEngine(
 		agent.WithExtensions(extRunner),
 		agent.WithMCP(c.mcpPool),
 		agent.WithHooks(model.HooksFor(cfg.Name)),
-	)
+	}
+	if authFailure := c.orcaAuthFailure(cfg); authFailure != nil {
+		engineOpts = append(engineOpts, agent.WithAuthFailure(authFailure))
+	}
+	return agent.NewEngine(cfg, sess, engineOpts...)
 }
 
 func (c *EngineController) ReplaySnapshot() session.Snapshot {

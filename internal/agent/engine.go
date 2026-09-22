@@ -52,6 +52,7 @@ type Engine struct {
 	baseTools    []tools.Tool      // nil = DefaultTools; preserved across rebind
 	omitExtTools bool              // sub-agents: emit events but skip RegisterTool merge
 	mcp          *mcp.Pool
+	authFailure  AuthFailureFunc // terminal-401 notification; nil = ignore
 
 	session *Session
 }
@@ -77,6 +78,7 @@ func NewEngine(model llm.ModelConfig, sess *Session, opts ...EngineOption) (*Eng
 		extensions:   cfg.extensions,
 		omitExtTools: cfg.omitExtTools,
 		mcp:          cfg.mcp,
+		authFailure:  cfg.authFailure,
 	}
 	if cfg.maxRounds > 0 {
 		engine.maxRounds = cfg.maxRounds
@@ -444,6 +446,7 @@ func (engine *Engine) runCompact(
 
 	comp, err := compaction.Compact(ctx, *prep, engine.client)
 	if err != nil {
+		engine.notifyAuthFailure(err)
 		_ = yield(session.CompactionComplete{ID: id, Failed: true}, nil)
 		return false, err
 	}
@@ -456,6 +459,19 @@ func (engine *Engine) runCompact(
 	}
 	engine.extensions.EmitSessionCompact("auto")
 	return true, nil
+}
+
+// notifyAuthFailure reports a terminal 401 to the callback registered with
+// WithAuthFailure. A durable credential cannot be refreshed, so the callback
+// marks the exact account and generation that was rejected; the error is still
+// returned unchanged so the user sees why the turn stopped.
+func (engine *Engine) notifyAuthFailure(err error) {
+	if engine == nil || engine.authFailure == nil || err == nil {
+		return
+	}
+	if llm.IsUnauthorized(err) {
+		engine.authFailure(engine.modelCfg)
+	}
 }
 
 // streamTurn runs one assistant stream. On success it returns the final
@@ -475,6 +491,7 @@ func (engine *Engine) streamTurn(
 
 	for event, err := range engine.client.Stream(ctx, messages) {
 		if err != nil {
+			engine.notifyAuthFailure(err)
 			if thinking != "" || text != "" {
 				_ = yield(emitMessage(id, session.StateError, session.StopNone, thinking, text, nil, llm.Usage{}), nil)
 			}

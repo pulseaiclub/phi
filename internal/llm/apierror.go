@@ -3,13 +3,36 @@ package llm
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 )
 
 // maxAPIErrorBodyChars caps the raw-body fallback in FormatAPIError so a
 // non-JSON error page can never flood the terminal or the session history.
 const maxAPIErrorBodyChars = 2000
+
+// APIError is a non-2xx provider response, carrying the status so callers can
+// distinguish a terminal authentication failure from a retryable one without
+// parsing the message.
+type APIError struct {
+	Provider string
+	Status   int
+	Message  string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("%s API error (%d): %s", e.Provider, e.Status, e.Message)
+}
+
+// IsUnauthorized reports whether err is a provider 401. A durable credential
+// such as an OrcaRouter key has no refresh grant, so a 401 is terminal: the
+// account must re-authenticate rather than retry.
+func IsUnauthorized(err error) bool {
+	var apiErr *APIError
+	return errors.As(err, &apiErr) && apiErr.Status == http.StatusUnauthorized
+}
 
 // FormatAPIError builds a compact, human-readable error for a non-2xx
 // provider response: "<provider> API error (<status>): <message>". Provider
@@ -27,7 +50,7 @@ func FormatAPIError(provider string, status int, body []byte) error {
 	if msg == "" {
 		msg = "empty error response"
 	}
-	return fmt.Errorf("%s API error (%d): %s", provider, status, msg)
+	return &APIError{Provider: provider, Status: status, Message: msg}
 }
 
 // apiErrorMessage extracts the human-readable message from a provider error

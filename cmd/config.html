@@ -489,11 +489,100 @@
   }
 
   .model-picker {
+    position: relative;
     min-width: 0;
     margin-top: 0;
   }
 
   .model-picker[hidden] { display: none; }
+
+  /* The model list is a custom listbox, not a native <select>: the native
+     popup is drawn by the OS and cannot be styled or captured, so a filtered
+     catalog could not be shown as real evidence. */
+  .model-picker-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    min-width: 0;
+    height: 40px;
+    margin-top: 7px;
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    padding: 8px 10px;
+    background: var(--surface-muted);
+    color: var(--text);
+    font-size: 13px;
+    text-align: left;
+  }
+
+  .model-picker-trigger:not(:disabled):hover { border-color: var(--blue); }
+
+  .model-picker-trigger[aria-expanded="true"] {
+    border-color: var(--blue);
+    box-shadow: 0 0 0 2px rgba(114, 167, 255, .14);
+  }
+
+  .model-picker-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .model-picker-label.placeholder { color: #637183; }
+
+  .model-picker-caret { flex: 0 0 auto; color: var(--text-muted); font-size: 11px; }
+
+  /* The panel is opaque and bordered so it reads as a real dropdown even when
+     a screenshot is taken while it is open. */
+  .model-picker-panel {
+    position: absolute;
+    z-index: 30;
+    top: calc(100% + 4px);
+    right: 0;
+    left: 0;
+    max-height: 280px;
+    overflow-y: auto;
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    background: var(--surface-strong);
+    box-shadow: 0 14px 34px rgba(0, 0, 0, .45);
+  }
+
+  .model-picker-panel[hidden] { display: none; }
+
+  .model-picker-option {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    border: 0;
+    border-radius: 0;
+    padding: 9px 11px;
+    background: transparent;
+    color: var(--text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    text-align: left;
+    overflow-wrap: anywhere;
+  }
+
+  .model-picker-option:not(:disabled):hover,
+  .model-picker-option:focus-visible {
+    background: #263347;
+    outline: none;
+  }
+
+  .model-picker-option[aria-selected="true"] { color: var(--blue); font-weight: 600; }
+
+  .model-picker-option.is-placeholder { color: var(--text-muted); font-family: inherit; }
+
+  .model-picker-empty {
+    padding: 11px;
+    color: var(--text-muted);
+    font-size: 12.5px;
+  }
 
   .model-fetch-status {
     min-height: 18px;
@@ -739,6 +828,101 @@
     outline: 2px solid var(--blue);
     outline-offset: 2px;
   }
+
+  .orca-badge {
+    flex: 0 0 auto;
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    padding: 2px 9px;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .orca-badge.connected { border-color: #2f5d45; color: var(--green); }
+  .orca-badge.attention { border-color: #6b4a33; color: var(--amber); }
+
+  .orca-methods {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 16px;
+  }
+
+  .orca-method {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+  }
+
+  .orca-method-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 11px;
+  }
+
+  .orca-method-mark {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    background: var(--surface-strong);
+    color: var(--blue);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .orca-method-title {
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .orca-method-help {
+    margin-top: 3px;
+    color: var(--text-muted);
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+
+  .orca-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .orca-code-row {
+    display: grid;
+    gap: 7px;
+  }
+
+  .orca-code-row[hidden] { display: none; }
+
+  .orca-auth-url {
+    margin: 0;
+    padding: 9px 10px;
+    border: 1px dashed var(--border-strong);
+    border-radius: 6px;
+    background: var(--surface-muted);
+    color: var(--text-muted);
+    font-size: 11.5px;
+    overflow-wrap: anywhere;
+  }
+
+  .orca-auth-url[hidden] { display: none; }
+
+  .orca-console {
+    margin-top: 12px;
+    color: var(--text-subtle);
+    font-size: 12px;
+  }
+
+  .orca-console a { color: var(--blue); }
 </style>
 </head>
 <body>
@@ -877,6 +1061,65 @@
         </fieldset>
       </div>
     </section>
+
+    <section class="section orca-section" id="orcaSection">
+      <div class="section-head">
+        <div>
+          <div class="section-title-row">
+            <h2 data-i18n="orcaHeading">OrcaRouter</h2>
+            <span class="orca-badge" id="orcaBadge" data-i18n="orcaNotConnected">Not connected</span>
+          </div>
+          <p class="section-help" data-i18n="orcaHelp">OrcaRouter is an OpenAI-compatible AI gateway that routes many providers behind one endpoint. Choose one of the two ways to connect; both end in the same OrcaRouter API key.</p>
+        </div>
+      </div>
+      <div class="orca-methods">
+        <article class="orca-method" id="orcaApiKeyMethod">
+          <header class="orca-method-head">
+            <span class="orca-method-mark" aria-hidden="true">K</span>
+            <div>
+              <div class="orca-method-title" data-i18n="orcaApiKeyTitle">OrcaRouter - API</div>
+              <p class="orca-method-help" data-i18n="orcaApiKeyHelp">Paste an existing sk-orca-… key. Stored in ~/.phi/orcarouter.json with owner-only permissions.</p>
+            </div>
+          </header>
+          <div class="field">
+            <label class="field-label" for="orcaApiKey" data-i18n="orcaApiKeyLabel">API key</label>
+            <div class="input-shell">
+              <input id="orcaApiKey" type="password" autocomplete="new-password" spellcheck="false" data-i18n-placeholder="orcaApiKeyPlaceholder" placeholder="sk-orca-…">
+              <button class="secret-toggle" id="orcaApiKeyToggle" type="button" data-i18n="showKey">Show</button>
+            </div>
+          </div>
+          <div class="orca-actions">
+            <button class="button primary small" id="orcaSaveKey" type="button" data-i18n="orcaSaveKey">Save key</button>
+            <button class="button danger small" id="orcaClearKey" type="button" data-i18n="orcaClearKey">Remove stored key</button>
+          </div>
+          <div class="model-fetch-status" id="orcaKeyStatus" aria-live="polite"></div>
+        </article>
+
+        <article class="orca-method" id="orcaPkceMethod">
+          <header class="orca-method-head">
+            <span class="orca-method-mark" aria-hidden="true">A</span>
+            <div>
+              <div class="orca-method-title" data-i18n="orcaPkceTitle">OrcaRouter - Auth</div>
+              <p class="orca-method-help" data-i18n="orcaPkceHelp">Sign in with your OrcaRouter account (OAuth 2.0 + PKCE, no client secret). The key belongs to your account and is revocable at any time.</p>
+            </div>
+          </header>
+          <div class="orca-actions">
+            <button class="button primary small" id="orcaConnect" type="button" data-i18n="orcaConnect">Connect with OrcaRouter</button>
+            <button class="button secondary small" id="orcaCancel" type="button" hidden data-i18n="orcaCancel">Cancel</button>
+          </div>
+          <div class="orca-code-row" id="orcaCodeRow" hidden>
+            <label class="field-label" for="orcaCode" data-i18n="orcaCodeLabel">Authorization code</label>
+            <div class="input-shell">
+              <input id="orcaCode" type="text" autocomplete="off" spellcheck="false" data-i18n-placeholder="orcaCodePlaceholder" placeholder="Paste the code shown on the consent screen">
+              <button class="secret-toggle" id="orcaCodeSubmit" type="button" data-i18n="orcaCodeSubmit">Submit</button>
+            </div>
+          </div>
+          <p class="orca-auth-url" id="orcaAuthUrl" hidden></p>
+          <div class="model-fetch-status" id="orcaConnectStatus" aria-live="polite"></div>
+        </article>
+      </div>
+      <p class="orca-console" id="orcaConsole"></p>
+    </section>
   </main>
 
   <footer class="save-footer">
@@ -972,6 +1215,8 @@ const I18N = {
     apiOpenAIResponses: "OpenAI Responses",
     apiAnthropic: "Anthropic",
     apiGemini: "Gemini",
+    apiOrcaRouter: "OrcaRouter",
+    fetchModelsDegraded: "Live discovery failed; showing the verified fallback list.",
     apiBase: "API base URL",
     apiBaseHelp: "Provider endpoint. Presets fill this when left empty.",
     apiBasePlaceholder: "e.g. https://api.openai.com/v1",
@@ -1023,6 +1268,39 @@ const I18N = {
     validatePositiveInt: "{label} must be an integer greater than 0.",
     validateContextLabel: "Model {n} context window",
     validateAskTimeoutLabel: "Approval timeout",
+    orcaHeading: "OrcaRouter",
+    orcaHelp: "OrcaRouter is an OpenAI-compatible AI gateway that routes many providers behind one endpoint. Choose one of the two ways to connect; both end in the same OrcaRouter API key.",
+    orcaNotConnected: "Not connected",
+    orcaConnectedApiKey: "Connected - API key",
+    orcaConnectedPkce: "Connected - account login",
+    orcaNeedsReauth: "Needs reauthentication",
+    orcaApiKeyTitle: "OrcaRouter - API",
+    orcaApiKeyHelp: "Paste an existing sk-orca-… key. It is stored once and reused until you revoke it.",
+    orcaApiKeyLabel: "API key",
+    orcaApiKeyPlaceholder: "sk-orca-…",
+    orcaSaveKey: "Save key",
+    orcaClearKey: "Remove stored key",
+    orcaPkceTitle: "OrcaRouter - Auth",
+    orcaPkceHelp: "Sign in with your OrcaRouter account (OAuth 2.0 + PKCE, no client secret). The key belongs to your account and is revocable at any time.",
+    orcaConnect: "Connect with OrcaRouter",
+    orcaCancel: "Cancel",
+    orcaCodeLabel: "Authorization code",
+    orcaCodePlaceholder: "Paste the code shown on the consent screen",
+    orcaCodeSubmit: "Submit",
+    orcaConsole: "Manage or revoke keys at",
+    orcaKeyStored: "Key stored ({masked}).",
+    orcaKeyCleared: "Stored key removed.",
+    orcaKeyRequired: "Enter an sk-orca-… key first.",
+    orcaConnectWaiting: "Waiting for the code from the consent screen…",
+    orcaConnectExchanging: "Exchanging the code for a key…",
+    orcaConnectDone: "Connected. The key is stored.",
+    orcaConnectFailed: "Authorization failed:",
+    orcaConnectCanceled: "Authorization canceled.",
+    orcaConnectDenied: "Authorization was denied.",
+    orcaConnectTimedOut: "Authorization timed out. Try again.",
+    orcaConnectBusy: "An authorization is already in progress.",
+    orcaOpenUrl: "If your browser did not open, use this URL:",
+    orcaScopeNote: "The granted scope is {scope}, not api.",
   },
   zh: {
     documentTitle: "phi 配置中心",
@@ -1098,6 +1376,8 @@ const I18N = {
     apiOpenAIResponses: "OpenAI Responses",
     apiAnthropic: "Anthropic",
     apiGemini: "Gemini",
+    apiOrcaRouter: "OrcaRouter",
+    fetchModelsDegraded: "实时获取失败，当前显示已验证的备用列表。",
     apiBase: "API 地址",
     apiBaseHelp: "服务商 endpoint。使用 preset 时可留空。",
     apiBasePlaceholder: "例如 https://api.openai.com/v1",
@@ -1149,6 +1429,39 @@ const I18N = {
     validatePositiveInt: "{label}必须是大于 0 的整数。",
     validateContextLabel: "模型 {n} 的上下文窗口",
     validateAskTimeoutLabel: "审批超时",
+    orcaHeading: "OrcaRouter",
+    orcaHelp: "OrcaRouter 是 OpenAI 兼容的 AI 网关，用一个 endpoint 路由多家提供商。请选择以下两种接入方式之一；两者最终都会得到同一个 OrcaRouter API Key。",
+    orcaNotConnected: "未连接",
+    orcaConnectedApiKey: "已连接 - API Key",
+    orcaConnectedPkce: "已连接 - 账号登录",
+    orcaNeedsReauth: "需要重新认证",
+    orcaApiKeyTitle: "OrcaRouter - API",
+    orcaApiKeyHelp: "粘贴已有的 sk-orca-… Key。仅保存一次，直到你主动吊销为止都会复用。",
+    orcaApiKeyLabel: "API Key",
+    orcaApiKeyPlaceholder: "sk-orca-…",
+    orcaSaveKey: "保存 Key",
+    orcaClearKey: "删除已保存的 Key",
+    orcaPkceTitle: "OrcaRouter - Auth",
+    orcaPkceHelp: "使用 OrcaRouter 账号登录（OAuth 2.0 + PKCE，无需 client secret）。Key 属于你的账号，随时可以吊销。",
+    orcaConnect: "使用 OrcaRouter 登录",
+    orcaCancel: "取消",
+    orcaCodeLabel: "授权码",
+    orcaCodePlaceholder: "粘贴授权页面上显示的授权码",
+    orcaCodeSubmit: "提交",
+    orcaConsole: "管理与吊销 Key：",
+    orcaKeyStored: "Key 已保存（{masked}）。",
+    orcaKeyCleared: "已删除保存的 Key。",
+    orcaKeyRequired: "请先填写 sk-orca-… Key。",
+    orcaConnectWaiting: "正在等待授权页面返回的授权码…",
+    orcaConnectExchanging: "正在用授权码换取 Key…",
+    orcaConnectDone: "已连接，Key 已保存。",
+    orcaConnectFailed: "授权失败：",
+    orcaConnectCanceled: "授权已取消。",
+    orcaConnectDenied: "授权被拒绝。",
+    orcaConnectTimedOut: "授权超时，请重试。",
+    orcaConnectBusy: "已有授权正在进行中。",
+    orcaOpenUrl: "如果浏览器没有自动打开，请使用此链接：",
+    orcaScopeNote: "实际授予的 scope 是 {scope}，不是 api。",
   },
 };
 
@@ -1324,20 +1637,84 @@ function clearModelOptions(row) {
   }
   row.fetchButton.disabled = false;
   row.fetchButton.removeAttribute("aria-busy");
-  row.modelPicker.innerHTML = "";
+  closeModelPicker(row);
   row.modelPicker.hidden = true;
   setModelFetchStatus(row, "", "");
 }
 
+// The model list is a custom listbox. A native <select> popup is drawn outside
+// the page, so its open state cannot be styled, measured, or captured — and a
+// capability-filtered catalog has to be verifiable in the rendered UI.
+//
+// The list holds exactly the models the capability filter admitted; the trigger
+// already shows the "choose a model" hint, so a placeholder row would only add
+// a non-model entry to the list.
 function setModelOptions(row, models) {
-  row.modelPicker.innerHTML = "";
-  row.modelPicker.appendChild(el("option", { value: "", "data-i18n": "chooseFromList" }, t("chooseFromList")));
-  for (const model of models) {
-    row.modelPicker.appendChild(el("option", { value: model }, model));
-  }
+  closeModelPicker(row);
+  row.modelPickerModels = models.slice();
   row.modelPicker.hidden = models.length === 0;
   const current = row.name.value.trim();
-  row.modelPicker.value = models.includes(current) ? current : "";
+  row.modelPickerValue = models.includes(current) ? current : "";
+  row.modelPickerPanel.innerHTML = "";
+  if (models.length === 0) {
+    row.modelPickerPanel.appendChild(
+      el("div", { class: "model-picker-empty" }, t("chooseFromList")));
+    syncModelPickerLabel(row);
+    return;
+  }
+  for (const model of models) {
+    row.modelPickerPanel.appendChild(modelPickerOption(row, model, model));
+  }
+  syncModelPickerLabel(row);
+}
+
+function modelPickerOption(row, value, label) {
+  return el("button", {
+    type: "button",
+    class: "model-picker-option",
+    role: "option",
+    "data-value": value,
+    "aria-selected": value === row.modelPickerValue ? "true" : "false",
+  }, label);
+}
+
+function syncModelPickerLabel(row) {
+  const selected = row.modelPickerValue || "";
+  row.modelPickerLabel.textContent = selected || t("chooseFromList");
+  row.modelPickerLabel.classList.toggle("placeholder", !selected);
+  row.modelPickerTrigger.setAttribute("aria-expanded", row.modelPickerOpen ? "true" : "false");
+  row.modelPickerPanel.querySelectorAll("[role='option']").forEach(node => {
+    node.setAttribute("aria-selected",
+      node.getAttribute("data-value") === selected && selected ? "true" : "false");
+  });
+}
+
+function openModelPicker(row) {
+  if (row.modelPicker.hidden) return;
+  row.modelPickerOpen = true;
+  row.modelPickerPanel.hidden = false;
+  syncModelPickerLabel(row);
+}
+
+function closeModelPicker(row) {
+  row.modelPickerOpen = false;
+  row.modelPickerPanel.hidden = true;
+  if (row.modelPickerTrigger) row.modelPickerTrigger.setAttribute("aria-expanded", "false");
+}
+
+function toggleModelPicker(row) {
+  if (row.modelPickerOpen) closeModelPicker(row);
+  else openModelPicker(row);
+}
+
+function chooseModel(row, value) {
+  closeModelPicker(row);
+  if (!value) return;
+  row.modelPickerValue = value;
+  syncModelPickerLabel(row);
+  row.name.value = value;
+  row.preview.textContent = value;
+  markDirty("models");
 }
 
 async function fetchModels(row) {
@@ -1347,6 +1724,7 @@ async function fetchModels(row) {
   row.fetchButton.disabled = true;
   row.fetchButton.setAttribute("aria-busy", "true");
   setModelFetchStatusKey(row, "fetchingModels", "loading");
+  const orca = row.api.value === "OrcaRouter";
   try {
     const res = await fetch("/api/models", {
       method: "POST",
@@ -1356,16 +1734,29 @@ async function fetchModels(row) {
         apiKey: row.key.value.trim(),
         model: row.name.value.trim(),
         api: row.api.value.trim(),
+        // OrcaRouter models are filtered per entry point: the catalog's
+        // declarations decide what may be offered, and the image toggle
+        // narrows the chat list to models that accept image input.
+        capability: orca ? (row.image.checked ? "image-input" : "chat") : "",
+        imageInput: orca ? row.image.checked : false,
       }),
       signal: controller.signal,
     });
     const body = await res.json().catch(() => ({}));
     if (row.fetchController !== controller || !row.dom.isConnected) return;
     if (!res.ok) throw new Error(body.error || t("fetchModelsFailed"));
-    const models = Array.isArray(body.models) ? body.models.filter(Boolean) : [];
+    const models = orca
+      ? (Array.isArray(body.models) ? body.models.map(m => m.id).filter(Boolean) : [])
+      : (Array.isArray(body.models) ? body.models.filter(Boolean) : []);
     setModelOptions(row, models);
-    if (models.length) setModelFetchStatusKey(row, "fetchedModels", "success", { n: models.length });
-    else setModelFetchStatusKey(row, "noModelsReturned", "");
+    if (orca && body.degraded) {
+      // A fallback list is never presented as the live catalog.
+      setModelFetchStatus(row, body.warning || t("fetchModelsDegraded"), "error");
+    } else if (models.length) {
+      setModelFetchStatusKey(row, "fetchedModels", "success", { n: models.length });
+    } else {
+      setModelFetchStatusKey(row, "noModelsReturned", "");
+    }
   } catch (err) {
     if (row.fetchController === controller && err.name !== "AbortError") {
       setModelFetchStatus(row, t("fetchFailedPrefix") + err.message, "error");
@@ -1386,9 +1777,11 @@ function refreshModelRow(row) {
   row.context.placeholder = t("contextPlaceholder");
   row.fetchButton.textContent = t("fetchModels");
   row.fetchButton.title = t("fetchModelsTitle");
-  row.modelPicker.setAttribute("aria-label", t("selectModel"));
-  const pickPlaceholder = row.modelPicker.querySelector('option[value=""]');
-  if (pickPlaceholder) pickPlaceholder.textContent = t("chooseFromList");
+  row.modelPickerTrigger.setAttribute("aria-label", t("selectModel"));
+  row.modelPickerPanel.setAttribute("aria-label", t("selectModel"));
+  if (!row.modelPickerValue) row.modelPickerLabel.textContent = t("chooseFromList");
+  const emptyOption = row.modelPickerPanel.querySelector(".model-picker-empty");
+  if (emptyOption) emptyOption.textContent = t("chooseFromList");
   refreshApiOptions(row);
   refreshThinkOptions(row);
   row.keyToggle.textContent = row.key.type === "text" ? t("hideKey") : t("showKey");
@@ -1415,7 +1808,285 @@ function refreshApiOptions(row) {
   row.api.appendChild(el("option", { value: "OpenAIResponses" }, t("apiOpenAIResponses")));
   row.api.appendChild(el("option", { value: "Anthropic" }, t("apiAnthropic")));
   row.api.appendChild(el("option", { value: "Gemini" }, t("apiGemini")));
-  row.api.value = ["OpenAI", "OpenAIResponses", "Anthropic", "Gemini"].includes(current) ? current : "";
+  row.api.appendChild(el("option", { value: "OrcaRouter" }, t("apiOrcaRouter")));
+  row.api.value = ["OpenAI", "OpenAIResponses", "Anthropic", "Gemini", "OrcaRouter"].includes(current) ? current : "";
+  updateOrcaVisibility();
+}
+
+// ---------------------------------------------------------------------------
+// OrcaRouter authentication: two explicit choices on one credential seam.
+// ---------------------------------------------------------------------------
+
+// orcaAuth holds the page's view of the credential and of the in-flight
+// authorization attempt. attempt mirrors the server's generation so a late
+// response from an older attempt cannot overwrite a newer login.
+const orcaAuth = {
+  present: false,
+  masked: "",
+  source: "",
+  needsReauth: false,
+  consoleUrl: "",
+  attempt: 0,
+  busy: false,
+  codeRow: false,
+};
+
+let orcaCredentialLoaded = false;
+
+function setOrcaKeyStatus(text, tone) {
+  const node = $("orcaKeyStatus");
+  node.className = "model-fetch-status" + (tone ? " " + tone : "");
+  node.textContent = text || "";
+}
+
+function setOrcaConnectStatus(text, tone) {
+  const node = $("orcaConnectStatus");
+  node.className = "model-fetch-status" + (tone ? " " + tone : "");
+  node.textContent = text || "";
+}
+
+function renderOrcaAuth() {
+  const badge = $("orcaBadge");
+  if (!orcaAuth.present) {
+    badge.className = "orca-badge";
+    badge.textContent = t("orcaNotConnected");
+  } else if (orcaAuth.needsReauth) {
+    badge.className = "orca-badge attention";
+    badge.textContent = t("orcaNeedsReauth");
+  } else {
+    badge.className = "orca-badge connected";
+    badge.textContent = orcaAuth.source === "pkce" ? t("orcaConnectedPkce") : t("orcaConnectedApiKey");
+  }
+  $("orcaConnect").disabled = orcaAuth.busy;
+  $("orcaConnect").setAttribute("aria-busy", orcaAuth.busy ? "true" : "false");
+  $("orcaCancel").hidden = !orcaAuth.busy;
+  $("orcaCodeRow").hidden = !orcaAuth.codeRow;
+  $("orcaSaveKey").disabled = orcaAuth.busy;
+  const console_ = $("orcaConsole");
+  if (orcaAuth.consoleUrl) {
+    console_.innerHTML = "";
+    console_.appendChild(document.createTextNode(t("orcaConsole") + " "));
+    console_.appendChild(el("a", { href: orcaAuth.consoleUrl, target: "_blank", rel: "noreferrer noopener" }, orcaAuth.consoleUrl));
+  }
+}
+
+// updateOrcaVisibility shows the credential panel only when a model entry
+// actually routes through OrcaRouter, so the page does not advertise a
+// provider the config does not use.
+function updateOrcaVisibility() {
+  const used = modelRows.some(row => row.api.value === "OrcaRouter");
+  $("orcaSection").hidden = !used;
+  if (used && !orcaCredentialLoaded) {
+    orcaCredentialLoaded = true;
+    loadOrcaCredential();
+  }
+}
+
+async function loadOrcaCredential() {
+  try {
+    const res = await fetch("/api/orca/credential");
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || t("statusServerError"));
+    applyOrcaCredential(body);
+  } catch (err) {
+    setOrcaKeyStatus(t("fetchFailedPrefix") + err.message, "error");
+  }
+}
+
+function applyOrcaCredential(body) {
+  orcaAuth.present = !!body.present;
+  orcaAuth.masked = body.masked || "";
+  orcaAuth.source = body.source || "";
+  orcaAuth.needsReauth = !!body.needsReauth;
+  orcaAuth.consoleUrl = body.consoleUrl || "";
+  renderOrcaAuth();
+}
+
+async function saveOrcaKey() {
+  const input = $("orcaApiKey");
+  const key = input.value.trim();
+  if (!key) {
+    setOrcaKeyStatus(t("orcaKeyRequired"), "error");
+    input.focus();
+    return;
+  }
+  setOrcaKeyStatus(t("statusSaving"), "loading");
+  try {
+    const res = await fetch("/api/orca/credential", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apiKey: key }),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || t("statusServerError"));
+    // The key is never echoed back; the field is cleared and only the mask is
+    // shown, so a shoulder-surfer cannot read it from the form afterwards.
+    input.value = "";
+    applyOrcaCredential(body);
+    setOrcaKeyStatus(t("orcaKeyStored", { masked: orcaAuth.masked }), "success");
+  } catch (err) {
+    setOrcaKeyStatus(t("statusSaveFailedPrefix") + err.message, "error");
+  }
+}
+
+async function clearOrcaKey() {
+  setOrcaKeyStatus(t("statusSaving"), "loading");
+  try {
+    const res = await fetch("/api/orca/credential", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clear: true }),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || t("statusServerError"));
+    applyOrcaCredential(body);
+    setOrcaKeyStatus(t("orcaKeyCleared"), "success");
+  } catch (err) {
+    setOrcaKeyStatus(t("statusSaveFailedPrefix") + err.message, "error");
+  }
+}
+
+function applyOrcaConnectState(body) {
+  if (body.attempt) orcaAuth.attempt = body.attempt;
+  orcaAuth.busy = !!body.busy;
+  orcaAuth.codeRow = body.state === "pending" || body.state === "awaiting_code";
+  const urlNode = $("orcaAuthUrl");
+  if (body.authorizeUrl && orcaAuth.busy) {
+    urlNode.hidden = false;
+    urlNode.textContent = t("orcaOpenUrl") + " " + body.authorizeUrl;
+  } else {
+    urlNode.hidden = true;
+    urlNode.textContent = "";
+  }
+  switch (body.state) {
+    case "pending":
+    case "awaiting_code":
+      setOrcaConnectStatus(t("orcaConnectWaiting"), "loading");
+      break;
+    case "exchanging":
+      setOrcaConnectStatus(t("orcaConnectExchanging"), "loading");
+      break;
+    case "succeeded":
+      setOrcaConnectStatus(t("orcaConnectDone"), "success");
+      loadOrcaCredential();
+      break;
+    case "denied":
+      setOrcaConnectStatus(t("orcaConnectDenied"), "error");
+      break;
+    case "canceled":
+      setOrcaConnectStatus(t("orcaConnectCanceled"), "");
+      break;
+    case "timed_out":
+      setOrcaConnectStatus(t("orcaConnectTimedOut"), "error");
+      break;
+    case "failed":
+      setOrcaConnectStatus(t("orcaConnectFailed") + " " + (body.error || ""), "error");
+      break;
+    default:
+      setOrcaConnectStatus("", "");
+  }
+  renderOrcaAuth();
+}
+
+// orcaConnectAction posts one action to the server-side attempt. A stale
+// response (a different attempt generation) is dropped: it belongs to a login
+// that has already been superseded.
+async function orcaConnectAction(payload) {
+  const res = await fetch("/api/orca/connect", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (body && body.attempt && orcaAuth.attempt && body.attempt < orcaAuth.attempt) return null;
+  if (!res.ok) throw new Error(body.error || t("statusServerError"));
+  return body;
+}
+
+async function startOrcaConnect() {
+  if (orcaAuth.busy) {
+    setOrcaConnectStatus(t("orcaConnectBusy"), "");
+    return;
+  }
+  setOrcaConnectStatus(t("orcaConnectWaiting"), "loading");
+  try {
+    const body = await orcaConnectAction({ action: "begin", redirect: false });
+    if (body) applyOrcaConnectState(body);
+  } catch (err) {
+    setOrcaConnectStatus(t("orcaConnectFailed") + " " + err.message, "error");
+  }
+}
+
+async function cancelOrcaConnect() {
+  try {
+    const body = await orcaConnectAction({ action: "cancel", attempt: orcaAuth.attempt });
+    if (body) applyOrcaConnectState(body);
+  } catch (err) {
+    setOrcaConnectStatus(t("orcaConnectFailed") + " " + err.message, "error");
+  }
+}
+
+async function submitOrcaCode() {
+  const code = $("orcaCode").value.trim();
+  if (!code) return;
+  setOrcaConnectStatus(t("orcaConnectExchanging"), "loading");
+  try {
+    const body = await orcaConnectAction({ action: "code", attempt: orcaAuth.attempt, code });
+    if (body) applyOrcaConnectState(body);
+    $("orcaCode").value = "";
+  } catch (err) {
+    setOrcaConnectStatus(t("orcaConnectFailed") + " " + err.message, "error");
+  }
+}
+
+// orcaAbandon releases the server-side login lock when this page goes away.
+// It invalidates the attempt generation, clears the busy flag and hint
+// synchronously, then sends the cancellation with keepalive so a
+// back-forward-cache restore cannot come back permanently busy. Relying on a
+// guarded `finally` in the request handler is not enough: the guard correctly
+// refuses to mutate state, which would leave the restored page stuck.
+function orcaAbandon() {
+  const attempt = orcaAuth.attempt;
+  orcaAuth.busy = false;
+  orcaAuth.codeRow = false;
+  orcaAuth.attempt += 1;
+  $("orcaConnect").disabled = false;
+  $("orcaConnect").removeAttribute("aria-busy");
+  $("orcaCancel").hidden = true;
+  $("orcaCodeRow").hidden = true;
+  $("orcaAuthUrl").hidden = true;
+  $("orcaAuthUrl").textContent = "";
+  setOrcaConnectStatus("", "");
+  renderOrcaAuth();
+  try {
+    fetch("/api/orca/connect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "abandon", attempt }),
+      keepalive: true,
+    }).catch(() => {});
+  } catch (_) {}
+}
+
+function initOrcaAuth() {
+  $("orcaSaveKey").addEventListener("click", saveOrcaKey);
+  $("orcaClearKey").addEventListener("click", clearOrcaKey);
+  $("orcaConnect").addEventListener("click", startOrcaConnect);
+  $("orcaCancel").addEventListener("click", cancelOrcaConnect);
+  $("orcaCodeSubmit").addEventListener("click", submitOrcaCode);
+  $("orcaApiKeyToggle").addEventListener("click", () => {
+    const input = $("orcaApiKey");
+    const visible = input.type === "text";
+    input.type = visible ? "password" : "text";
+    $("orcaApiKeyToggle").textContent = visible ? t("showKey") : t("hideKey");
+    $("orcaApiKeyToggle").setAttribute("aria-pressed", String(!visible));
+  });
+  window.addEventListener("pagehide", orcaAbandon);
+  document.addEventListener("visibilitychange", () => {
+    // A hidden page may be discarded without a pagehide in some engines; the
+    // generation guard makes a duplicate abandon harmless.
+    if (document.visibilityState === "hidden" && orcaAuth.busy) orcaAbandon();
+  });
 }
 
 function refreshThinkOptions(row) {
@@ -1460,6 +2131,15 @@ function applyLang() {
   syncModelStates();
   updateDirtyState();
   refreshStatus();
+  refreshOrcaLabels();
+}
+
+// refreshOrcaLabels re-renders the OrcaRouter panel through the i18n catalog,
+// so every shipped locale resolves its own strings instead of an English
+// literal captured at construction time.
+function refreshOrcaLabels() {
+  $("orcaApiKeyToggle").textContent = $("orcaApiKey").type === "text" ? t("hideKey") : t("showKey");
+  renderOrcaAuth();
 }
 
 function setLang(next) {
@@ -1518,11 +2198,28 @@ function addModelRow(model) {
     class: "button tertiary small model-fetch",
     title: t("fetchModelsTitle"),
   }, t("fetchModels"));
-  const modelPicker = el("select", {
+  const modelPicker = el("div", {
     class: "model-picker",
     hidden: "hidden",
+  });
+  const modelPickerTrigger = el("button", {
+    type: "button",
+    class: "model-picker-trigger",
+    "aria-haspopup": "listbox",
+    "aria-expanded": "false",
     "aria-label": t("selectModel"),
   });
+  const modelPickerLabel = el("span", { class: "model-picker-label placeholder" }, t("chooseFromList"));
+  const modelPickerPanel = el("div", {
+    class: "model-picker-panel",
+    role: "listbox",
+    "aria-label": t("selectModel"),
+    hidden: "hidden",
+  });
+  modelPickerTrigger.appendChild(modelPickerLabel);
+  modelPickerTrigger.appendChild(el("span", { class: "model-picker-caret", "aria-hidden": "true" }, "\u25be"));
+  modelPicker.appendChild(modelPickerTrigger);
+  modelPicker.appendChild(modelPickerPanel);
   const fetchStatus = el("div", { class: "model-fetch-status", "aria-live": "polite" });
   const keyToggle = el("button", {
     type: "button",
@@ -1561,6 +2258,12 @@ function addModelRow(model) {
     def,
     fetchButton,
     modelPicker,
+    modelPickerTrigger,
+    modelPickerLabel,
+    modelPickerPanel,
+    modelPickerModels: [],
+    modelPickerValue: "",
+    modelPickerOpen: false,
     fetchStatus,
     keyToggle,
     badge,
@@ -1617,15 +2320,32 @@ function addModelRow(model) {
   }
 
   name.addEventListener("input", syncPreview);
-  modelPicker.addEventListener("change", () => {
-    if (!modelPicker.value) return;
-    name.value = modelPicker.value;
-    preview.textContent = name.value;
-    markDirty("models");
+  modelPickerTrigger.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleModelPicker(row);
+  });
+  modelPickerPanel.addEventListener("click", (event) => {
+    const option = event.target.closest("[role='option']");
+    if (!option) return;
+    event.stopPropagation();
+    chooseModel(row, option.getAttribute("data-value") || "");
+  });
+  // Clicking anywhere else, or pressing Escape, closes the panel: a dropdown
+  // that stays open over the rest of the form is unusable.
+  document.addEventListener("click", () => closeModelPicker(row));
+  modelPickerPanel.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closeModelPicker(row);
+      modelPickerTrigger.focus();
+    }
   });
   fetchButton.addEventListener("click", () => fetchModels(row));
   base.addEventListener("input", () => { clearModelOptions(row); markDirty("models"); });
-  api.addEventListener("change", () => { clearModelOptions(row); markDirty("models"); });
+  api.addEventListener("change", () => {
+    clearModelOptions(row);
+    markDirty("models");
+    updateOrcaVisibility();
+  });
   think.addEventListener("change", () => { markDirty("models"); });
   key.addEventListener("input", () => {
     key.setAttribute("aria-invalid", "false");
@@ -1633,7 +2353,17 @@ function addModelRow(model) {
     markDirty("models");
   });
   context.addEventListener("input", () => { markDirty("models"); });
-  image.addEventListener("change", () => { row.imageTouched = true; markDirty("models"); });
+  image.addEventListener("change", () => {
+    row.imageTouched = true;
+    markDirty("models");
+    // An attachment-capability change recomputes the model options: a model
+    // that does not declare image input must not stay selectable, and a
+    // selection that is no longer compatible is cleared rather than kept.
+    if (row.api.value === "OrcaRouter") {
+      clearModelOptions(row);
+      fetchModels(row);
+    }
+  });
   def.addEventListener("change", () => {
     markDirty("models");
     syncModelStates();
@@ -1773,6 +2503,7 @@ async function load(messageKey, expectedVersion) {
 
     updateModeHint();
     resetDirty();
+    updateOrcaVisibility();
     if (messageKey) setStatusKey(messageKey, "success");
     else setStatusKey("statusLoaded", "success");
   } catch (err) {
@@ -1858,6 +2589,7 @@ wire("wow", "wow", "change");
 wire("daa", "daa", "change");
 wire("skillPath", "skillPath");
 wireRule("bashOn", "bashBody", "bash", "bashDefault", "bashAllow", "bashDeny");
+initOrcaAuth();
 
 applyLang();
 load();

@@ -227,7 +227,15 @@ Environment overrides:
 | `PHI_THINK_LEVEL` | `models[].think_level` (default model; `off` disables) |
 
 Provider routing uses the explicit `api` field (`OpenAI` / `Anthropic` /
-`Gemini`). See [Supported models](doc/models.md).
+`Gemini` / `OrcaRouter`). See [Supported models](doc/models.md).
+
+`phi auth login --orcarouter` connects an [OrcaRouter](https://www.orcarouter.ai)
+account either by pasting an existing `sk-orca-...` key or through OAuth 2.0 +
+PKCE (no client secret); `phi auth status` shows the masked key and
+`phi auth logout` removes it. The config editor (`phi config`) offers both
+methods side by side and fills its model dropdown from the live OrcaRouter
+catalog, filtered per entry point. See
+[OrcaRouter](doc/models.md#orcarouter).
 
 ### Workspace layout
 

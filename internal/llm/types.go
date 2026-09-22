@@ -30,6 +30,12 @@ const (
 	OpenAIResponses RouterType = "OpenAIResponses"
 	Anthropic       RouterType = "Anthropic"
 	Gemini          RouterType = "Gemini"
+	// OrcaRouter is a named first-class route, not a custom base URL: it is an
+	// OpenAI-compatible gateway, but its model namespace, catalog, and
+	// credential lifecycle are its own. Keeping the value distinct is what lets
+	// the editor, the catalog filter, and the auth status tell it apart from a
+	// user-typed endpoint.
+	OrcaRouter RouterType = "OrcaRouter"
 )
 
 type ThinkMode string

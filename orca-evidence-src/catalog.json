@@ -1,0 +1,110 @@
+{
+  "_comment": "Shape copied from the live GET https://api.orcarouter.ai/v1/models?capability=chat response: id, supported_endpoint_types, architecture.input_modalities and context_length are the fields the parser reads. IDs are the models the evidence workspace could actually call.",
+  "data": [
+    {
+      "id": "deepseek/deepseek-v4-flash",
+      "object": "model",
+      "context_length": 1048576,
+      "supported_endpoint_types": ["openai", "openai-response"],
+      "architecture": { "input_modalities": ["text"] }
+    },
+    {
+      "id": "deepseek/deepseek-v4-flash-0731",
+      "object": "model",
+      "context_length": 1048576,
+      "supported_endpoint_types": ["openai", "anthropic", "openai-response"],
+      "architecture": { "input_modalities": ["text"] }
+    },
+    {
+      "id": "deepseek/deepseek-v4-flash-vision-exp",
+      "object": "model",
+      "context_length": 1048576,
+      "supported_endpoint_types": ["openai", "openai-response", "anthropic"],
+      "architecture": { "input_modalities": ["text", "image"] }
+    },
+    {
+      "id": "deepseek/deepseek-v4-pro",
+      "object": "model",
+      "context_length": 1048576,
+      "supported_endpoint_types": ["openai", "openai-response"],
+      "architecture": { "input_modalities": ["text"] }
+    },
+    {
+      "id": "deepseek/deepseek-v4-pro-0813",
+      "object": "model",
+      "context_length": 1048576,
+      "supported_endpoint_types": ["openai", "anthropic", "openai-response"],
+      "architecture": { "input_modalities": ["text"] }
+    },
+    {
+      "id": "deepseek/deepseek-v4.1-flash",
+      "object": "model",
+      "context_length": 1048576,
+      "supported_endpoint_types": ["openai", "openai-response", "anthropic"],
+      "architecture": { "input_modalities": ["text", "image"] }
+    },
+    {
+      "id": "orcarouter/auto",
+      "object": "model",
+      "supported_endpoint_types": ["openai", "openai-response", "anthropic", "gemini"],
+      "architecture": { "input_modalities": [] }
+    },
+    {
+      "id": "orcarouter/free",
+      "object": "model",
+      "supported_endpoint_types": ["openai", "openai-response", "anthropic", "gemini"],
+      "architecture": { "input_modalities": [] }
+    },
+    {
+      "id": "orcarouter/fusion",
+      "object": "model",
+      "context_length": 1000000,
+      "supported_endpoint_types": ["openai", "openai-response", "anthropic", "gemini"],
+      "architecture": { "input_modalities": [] }
+    },
+    {
+      "id": "orcarouter/fusion-flash",
+      "object": "model",
+      "context_length": 262144,
+      "supported_endpoint_types": ["openai", "openai-response", "anthropic", "gemini"],
+      "architecture": { "input_modalities": [] }
+    },
+    {
+      "id": "orcarouter/fusion-mini",
+      "object": "model",
+      "context_length": 1000000,
+      "supported_endpoint_types": ["openai", "openai-response", "anthropic", "gemini"],
+      "architecture": { "input_modalities": [] }
+    },
+    {
+      "id": "orcarouter/intco-qa",
+      "object": "model",
+      "supported_endpoint_types": ["openai", "openai-response", "anthropic", "gemini"],
+      "architecture": { "input_modalities": [] }
+    },
+    {
+      "id": "orcarouter/open-code",
+      "object": "model",
+      "supported_endpoint_types": ["openai", "openai-response", "anthropic", "gemini"],
+      "architecture": { "input_modalities": [] }
+    },
+    {
+      "id": "orcarouter/orcacode-review",
+      "object": "model",
+      "supported_endpoint_types": ["openai", "openai-response", "anthropic", "gemini"],
+      "architecture": { "input_modalities": [] }
+    },
+    {
+      "id": "orcarouter/simple-test",
+      "object": "model",
+      "supported_endpoint_types": ["openai", "openai-response", "anthropic", "gemini"],
+      "architecture": { "input_modalities": [] }
+    },
+    {
+      "id": "orcarouter/test-cache-glm52-opus",
+      "object": "model",
+      "supported_endpoint_types": ["openai", "openai-response", "anthropic", "gemini"],
+      "architecture": { "input_modalities": [] }
+    }
+  ]
+}

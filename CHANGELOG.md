@@ -10,6 +10,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- OrcaRouter as a first-class provider (`api: OrcaRouter`), with
+  `base_url: https://api.orcarouter.ai/v1` filled in automatically and
+  OrcaRouter vendor-namespaced model names (`openai/…`, `deepseek/…`, …) routed
+  to it instead of falling through to another vendor's endpoint.
+- `phi auth login --orcarouter` with two ways in: a pasted `sk-orca-…` key
+  (`--api-key`) and OAuth 2.0 + PKCE (`--no-browser` for the out-of-band code).
+  The key is stored once in `~/.phi/orcarouter.json` (0600) and reused across
+  restarts until it is revoked. `phi auth status` and `phi auth logout`
+  round it out, and `ORCA_API_KEY` overrides the stored value.
+- The config editor's OrcaRouter section shows both authentication methods side
+  by side, reports the key masked, and drives the PKCE flow with S256
+  challenges. Closing the tab releases the in-flight login.
+- The OrcaRouter model control is a searchable list filled from the live
+  `GET /v1/models` catalog on the configured origin, filtered per entry point
+  (text chat, image attachments, embedding, image generation, video, rerank).
+  An incompatible selection is cleared when the entry point changes, and a
+  discovery failure falls back to a small verified seed that is labeled as
+  such.
+- A terminal 401 from OrcaRouter marks the exact account and credential
+  generation that was rejected and tells the user how to reconnect. The stored
+  key is kept, and a late failure from an older request cannot mark a newer
+  login as broken.
+
 ### Changed
 
 ### Deprecated
@@ -17,6 +40,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Removed
 
 ### Fixed
+
+- `make` targets no longer require `go` on `PATH`: pass the toolchain
+  explicitly with `make GO=/path/to/go`, which `GOBIN`/`GOPATH` now resolve
+  through. The OrcaRouter evidence generator resolves `$GO` the same way, so
+  UI evidence can be regenerated in a minimal environment.
 
 ### Security
 

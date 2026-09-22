@@ -1,14 +1,17 @@
 package project
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/orca"
 	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/project/model"
 )
@@ -22,6 +25,73 @@ type Config struct {
 	SkillPath    string
 	Permissions  permission.Policy
 	Agents       AgentsConfig
+	// orca is the OrcaRouter credential store. Entries with api: OrcaRouter and
+	// no api_key take their key from here, so the PKCE path and the pasted-key
+	// path reach the same inference client through the same field.
+	orca *orca.Store
+}
+
+// bindOrcaStore attaches the credential store and resolves OrcaRouter keys.
+func (c *Config) bindOrcaStore(store *orca.Store) {
+	c.orca = store
+	c.resolveOrcaKeys()
+}
+
+// resolveOrcaKeys fills api_key for OrcaRouter entries that do not carry one
+// inline, using the shared credential seam. A missing credential is left empty
+// here so the error surfaces with the login instruction at request time rather
+// than as a config parse failure.
+//
+// Entries are recognized either by an explicit `api: OrcaRouter` or by an
+// OrcaRouter model name. The name path matters because the environment
+// override can rename the default entry (PHI_MODEL) before this runs, and
+// because the preset layer routes those names to OrcaRouter regardless: an
+// entry that will be sent to api.orcarouter.ai must carry the OrcaRouter
+// credential, not a leftover key meant for another vendor.
+func (c *Config) resolveOrcaKeys() {
+	if c.orca == nil {
+		return
+	}
+	cred, err := c.orca.Credential(context.Background())
+	if err != nil {
+		return
+	}
+	for i := range c.Models {
+		if c.Models[i].APIKey != "" || !routesToOrcaRouter(c.Models[i]) {
+			continue
+		}
+		c.Models[i].APIKey = cred.APIKey
+	}
+}
+
+// routesToOrcaRouter reports whether an entry will be sent to OrcaRouter.
+func routesToOrcaRouter(m llm.ModelConfig) bool {
+	if m.API == llm.OrcaRouter {
+		return true
+	}
+	if m.API != "" {
+		// An explicit non-OrcaRouter provider wins over the name.
+		return false
+	}
+	_, ok := model.Lookup(m.Name)
+	if !ok {
+		return false
+	}
+	return m.BaseURL == "" || m.BaseURL == model.OrcaRouterBaseURL
+}
+
+// OrcaCredentialStatus reports the redacted OrcaRouter credential for display.
+func (c *Config) OrcaCredentialStatus() llm.CredentialStatus {
+	if c.orca == nil {
+		return llm.CredentialStatus{}
+	}
+	return c.orca.Status(context.Background())
+}
+
+// UsesOrcaRouter reports whether any configured model routes through
+// OrcaRouter, so callers can decide whether the credential path is relevant.
+func (c *Config) UsesOrcaRouter() bool {
+	return slices.ContainsFunc(c.Models, routesToOrcaRouter)
 }
 
 // AgentsConfig controls whether the main agent may spawn sub-agents
@@ -95,12 +165,16 @@ func (c *Config) defaultEntry() *llm.ModelConfig {
 
 // loadConfig reads the config file, applies environment overrides, and fills
 // in defaults. A missing file yields a zero Config so env-only setups work.
-func loadConfig(global GlobalLayout) (*Config, error) {
+func loadConfig(global GlobalLayout, store *orca.Store) (*Config, error) {
 	cfg, err := parseConfigFile(global.ConfigFile())
 	if err != nil {
 		return nil, err
 	}
+	// Environment overrides run first: PHI_MODEL can rename the default entry,
+	// and the OrcaRouter credential resolution below must see the final name so
+	// an OrcaRouter-named entry gets the OrcaRouter key.
 	applyEnvOverrides(cfg)
+	cfg.bindOrcaStore(store)
 
 	if len(cfg.Models) == 0 {
 		return nil, fmt.Errorf("missing models (add at least one model in %s)", global.ConfigFile())
@@ -109,7 +183,11 @@ func loadConfig(global GlobalLayout) (*Config, error) {
 	if def.Name == "" {
 		return nil, fmt.Errorf("missing model name (set PHI_MODEL or models[].name in %s)", global.ConfigFile())
 	}
-	if def.APIKey == "" {
+	// An entry routed to OrcaRouter may legitimately have no api_key: the
+	// credential is resolved from the shared store, and a missing one is
+	// reported by the request path with the login instruction instead of a
+	// parse failure.
+	if def.APIKey == "" && !routesToOrcaRouter(*def) {
 		return nil, fmt.Errorf("missing api_key (set PHI_API_KEY or models[].api_key in %s)", global.ConfigFile())
 	}
 	if cfg.SkillPath == "" {
@@ -171,6 +249,14 @@ func parseConfigFile(path string) (*Config, error) {
 
 func modelEntryToConfig(m modelEntry) llm.ModelConfig {
 	cfg := llm.ModelConfig{Name: m.Name, APIKey: m.APIKey, BaseURL: m.BaseURL}
+	// An explicit api: OrcaRouter is a first-class named provider: it fills in
+	// the inference base URL so the entry cannot be pointed at api.openai.com
+	// by accident, and it is what the editor and catalog filter key on.
+	if m.API == llm.OrcaRouter {
+		if cfg.BaseURL == "" {
+			cfg.BaseURL = model.OrcaRouterBaseURL
+		}
+	}
 	// A built-in preset supplies base_url / context_window / image_enabled / api
 	// when the entry omits them; the explicit fields below still win so
 	// users can override any default.

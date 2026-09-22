@@ -6,6 +6,8 @@
 package model
 
 import (
+	"strings"
+
 	"github.com/pulseaiclub/phi/internal/llm"
 	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
 )
@@ -27,6 +29,9 @@ func Lookup(name string) (Preset, bool) {
 			return p, true
 		}
 	}
+	if cfg, ok := orcaPreset(name); ok {
+		return Preset{Config: cfg}, true
+	}
 	return Preset{}, false
 }
 
@@ -39,9 +44,140 @@ func HooksFor(name string) llmclient.Hooks {
 	return llmclient.Hooks{}
 }
 
+// OrcaRouterProvider is the named provider value a config entry selects with
+// `api: OrcaRouter`. It is a first-class route, not a custom base URL: the
+// editor shows it in the API dropdown and the model catalog filters by it.
+const OrcaRouterProvider = llm.OrcaRouter
+
+// OrcaRouterBaseURL is the inference endpoint every OrcaRouter entry routes to.
+const OrcaRouterBaseURL = "https://api.orcarouter.ai/v1"
+
+// orcaPreset resolves an OrcaRouter model name to its connection defaults.
+//
+// OrcaRouter model IDs keep the vendor namespace ("openai/gpt-5.5"), so the
+// prefix identifies the route while the model keeps its own context window,
+// image support, and reasoning ladder. A name that matches no verified entry
+// still routes to OrcaRouter with conservative defaults rather than falling
+// through to api.openai.com, which would send the user's OrcaRouter key to a
+// host that does not accept it.
+func orcaPreset(name string) (llm.ModelConfig, bool) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return llm.ModelConfig{}, false
+	}
+	if !isOrcaModelName(name) {
+		return llm.ModelConfig{}, false
+	}
+	cfg := llm.ModelConfig{
+		Name:    name,
+		BaseURL: OrcaRouterBaseURL,
+		API:     OrcaRouterProvider,
+	}
+	if verified, ok := verifiedOrcaModels[name]; ok {
+		cfg.ContextWindow = verified.contextWindow
+		cfg.ImageEnabled = verified.imageEnabled
+		if verified.think != nil {
+			cfg.Think = *verified.think
+		}
+	}
+	// An unknown OrcaRouter model keeps the route but leaves the context window
+	// unset, so compaction stays disabled (the safe default), and leaves images
+	// off until the catalog proves the model accepts them.
+	return cfg, true
+}
+
+// isOrcaModelName reports whether a name belongs to the OrcaRouter namespace.
+// The vendor prefix is the catalog's own convention; anything else is a user's
+// custom model and must not be silently rerouted.
+func isOrcaModelName(name string) bool {
+	first, _, ok := strings.Cut(name, "/")
+	if !ok {
+		return false
+	}
+	switch first {
+	case "orcarouter", "openai", "anthropic", "google", "deepseek":
+		return true
+	}
+	return false
+}
+
+// verifiedOrcaModel is a verified fallback entry for one OrcaRouter model.
+type verifiedOrcaModel struct {
+	contextWindow int
+	imageEnabled  bool
+	// think is the verified reasoning-effort default. nil means the model has
+	// no documented reasoning ladder, so none is invented for it.
+	think *llm.ThinkConfig
+}
+
+// verifiedOrcaModels covers the cold-start seed. An entry is listed only when
+// its context window and input modalities are documented; everything else
+// keeps the conservative defaults above.
+//
+// Sources (verified 2026-09-22):
+//   - https://api.orcarouter.ai/v1/models — live catalog
+//   - https://www.orcarouter.ai — documented model list and reasoning levels
+var verifiedOrcaModels = map[string]verifiedOrcaModel{
+	"openai/gpt-5.5": {
+		contextWindow: 272_000,
+		imageEnabled:  true,
+		// gpt-5.5 documents low/medium/high/xhigh; high is the default.
+		think: &orcaThinkHigh,
+	},
+	"anthropic/claude-opus-4.8": {
+		contextWindow: 200_000,
+		imageEnabled:  true,
+	},
+	"google/gemini-3.5-flash": {
+		contextWindow: 1_000_000,
+		imageEnabled:  true,
+		think:         &orcaThinkHigh,
+	},
+	"deepseek/deepseek-v4-pro": {
+		contextWindow: 1_048_576,
+	},
+	"deepseek/deepseek-v4-flash": {
+		contextWindow: 1_048_576,
+	},
+	"deepseek/deepseek-v4.1-flash": {
+		contextWindow: 1_048_576,
+		imageEnabled:  true,
+	},
+	"deepseek/deepseek-v4-flash-vision-exp": {
+		contextWindow: 1_048_576,
+		imageEnabled:  true,
+	},
+	"orcarouter/auto": {},
+}
+
+// OrcaAutoModel is the catalog's own auto-routing model, used in the guidance
+// printed after a successful connect.
+const OrcaAutoModel = "orcarouter/auto"
+
+// OrcaReasoningLevels returns the verified reasoning-effort ladder for an
+// OrcaRouter model, or nil when it has none. It lets a caller restore a
+// fallback model without dropping its reasoning metadata.
+func OrcaReasoningLevels(name string) []llm.ThinkMode {
+	m, ok := verifiedOrcaModels[name]
+	if !ok || m.think == nil {
+		return nil
+	}
+	return []llm.ThinkMode{llm.Low, llm.Medium, llm.High, llm.XHigh}
+}
+
+// VerifiedOrcaModelIDs returns the verified OrcaRouter fallback identifiers.
+func VerifiedOrcaModelIDs() []string {
+	out := make([]string, 0, len(verifiedOrcaModels))
+	for name := range verifiedOrcaModels {
+		out = append(out, name)
+	}
+	return out
+}
+
 var (
-	thinkHigh = llm.ThinkConfig{Enabled: true, Mode: llm.High}
-	thinkMax  = llm.ThinkConfig{Enabled: true, Mode: llm.Max}
+	orcaThinkHigh = llm.ThinkConfig{Enabled: true, Mode: llm.High}
+	thinkHigh     = llm.ThinkConfig{Enabled: true, Mode: llm.High}
+	thinkMax      = llm.ThinkConfig{Enabled: true, Mode: llm.Max}
 )
 
 // presets is the built-in catalog, keyed by model name. Values mirror each

@@ -1,9 +1,12 @@
 # Supported models
 
 phi talks to LLMs through an **explicit** `api` field on each config entry
-(`OpenAI` | `OpenAIResponses` | `Anthropic` | `Gemini`). Empty `api` means
-OpenAI-compatible `/chat/completions`. There is no name- or URL-based
-provider guessing.
+(`OpenAI` | `OpenAIResponses` | `Anthropic` | `Gemini` | `OrcaRouter`). Empty
+`api` means OpenAI-compatible `/chat/completions`. There is no name- or
+URL-based provider guessing, with one deliberate exception: a model whose name
+carries an OrcaRouter vendor namespace (`openai/…`, `anthropic/…`, `google/…`,
+`deepseek/…`, `orcarouter/…`) routes to OrcaRouter, because that is the only
+endpoint that accepts those IDs.
 
 Built-in **presets** (exact `name` match) fill `base_url`, `context_window`,
 `image_enabled`, `api`, and default thinking when those fields are omitted.
@@ -39,6 +42,74 @@ models:
     api_key: sk-...
     default: true
 ```
+
+## OrcaRouter
+
+[OrcaRouter](https://www.orcarouter.ai) is a first-class provider: select it in
+the config editor's `api` dropdown, or write `api: OrcaRouter`. It is an
+OpenAI-compatible gateway, so the same client that talks to OpenAI-compatible
+endpoints is used, with `base_url: https://api.orcarouter.ai/v1` filled in for
+you.
+
+### Connecting
+
+Two ways in, and both end in the same OrcaRouter API key stored in
+`~/.phi/orcarouter.json` (mode 0600):
+
+```bash
+phi auth login --orcarouter              # OAuth 2.0 + PKCE, no client secret
+phi auth login --orcarouter --api-key    # paste an existing sk-orca-... key
+phi auth status                          # masked key and its source
+phi auth logout                          # remove the stored key
+```
+
+The config editor (`phi config`) shows both methods side by side in the
+OrcaRouter section: a paste-a-key field, and **Connect with OrcaRouter**, which
+runs the authorization-code flow with S256 PKCE. `ORCA_API_KEY` overrides the
+stored key, matching the `PHI_API_KEY` habit.
+
+The flow requests `scope=api`; a `connector` scope is also accepted when the
+consent screen grants it. The granted scope is read from the exchange response
+— the requested scope is never assumed.
+
+### Model list
+
+The model dropdown is filled from `GET /v1/models` on the configured
+inference origin, using the stored key, and filtered per entry point:
+
+| Entry point | Filter |
+| ----------- | ------ |
+| Text chat / agent | a chat-capable endpoint type (`openai`, `anthropic`, `gemini`, `openai-response`), excluding image-generation, video, and rerank routes |
+| Image attachments | the chat list, narrowed to models whose `architecture.input_modalities` declares `image` |
+| Embedding | the `embeddings` endpoint |
+| Image generation | the `image-generation` endpoint |
+| Video | the `openai-video` endpoint |
+| Rerank | the `jina-rerank` endpoint |
+
+A model that declares nothing is excluded rather than guessed at. Turning the
+per-model image toggle on or off recomputes the list, and a selection that is
+no longer compatible is cleared instead of being kept. If discovery fails, the
+list falls back to a small verified seed and the page says so; the seed is
+never merged into a successful live answer.
+
+The API key stays in the local server: the browser receives model metadata
+only.
+
+```yaml
+models:
+  - name: openai/gpt-5.5
+    api: OrcaRouter
+    default: true
+```
+
+### Origins
+
+Auth and inference are separate origins and are never derived from one another:
+authentication is `https://www.orcarouter.ai` (authorize `/auth`, exchange
+`/api/v1/auth/keys`) and inference is `https://api.orcarouter.ai/v1`. Note the
+`/api` prefix on the exchange path — `/v1/auth/keys` on the inference origin
+does not exist. Overrides: `ORCA_AUTH_BASE_URL`, `ORCA_API_BASE_URL`, or a
+shared `ORCA_BASE_URL`. A non-loopback origin must be HTTPS.
 
 ## Other / custom models
 
@@ -102,3 +173,4 @@ models:
 
 - Config overview: [README § Configuration](../README.md#configuration)
 - Preset code: `internal/project/model/`
+- OrcaRouter credential seam and catalog: `internal/orca/`
