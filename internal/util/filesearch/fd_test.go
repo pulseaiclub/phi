@@ -157,3 +157,42 @@ func TestSearchMatchesDirectorySegment(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"internal/session/manager.go"}, got)
 }
+
+// fd echoes the search root it was given, so the picker strips it back to a
+// path relative to cwd. The echo is not always byte-identical (Windows swaps
+// separators and drive-letter case), and an unstripped line reaches the @
+// picker as an absolute path.
+func TestRelToCwd(t *testing.T) {
+	tests := []struct {
+		name string
+		cwd  string
+		line string
+		want string
+	}{
+		{
+			name: "echoed root",
+			cwd:  "/repo",
+			line: "/repo/internal/session/manager.go",
+			want: "internal/session/manager.go",
+		},
+		{name: "root itself", cwd: "/repo", line: "/repo", want: ""},
+		{
+			name: "already relative",
+			cwd:  "/repo",
+			line: "internal/session/manager.go",
+			want: "internal/session/manager.go",
+		},
+		{
+			name: "relative with dot prefix",
+			cwd:  "/repo",
+			line: "./internal/session/manager.go",
+			want: "internal/session/manager.go",
+		},
+		{name: "outside cwd", cwd: "/repo", line: "/elsewhere/a.go", want: "/elsewhere/a.go"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, relToCwd(tt.cwd, tt.line))
+		})
+	}
+}

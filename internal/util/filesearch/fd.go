@@ -121,22 +121,36 @@ func Search(ctx context.Context, cwd, query string, limit int) (paths []string, 
 		if line == "" || line == "." {
 			continue
 		}
-		// fd echoes the root it was given, so strip it back to a path
-		// relative to cwd.
-		line = strings.TrimPrefix(line, cwd)
-		line = strings.TrimPrefix(line, string(os.PathSeparator))
-		line = strings.TrimPrefix(line, "./")
-		line = filepath.ToSlash(line)
-		if line == "" {
+		rel := relToCwd(cwd, line)
+		if rel == "" {
 			continue
 		}
-		out = append(out, line)
+		out = append(out, rel)
 		if len(out) > limit {
 			// The extra match proves more exist; drop it and say so.
 			return out[:limit], true, nil
 		}
 	}
 	return out, false, nil
+}
+
+// relToCwd turns one fd output line into a path relative to cwd, slash
+// separated. fd echoes the root it was given, and that echo is not always
+// byte-identical to cwd: Windows hands the same root back with the other
+// separator or a different drive-letter case. Rel copes with both, where a
+// string prefix strip leaves the root in place — and an absolute path in the
+// @ picker, which then reads as "outside the workspace" everywhere it is used.
+func relToCwd(cwd, line string) string {
+	rel, err := filepath.Rel(cwd, line)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		// Outside cwd, or fd printed the line relative already: keep fd's
+		// wording, minus the "./" it prefixes to a relative result.
+		rel = line
+	}
+	if rel == "." {
+		return ""
+	}
+	return strings.TrimPrefix(filepath.ToSlash(rel), "./")
 }
 
 func escapeRegex(s string) string {
