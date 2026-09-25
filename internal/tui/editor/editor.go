@@ -2,6 +2,7 @@
 package editor
 
 import (
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -323,30 +324,46 @@ func (e *Editor) openDiff(args []string) {
 }
 
 // openCode shows a file in the viewer. A ":line" suffix puts the cursor there.
-// An "@" prefix is expanded to "./" so the shell can complete the path.
+// The "@" the picker inserts is dropped: a relative remainder stays relative to
+// cwd, while an absolute one (the picker can hand back "C:\src\a.go" on
+// Windows) keeps its drive letter instead of becoming "./C:\src\a.go", which
+// reads as relative and resolves under cwd.
 func (e *Editor) openCode(args []string) {
 	if e.code == nil {
 		return
 	}
 	path := strings.TrimSpace(strings.Join(args, " "))
-	if strings.HasPrefix(path, "@") {
-		path = "./" + path[1:]
+	if rest, ok := strings.CutPrefix(path, "@"); ok {
+		path = rest
+		if !filepath.IsAbs(path) {
+			path = "./" + path
+		}
 	}
 	if path == "" {
 		e.toast.Show("usage: /code <path>[:line]", toast.ToastWarning, 2*time.Second)
 		return
 	}
-	line := 0
-	if base, tail, ok := strings.Cut(path, ":"); ok {
-		if n, err := strconv.Atoi(tail); err == nil && n > 0 {
-			path, line = base, n
-		}
-	}
+	path, line := splitLineSuffix(path)
 	if e.diff != nil {
 		e.diff.Close()
 	}
 	e.code.OpenAt(path, line)
 	e.captureOverlayFocus()
+}
+
+// splitLineSuffix splits "<path>[:line]" into the path and a 1-based line, 0
+// when the suffix is missing or unusable. A Windows drive letter carries its
+// own colon, so the line is whatever follows the last one.
+func splitLineSuffix(arg string) (string, int) {
+	i := strings.LastIndex(arg, ":")
+	if i < 0 {
+		return arg, 0
+	}
+	n, err := strconv.Atoi(arg[i+1:])
+	if err != nil || n <= 0 {
+		return arg, 0
+	}
+	return arg[:i], n
 }
 
 func (e *Editor) captureOverlayFocus() {

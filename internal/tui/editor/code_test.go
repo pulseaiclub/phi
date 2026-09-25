@@ -71,12 +71,54 @@ func TestCodeCommandAcceptsLineSuffix(t *testing.T) {
 	assert.Contains(t, components.SurfaceText(frame(t, e)), "a.go:3:1")
 }
 
-// An @ prefix is expanded to ./ so the shell can complete the path.
+// An @ prefix is the picker's sigil, not part of the path: a relative
+// remainder still resolves against cwd, so it opens the same file.
 func TestCodeCommandExpandsAtPrefix(t *testing.T) {
 	e := newTestEditor(t)
 	require.True(t, e.commands.DispatchSlash("/code @a.go", commands.NewContext(e.bus, nil)))
 	require.True(t, e.code.Active())
-	assert.Contains(t, components.SurfaceText(frame(t, e)), "a.go")
+	assert.Contains(t, components.SurfaceText(frame(t, e)), "a.go:1:1")
+}
+
+// An absolute @ path must keep its root. Prefixing "./" — as the pane did for
+// every @ argument — turns "C:\src\a.go" into a path under cwd, which is how
+// the Windows picker's result came back as "no such file".
+func TestCodeCommandKeepsAbsoluteAtPath(t *testing.T) {
+	e := newTestEditor(t)
+	abs := filepath.Join(e.cwd, "a.go")
+	require.True(t, filepath.IsAbs(abs), "the fixture must exercise the absolute branch")
+
+	e.openCode([]string{"@" + abs})
+
+	require.True(t, e.code.Active())
+	assert.Contains(t, components.SurfaceText(frame(t, e)), "a.go:1:1")
+}
+
+// A Windows drive letter carries a colon of its own, so the line suffix is the
+// tail after the last one — not the fragment after "C".
+func TestSplitLineSuffix(t *testing.T) {
+	tests := []struct {
+		name string
+		arg  string
+		path string
+		line int
+	}{
+		{name: "no suffix", arg: "a.go", path: "a.go"},
+		{name: "line", arg: "a.go:3", path: "a.go", line: 3},
+		{name: "nested path", arg: "src/a.go:42", path: "src/a.go", line: 42},
+		{name: "drive path", arg: `C:\src\a.go`, path: `C:\src\a.go`},
+		{name: "drive path with line", arg: `C:\src\a.go:12`, path: `C:\src\a.go`, line: 12},
+		{name: "forward-slash drive path with line", arg: "C:/src/a.go:12", path: "C:/src/a.go", line: 12},
+		{name: "non-numeric tail", arg: "a.go:x", path: "a.go:x"},
+		{name: "zero line", arg: "a.go:0", path: "a.go:0"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path, line := splitLineSuffix(tt.arg)
+			assert.Equal(t, tt.path, path)
+			assert.Equal(t, tt.line, line)
+		})
+	}
 }
 
 // With no path the command explains itself instead of opening an empty pane.
