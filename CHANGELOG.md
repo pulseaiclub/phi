@@ -18,6 +18,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- `/code` on Windows: an `@`-completed path keeps its drive letter instead of
+  becoming `./C:\…` (which resolved under cwd and reported "no file"), and
+  `path:line` splits at the last colon, so `C:\src\a.go:12` opens at line 12.
+- The `@` file picker no longer lists absolute paths on Windows: fd's echoed
+  root is relativized with `filepath.Rel`, which tolerates the separator and
+  drive-letter-case differences a string prefix strip does not.
+
 ### Security
 
 ## [0.27.5] - 2026-09-22
