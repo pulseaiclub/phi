@@ -270,10 +270,13 @@ type LoopOpts struct {
 // Loop appends the user prompt and runs inference + tool rounds until the
 // model stops calling tools or the context is cancelled.
 //
-// Compaction runs in two places:
-//  1. After a finished turn (final assistant with no tool_calls), when usage
+// Compaction runs in three places:
+//  1. Before every request, when the estimated context crosses the threshold. A
+//     turn that keeps calling tools can grow past the window while it runs, and
+//     the turn-end check below never sees that.
+//  2. After a finished turn (final assistant with no tool_calls), when usage
 //     crosses the context-window threshold.
-//  2. Mid-loop on a context-overflow API error: force-compact once, rebuild
+//  3. Mid-loop on a context-overflow API error: force-compact once, rebuild
 //     context, and retry the stream. A second overflow fails closed.
 func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) iter.Seq2[session.Event, error] {
 	return func(yield func(session.Event, error) bool) {
@@ -311,6 +314,22 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 		for {
 			if ctx.Err() != nil {
 				return
+			}
+
+			// Check the threshold before every request, not just at the end of the
+			// turn: a turn that keeps calling tools can cross the window while it
+			// runs, and the turn-end check never sees it. Overflow recovery is the
+			// only other guard, and it needs the provider to reject the request
+			// first. A repeat attempt is cheap — the cut has nothing left to
+			// summarize once the kept tail is all that remains — so this needs no
+			// "already tried" bookkeeping.
+			did, err := engine.runCompact(ctx, yield, engine.estimateContextTokens(), false)
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+			if did {
+				continue
 			}
 
 			engine.extensions.EmitTurnStart(toolRounds)
@@ -405,6 +424,12 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			}
 		}
 	}
+}
+
+// estimateContextTokens sizes the next request the way the compaction threshold
+// reads it: the last reported context plus everything appended since.
+func (engine *Engine) estimateContextTokens() int {
+	return compaction.EstimateContextTokens(engine.session.PathEntries())
 }
 
 // runCompact prepares and persists a compaction entry.

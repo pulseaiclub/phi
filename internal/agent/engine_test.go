@@ -451,3 +451,116 @@ func TestLoopNonOverflowErrorDoesNotCompact(t *testing.T) {
 	require.False(t, sawCompact)
 	require.Equal(t, int32(1), streamHits.Load())
 }
+
+// midTurnCompactServer streams a tool call, then a final reply, and serves the
+// non-streaming compaction summary. Streaming request bodies are recorded so a
+// test can see what the model was sent after the mid-turn compaction.
+func midTurnCompactServer(bodies *[]map[string]any, compactHits *atomic.Int32) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if stream, _ := body["stream"].(bool); stream {
+			*bodies = append(*bodies, body)
+			w.Header().Set("Content-Type", "text/event-stream")
+			if len(*bodies) == 1 {
+				_, _ = fmt.Fprint(w, sseToolCallChunk("call_1", "count", `{}`))
+			} else {
+				_, _ = fmt.Fprint(w, sseTextChunk("done"))
+			}
+			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+			return
+		}
+		compactHits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []any{map[string]any{
+				"message": map[string]any{"role": "assistant", "content": "prior work summarized"},
+			}},
+		})
+	}))
+}
+
+// sentContent concatenates the message contents of one request body.
+func sentContent(body map[string]any) string {
+	var b strings.Builder
+	messages, _ := body["messages"].([]any)
+	for _, raw := range messages {
+		message, _ := raw.(map[string]any)
+		content, _ := message["content"].(string)
+		b.WriteString(content)
+	}
+	return b.String()
+}
+
+// bulkyTool answers with a result big enough to push the estimated context past
+// the threshold on its own.
+func bulkyTool() tools.Tool {
+	return tools.Tool{
+		Definition: llm.ToolDefinition{
+			Name:        "count",
+			Description: "answer with a large payload",
+			Params:      &llm.FunctionParameters{Type: "object"},
+		},
+		Run: func(context.Context, json.RawMessage) (tools.Result, error) {
+			return tools.Result{Content: strings.Repeat("y", 12000)}, nil
+		},
+	}
+}
+
+// A turn that keeps calling tools can cross the window while it runs, which the
+// turn-end check never sees. The threshold is checked before every request, so
+// the summarized prefix is gone from the next one.
+func TestLoopCompactsMidTurnBeforeNextRequest(t *testing.T) {
+	var bodies []map[string]any
+	var compactHits atomic.Int32
+	server := midTurnCompactServer(&bodies, &compactHits)
+	defer server.Close()
+
+	sess, err := NewSession(WithCwd(t.TempDir()))
+	require.NoError(t, err)
+	// Four seeded turns of ~12k estimated tokens each. The reported usage of the
+	// last one (22k) sits below the threshold of a 40k window (23616), so nothing
+	// compacts until the tool result lands on top of it.
+	require.NoError(t, sess.Append(
+		llm.Message{Role: llm.RoleUser, Content: strings.Repeat("a", 48000), Usage: llm.Usage{TotalTokens: 6000}},
+		llm.Message{Role: llm.RoleAssistant, Content: strings.Repeat("b", 48000), Usage: llm.Usage{TotalTokens: 12000}},
+		llm.Message{Role: llm.RoleUser, Content: strings.Repeat("c", 48000), Usage: llm.Usage{TotalTokens: 18000}},
+		llm.Message{Role: llm.RoleAssistant, Content: strings.Repeat("d", 48000), Usage: llm.Usage{TotalTokens: 22000}},
+	))
+
+	engine, err := NewEngine(
+		llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 40_000},
+		sess,
+		WithGate(permission.AllowAll{}),
+		WithTools([]tools.Tool{bulkyTool()}),
+	)
+	require.NoError(t, err)
+
+	var lastErr error
+	var sawCompact bool
+	for ev, err := range engine.Loop(t.Context(), "continue", LoopOpts{}) {
+		if err != nil {
+			lastErr = err
+			break
+		}
+		if _, ok := ev.(session.CompactionStarted); ok {
+			sawCompact = true
+		}
+	}
+
+	require.NoError(t, lastErr)
+	require.True(t, sawCompact, "the second request should have been preceded by a compaction")
+	require.Len(t, bodies, 2)
+	require.Equal(t, int32(1), compactHits.Load(),
+		"the follow-up attempt has nothing left to cut, so it must not summarize again")
+
+	first := sentContent(bodies[0])
+	require.Contains(t, first, strings.Repeat("a", 32))
+	require.Contains(t, first, strings.Repeat("b", 32))
+
+	second := sentContent(bodies[1])
+	require.NotContains(t, second, strings.Repeat("a", 32), "the summarized prefix must be gone")
+	require.NotContains(t, second, strings.Repeat("b", 32))
+	require.Contains(t, second, strings.Repeat("c", 32))
+	require.Contains(t, second, strings.Repeat("d", 32))
+}
