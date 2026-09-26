@@ -32,6 +32,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- The compaction threshold is checked before every request, not only when a turn
+  ends. A turn that keeps calling tools could grow past the configured
+  `context_window` while it ran: the next check happened after the model stopped
+  calling tools, and overflow recovery needed the provider to reject the request
+  first. The pre-request check sizes the context from the last reported usage
+  plus an estimate of everything appended since, so a long turn is summarized
+  before the next request goes out rather than after the window is already
+  exceeded.
+
 - Compaction summaries say that they are summaries. They re-entered the context
   as plain user messages, so retired instructions inside one — a constraint from
   an earlier turn, the summarizer's own next steps — read to the model as a fresh
