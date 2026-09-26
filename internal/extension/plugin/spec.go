@@ -1,4 +1,4 @@
-package extension
+package plugin
 
 import (
 	"errors"

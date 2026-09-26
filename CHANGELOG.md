@@ -26,6 +26,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- `internal/extension` is split by concern: `manifest` (phi.yaml parsing and
+  discovery), `proc` (one subprocess: handshake, RPC, event shims), `plugin`
+  (GitHub install / update / remove), and `exttest` (test helper that builds a
+  throwaway extension binary). The top-level package keeps `Load`, `Runner`,
+  and `BusUI`.
+
 ### Deprecated
 
 ### Removed
@@ -49,6 +55,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the same deny list as the tool gate.
 
 ### Changed
+
+- `internal/extension` is split by concern: `manifest` (phi.yaml parsing and
+  discovery), `proc` (one subprocess: handshake, RPC, event shims), `plugin`
+  (GitHub install / update / remove), and `exttest` (test helper that builds a
+  throwaway extension binary). The top-level package keeps `Load`, `Runner`,
+  and `BusUI`.
 
 ### Deprecated
 
@@ -98,6 +110,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- `internal/extension` is split by concern: `manifest` (phi.yaml parsing and
+  discovery), `proc` (one subprocess: handshake, RPC, event shims), `plugin`
+  (GitHub install / update / remove), and `exttest` (test helper that builds a
+  throwaway extension binary). The top-level package keeps `Load`, `Runner`,
+  and `BusUI`.
+
 ### Deprecated
 
 ### Removed
@@ -121,6 +139,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Add built-in `gpt-5.5` and `gpt-5.5-pro` presets using the OpenAI Responses API.
 
 ### Changed
+
+- `internal/extension` is split by concern: `manifest` (phi.yaml parsing and
+  discovery), `proc` (one subprocess: handshake, RPC, event shims), `plugin`
+  (GitHub install / update / remove), and `exttest` (test helper that builds a
+  throwaway extension binary). The top-level package keeps `Load`, `Runner`,
+  and `BusUI`.
 
 ### Deprecated
 
@@ -256,6 +280,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- `internal/extension` is split by concern: `manifest` (phi.yaml parsing and
+  discovery), `proc` (one subprocess: handshake, RPC, event shims), `plugin`
+  (GitHub install / update / remove), and `exttest` (test helper that builds a
+  throwaway extension binary). The top-level package keeps `Load`, `Runner`,
+  and `BusUI`.
+
 ### Deprecated
 
 ### Removed
@@ -278,6 +308,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Added
 
 ### Changed
+
+- `internal/extension` is split by concern: `manifest` (phi.yaml parsing and
+  discovery), `proc` (one subprocess: handshake, RPC, event shims), `plugin`
+  (GitHub install / update / remove), and `exttest` (test helper that builds a
+  throwaway extension binary). The top-level package keeps `Load`, `Runner`,
+  and `BusUI`.
 
 ### Deprecated
 
@@ -423,6 +459,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- `internal/extension` is split by concern: `manifest` (phi.yaml parsing and
+  discovery), `proc` (one subprocess: handshake, RPC, event shims), `plugin`
+  (GitHub install / update / remove), and `exttest` (test helper that builds a
+  throwaway extension binary). The top-level package keeps `Load`, `Runner`,
+  and `BusUI`.
+
 ### Deprecated
 
 ### Removed
@@ -460,6 +502,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- `internal/extension` is split by concern: `manifest` (phi.yaml parsing and
+  discovery), `proc` (one subprocess: handshake, RPC, event shims), `plugin`
+  (GitHub install / update / remove), and `exttest` (test helper that builds a
+  throwaway extension binary). The top-level package keeps `Load`, `Runner`,
+  and `BusUI`.
+
 ### Deprecated
 
 ### Removed
@@ -475,6 +523,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Publishable Go author SDK: nested module `github.com/pulseaiclub/phi/ext` (`go get …@vX.Y.Z` via `ext/vX.Y.Z` tags). See [doc/extensions.md](doc/extensions.md).
 
 ### Changed
+
+- `internal/extension` is split by concern: `manifest` (phi.yaml parsing and
+  discovery), `proc` (one subprocess: handshake, RPC, event shims), `plugin`
+  (GitHub install / update / remove), and `exttest` (test helper that builds a
+  throwaway extension binary). The top-level package keeps `Load`, `Runner`,
+  and `BusUI`.
 
 ### Deprecated
 
@@ -605,6 +659,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- `internal/extension` is split by concern: `manifest` (phi.yaml parsing and
+  discovery), `proc` (one subprocess: handshake, RPC, event shims), `plugin`
+  (GitHub install / update / remove), and `exttest` (test helper that builds a
+  throwaway extension binary). The top-level package keeps `Load`, `Runner`,
+  and `BusUI`.
+
 ### Deprecated
 
 ### Removed
@@ -618,6 +678,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Added
 
 ### Changed
+
+- `internal/extension` is split by concern: `manifest` (phi.yaml parsing and
+  discovery), `proc` (one subprocess: handshake, RPC, event shims), `plugin`
+  (GitHub install / update / remove), and `exttest` (test helper that builds a
+  throwaway extension binary). The top-level package keeps `Load`, `Runner`,
+  and `BusUI`.
 
 ### Deprecated
 

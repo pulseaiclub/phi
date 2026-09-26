@@ -366,7 +366,11 @@ them under management.
 | `ext/go/pxb` | Binary wire protocol |
 | `ext/go/phi` | Go author SDK (`ExtensionAPI.Run`) |
 | `ext/rust` (crate `phi-ext`) | Rust author SDK (`pxb` + `phi` modules; deps: serde/serde_json + tokio `rt`) |
-| `internal/extension` | Discover, spawn, Runner shims |
+| `internal/extension` | `Load` + `Runner` (event dispatch) |
+| `internal/extension/manifest` | `phi.yaml` parsing, discovery |
+| `internal/extension/proc` | One subprocess: handshake, RPC, event shims |
+| `internal/extension/plugin` | GitHub install / update / remove |
+| `internal/extension/exttest` | Test helper: build a throwaway extension binary |
 
 ## Migration from yaegi
 

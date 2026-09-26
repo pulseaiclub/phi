@@ -1,4 +1,4 @@
-package extension
+package manifest
 
 import (
 	"fmt"

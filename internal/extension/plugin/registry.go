@@ -1,4 +1,4 @@
-package extension
+package plugin
 
 import (
 	"encoding/json"
@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/pulseaiclub/phi/internal/extension/manifest"
 )
 
 // installMetaFile is the sidecar written into a phi-managed extension dir.
@@ -57,7 +59,7 @@ func writeInstallMeta(dir string, m InstallMeta) error {
 type Installed struct {
 	ID       string
 	Path     string
-	Manifest Manifest
+	Manifest manifest.Manifest
 	Meta     InstallMeta
 	Managed  bool // true when phi plugin install wrote install metadata
 }
@@ -84,7 +86,7 @@ func ListInstalled(dir string) ([]Installed, error) {
 		if err != nil || !st.IsDir() {
 			continue
 		}
-		m, err := ReadManifest(full)
+		m, err := manifest.ReadManifest(full)
 		if err != nil {
 			continue
 		}

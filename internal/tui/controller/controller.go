@@ -16,6 +16,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/debuglog"
 	"github.com/pulseaiclub/phi/internal/extension"
+	"github.com/pulseaiclub/phi/internal/extension/manifest"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/mcp"
@@ -229,7 +230,7 @@ func (c *EngineController) Extensions() *extension.Runner {
 	return c.extRunner.Load()
 }
 
-func (c *EngineController) ReloadExtensions() (loaded int, warns []extension.Warning, err error) {
+func (c *EngineController) ReloadExtensions() (loaded int, warns []manifest.Warning, err error) {
 	if c.proj == nil {
 		return 0, nil, errors.New("project not available")
 	}
@@ -257,11 +258,11 @@ func (c *EngineController) swapExtensionRunner(r *extension.Runner) {
 	c.publish(ExtSessionEffectsMsg{Status: "", StatusSet: true})
 }
 
-func (c *EngineController) ListExtensions() ([]extension.Discovered, []extension.Warning, error) {
+func (c *EngineController) ListExtensions() ([]manifest.Discovered, []manifest.Warning, error) {
 	if c.proj == nil {
 		return nil, nil, errors.New("project not available")
 	}
-	return extension.Discover(c.proj.Global().ExtensionsDir(), c.proj.ExtensionsDir())
+	return manifest.Discover(c.proj.Global().ExtensionsDir(), c.proj.ExtensionsDir())
 }
 
 // loadExtensions discovers ~/.phi/extensions and <cwd>/.phi/extensions.
@@ -279,7 +280,7 @@ func loadExtensions(proj *project.Project) *extension.Runner {
 	return r
 }
 
-func logExtensionWarnings(warns []extension.Warning) {
+func logExtensionWarnings(warns []manifest.Warning) {
 	for _, w := range warns {
 		debuglog.Logf("extension: %s", w.String())
 	}

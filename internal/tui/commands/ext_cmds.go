@@ -9,7 +9,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/palette"
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/debuglog"
-	"github.com/pulseaiclub/phi/internal/extension"
+	"github.com/pulseaiclub/phi/internal/extension/manifest"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
@@ -239,7 +239,7 @@ func buildExtensionsPalette(
 }
 
 // ExtensionListEntries builds disabled palette rows from discovery results + warnings.
-func ExtensionListEntries(found []extension.Discovered, warns []extension.Warning, err error) []palette.PaletteCommand {
+func ExtensionListEntries(found []manifest.Discovered, warns []manifest.Warning, err error) []palette.PaletteCommand {
 	if err != nil {
 		return []palette.PaletteCommand{{
 			ID:       "extensions-list-err",
@@ -259,7 +259,7 @@ func ExtensionListEntries(found []extension.Discovered, warns []extension.Warnin
 	for _, d := range found {
 		out = append(out, palette.PaletteCommand{
 			ID:       "ext-" + d.ID,
-			Verb:     extension.FormatDiscovered(d),
+			Verb:     manifest.FormatDiscovered(d),
 			Keywords: []string{d.ID, d.Source},
 			Disabled: true,
 		})

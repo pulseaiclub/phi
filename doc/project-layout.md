@@ -30,7 +30,11 @@
 | `internal/util/`         | Shared helpers (diff, retry, SSE, file search, …) |
 | `internal/util/diffreview/` | Unified-diff parse/render, review comments, git load |
 | `internal/permission/`   | Permission policy and ask gate                 |
-| `internal/extension/`    | PXB extension discover/spawn/runner            |
+| `internal/extension/`    | PXB extension runtime: `Load`, `Runner` (event dispatch) |
+| `internal/extension/manifest/` | `phi.yaml` parsing, discovery, warnings    |
+| `internal/extension/proc/` | One extension subprocess: handshake, RPC, event shims |
+| `internal/extension/plugin/` | GitHub install / update / remove of extension dirs |
+| `internal/extension/exttest/` | Test helper: build a throwaway extension binary |
 | `internal/mcp/`          | MCP config + stdio client + pool (meta-tool route) |
 
 ## Design docs

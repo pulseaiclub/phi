@@ -1,4 +1,4 @@
-package extension_test
+package plugin
 
 import (
 	"archive/tar"
@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/extension"
+	"github.com/pulseaiclub/phi/internal/extension/manifest"
 	"github.com/pulseaiclub/phi/internal/util/githubrelease"
 )
 
@@ -46,7 +46,7 @@ func TestParseSpec(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.in, func(t *testing.T) {
 			t.Parallel()
-			got, err := extension.ParseSpec(tc.in)
+			got, err := ParseSpec(tc.in)
 			if tc.wantErr {
 				require.Error(t, err)
 				return
@@ -67,7 +67,7 @@ func TestDiscoverIgnoresSubdirWithoutManifest(t *testing.T) {
 	require.NoError(t, os.Mkdir(sub, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(sub, "greet.go"), []byte("package main\n"), 0o644))
 
-	found, warns, err := extension.Discover(dir, "")
+	found, warns, err := manifest.Discover(dir, "")
 	require.NoError(t, err)
 	assert.Empty(t, found)
 	assert.Empty(t, warns)
@@ -75,9 +75,9 @@ func TestDiscoverIgnoresSubdirWithoutManifest(t *testing.T) {
 
 func TestInstallClonesWhenReleaseUnavailable(t *testing.T) {
 	dir := t.TempDir()
-	spec := extension.Spec{Owner: "alice", Repo: "greet", Ref: "v1"}
+	spec := Spec{Owner: "alice", Repo: "greet", Ref: "v1"}
 	var sawArgs []string
-	err := extension.Install(t.Context(), extension.InstallOptions{
+	err := Install(t.Context(), InstallOptions{
 		Dir:  dir,
 		Spec: spec,
 		Git:  "git",
@@ -108,7 +108,7 @@ func TestInstallClonesWhenReleaseUnavailable(t *testing.T) {
 		dir, sawArgs[6],
 	)
 
-	found, _, err := extension.Discover(dir, "")
+	found, _, err := manifest.Discover(dir, "")
 	require.NoError(t, err)
 	require.Len(t, found, 1)
 	assert.Equal(t, "greet", found[0].ID)
@@ -134,9 +134,9 @@ func TestInstallFromReleaseArchive(t *testing.T) {
 		sumsName:  sumsBody,
 	}
 
-	err := extension.Install(t.Context(), extension.InstallOptions{
+	err := Install(t.Context(), InstallOptions{
 		Dir:  dir,
-		Spec: extension.Spec{Owner: "alice", Repo: "greet", Ref: "v1.2.3"},
+		Spec: Spec{Owner: "alice", Repo: "greet", Ref: "v1.2.3"},
 		FetchRelease: func(_ context.Context, ownerRepo, ref string) (githubrelease.Release, error) {
 			assert.Equal(t, "alice/greet", ownerRepo)
 			assert.Equal(t, "v1.2.3", ref)
@@ -163,7 +163,7 @@ func TestInstallFromReleaseArchive(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	found, _, err := extension.Discover(dir, "")
+	found, _, err := manifest.Discover(dir, "")
 	require.NoError(t, err)
 	require.Len(t, found, 1)
 	assert.Equal(t, "greet", found[0].ID)
@@ -172,9 +172,9 @@ func TestInstallFromReleaseArchive(t *testing.T) {
 
 func TestInstallRejectsMissingEntry(t *testing.T) {
 	dir := t.TempDir()
-	err := extension.Install(t.Context(), extension.InstallOptions{
+	err := Install(t.Context(), InstallOptions{
 		Dir:  dir,
-		Spec: extension.Spec{Owner: "alice", Repo: "empty"},
+		Spec: Spec{Owner: "alice", Repo: "empty"},
 		Git:  "git",
 		FetchRelease: func(context.Context, string, string) (githubrelease.Release, error) {
 			return githubrelease.Release{}, fmt.Errorf("no release")
@@ -194,9 +194,9 @@ func TestInstallRejectsExisting(t *testing.T) {
 	dir := t.TempDir()
 	dest := filepath.Join(dir, "greet")
 	require.NoError(t, os.Mkdir(dest, 0o755))
-	err := extension.Install(t.Context(), extension.InstallOptions{
+	err := Install(t.Context(), InstallOptions{
 		Dir:  dir,
-		Spec: extension.Spec{Owner: "alice", Repo: "greet"},
+		Spec: Spec{Owner: "alice", Repo: "greet"},
 		Git:  "git",
 		FetchRelease: func(context.Context, string, string) (githubrelease.Release, error) {
 			require.Fail(t, "release should not be queried when dest exists")

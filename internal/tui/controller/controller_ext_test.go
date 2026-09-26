@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/extension"
+	"github.com/pulseaiclub/phi/internal/extension/manifest"
 	"github.com/pulseaiclub/phi/internal/project"
 )
 
@@ -17,7 +18,7 @@ func TestSwapExtensionRunner_ClosesPrevious(t *testing.T) {
 	t.Setenv("PHI_MODEL", "test-model")
 	t.Setenv("PHI_API_KEY", "test-key")
 	t.Setenv("PHI_BASE_URL", "http://127.0.0.1:9")
-	t.Setenv(extension.EnvExtensions, "off")
+	t.Setenv(manifest.EnvExtensions, "off")
 
 	cwd := t.TempDir()
 	proj, err := project.Discover(cwd)

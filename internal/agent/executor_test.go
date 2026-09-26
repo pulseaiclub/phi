@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/extension"
+	"github.com/pulseaiclub/phi/internal/extension/exttest"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/session"
@@ -22,7 +23,7 @@ func loadExt(t *testing.T, mainGo string) *extension.Runner {
 	t.Helper()
 	root := t.TempDir()
 	extDir := filepath.Join(root, "test")
-	require.NoError(t, extension.Materialize(t.Context(), extDir, "test", "0.0.1", mainGo))
+	require.NoError(t, exttest.Materialize(t.Context(), extDir, "test", "0.0.1", mainGo))
 	r, warns, err := extension.Load(root, "")
 	require.NoError(t, err)
 	require.Empty(t, warns, "unexpected warnings: %v", warns)

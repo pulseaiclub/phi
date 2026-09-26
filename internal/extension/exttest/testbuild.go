@@ -1,6 +1,7 @@
-package extension
+package exttest
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -70,8 +71,19 @@ func Materialize(ctx context.Context, dir, name, version, mainGo string) error {
 func moduleRoot() (string, error) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
-		return "", errors.New("extension: runtime.Caller failed")
+		return "", errors.New("exttest: runtime.Caller failed")
 	}
-	// internal/extension/testbuild.go → repo root
-	return filepath.Abs(filepath.Join(filepath.Dir(file), "../.."))
+	// Walk up until the phi module's go.mod, so this keeps working when the
+	// helper moves (and skips the nested ext/go module).
+	const marker = "module github.com/pulseaiclub/phi\n"
+	for dir := filepath.Dir(file); ; {
+		if b, err := os.ReadFile(filepath.Join(dir, "go.mod")); err == nil && bytes.Contains(b, []byte(marker)) {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", errors.New("exttest: phi module root not found")
+		}
+		dir = parent
+	}
 }

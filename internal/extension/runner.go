@@ -12,6 +12,8 @@ import (
 	ext "github.com/pulseaiclub/phi/ext/go"
 	"github.com/pulseaiclub/phi/ext/go/pxb"
 	"github.com/pulseaiclub/phi/internal/debuglog"
+	"github.com/pulseaiclub/phi/internal/extension/manifest"
+	"github.com/pulseaiclub/phi/internal/extension/proc"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/tools"
 )
@@ -23,9 +25,9 @@ const maxContextBytes = 4 * 1024
 type Runner struct {
 	mu      sync.Mutex
 	apis    []*ext.API
-	procs   []*Proc
-	loaded  []Discovered
-	warns   []Warning
+	procs   []*proc.Proc
+	loaded  []manifest.Discovered
+	warns   []manifest.Warning
 	ui      ext.UI
 	cwd     string
 	session string
@@ -42,7 +44,7 @@ func (r *Runner) Close() {
 		return
 	}
 	r.mu.Lock()
-	procs := append([]*Proc(nil), r.procs...)
+	procs := append([]*proc.Proc(nil), r.procs...)
 	r.procs = nil
 	r.mu.Unlock()
 	for _, p := range procs {
@@ -51,25 +53,25 @@ func (r *Runner) Close() {
 }
 
 // Loaded returns discovered extensions that were loaded.
-func (r *Runner) Loaded() []Discovered {
+func (r *Runner) Loaded() []manifest.Discovered {
 	if r == nil {
 		return nil
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	out := make([]Discovered, len(r.loaded))
+	out := make([]manifest.Discovered, len(r.loaded))
 	copy(out, r.loaded)
 	return out
 }
 
 // Warnings returns non-fatal load issues.
-func (r *Runner) Warnings() []Warning {
+func (r *Runner) Warnings() []manifest.Warning {
 	if r == nil {
 		return nil
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	out := make([]Warning, len(r.warns))
+	out := make([]manifest.Warning, len(r.warns))
 	copy(out, r.warns)
 	return out
 }
@@ -114,8 +116,7 @@ func (r *Runner) Bind(opts ext.HostOpts) {
 	ui := opts.UI
 	sendUser := opts.SendUserMessage
 	for _, p := range r.procs {
-		proc := p
-		p.onNotify = func(n pxb.NotifyMsg) {
+		p.SetNotifyHandler(func(n pxb.NotifyMsg) {
 			if ui == nil {
 				return
 			}
@@ -129,15 +130,15 @@ func (r *Runner) Bind(opts ext.HostOpts) {
 			if n.StatusSet {
 				ui.SetStatus("", n.Status)
 			}
-		}
-		p.onHostRequest = func(id uint32, hasID bool, req pxb.HostRequest) {
-			r.handleHostRequest(proc, id, hasID, req, ui, sendUser)
-		}
+		})
+		p.SetHostRequestHandler(func(id uint32, hasID bool, req pxb.HostRequest) {
+			r.handleHostRequest(p, id, hasID, req, ui, sendUser)
+		})
 	}
 }
 
 func (*Runner) handleHostRequest(
-	p *Proc,
+	p *proc.Proc,
 	id uint32,
 	hasID bool,
 	req pxb.HostRequest,
@@ -354,12 +355,12 @@ func (r *Runner) RunCommand(name, args string) (CommandOutcome, error) {
 		return CommandOutcome{}, errors.New("extension: no runner")
 	}
 	r.mu.Lock()
-	procs := append([]*Proc(nil), r.procs...)
+	procs := append([]*proc.Proc(nil), r.procs...)
 	apis := append([]*ext.API(nil), r.apis...)
 	r.mu.Unlock()
 
 	for _, p := range procs {
-		for _, c := range p.cmds {
+		for _, c := range p.Commands() {
 			if c.Name != name {
 				continue
 			}

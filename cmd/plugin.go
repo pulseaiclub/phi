@@ -9,7 +9,7 @@ import (
 
 	cli "github.com/pulseaiclub/pli"
 
-	"github.com/pulseaiclub/phi/internal/extension"
+	"github.com/pulseaiclub/phi/internal/extension/plugin"
 	"github.com/pulseaiclub/phi/internal/project"
 )
 
@@ -100,7 +100,7 @@ func splitPluginTarget(raw string) (id, ref string, err error) {
 		}
 	}
 	if strings.Contains(pathPart, "/") {
-		spec, perr := extension.ParseSpec(raw)
+		spec, perr := plugin.ParseSpec(raw)
 		if perr != nil {
 			return "", "", perr
 		}
@@ -113,14 +113,14 @@ func pluginInstall(args []string) error {
 	if len(args) != 1 {
 		return pluginInstallCommand.Usagef("expected <github-repo[@tag]>")
 	}
-	spec, err := extension.ParseSpec(args[0])
+	spec, err := plugin.ParseSpec(args[0])
 	if err != nil {
 		return err
 	}
 	proj := project.GetDefaultProject()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	return extension.Install(ctx, extension.InstallOptions{
+	return plugin.Install(ctx, plugin.InstallOptions{
 		Dir:    proj.Global().ExtensionsDir(),
 		Spec:   spec,
 		Stdout: os.Stdout,
@@ -129,7 +129,7 @@ func pluginInstall(args []string) error {
 
 func pluginList() error {
 	proj := project.GetDefaultProject()
-	installed, err := extension.ListInstalled(proj.Global().ExtensionsDir())
+	installed, err := plugin.ListInstalled(proj.Global().ExtensionsDir())
 	if err != nil {
 		return err
 	}
@@ -156,7 +156,7 @@ func pluginUpdate(args []string, check bool) error {
 		return pluginUpdateCommand.Usagef("expected at most one <repo[@ref]>")
 	}
 	proj := project.GetDefaultProject()
-	opts := extension.UpdateOptions{
+	opts := plugin.UpdateOptions{
 		Dir:    proj.Global().ExtensionsDir(),
 		Check:  check,
 		Stdout: os.Stdout,
@@ -170,7 +170,7 @@ func pluginUpdate(args []string, check bool) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	return extension.Update(ctx, opts)
+	return plugin.Update(ctx, opts)
 }
 
 func pluginRemove(args []string) error {
@@ -182,7 +182,7 @@ func pluginRemove(args []string) error {
 		return err
 	}
 	proj := project.GetDefaultProject()
-	if err := extension.Remove(proj.Global().ExtensionsDir(), id); err != nil {
+	if err := plugin.Remove(proj.Global().ExtensionsDir(), id); err != nil {
 		return err
 	}
 	fmt.Printf("removed %s\n", id)

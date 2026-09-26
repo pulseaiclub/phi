@@ -1,15 +1,17 @@
-package extension
+package plugin
 
 import (
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/pulseaiclub/phi/internal/extension/manifest"
 )
 
 // findInstallEntry verifies a cloned plugin looks like a PXB extension.
 func findInstallEntry(dir string) (string, error) {
-	m, err := ReadManifest(dir)
+	m, err := manifest.ReadManifest(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", errors.New(
