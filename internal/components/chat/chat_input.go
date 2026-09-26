@@ -86,9 +86,6 @@ type ChatInput struct {
 	// OnQuestionChange is called after Value or Cursor changes that may
 	// activate/deactivate a leading ? shortcut-help token.
 	OnQuestionChange func(active bool, query string)
-	// OnBashChange is called after Value or Cursor changes that may
-	// activate/deactivate a leading ! shell command.
-	OnBashChange func(active bool, query string)
 
 	// MentionOpen is set by the editor while the @-file picker is visible.
 	// When true, Up/Down/Tab/Enter are left unconsumed so the picker can
@@ -98,15 +95,13 @@ type ChatInput struct {
 	SlashOpen bool
 	// QuestionOpen is set while the ? shortcut picker is visible.
 	QuestionOpen bool
-	// BashOpen is set while the ! completion picker is visible.
-	BashOpen bool
 
 	// dumpNextDraw is set on paste/insert when PHI_DEBUG=1.
 	dumpNextDraw bool
 }
 
 func (c *ChatInput) completerOpen() bool {
-	return c.MentionOpen || c.SlashOpen || c.QuestionOpen || c.BashOpen
+	return c.MentionOpen || c.SlashOpen || c.QuestionOpen
 }
 
 func (c *ChatInput) bodyRows(width int, method xui.WidthMethod) int {
@@ -512,7 +507,6 @@ func (c *ChatInput) notifyCompleters() {
 	c.notifyMention()
 	c.notifySlash()
 	c.notifyQuestion()
-	c.notifyBash()
 }
 
 func (c *ChatInput) notifyMention() {
@@ -537,14 +531,6 @@ func (c *ChatInput) notifyQuestion() {
 	}
 	q, _, _, ok := ActiveQuestion(c.Value, c.Cursor)
 	c.OnQuestionChange(ok, q)
-}
-
-func (c *ChatInput) notifyBash() {
-	if c.OnBashChange == nil {
-		return
-	}
-	q, _, ok := ActiveBash(c.Value, c.Cursor)
-	c.OnBashChange(ok, q)
 }
 
 // ReplaceRange replaces value[start:end] with text and places the cursor after it.

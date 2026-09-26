@@ -72,14 +72,6 @@ func NewClient(cfg Config) (*Client, error) {
 	}, nil
 }
 
-// APIKeyConfigured reports whether TYPESAFE_API_KEY names a key, without
-// building a client. Callers that must decide up front whether a
-// TypeSafe-backed feature is available at all use this instead of reading the
-// environment themselves.
-func APIKeyConfigured() bool {
-	return envValue("TYPESAFE_API_KEY") != ""
-}
-
 // Usage counts the tokens one request billed.
 type Usage struct {
 	InputTokens  int `json:"input_tokens"`

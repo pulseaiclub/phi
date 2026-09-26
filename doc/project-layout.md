@@ -17,7 +17,7 @@
 | `internal/toolmanager/`  | External tool discovery/download               |
 | `internal/tui/editor/`   | TUI root widget (`Editor`), layout, dispatch, branch watch |
 | `internal/tui/transcript/` | Session→widget projection (Mapper, Pane) |
-| `internal/tui/composer/` | Chat input, `/` `?` `@` `!` pickers, palette |
+| `internal/tui/composer/` | Chat input, slash/@ pickers, palette |
 | `internal/tui/footer/`   | Activity spinner, token labels, update hint |
 | `internal/tui/overlays/` | Permission / continue-ask panels |
 | `internal/tui/diffpane/` | Git diff review overlay (`/diff`) |

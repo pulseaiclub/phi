@@ -8,7 +8,7 @@ Phi’s interactive UI follows a **panda-style** split: a thin `Editor` root wid
 cmd/main.go
   └─ editor.NewEditor(app, bus, ctrl, …)
        ├─ TranscriptPane   snap, list, mapper, subagents, welcome, text selection
-       ├─ ComposerPane     chat, @/slash/?/! pickers, palette (input only)
+       ├─ ComposerPane     chat, @/slash pickers, palette (input only)
        ├─ FooterChrome     status slot (activity↔tokens), bottom row for ext/jobs/hints
        ├─ Overlays         permission ask, continue ask
        ├─ DiffPane         full-screen git diff review (`/diff`)
@@ -55,7 +55,7 @@ internal/tui/
 | `editor` | TUI root `components.Widget`; wires panes; `Draw` drains the bus |
 | `controller` | `Controller` runs `agent.Engine`; publishes `Msg` to the bus only |
 | `transcript` | Projects `session.Event` → message list; sub-agent rows; copy selection |
-| `composer` | Keyboard routing for chat, `/` slash, `?` shortcuts, `@` mention, `!` shell completion, Ctrl+K palette |
+| `composer` | Keyboard routing for chat, `/` slash, `@` mention, Ctrl+K palette |
 | `footer` | Composer status slot (activity ↔ tokens), bottom footer row (ext status, jobs, update hint) |
 | `overlays` | Modal permission / continue-ask panels; replaces composer when active |
 | `diffpane` | Full-screen git diff review; comments persist under `.phi/review.json` |
@@ -163,27 +163,6 @@ User Enter in composer
 ```
 
 `Submitter` clears composer input after slash/bash; agent submit passes pending skills from composer.
-
-User `!` commands are also appended to `history.jsonl` in the project's existing
-session directory (`~/.phi/session/<encoded-cwd>/`). All sessions for that workspace
-share the file; agent tool commands are excluded. Each JSONL record contains format
-version `v`, start time `at` (Unix milliseconds), working directory `cwd`, command
-`cmd`, and nullable exit status `exit`. Failed and cancelled attempts are retained;
-unknown exit status is `null`. Shell output is not stored in this history.
-
-The `internal/session/shellhist` store reads a bounded tail and caches records, refreshing
-from appended bytes and reloading after replacement or truncation. History files
-are excluded from the session picker.
-
-That history also feeds `!` command completion in the composer: typing `!git s`
-ranks recent commands with Jev and lists the completions above the input. Rows are
-whole commands, so accepting one (Tab, or Enter on a row that differs from what
-was typed) replaces the command text after the bang; Enter keeps its usual meaning
-of running the command whenever the list is empty. Literal prefix matches are
-listed as such and a single one needs no judgement call. Completion is off by
-default without credentials: it requires `TYPESAFE_API_KEY`, and without it the
-picker stays closed and `!` behaves as it always did. `PHI_SHELL_COMPLETION=off`
-turns the feature off even when a key is configured.
 
 ### 2. Stream and transcript
 

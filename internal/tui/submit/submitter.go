@@ -7,7 +7,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/chat"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/session"
-	"github.com/pulseaiclub/phi/internal/session/shellhist"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/composer"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
@@ -52,17 +51,13 @@ func NewSubmitter(
 	resolveContinue func(controller.ContinueReply),
 	resolveConfirm func(controller.ExtConfirmReply),
 ) *Submitter {
-	var history *shellhist.Store
-	if ctrl != nil && ctrl.SessionDir() != "" {
-		history = shellhist.New(ctrl.SessionDir())
-	}
 	return &Submitter{
 		ctrl:              ctrl,
 		commands:          commands,
 		transcript:        transcript,
 		activity:          activity,
 		composer:          composer,
-		bash:              newBashRunner(transcript, composer, bus, history),
+		bash:              newBashRunner(transcript, composer, bus),
 		commandContext:    commandContext,
 		bus:               bus,
 		permissionActive:  permissionActive,

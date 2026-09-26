@@ -12,19 +12,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/llm"
 )
 
-func TestListSessionsExcludesShellHistory(t *testing.T) {
-	dir := t.TempDir()
-	// Valid headers ensure reserved names are excluded regardless of their contents.
-	for _, name := range []string{"history.jsonl", "history.1.jsonl", "20260922_real.jsonl"} {
-		data := []byte(`{"type":"session","id":"real","cwd":"/project"}` + "\n")
-		require.NoError(t, os.WriteFile(filepath.Join(dir, name), data, 0o600))
-	}
-	items, err := ListSessions(dir)
-	require.NoError(t, err)
-	require.Len(t, items, 1)
-	assert.Equal(t, filepath.Join(dir, "20260922_real.jsonl"), items[0].File)
-}
-
 func TestSessionPersistRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))

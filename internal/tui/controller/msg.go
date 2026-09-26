@@ -80,27 +80,6 @@ type MentionResultsMsg struct {
 
 func (MentionResultsMsg) isMsg() {}
 
-// BashSuggestion is one ranked completion for text typed in "!" mode. Score is
-// the judge's probability and IsPrefix reports that the command literally
-// starts with what was typed: the picker shows both so a ranked guess reads
-// differently from a literal completion.
-type BashSuggestion struct {
-	Command  string
-	Score    float64
-	IsPrefix bool
-}
-
-// BashSuggestionsMsg delivers async "!" completions to the UI goroutine. Gen
-// and Query let the composer drop a result the composer text has moved past.
-type BashSuggestionsMsg struct {
-	Gen     int
-	Query   string
-	Items   []BashSuggestion
-	ErrText string
-}
-
-func (BashSuggestionsMsg) isMsg() {}
-
 // OverlayKind discriminates ask/dismiss variants of OverlayMsg.
 type OverlayKind int
 

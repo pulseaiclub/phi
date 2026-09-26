@@ -42,9 +42,6 @@ func ListSessions(dir string) ([]SessionMeta, error) {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
 			continue
 		}
-		if e.Name() == "history.jsonl" || e.Name() == "history.1.jsonl" {
-			continue
-		}
 		path := filepath.Join(dir, e.Name())
 		meta, err := readSessionMeta(path, e)
 		if err != nil {
