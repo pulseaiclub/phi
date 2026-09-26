@@ -175,8 +175,22 @@ func (s *Session) PathEntries() []session.MessageEntry {
 	return s.manager.BuildContext()
 }
 
+// A compaction summary re-enters the context as a user message, so it has to
+// say that it is one. Unlabeled, nothing distinguishes a handoff summary from
+// the prompt that follows it, and instructions the user has already retired read
+// as if they were being asked for right now.
+const (
+	compactionSummaryPrefix = "The conversation history before this point was compacted into the following summary:\n\n<summary>\n"
+	compactionSummarySuffix = "\n</summary>"
+)
+
+func compactionSummaryContent(summary string) string {
+	return compactionSummaryPrefix + summary + compactionSummarySuffix
+}
+
 // BuildContext returns the messages for LLM inference, oldest first.
-// Compaction entries are projected as user messages carrying the summary.
+// Compaction entries are projected as user messages carrying the summary in a
+// labeled block.
 func (s *Session) BuildContext() []llm.Message {
 	if s.contextCacheValid {
 		return s.contextCache
@@ -189,7 +203,7 @@ func (s *Session) BuildContext() []llm.Message {
 			m := entry.(session.CompactionEntry)
 			msgs = append(msgs, llm.Message{
 				Role:    llm.RoleUser,
-				Content: m.Compaction.Summary,
+				Content: compactionSummaryContent(m.Compaction.Summary),
 			})
 		case session.EntryMessage:
 			m := entry.(session.SessionMessageEntry)

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/session"
 )
 
 func TestSessionPersistFlush(t *testing.T) {
@@ -85,6 +86,38 @@ func TestEngineSetModelKeepsSession(t *testing.T) {
 	assert.Equal(t, n, eng.session.Len())
 	assert.Equal(t, 8192, eng.modelCfg.ContextWindow)
 	assert.Equal(t, dir, eng.modelCfg.SkillPath)
+}
+
+func TestSessionBuildContextLabelsCompactionSummary(t *testing.T) {
+	dir := t.TempDir()
+	sess, err := NewSession(WithCwd(dir), WithSessionDir(dir))
+	require.NoError(t, err)
+
+	require.NoError(t, sess.Append(llm.Message{Role: llm.RoleUser, Content: "first"}))
+	require.NoError(t, sess.Append(llm.Message{Role: llm.RoleAssistant, Content: "answer"}))
+	require.NoError(t, sess.AppendCompaction(session.Compaction{Summary: "we renamed the SDK"}))
+	require.NoError(t, sess.Append(llm.Message{Role: llm.RoleUser, Content: "carry on"}))
+
+	msgs := sess.BuildContext()
+	require.Len(t, msgs, 2)
+	assert.Equal(t, llm.RoleUser, msgs[0].Role)
+	assert.Equal(
+		t,
+		"The conversation history before this point was compacted into the following summary:\n\n<summary>\nwe renamed the SDK\n</summary>",
+		msgs[0].Content,
+	)
+	assert.Equal(t, "carry on", msgs[1].Content)
+
+	// The entry keeps the raw summary: the next round feeds it back to the
+	// summarizer as PreviousSummary, which must not see the label.
+	found := false
+	for _, entry := range sess.PathEntries() {
+		if ce, ok := entry.(session.CompactionEntry); ok {
+			assert.Equal(t, "we renamed the SDK", ce.Compaction.Summary)
+			found = true
+		}
+	}
+	assert.True(t, found, "compaction entry missing from the path")
 }
 
 func splitFirstJSONL(b []byte) []byte {
