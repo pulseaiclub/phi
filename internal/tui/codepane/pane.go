@@ -69,6 +69,19 @@ type Pane struct {
 	// (line) is the moving end, so plain movement extends it.
 	selecting bool
 	selAnchor int
+
+	// search
+	searchMode  bool
+	searchQuery string
+	matches     []int
+	matchIdx    int
+
+	// goto line
+	gotoMode bool
+	gotoBuf  string
+
+	// word selection on a single line
+	selWord string
 }
 
 // New builds an inactive pane. onRef receives the line the user picked for the
@@ -104,6 +117,13 @@ func (p *Pane) OpenAt(path string, line int) {
 	p.active = true
 	p.pendingG = false
 	p.selecting = false
+	p.selWord = ""
+	p.searchMode = false
+	p.searchQuery = ""
+	p.matches = nil
+	p.matchIdx = 0
+	p.gotoMode = false
+	p.gotoBuf = ""
 
 	if err := p.load(path, line); err != nil {
 		p.lines = nil
@@ -118,6 +138,9 @@ func (p *Pane) OpenAt(path string, line int) {
 func (p *Pane) Close() {
 	p.active = false
 	p.pendingG = false
+	p.searchMode = false
+	p.gotoMode = false
+	p.selWord = ""
 }
 
 // Handle consumes keyboard input while the overlay is active.
@@ -130,10 +153,72 @@ func (p *Pane) Handle(ctx *components.EventContext, ev xui.Event) {
 		if !e.Press {
 			return
 		}
+		if p.searchMode {
+			p.handleSearchKey(ctx, e)
+			return
+		}
+		if p.gotoMode {
+			p.handleGotoKey(ctx, e)
+			return
+		}
 		p.notify(p.handleKey(ctx, e))
 	default:
 		ctx.Consume = true
 	}
+}
+
+func (p *Pane) handleSearchKey(ctx *components.EventContext, e xui.KeyEvent) {
+	switch e.Code {
+	case xui.KeyEscape:
+		p.searchMode = false
+		p.searchQuery = ""
+		p.matches = nil
+	case xui.KeyEnter:
+		p.searchMode = false
+	case xui.KeyBackspace:
+		if p.searchQuery != "" {
+			runes := []rune(p.searchQuery)
+			p.searchQuery = string(runes[:len(runes)-1])
+			p.updateSearch()
+		}
+	case xui.KeyRune:
+		if e.Mods.Has(xui.ModCtrl) || e.Mods.Has(xui.ModAlt) {
+			break
+		}
+		if e.Rune >= 0x20 {
+			p.searchQuery += string(e.Rune)
+			p.updateSearch()
+		}
+	}
+	ctx.ConsumeAndRedraw()
+}
+
+func (p *Pane) handleGotoKey(ctx *components.EventContext, e xui.KeyEvent) {
+	switch e.Code {
+	case xui.KeyEscape:
+		p.gotoMode = false
+		p.gotoBuf = ""
+	case xui.KeyEnter:
+		p.gotoMode = false
+		if p.gotoBuf != "" {
+			if n, err := strconv.Atoi(p.gotoBuf); err == nil && n > 0 {
+				p.line = clampLine(n-1, len(p.lines))
+				p.col = firstNonBlank(p.lineText())
+				p.clamp()
+				p.reveal()
+			}
+		}
+		p.gotoBuf = ""
+	case xui.KeyBackspace:
+		if len(p.gotoBuf) > 0 {
+			p.gotoBuf = p.gotoBuf[:len(p.gotoBuf)-1]
+		}
+	case xui.KeyRune:
+		if e.Rune >= '0' && e.Rune <= '9' {
+			p.gotoBuf += string(e.Rune)
+		}
+	}
+	ctx.ConsumeAndRedraw()
 }
 
 // handleKey runs one key against pane state. It returns a toast to raise, which
@@ -143,6 +228,7 @@ func (p *Pane) handleKey(ctx *components.EventContext, e xui.KeyEvent) string {
 		// Cancel the selection first: losing a ten-line pick to a close that was
 		// meant to undo it is worse than one extra Esc.
 		p.selecting = false
+		p.selWord = ""
 		ctx.ConsumeAndRedraw()
 		return ""
 	}
@@ -150,6 +236,7 @@ func (p *Pane) handleKey(ctx *components.EventContext, e xui.KeyEvent) string {
 		(e.Code == xui.KeyRune && (e.Rune == 'q' || e.Rune == 'Q') && !e.Mods.Has(xui.ModCtrl)) {
 		p.active = false
 		p.selecting = false // a reopened pane starts clean
+		p.selWord = ""
 		p.pendingG = false
 		ctx.ConsumeAndRedraw()
 		return ""
@@ -213,27 +300,86 @@ func (p *Pane) handlePending(ctx *components.EventContext, e xui.KeyEvent) bool 
 func (p *Pane) handleRune(ctx *components.EventContext, r rune) string {
 	switch r {
 	case 'j':
+		p.selWord = ""
 		p.moveLine(1)
 	case 'k':
+		p.selWord = ""
 		p.moveLine(-1)
 	case 'h':
+		p.selWord = ""
 		p.moveCol(-1)
 	case 'l':
+		p.selWord = ""
 		p.moveCol(1)
 	case 'g':
 		p.pendingG = true
 		ctx.ConsumeAndRedraw()
 		return ""
 	case 'G':
+		p.selWord = ""
 		p.line = max(len(p.lines)-1, 0)
 	case '0':
+		p.selWord = ""
 		p.col = 0
 	case '$':
+		p.selWord = ""
 		p.col = len(p.lineText())
-	case 'v':
+	case 'v', 'V':
 		p.toggleSelect()
 	case 'a':
 		return p.addRef()
+	case '/':
+		p.searchMode = true
+		p.searchQuery = ""
+		p.matches = nil
+		p.matchIdx = 0
+		ctx.ConsumeAndRedraw()
+		return ""
+	case 'n':
+		p.selWord = ""
+		msg := p.moveMatch(1)
+		ctx.ConsumeAndRedraw()
+		return msg
+	case 'N':
+		p.selWord = ""
+		msg := p.moveMatch(-1)
+		ctx.ConsumeAndRedraw()
+		return msg
+	case ':':
+		p.gotoMode = true
+		p.gotoBuf = ""
+		ctx.ConsumeAndRedraw()
+		return ""
+	case '{':
+		p.selWord = ""
+		p.jumpParagraph(-1)
+	case '}':
+		p.selWord = ""
+		p.jumpParagraph(1)
+	case '%':
+		p.selWord = ""
+		p.jumpMatchingBracket()
+	case 'w':
+		p.selWord = ""
+		p.moveWord(1)
+	case 'b':
+		p.selWord = ""
+		p.moveWord(-1)
+	case 'e':
+		p.selWord = ""
+		p.moveWordEnd()
+	case 'B':
+		p.selectEnclosingBlock()
+		ctx.ConsumeAndRedraw()
+		return ""
+	case 'W':
+		p.selectWordUnderCursor()
+		ctx.ConsumeAndRedraw()
+		return ""
+	case 'p':
+		p.selectParagraph()
+		ctx.ConsumeAndRedraw()
+		return ""
 	default:
 		ctx.Consume = true
 		return ""
@@ -488,6 +634,7 @@ func gutterWidth(lines int) int {
 func (p *Pane) toggleSelect() {
 	p.selecting = !p.selecting
 	p.selAnchor = p.line
+	p.selWord = ""
 }
 
 // selectionLines returns the inclusive, ordered line span of the selection.
@@ -507,6 +654,7 @@ func (p *Pane) addRef() string {
 		return "no file open"
 	}
 	p.selecting = false
+	p.selWord = ""
 	p.onRef(ref)
 	return fmt.Sprintf("added %s to chat", ref.Label())
 }
@@ -520,12 +668,16 @@ func (p *Pane) selectedRef() (chat.Ref, bool) {
 	if p.selecting {
 		lo, hi = p.selectionLines()
 	}
+	text := strings.Join(p.lines[lo:hi+1], "\n")
+	if p.selecting && p.selWord != "" && lo == hi {
+		text = p.selWord
+	}
 	return chat.Ref{
 		Path:  p.rel,
 		Start: lo + 1,
 		End:   hi + 1,
 		Lang:  fenceLang(p.abs),
-		Text:  strings.Join(p.lines[lo:hi+1], "\n"),
+		Text:  text,
 	}, true
 }
 
@@ -548,9 +700,19 @@ func (p *Pane) snapshot(ctx components.DrawContext) codeview.Model {
 	switch {
 	case p.loadErr != "":
 		status = p.loadErr
+	case p.searchMode:
+		status = p.searchStatus()
+	case p.gotoMode:
+		status = ":" + p.gotoBuf
 	case p.selecting:
-		lo, hi := p.selectionLines()
-		status = selectionStatus(hi - lo + 1)
+		if p.selWord != "" {
+			status = fmt.Sprintf("'%s' selected%s a to add", p.selWord, chrome.Sep)
+		} else {
+			lo, hi := p.selectionLines()
+			status = selectionStatus(hi - lo + 1)
+		}
+	case p.searchQuery != "":
+		status = p.searchStatus()
 	}
 	m := codeview.Model{
 		Theme:      p.theme,
@@ -568,12 +730,26 @@ func (p *Pane) snapshot(ctx components.DrawContext) codeview.Model {
 		Empty:      p.emptyText(),
 	}
 	if p.selecting {
-		// Line-wise: the moving end is pinned past any real line so the
-		// tint is clipped at the frame edge rather than stopping mid-line.
 		lo, hi := p.selectionLines()
 		m.Selecting = true
-		m.SelStart = components.Point{X: 0, Y: lo}
-		m.SelEnd = components.Point{X: selLineWide, Y: hi}
+		if p.selWord != "" && lo == hi {
+			sCol := displayCol(p.lineText(), p.col, ctx.Method)
+			endByte := p.col + len(p.selWord)
+			eCol := displayCol(p.lineText(), endByte, ctx.Method)
+			if eCol > 0 {
+				eCol--
+			}
+			if eCol < sCol {
+				eCol = sCol
+			}
+			m.SelStart = components.Point{X: sCol, Y: lo}
+			m.SelEnd = components.Point{X: eCol, Y: hi}
+		} else {
+			// Line-wise: the moving end is pinned past any real line so the
+			// tint is clipped at the frame edge rather than stopping mid-line.
+			m.SelStart = components.Point{X: 0, Y: lo}
+			m.SelEnd = components.Point{X: selLineWide, Y: hi}
+		}
 	}
 	return m
 }
@@ -619,8 +795,500 @@ func (p *Pane) emptyText() string {
 var hintLine = strings.Join([]string{
 	"esc close",
 	"j/k move",
-	"h/l ←/→",
-	"gg/G top/bottom",
+	"/ find",
+	": line",
 	"v select",
+	"B block",
+	"% match",
 	"a add",
 }, chrome.Sep)
+
+func (p *Pane) updateSearch() {
+	q := strings.ToLower(p.searchQuery)
+	p.matches = p.matches[:0]
+	if q == "" {
+		return
+	}
+	for i, line := range p.lines {
+		if strings.Contains(strings.ToLower(line), q) {
+			p.matches = append(p.matches, i)
+		}
+	}
+	if len(p.matches) > 0 {
+		p.matchIdx = 0
+		for i, m := range p.matches {
+			if m >= p.line {
+				p.matchIdx = i
+				break
+			}
+		}
+		p.line = p.matches[p.matchIdx]
+		p.col = firstNonBlank(p.lineText())
+		p.clamp()
+		p.reveal()
+	}
+}
+
+func (p *Pane) moveMatch(dir int) string {
+	if len(p.matches) == 0 {
+		if p.searchQuery != "" {
+			p.updateSearch()
+		}
+		if len(p.matches) == 0 {
+			return "no matches"
+		}
+	}
+	p.matchIdx = (p.matchIdx + dir) % len(p.matches)
+	if p.matchIdx < 0 {
+		p.matchIdx = len(p.matches) - 1
+	}
+	p.line = p.matches[p.matchIdx]
+	p.col = firstNonBlank(p.lineText())
+	p.clamp()
+	p.reveal()
+	return ""
+}
+
+func (p *Pane) searchStatus() string {
+	if p.searchQuery == "" {
+		return "/"
+	}
+	out := "/" + p.searchQuery
+	if len(p.matches) == 0 {
+		return out + "  no matches"
+	}
+	return fmt.Sprintf("%s  %d/%d", out, p.matchIdx+1, len(p.matches))
+}
+
+func (p *Pane) jumpParagraph(dir int) {
+	if len(p.lines) == 0 {
+		return
+	}
+	line := p.line
+	if dir > 0 {
+		for line < len(p.lines)-1 && strings.TrimSpace(p.lines[line]) == "" {
+			line++
+		}
+		for line < len(p.lines)-1 && strings.TrimSpace(p.lines[line]) != "" {
+			line++
+		}
+	} else {
+		for line > 0 && strings.TrimSpace(p.lines[line]) == "" {
+			line--
+		}
+		for line > 0 && strings.TrimSpace(p.lines[line]) != "" {
+			line--
+		}
+	}
+	p.line = line
+	p.col = firstNonBlank(p.lineText())
+}
+
+func (p *Pane) jumpMatchingBracket() {
+	if len(p.lines) == 0 || p.line >= len(p.lines) {
+		return
+	}
+	lineText := p.lineText()
+	openBrackets := "({["
+	pairs := map[rune]rune{
+		'(': ')',
+		'{': '}',
+		'[': ']',
+		')': '(',
+		'}': '{',
+		']': '[',
+	}
+
+	targetRune := rune(0)
+	targetCol := p.col
+	if p.col < len(lineText) {
+		r, _ := utf8.DecodeRuneInString(lineText[p.col:])
+		if _, ok := pairs[r]; ok {
+			targetRune = r
+		}
+	}
+	if targetRune == 0 {
+		for i, r := range lineText {
+			if i >= p.col {
+				if _, ok := pairs[r]; ok {
+					targetRune = r
+					targetCol = i
+					break
+				}
+			}
+		}
+	}
+	if targetRune == 0 {
+		for i, r := range lineText {
+			if _, ok := pairs[r]; ok {
+				targetRune = r
+				targetCol = i
+				break
+			}
+		}
+	}
+	if targetRune == 0 {
+		return
+	}
+
+	matchRune := pairs[targetRune]
+	isOpen := strings.ContainsRune(openBrackets, targetRune)
+
+	depth := 0
+	if isOpen {
+		for l := p.line; l < len(p.lines); l++ {
+			txt := p.lines[l]
+			startCol := 0
+			if l == p.line {
+				startCol = targetCol
+			}
+			for col := startCol; col < len(txt); {
+				r, size := utf8.DecodeRuneInString(txt[col:])
+				if r == targetRune {
+					depth++
+				} else if r == matchRune {
+					depth--
+					if depth == 0 {
+						p.line = l
+						p.col = col
+						return
+					}
+				}
+				col += size
+			}
+		}
+	} else {
+		for l := p.line; l >= 0; l-- {
+			txt := p.lines[l]
+			endCol := len(txt)
+			if l == p.line {
+				endCol = targetCol + 1
+			}
+			type colRune struct {
+				col int
+				r   rune
+			}
+			var runes []colRune
+			for col := 0; col < endCol; {
+				r, size := utf8.DecodeRuneInString(txt[col:])
+				runes = append(runes, colRune{col: col, r: r})
+				col += size
+			}
+			for i := len(runes) - 1; i >= 0; i-- {
+				cr := runes[i]
+				if cr.r == targetRune {
+					depth++
+				} else if cr.r == matchRune {
+					depth--
+					if depth == 0 {
+						p.line = l
+						p.col = cr.col
+						return
+					}
+				}
+			}
+		}
+	}
+}
+
+func isWordChar(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_'
+}
+
+func (p *Pane) moveWord(dir int) {
+	if len(p.lines) == 0 {
+		return
+	}
+	if dir > 0 {
+		l := p.line
+		txt := p.lineText()
+		c := p.col
+
+		if c >= len(txt) {
+			if l < len(p.lines)-1 {
+				p.line++
+				p.col = firstNonBlank(p.lineText())
+			}
+			return
+		}
+
+		r, _ := utf8.DecodeRuneInString(txt[c:])
+		inWord := isWordChar(r)
+		isSpace := r == ' ' || r == '\t'
+
+		if inWord {
+			for c < len(txt) {
+				r2, s2 := utf8.DecodeRuneInString(txt[c:])
+				if !isWordChar(r2) {
+					break
+				}
+				c += s2
+			}
+		} else if !isSpace {
+			for c < len(txt) {
+				r2, s2 := utf8.DecodeRuneInString(txt[c:])
+				if isWordChar(r2) || r2 == ' ' || r2 == '\t' {
+					break
+				}
+				c += s2
+			}
+		}
+		for c < len(txt) {
+			r2, s2 := utf8.DecodeRuneInString(txt[c:])
+			if r2 != ' ' && r2 != '\t' {
+				break
+			}
+			c += s2
+		}
+		if c >= len(txt) && l < len(p.lines)-1 {
+			p.line++
+			p.col = firstNonBlank(p.lineText())
+		} else {
+			p.col = c
+		}
+	} else {
+		l := p.line
+		txt := p.lineText()
+		c := p.col
+
+		if c <= 0 {
+			if l > 0 {
+				p.line--
+				p.col = len(p.lineText())
+				p.moveWord(-1)
+			}
+			return
+		}
+
+		_, prevSize := utf8.DecodeLastRuneInString(txt[:c])
+		c -= prevSize
+
+		for c > 0 {
+			r, _ := utf8.DecodeRuneInString(txt[c:])
+			if r != ' ' && r != '\t' {
+				break
+			}
+			_, s := utf8.DecodeLastRuneInString(txt[:c])
+			c -= s
+		}
+
+		r, _ := utf8.DecodeRuneInString(txt[c:])
+		inWord := isWordChar(r)
+		for c > 0 {
+			_, prevS := utf8.DecodeLastRuneInString(txt[:c])
+			prevR, _ := utf8.DecodeRuneInString(txt[c-prevS:])
+			if inWord && !isWordChar(prevR) {
+				break
+			}
+			if !inWord && (isWordChar(prevR) || prevR == ' ' || prevR == '\t') {
+				break
+			}
+			c -= prevS
+		}
+		p.col = c
+	}
+}
+
+func (p *Pane) moveWordEnd() {
+	if len(p.lines) == 0 {
+		return
+	}
+	txt := p.lineText()
+	c := p.col
+	if c >= len(txt) {
+		if p.line < len(p.lines)-1 {
+			p.line++
+			p.col = 0
+			p.moveWordEnd()
+		}
+		return
+	}
+
+	_, size := utf8.DecodeRuneInString(txt[c:])
+	c += size
+
+	for c < len(txt) {
+		r, s := utf8.DecodeRuneInString(txt[c:])
+		if r != ' ' && r != '\t' {
+			break
+		}
+		c += s
+	}
+	if c >= len(txt) {
+		p.col = len(txt)
+		return
+	}
+
+	r, _ := utf8.DecodeRuneInString(txt[c:])
+	inWord := isWordChar(r)
+	for c < len(txt) {
+		nextCol := c
+		r2, s2 := utf8.DecodeRuneInString(txt[nextCol:])
+		if inWord && !isWordChar(r2) {
+			break
+		}
+		if !inWord && (isWordChar(r2) || r2 == ' ' || r2 == '\t') {
+			break
+		}
+		c += s2
+	}
+	if c > 0 {
+		_, lastS := utf8.DecodeLastRuneInString(txt[:c])
+		c -= lastS
+	}
+	p.col = c
+}
+
+func (p *Pane) selectEnclosingBlock() {
+	if len(p.lines) == 0 {
+		return
+	}
+	startLine, endLine := p.line, p.line
+	if p.selecting {
+		startLine, endLine = p.selectionLines()
+	}
+
+	for l := startLine; l >= 0; l-- {
+		txt := p.lines[l]
+		for col := 0; col < len(txt); {
+			r, size := utf8.DecodeRuneInString(txt[col:])
+			if r == '{' {
+				depth := 1
+				matchL := -1
+				for ml := l; ml < len(p.lines); ml++ {
+					mtxt := p.lines[ml]
+					mStart := 0
+					if ml == l {
+						mStart = col + size
+					}
+					for mc := mStart; mc < len(mtxt); {
+						mr, msize := utf8.DecodeRuneInString(mtxt[mc:])
+						if mr == '{' {
+							depth++
+						} else if mr == '}' {
+							depth--
+							if depth == 0 {
+								matchL = ml
+								break
+							}
+						}
+						mc += msize
+					}
+					if depth == 0 {
+						break
+					}
+				}
+				if matchL >= 0 &&
+					(matchL > endLine || (matchL >= endLine && l < startLine) || (matchL >= endLine && !p.selecting)) {
+					openLine := l
+					for openLine > 0 && strings.TrimSpace(p.lines[openLine-1]) != "" &&
+						!strings.ContainsRune(p.lines[openLine-1], '}') &&
+						!strings.ContainsRune(p.lines[openLine-1], '{') {
+						openLine--
+					}
+					p.selecting = true
+					p.selAnchor = openLine
+					p.line = matchL
+					p.selWord = ""
+					p.clamp()
+					p.reveal()
+					return
+				}
+			}
+			col += size
+		}
+	}
+
+	p.selectParagraph()
+}
+
+func (p *Pane) selectParagraph() {
+	if len(p.lines) == 0 {
+		return
+	}
+	lo := p.line
+	hi := p.line
+	for lo > 0 && strings.TrimSpace(p.lines[lo-1]) != "" {
+		lo--
+	}
+	for hi < len(p.lines)-1 && strings.TrimSpace(p.lines[hi+1]) != "" {
+		hi++
+	}
+	p.selecting = true
+	p.selAnchor = lo
+	p.line = hi
+	p.selWord = ""
+	p.clamp()
+	p.reveal()
+}
+
+func (p *Pane) selectWordUnderCursor() {
+	if len(p.lines) == 0 || p.line >= len(p.lines) {
+		return
+	}
+	txt := p.lineText()
+	if len(txt) == 0 {
+		return
+	}
+	col := clampCol(txt, p.col)
+	if col >= len(txt) {
+		col = max(0, len(txt)-1)
+	}
+
+	r, size := utf8.DecodeRuneInString(txt[col:])
+	inWord := isWordChar(r)
+	if !inWord && (r == ' ' || r == '\t') {
+		found := false
+		for c := col; c < len(txt); {
+			r2, s2 := utf8.DecodeRuneInString(txt[c:])
+			if isWordChar(r2) {
+				col = c
+				r = r2
+				size = s2
+				inWord = true
+				found = true
+				break
+			}
+			c += s2
+		}
+		if !found {
+			return
+		}
+	}
+
+	start := col
+	end := col + size
+	for start > 0 {
+		_, prevS := utf8.DecodeLastRuneInString(txt[:start])
+		prevR, _ := utf8.DecodeRuneInString(txt[start-prevS:])
+		if inWord && !isWordChar(prevR) {
+			break
+		}
+		if !inWord && (isWordChar(prevR) || prevR == ' ' || prevR == '\t') {
+			break
+		}
+		start -= prevS
+	}
+	for end < len(txt) {
+		nextR, nextS := utf8.DecodeRuneInString(txt[end:])
+		if inWord && !isWordChar(nextR) {
+			break
+		}
+		if !inWord && (isWordChar(nextR) || nextR == ' ' || nextR == '\t') {
+			break
+		}
+		end += nextS
+	}
+
+	word := txt[start:end]
+	if word == "" {
+		return
+	}
+
+	p.selecting = true
+	p.selAnchor = p.line
+	p.col = start
+	p.selWord = word
+	p.clamp()
+	p.reveal()
+}
