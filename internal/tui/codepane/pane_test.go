@@ -347,3 +347,199 @@ func TestFirstNonBlank(t *testing.T) {
 	assert.Equal(t, 3, firstNonBlank(" \t\tx"))
 	assert.Equal(t, 2, firstNonBlank("  日"))
 }
+
+func TestSearchModeAndNextPrev(t *testing.T) {
+	h := newHarness(t, map[string]string{
+		"a.go": "alpha one\nbeta two\nalpha three\n",
+	})
+	h.pane.Open("a.go")
+
+	h.key(t, '/')
+	assert.True(t, h.pane.searchMode)
+
+	for _, r := range "alpha" {
+		ctx := &components.EventContext{}
+		h.pane.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: r})
+	}
+	text := components.SurfaceText(h.draw())
+	assert.Contains(t, text, "/alpha")
+	assert.Contains(t, text, "1/2")
+	assert.Equal(t, 0, h.pane.line)
+
+	h.code(t, xui.KeyEnter)
+	assert.False(t, h.pane.searchMode)
+
+	h.key(t, 'n')
+	assert.Equal(t, 2, h.pane.line)
+	assert.Contains(t, components.SurfaceText(h.draw()), "2/2")
+
+	h.key(t, 'N')
+	assert.Equal(t, 0, h.pane.line)
+
+	// Selection extends with search match navigation
+	h.key(t, 'v')
+	h.key(t, 'n')
+	assert.True(t, h.pane.selecting)
+	assert.Equal(t, 2, h.pane.line)
+	lo, hi := h.pane.selectionLines()
+	assert.Equal(t, 0, lo)
+	assert.Equal(t, 2, hi)
+}
+
+func TestParagraphJumps(t *testing.T) {
+	h := newHarness(t, map[string]string{
+		"a.go": "func one() {\n}\n\nfunc two() {\n}\n",
+	})
+	h.pane.Open("a.go")
+	assert.Equal(t, 0, h.pane.line)
+
+	h.key(t, '}')
+	assert.Equal(t, 2, h.pane.line, "jump forward stops at the blank line")
+
+	h.key(t, 'v')
+	h.key(t, '}')
+	assert.True(t, h.pane.selecting)
+	assert.Equal(t, 4, h.pane.line)
+
+	h.key(t, '{')
+	assert.Equal(t, 2, h.pane.line)
+}
+
+func TestMatchingBracketJump(t *testing.T) {
+	h := newHarness(t, map[string]string{
+		"a.go": "func hello() {\n\tmsg := \"hi\"\n}\n",
+	})
+	h.pane.Open("a.go")
+
+	// Jump to bracket on line
+	h.pane.col = 13 // on '{'
+	h.key(t, '%')
+	assert.Equal(t, 2, h.pane.line)
+	assert.Equal(t, 0, h.pane.col)
+
+	// Jump back
+	h.key(t, '%')
+	assert.Equal(t, 0, h.pane.line)
+
+	// Select function by jumping matching bracket
+	h.key(t, 'v')
+	h.pane.col = 13
+	h.key(t, '%')
+	assert.True(t, h.pane.selecting)
+	lo, hi := h.pane.selectionLines()
+	assert.Equal(t, 0, lo)
+	assert.Equal(t, 2, hi)
+
+	h.key(t, 'a')
+	require.Len(t, h.refs, 1)
+	assert.Equal(t, 1, h.refs[0].Start)
+	assert.Equal(t, 3, h.refs[0].End)
+	assert.Contains(t, h.refs[0].Text, "func hello()")
+}
+
+func TestWordMotions(t *testing.T) {
+	h := newHarness(t, map[string]string{
+		"a.go": "apple banana cherry\n",
+	})
+	h.pane.Open("a.go")
+	assert.Equal(t, 0, h.pane.col)
+
+	h.key(t, 'w')
+	assert.Equal(t, 6, h.pane.col, "w jumps to start of banana")
+
+	h.key(t, 'e')
+	assert.Equal(t, 11, h.pane.col, "e jumps to last letter of banana")
+
+	h.key(t, 'b')
+	assert.Equal(t, 6, h.pane.col, "b jumps back to start of banana")
+}
+
+func TestSelectEnclosingBlock(t *testing.T) {
+	code := "func outer() {\n\tif true {\n\t\tdoWork()\n\t}\n}\n"
+	h := newHarness(t, map[string]string{"a.go": code})
+	h.pane.OpenAt("a.go", 3) // cursor on doWork()
+
+	h.key(t, 'B')
+	assert.True(t, h.pane.selecting)
+	lo, hi := h.pane.selectionLines()
+	assert.Equal(t, 1, lo, "first B selects inner if block")
+	assert.Equal(t, 3, hi)
+
+	// Press B again expands to outer function block
+	h.key(t, 'B')
+	assert.True(t, h.pane.selecting)
+	lo, hi = h.pane.selectionLines()
+	assert.Equal(t, 0, lo, "second B expands to outer function")
+	assert.Equal(t, 4, hi)
+
+	h.key(t, 'a')
+	require.Len(t, h.refs, 1)
+	assert.Equal(t, 1, h.refs[0].Start)
+	assert.Equal(t, 5, h.refs[0].End)
+}
+
+func TestSelectWordUnderCursor(t *testing.T) {
+	h := newHarness(t, map[string]string{
+		"a.go": "const myIdentifier = 42\n",
+	})
+	h.pane.Open("a.go")
+	h.pane.col = 8 // inside myIdentifier
+
+	h.key(t, 'W')
+	assert.True(t, h.pane.selecting)
+	assert.Equal(t, "myIdentifier", h.pane.selWord)
+	assert.Contains(t, components.SurfaceText(h.draw()), "'myIdentifier' selected")
+
+	h.key(t, 'a')
+	require.Len(t, h.refs, 1)
+	assert.Equal(t, 1, h.refs[0].Start)
+	assert.Equal(t, 1, h.refs[0].End)
+	assert.Equal(t, "myIdentifier", h.refs[0].Text)
+}
+
+func TestSelectParagraph(t *testing.T) {
+	h := newHarness(t, map[string]string{
+		"a.go": "line 1\nline 2\n\nline 3\n",
+	})
+	h.pane.Open("a.go")
+
+	h.key(t, 'p')
+	assert.True(t, h.pane.selecting)
+	lo, hi := h.pane.selectionLines()
+	assert.Equal(t, 0, lo)
+	assert.Equal(t, 1, hi)
+}
+
+func TestGotoLine(t *testing.T) {
+	lines := make([]string, 50)
+	for i := range lines {
+		lines[i] = "content"
+	}
+	h := newHarness(t, map[string]string{
+		"a.go": strings.Join(lines, "\n") + "\n",
+	})
+	h.pane.Open("a.go")
+
+	h.key(t, ':')
+	assert.True(t, h.pane.gotoMode)
+
+	ctx := &components.EventContext{}
+	h.pane.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: '2'})
+	h.pane.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: '5'})
+	assert.Contains(t, components.SurfaceText(h.draw()), ":25")
+
+	h.code(t, xui.KeyEnter)
+	assert.False(t, h.pane.gotoMode)
+	assert.Equal(t, 24, h.pane.line)
+
+	// Selection extends with goto line
+	h.key(t, 'v')
+	h.key(t, ':')
+	h.pane.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: '3'})
+	h.pane.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: '0'})
+	h.code(t, xui.KeyEnter)
+	assert.True(t, h.pane.selecting)
+	lo, hi := h.pane.selectionLines()
+	assert.Equal(t, 24, lo)
+	assert.Equal(t, 29, hi)
+}

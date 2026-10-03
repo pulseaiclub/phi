@@ -10,6 +10,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Fast code selection and navigation in `/code`: in-file search (`/`, `n`/`N`),
+  goto line (`:`), paragraph motions (`{`/`}`), matching bracket jump (`%`),
+  word motions (`w`/`b`/`e`), and quick enclosing block (`B`), paragraph (`p`),
+  and word (`W`) selections.
+
 ### Changed
 
 - Hashline `edit` description now matches mismatch behavior: retry a `LINE#HASH`
