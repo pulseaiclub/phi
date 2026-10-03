@@ -1178,7 +1178,8 @@ func (p *Pane) selectEnclosingBlock() {
 						break
 					}
 				}
-				if matchL >= 0 && (matchL > endLine || (matchL >= endLine && l < startLine) || (matchL >= endLine && !p.selecting)) {
+				if matchL >= 0 &&
+					(matchL > endLine || (matchL >= endLine && l < startLine) || (matchL >= endLine && !p.selecting)) {
 					openLine := l
 					for openLine > 0 && strings.TrimSpace(p.lines[openLine-1]) != "" &&
 						!strings.ContainsRune(p.lines[openLine-1], '}') &&
