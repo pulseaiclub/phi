@@ -183,22 +183,17 @@ func TestProcessStreamTextAndUsage(t *testing.T) {
 }
 
 func TestProcessStreamToolUseAndThinking(t *testing.T) {
-	sse := strings.Join([]string{
-		`data: {"type":"message_start","message":{"usage":{"input_tokens":5}}}`,
-		"",
-		`data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"let me think"}}`,
-		"",
-		`data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_01","name":"read"}}`,
-		"",
-		`data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"path\":"}}`,
-		"",
-		`data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\"a.go\"}"}}`,
-		"",
-		`data: {"type":"content_block_stop","index":0}`,
-		"",
-		`data: {"type":"message_stop"}`,
-		"",
-	}, "\n")
+	sse := thinkingStream(
+		`{"type":"message_start","message":{"usage":{"input_tokens":5}}}`,
+		`{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}`,
+		`{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"let me think"}}`,
+		`{"type":"content_block_stop","index":0}`,
+		`{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_01","name":"read"}}`,
+		`{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"path\":"}}`,
+		`{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"\"a.go\"}"}}`,
+		`{"type":"content_block_stop","index":1}`,
+		`{"type":"message_stop"}`,
+	)
 
 	events := processForTest(sse)
 
@@ -247,7 +242,7 @@ func TestNormalizeBaseURL(t *testing.T) {
 // processForTest runs processStream and returns the yielded events.
 func processForTest(sse string) []llm.StreamEvent {
 	var events []llm.StreamEvent
-	processStream(strings.NewReader(sse), func(ev llm.StreamEvent, err error) bool {
+	processStream(strings.NewReader(sse), "", "", func(ev llm.StreamEvent, err error) bool {
 		if err != nil {
 			events = append(events, llm.StreamEvent{Type: llm.StreamEventTypeError, Err: err.Error()})
 			return false
@@ -285,6 +280,10 @@ func TestBuildRequestThinkingBudget(t *testing.T) {
 			cfg := llm.ModelConfig{Name: "claude-sonnet-4-20250514", Think: tc.think}
 			req := BuildRequest(cfg, "", []llm.Message{{Role: llm.RoleUser, Content: "hi"}}, nil)
 
+			// A nil thinking config means thinking is off on the wire, whatever
+			// Enabled says; history filtering must read it the same way.
+			assert.Equal(t, tc.wantType != "", req.thinkingRequested,
+				"no thinking on the wire must read as off")
 			require.Equal(t, tc.wantMaxTokens, req.MaxTokens)
 			if tc.wantType == "" {
 				require.Nil(t, req.Thinking, "no thinking field expected")

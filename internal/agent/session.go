@@ -197,17 +197,29 @@ func (s *Session) BuildContext() []llm.Message {
 	}
 	entries := s.manager.BuildContext()
 	msgs := make([]llm.Message, 0, len(entries))
+	var compactionID string
 	for _, entry := range entries {
 		switch entry.GetType() {
 		case session.EntryCompaction:
 			m := entry.(session.CompactionEntry)
+			compactionID = m.ID
 			msgs = append(msgs, llm.Message{
 				Role:    llm.RoleUser,
 				Content: compactionSummaryContent(m.Compaction.Summary),
 			})
 		case session.EntryMessage:
 			m := entry.(session.SessionMessageEntry)
-			msgs = append(msgs, m.Message)
+			if m.ParentID != nil && *m.ParentID == compactionID {
+				compactionID = ""
+			}
+			msg := m.Message
+			if compactionID != "" && msg.Native != nil {
+				// Retained turns precede the checkpoint in the tree. Their native
+				// state binds to the replaced prefix; newer turns bind to the
+				// summary instead.
+				msg.Native = nil
+			}
+			msgs = append(msgs, msg)
 		}
 	}
 	s.contextCache = msgs
@@ -240,16 +252,17 @@ func (s *Session) AddAssistant(assistant llm.Message, usage llm.Usage) error {
 		Content:          assistant.Content,
 		ReasoningContent: assistant.ReasoningContent,
 		ToolCalls:        assistant.ToolCalls,
+		Native:           assistant.Native,
 		Usage:            usage,
 	})
 }
 
-// AddFinalAssistant records the last assistant message when it carries text or tool_calls.
+// AddFinalAssistant also keeps native-only messages needed for continuation.
 func (s *Session) AddFinalAssistant(final *llm.Message) error {
 	if final == nil {
 		return nil
 	}
-	if strings.TrimSpace(final.Content) == "" && len(final.ToolCalls) == 0 {
+	if strings.TrimSpace(final.Content) == "" && len(final.ToolCalls) == 0 && final.Native == nil {
 		return nil
 	}
 	return s.AddAssistant(*final, final.Usage)

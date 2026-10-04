@@ -1,6 +1,10 @@
 package anthropic
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/pulseaiclub/phi/internal/llm"
+)
 
 type cacheControl struct {
 	Type string `json:"type"`
@@ -23,11 +27,21 @@ type AnthropicRequest struct {
 	Stream    bool               `json:"stream"`
 	Tools     []anthropicTool    `json:"tools,omitempty"`
 	Thinking  *thinkingConfig    `json:"thinking,omitempty"`
+	// nativeEndpoint records where replayed thinking history came from; source
+	// matching happens during BuildRequest, before hooks run.
+	nativeEndpoint string
+	// thinkingRequested records the config-level thinking decision at BuildRequest
+	// time. A hook that clears Thinking leaves it set, so prepareNative can tell
+	// "no explicit thinking config" apart from an explicitly disabled request;
+	// only the latter filters thinking blocks from the wire.
+	thinkingRequested bool
+	// Keep provenance until Stream can check the prefix after request hooks.
+	nativeMessages map[int]*llm.NativeState
 }
 
 type anthropicMessage struct {
 	Role    string `json:"role"`
-	Content any    `json:"content"` // string or []anthropicContentBlock
+	Content any    `json:"content"` // string, []anthropicContentBlock, or native []json.RawMessage
 }
 
 type anthropicTool struct {

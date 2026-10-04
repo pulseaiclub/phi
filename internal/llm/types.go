@@ -1,6 +1,9 @@
 package llm
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
 // CompactRequest is one summarization call: the prompt plus the output cap
 // the provider may spend on it. MaxTokens <= 0 leaves the provider default.
@@ -115,11 +118,12 @@ type Image struct {
 // Message is one chat turn (OpenAI-compatible shape, normalized across
 // providers).
 type Message struct {
-	Role             Role       `json:"role"`
-	Content          string     `json:"content"`
-	ReasoningContent string     `json:"reasoning_content,omitempty"`
-	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID       string     `json:"tool_call_id,omitempty"`
+	Role             Role         `json:"role"`
+	Content          string       `json:"content"`
+	ReasoningContent string       `json:"reasoning_content,omitempty"`
+	ToolCalls        []ToolCall   `json:"tool_calls,omitempty"`
+	ToolCallID       string       `json:"tool_call_id,omitempty"`
+	Native           *NativeState `json:"native,omitempty"`
 	// Images attaches base64 images to a user message. Providers that do not
 	// support images fall back to the text content only.
 	Images []Image `json:"images,omitempty"`
@@ -127,6 +131,20 @@ type Message struct {
 	// Usage tracks token consumption for the turn. Excluded from the API
 	// request body; used by the session manager for compaction decisions.
 	Usage Usage `json:"-"`
+}
+
+// NativeState keeps provider continuation data separate from display text.
+// Items and Version belong to API; Endpoint and Prefix are fingerprints, never
+// URLs or prompts containing credentials. Adapters only replay states from the same source,
+// and a state is valid only within the conversation prefix that produced it —
+// replacing that prefix (e.g. a compaction summary) invalidates it.
+type NativeState struct {
+	Version  int               `json:"version"`
+	API      RouterType        `json:"api"`
+	Model    string            `json:"model"`
+	Endpoint string            `json:"endpoint"`
+	Prefix   string            `json:"prefix,omitempty"`
+	Items    []json.RawMessage `json:"items"`
 }
 
 // PromptTokensDetails holds breakdown details for prompt token usage

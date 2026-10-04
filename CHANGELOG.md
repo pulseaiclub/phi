@@ -43,6 +43,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Anthropic thinking blocks now survive session restore and tool continuation
+  with their signatures and original content order. Stale blocks are dropped
+  when thinking is disabled, history is compacted, the request hook changed
+  the model, or the system prompt, tool definitions, or earlier messages have
+  changed. Request hooks may rewrite the model or thinking settings: replay is
+  judged against the final request, and captured states record the model that
+  actually served it.
 - Anthropic thinking requests no longer exceed max_tokens: Medium levels and
   above sent budget_tokens (8192/16384) at or above the fixed max_tokens (4096),
   which the API rejects. max_tokens now reserves a 4096-token answer allowance
