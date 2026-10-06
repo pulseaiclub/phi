@@ -239,6 +239,33 @@ func TestNormalizeBaseURL(t *testing.T) {
 	}
 }
 
+func TestStreamErrorInsideSuccessfulResponse(t *testing.T) {
+	sse := strings.Join([]string{
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"partial"}}`,
+		`data: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`,
+		`data: {"type":"message_stop"}`,
+	}, "\n\n") + "\n\n"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, sse)
+	}))
+	defer server.Close()
+	cfg := llm.ModelConfig{Name: "claude", BaseURL: server.URL}
+	req := BuildRequest(cfg, "", []llm.Message{{Role: llm.RoleUser, Content: "hi"}}, nil)
+	var events []llm.StreamEvent
+	var streamErr error
+	for ev, err := range Stream(t.Context(), server.Client(), cfg, &req) {
+		events = append(events, ev)
+		streamErr = err
+	}
+	require.EqualError(t, streamErr, "anthropic stream error: Overloaded")
+	require.Len(t, events, 2)
+	assert.Equal(t, "partial", events[0].Delta.Content)
+	assert.Equal(t, llm.StreamEventTypeError, events[1].Type)
+	assert.Equal(t, streamErr.Error(), events[1].Err)
+	assert.Nil(t, events[1].Final, "stream failure must not produce an assistant completion")
+}
+
 // processForTest runs processStream and returns the yielded events.
 func processForTest(sse string) []llm.StreamEvent {
 	var events []llm.StreamEvent

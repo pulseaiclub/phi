@@ -17,11 +17,7 @@ const maxAPIErrorBodyChars = 2000
 // reaches the UI; the trimmed raw body (capped) is the fallback for bodies
 // with no recognizable envelope.
 func FormatAPIError(provider string, status int, body []byte) error {
-	msg := APIErrorMessage(body)
-	if msg == "" {
-		msg = "empty error response"
-	}
-	return fmt.Errorf("%s API error (%d): %s", provider, status, msg)
+	return fmt.Errorf("%s API error (%d): %s", provider, status, APIErrorMessage(body))
 }
 
 // APIErrorMessage extracts the human-readable message from a provider error
@@ -30,12 +26,14 @@ func FormatAPIError(provider string, status int, body []byte) error {
 // status; use this for them.
 func APIErrorMessage(body []byte) string {
 	msg := apiErrorMessage(body)
-	if msg != "" {
-		return msg
+	if msg == "" {
+		msg = strings.TrimSpace(string(body))
+		if r := []rune(msg); len(r) > maxAPIErrorBodyChars {
+			msg = string(r[:maxAPIErrorBodyChars]) + "…"
+		}
 	}
-	msg = strings.TrimSpace(string(body))
-	if r := []rune(msg); len(r) > maxAPIErrorBodyChars {
-		return string(r[:maxAPIErrorBodyChars]) + "…"
+	if msg == "" {
+		msg = "empty error response"
 	}
 	return msg
 }

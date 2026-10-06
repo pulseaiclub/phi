@@ -103,3 +103,14 @@ func TestFormatAPIErrorCapsRawFallback(t *testing.T) {
 	msg := err.Error()
 	assert.Equal(t, "LLM API error (502): "+strings.Repeat("x", maxAPIErrorBodyChars)+"…", msg)
 }
+
+func TestAPIErrorMessage(t *testing.T) {
+	assert.Equal(
+		t,
+		"Overloaded",
+		APIErrorMessage([]byte(`{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`)),
+	)
+	assert.Equal(t, "empty error response", APIErrorMessage(nil))
+	assert.Equal(t, strings.Repeat("界", maxAPIErrorBodyChars)+"…",
+		APIErrorMessage([]byte(strings.Repeat("界", maxAPIErrorBodyChars+1))))
+}
