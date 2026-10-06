@@ -109,6 +109,17 @@ func (f *FooterChrome) ClearTokenDisplay() {
 	f.UpdateTokenDisplay(session.TokenUsage{})
 }
 
+// SetContextWindow swaps the window used for the context-fill label — the
+// startup window belongs to the initial model, so a /model switch must update
+// it or every later fill reads against the old window.
+func (f *FooterChrome) SetContextWindow(window int) {
+	if window == f.contextWindow {
+		return
+	}
+	f.contextWindow = window
+	f.syncStatusSlot()
+}
+
 // SetExtensionStatus sets the extension status shown on the bottom footer row.
 func (f *FooterChrome) SetExtensionStatus(status string) {
 	f.hookStatus = status

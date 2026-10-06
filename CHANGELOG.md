@@ -12,15 +12,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
-- Hashline `edit` description now matches mismatch behavior: retry a `LINE#HASH`
-  mismatch with the error's updated references; re-read on a file TAG mismatch.
-
 ### Deprecated
 
 ### Removed
 
 ### Fixed
 
+- `ls` no longer prints a truncation notice when a directory holds exactly `limit` files; the notice only appears when the walk actually stops early ([#285](https://github.com/pulseaiclub/phi/issues/285))
 - Anthropic thinking blocks now survive session restore and tool continuation
   with their signatures and original content order. Stale blocks are dropped
   when thinking is disabled, history is compacted, the request hook changed
@@ -28,6 +26,100 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   changed. Request hooks may rewrite the model or thinking settings: replay is
   judged against the final request, and captured states record the model that
   actually served it.
+
+### Security
+
+## [0.28.3] - 2026-10-05
+
+### Added
+
+- TypeScript extension SDK under `ext/ts` (`@pulseaiclub/phi-ext`): the same
+  PXB wire protocol and author surface as `ext/go` / `ext/rust` — LLM tools
+  (sync or async), slash commands, intercepts, event subscriptions, confirm
+  dialogs, queued submits — with zero runtime dependencies. Byte-level
+  compatibility is pinned by golden tests against `ext/go/pxb/testdata`; a
+  fake-host suite drives the `examples/` end to end. Extensions ship as a
+  `phi.yaml` pointing at `node` (sources run on Node ≥ 23.6, `dist/` builds
+  on Node ≥ 20).
+- Fast code selection and navigation in `/code`: in-file search (`/`, `n`/`N`),
+  goto line (`:`) and paragraph selection (`p`).
+
+### Changed
+
+- `/code`: `p` toggles the paragraph under the caret, and a typed search lands
+  on the first match at or below where `/` was pressed instead of following the
+  caret down the file. The file's lowercase copy is built once per search
+  instead of once per keystroke (~9 ms a character on an 8 MiB file before).
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+- `/code`: `n`/`N` stepped a stored match index, so a `j`/`k` between two
+  searches sent `n` backwards; they measure from the caret now. The status row
+  keeps the path, caret and line count beside the match counter instead of
+  replacing them with it, and `Esc` in the search prompt puts the caret back
+  where `/` was pressed.
+- `phi config`: the footer hints now name `d delete`, which deleted a model or
+  a bash rule without ever being advertised. The line also drops whole hints
+  when the terminal is too narrow instead of cutting the last one mid-word.
+- TUI: the context-fill label follows `/model` switches. The window came from
+  the startup model and never changed, so a 1M-token model kept reporting fill
+  against the default model's window (e.g. 192k).
+- TUI transcript: a press on a tool / thinking / bash / agent title row expanded
+  the block instead of starting a selection — the block toggled on the press
+  itself and consumed it, so a drag that began on a title row copied nothing.
+  Blocks now toggle on a click (release without movement) that the transcript
+  pane reports once it knows no drag-selection happened.
+- TUI transcript: a selection across a title row no longer pastes the `▶` / `▼`
+  disclosure glyph — selection copy drops transcript chrome.
+- TUI transcript: copying a selection that reached past the viewport dropped
+  every row outside it — a message spanning two pages copied only the page on
+  screen at release. The selected rows are now rendered on demand, and a drag
+  held on the top / bottom row scrolls the transcript so one gesture can reach
+  the next page. Blank margin rows around short content are no longer pasted.
+
+### Security
+
+## [0.28.2] - 2026-10-04
+
+### Added
+
+### Changed
+
+- `edit` now takes a sloppy anchored payload (`*** SM:EDIT` / `*** SM:FIND` /
+  `*** SM:PUT`|`*** SM:AFTER`) with whitespace-tolerant matching, atomic
+  multi-file apply, and copy-ready failure payloads. It replaces hashline
+  range edits.
+- `read`/`grep` drop hashline chrome: `@file path` headers and `N|content`
+  lines replace `path#TAG` and `N#hash|content`.
+- `edit` syntax errors now report like a compiler: `error[SM103]` with the
+  payload line and column, the failing line with a caret under the offending
+  span, and one `help:` line with the fix. Misspelled headers, stray selection
+  markers, and empty file sections are diagnosed instead of silently read as
+  file content.
+- `edit` teaches its own failure modes: the description gains an
+  `<anti-patterns>` block (a second action with no `FIND` of its own under a
+  used-up `PUT`, a body line that spells a header, a selection missing its
+  divider) and a `<critical>` recap, and the diagnostics those shapes hit now
+  name the repair instead of the mistake. `edit_test.go` runs both blocks
+  through the parser, so the description cannot advertise a payload the engine
+  rejects.
+- Renamed `/clear` slash command to `/new`. It starts a fresh session (new
+  id, empty transcript) and leaves the previous one resumable via
+  `/sessions`; the old name implied wiping the current conversation.
+
+### Deprecated
+
+### Removed
+
+- Hashline `edit` (file TAG + `LINE#HASH` range edits) and the line/file hash
+  helpers behind it.
+
+### Fixed
+
 - Anthropic thinking requests no longer exceed max_tokens: Medium levels and
   above sent budget_tokens (8192/16384) at or above the fixed max_tokens (4096),
   which the API rejects. max_tokens now reserves a 4096-token answer allowance
@@ -845,7 +937,9 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.28.1...HEAD
+[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.28.3...HEAD
+[0.28.3]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.3
+[0.28.2]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.2
 [0.28.1]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.1
 [0.28.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.0
 [0.27.6]: https://github.com/pulseaiclub/phi/releases/tag/v0.27.6

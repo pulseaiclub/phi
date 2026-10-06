@@ -3,6 +3,7 @@ package tools
 import (
 	"github.com/pulseaiclub/phi/internal/tools/agenttool"
 	"github.com/pulseaiclub/phi/internal/tools/bashtool"
+	"github.com/pulseaiclub/phi/internal/tools/edittool"
 	"github.com/pulseaiclub/phi/internal/tools/findtool"
 	"github.com/pulseaiclub/phi/internal/tools/greptool"
 	"github.com/pulseaiclub/phi/internal/tools/lstool"
@@ -74,7 +75,7 @@ func DefaultTools() []Tool {
 		greptool.GrepTool(),
 		findtool.FindTool(),
 		lstool.LsTool(),
-		writetool.EditTool(),
+		edittool.EditTool(),
 		bashtool.BashTool(),
 		writetool.WriteTool(),
 	}

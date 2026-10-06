@@ -29,8 +29,8 @@ const (
 
 // LsTool returns the ls tool definition + handler.
 func LsTool() tooldef.Tool {
-	return tooldef.Tool{
-		Definition: llm.ToolDefinition{
+	return tooldef.NewTool(
+		tooldef.WithDefinition(llm.ToolDefinition{
 			Name:        "ls",
 			Description: lsDescription,
 			Params: &llm.FunctionParameters{
@@ -52,20 +52,36 @@ func LsTool() tooldef.Tool {
 				Required: []string{"path"},
 			},
 			Readable: true,
-		},
-		DetailFromArgs: func(input json.RawMessage) string {
-			var in lsInput
-			_ = json.Unmarshal(input, &in)
-			return strings.TrimSpace(in.Path)
-		},
-		Run: runLs,
-	}
+		}),
+		tooldef.WithDetail(lsDetail),
+		tooldef.WithHandler(runLs),
+	)
+}
+
+func lsDetail(in lsInput) string {
+	return strings.TrimSpace(in.Path)
 }
 
 type lsInput struct {
 	Path     string `json:"path,omitempty"`
 	Limit    int    `json:"limit,omitempty"`
 	MaxDepth int    `json:"max_depth,omitempty"`
+}
+
+// UnmarshalJSON also accepts a plain JSON string as the path.
+func (in *lsInput) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil && strings.TrimSpace(s) != "" {
+		in.Path = strings.TrimSpace(s)
+		return nil
+	}
+	type plain lsInput // distinct type: sheds UnmarshalJSON, avoids recursion
+	var p plain
+	if err := json.Unmarshal(data, &p); err != nil {
+		return fmt.Errorf("failed to parse ls arguments: %w", err)
+	}
+	*in = lsInput(p)
+	return nil
 }
 
 func normalizeOptions(limit, maxDepth int) (int, int) {
@@ -105,17 +121,7 @@ var skipDirs = map[string]bool{
 	".hg":            true,
 }
 
-func runLs(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
-	var in lsInput
-	if err := json.Unmarshal(input, &in); err != nil {
-		// Try as a plain string path.
-		var s string
-		if err2 := json.Unmarshal(input, &s); err2 != nil || strings.TrimSpace(s) == "" {
-			return tooldef.Result{}, fmt.Errorf("failed to parse ls arguments: %w", err)
-		}
-		in.Path = strings.TrimSpace(s)
-	}
-
+func runLs(ctx context.Context, in lsInput) (tooldef.Result, error) {
 	dir, err := tooldef.ResolveToCwd(ctx, in.Path)
 	if err != nil {
 		return tooldef.Result{}, err
@@ -133,7 +139,8 @@ func runLs(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
 	limit, maxDepth := normalizeOptions(in.Limit, in.MaxDepth)
 
 	var fileCount int
-	root := buildTree(ctx, dir, &fileCount, limit, 0, maxDepth)
+	var stoppedEarly bool
+	root := buildTree(ctx, dir, &fileCount, &stoppedEarly, limit, 0, maxDepth)
 	if root == nil {
 		return tooldef.Result{}, fmt.Errorf("failed to build tree for directory %s", dir)
 	}
@@ -141,7 +148,9 @@ func runLs(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
 	display := tooldef.RelToCwd(ctx, dir)
 	treeStr := renderTree(display, root.Children)
 
-	if fileCount < limit {
+	// A directory holding exactly limit files is a complete listing. Only
+	// claim truncation when the walk actually stopped early with more to show.
+	if !stoppedEarly {
 		return tooldef.Result{Content: treeStr, Detail: display, Output: treeStr}, nil
 	}
 
@@ -153,7 +162,13 @@ func shouldSkip(name string) bool {
 	return (name != "" && name[0] == '.') || skipDirs[name]
 }
 
-func buildTree(ctx context.Context, dir string, fileCount *int, limit, currentDepth, maxDepth int) *treeNode {
+func buildTree(
+	ctx context.Context,
+	dir string,
+	fileCount *int,
+	stoppedEarly *bool,
+	limit, currentDepth, maxDepth int,
+) *treeNode {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
@@ -180,6 +195,8 @@ func buildTree(ctx context.Context, dir string, fileCount *int, limit, currentDe
 		}
 
 		if *fileCount >= limit {
+			// Current entry (and any after it) did not fit — the listing is cut.
+			*stoppedEarly = true
 			break
 		}
 
@@ -193,7 +210,7 @@ func buildTree(ctx context.Context, dir string, fileCount *int, limit, currentDe
 				})
 				continue
 			}
-			child := buildTree(ctx, childPath, fileCount, limit, currentDepth+1, maxDepth)
+			child := buildTree(ctx, childPath, fileCount, stoppedEarly, limit, currentDepth+1, maxDepth)
 			if child != nil {
 				node.Children = append(node.Children, child)
 			} else {

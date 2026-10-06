@@ -10,7 +10,7 @@ type ToolDetail func(toolName, args string) string
 
 // ReplaySnapshot rebuilds a UI transcript snapshot from context path entries
 // (user/assistant text, thinking, tool runs, compaction markers) so /resume
-// and /clear render the same styled rows as the live session without
+// and /new render the same styled rows as the live session without
 // re-streaming. detail resolves tool-call arguments into the same friendly
 // one-line detail the live turn shows (e.g. "read foo.go:10-20" instead of raw
 // JSON); pass nil to keep raw arguments.

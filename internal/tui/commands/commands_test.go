@@ -161,23 +161,23 @@ func TestFilterSlashCommands(t *testing.T) {
 	(&DiffCommands{}).Register(r)
 
 	all := r.FilterSlash("")
-	require.Len(t, all, 3) // sessions, clear, diff
+	require.Len(t, all, 3) // sessions, new, diff
 
-	clr := r.FilterSlash("cle")
-	require.Len(t, clr, 1)
-	assert.Equal(t, "clear", clr[0].Path)
+	nw := r.FilterSlash("ne")
+	require.Len(t, nw, 1)
+	assert.Equal(t, "new", nw[0].Path)
 
 	none := r.FilterSlash("zzz")
 	assert.Empty(t, none)
 
 	assert.Equal(t, "/sessions", r.LookupInsert("sessions"))
-	assert.Equal(t, "/clear", r.LookupInsert("clear"))
+	assert.Equal(t, "/new", r.LookupInsert("new"))
 	assert.Equal(t, "/diff ", r.LookupInsert("diff"))
 }
 
 func TestCommandRegistry_DispatchSlash(t *testing.T) {
 	r := NewCommandRegistry()
-	var sessions, cleared int
+	var sessions, started int
 	bus := controller.NewBus(nil)
 	ctx := NewContext(bus, nil)
 
@@ -190,10 +190,10 @@ func TestCommandRegistry_DispatchSlash(t *testing.T) {
 		},
 	})
 	r.Register(Command{
-		Name:  "clear",
+		Name:  "new",
 		Slash: true,
 		Run: func(Context, []string) error {
-			cleared++
+			started++
 			return nil
 		},
 	})
@@ -201,8 +201,8 @@ func TestCommandRegistry_DispatchSlash(t *testing.T) {
 	assert.True(t, r.DispatchSlash("/sessions", ctx))
 	assert.Equal(t, 1, sessions)
 
-	assert.True(t, r.DispatchSlash("/clear", ctx))
-	assert.Equal(t, 1, cleared)
+	assert.True(t, r.DispatchSlash("/new", ctx))
+	assert.Equal(t, 1, started)
 
 	var spec []string
 	(&DiffCommands{
@@ -289,14 +289,14 @@ func TestCommandRegistry_RegisterReplace(t *testing.T) {
 func TestCommandRegistry_ExtCommandsDoNotReplaceBuiltins(t *testing.T) {
 	r := NewCommandRegistry()
 	(&SessionCommands{}).Register(r)
-	assert.False(t, r.registerExt(Command{Name: "clear", Slash: true, Insert: "/hijack"}))
-	assert.Equal(t, "/clear", r.LookupInsert("clear"))
+	assert.False(t, r.registerExt(Command{Name: "new", Slash: true, Insert: "/hijack"}))
+	assert.Equal(t, "/new", r.LookupInsert("new"))
 
 	assert.True(t, r.registerExt(Command{Name: "review", Slash: true, Insert: "/review"}))
 	assert.Equal(t, "/review", r.LookupInsert("review"))
 	r.clearExtCommands()
 	assert.Empty(t, r.LookupInsert("review"))
-	assert.Equal(t, "/clear", r.LookupInsert("clear"))
+	assert.Equal(t, "/new", r.LookupInsert("new"))
 }
 
 func TestCommandRegistry_NeedsArgs(t *testing.T) {

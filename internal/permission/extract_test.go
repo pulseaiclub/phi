@@ -3,6 +3,7 @@ package permission
 import (
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -32,9 +33,18 @@ func TestExtractAtUsesExplicitCwd(t *testing.T) {
 	require.Equal(t, want, req.Paths[0])
 }
 
-func TestExtractEditFilePath(t *testing.T) {
-	req, err := Extract("edit", json.RawMessage(`{"file_path":"a.go","edits":[]}`))
+func TestExtractEditPayloadTargets(t *testing.T) {
+	req, err := Extract("edit", json.RawMessage(
+		`{"payload":"*** SM:EDIT a.go\n*** SM:FIND\nx\n*** SM:PUT\ny\n*** SM:EDIT b.go\n*** SM:FIND\nx\n*** SM:PUT\ny\n"}`,
+	))
 	require.NoError(t, err)
 	require.Equal(t, ActionEdit, req.Action)
-	require.Len(t, req.Paths, 1)
+	require.Len(t, req.Paths, 2)
+	require.True(t, strings.HasSuffix(req.Paths[0], "a.go"))
+	require.True(t, strings.HasSuffix(req.Paths[1], "b.go"))
+}
+
+func TestExtractEditWithoutTargetFails(t *testing.T) {
+	_, err := Extract("edit", json.RawMessage(`{"payload":"*** SM:FIND\nx\n*** SM:PUT\ny\n"}`))
+	require.Error(t, err)
 }

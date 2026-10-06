@@ -124,12 +124,12 @@ func TestTopRightLabelPairsModelLeftOfThink(t *testing.T) {
 
 func TestSlashTabCompletesWithoutSubmitting(t *testing.T) {
 	c, bus := wiredComposer(t)
-	openSlashPicker(t, c, "/cl", "cl")
+	openSlashPicker(t, c, "/ne", "ne")
 
 	ctx := &components.EventContext{}
 	c.Handle(ctx, xui.KeyEvent{Code: xui.KeyTab, Press: true})
 
-	assert.Equal(t, "/clear ", c.Chat.Value, "Tab should fill the command in the composer")
+	assert.Equal(t, "/new ", c.Chat.Value, "Tab should fill the command in the composer")
 	assert.Empty(t, submittedText(t, bus), "Tab must not run the command")
 	assert.False(t, c.slash.Open)
 }
@@ -147,13 +147,13 @@ func TestSlashTabCompletesNeedsArgsCommand(t *testing.T) {
 
 func TestSlashEnterStillSubmits(t *testing.T) {
 	c, bus := wiredComposer(t)
-	openSlashPicker(t, c, "/cl", "cl")
+	openSlashPicker(t, c, "/ne", "ne")
 
 	ctx := &components.EventContext{}
 	c.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
 
-	assert.Equal(t, "/clear", c.Chat.Value)
-	assert.Equal(t, "/clear", submittedText(t, bus), "Enter keeps running a no-arg command")
+	assert.Equal(t, "/new", c.Chat.Value)
+	assert.Equal(t, "/new", submittedText(t, bus), "Enter keeps running a no-arg command")
 }
 
 func TestMentionTabCompletesIntoComposer(t *testing.T) {
@@ -173,13 +173,13 @@ func TestMentionTabCompletesIntoComposer(t *testing.T) {
 }
 
 // wiredComposer builds a composer wired like the app, with a small command
-// registry: `clear` (no args, runs on Enter) and `diff` (needs args).
+// registry: `new` (no args, runs on Enter) and `diff` (needs args).
 func wiredComposer(t *testing.T) (*ComposerPane, *controller.Bus) {
 	t.Helper()
 	c := NewComposerPane(components.DefaultTheme(), "m", t.TempDir())
 	bus := controller.NewBus(nil)
 	reg := commands.NewCommandRegistry()
-	reg.Register(commands.Command{Name: "clear", Slash: true})
+	reg.Register(commands.Command{Name: "new", Slash: true})
 	reg.Register(commands.Command{Name: "diff", Slash: true, NeedsArgs: true})
 	c.Wire(nil, nil, reg, c.cwd, bus, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	return c, bus

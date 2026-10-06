@@ -1,7 +1,6 @@
 package findtool
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,9 +67,7 @@ func TestFind_DefaultPathAndCaseInsensitive(t *testing.T) {
 
 	t.Chdir(root)
 
-	raw, err := json.Marshal(findInput{Pattern: "*.ts"})
-	require.NoError(t, err)
-	out, err := runFind(t.Context(), raw)
+	out, err := runFind(t.Context(), findInput{Pattern: "*.ts"})
 	require.NoError(t, err)
 	assert.Equal(t, "ONE.TS", strings.TrimSpace(out.Content))
 }
@@ -85,9 +82,7 @@ func TestFind_SearchSubdirReturnsCwdRelative(t *testing.T) {
 
 	t.Chdir(root)
 
-	raw, err := json.Marshal(findInput{Pattern: "*.go", Path: "src"})
-	require.NoError(t, err)
-	out, err := runFind(t.Context(), raw)
+	out, err := runFind(t.Context(), findInput{Pattern: "*.go", Path: "src"})
 	require.NoError(t, err)
 	assert.Equal(t, "src/a.go", strings.TrimSpace(out.Content))
 }
@@ -103,9 +98,7 @@ func TestFind_PathPatternUsesFullPath(t *testing.T) {
 
 	t.Chdir(root)
 
-	raw, err := json.Marshal(findInput{Pattern: "src/**/*.go"})
-	require.NoError(t, err)
-	out, err := runFind(t.Context(), raw)
+	out, err := runFind(t.Context(), findInput{Pattern: "src/**/*.go"})
 	require.NoError(t, err)
 	assert.Equal(t, "src/pkg/a.go", strings.TrimSpace(out.Content))
 }
@@ -113,18 +106,16 @@ func TestFind_PathPatternUsesFullPath(t *testing.T) {
 func TestFind_Errors(t *testing.T) {
 	requireFD(t)
 
-	_, err := runFind(t.Context(), []byte(`{}`))
+	_, err := runFind(t.Context(), findInput{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pattern is required")
 
-	_, err = runFind(t.Context(), []byte(`{"pattern":"["}`))
+	_, err = runFind(t.Context(), findInput{Pattern: "["})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid glob pattern")
 
 	missing := filepath.Join(t.TempDir(), "missing")
-	raw, mErr := json.Marshal(findInput{Pattern: "*.go", Path: missing})
-	require.NoError(t, mErr)
-	_, err = runFind(t.Context(), raw)
+	_, err = runFind(t.Context(), findInput{Pattern: "*.go", Path: missing})
 	require.Error(t, err)
 	assert.Contains(t, strings.ToLower(err.Error()), "path not found")
 }

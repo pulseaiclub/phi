@@ -347,3 +347,271 @@ func TestFirstNonBlank(t *testing.T) {
 	assert.Equal(t, 3, firstNonBlank(" \t\tx"))
 	assert.Equal(t, 2, firstNonBlank("  日"))
 }
+
+func TestSearchModeAndNextPrev(t *testing.T) {
+	h := newHarness(t, map[string]string{
+		"a.go": "alpha one\nbeta two\nalpha three\n",
+	})
+	h.pane.OpenAt("a.go", 2) // between the two matches
+
+	h.key(t, '/')
+	assert.True(t, h.pane.searchMode)
+
+	for _, r := range "alpha" {
+		h.key(t, r)
+	}
+	text := components.SurfaceText(h.draw())
+	assert.Contains(t, text, "/alpha")
+	assert.Contains(t, text, "2/2")
+	assert.Equal(t, 2, h.pane.line, "the query lands on the first match below where / was pressed")
+
+	h.code(t, xui.KeyEnter)
+	assert.False(t, h.pane.searchMode)
+	// Enter keeps the query for n/N, so the location has to stay next to it.
+	text = components.SurfaceText(h.draw())
+	assert.Contains(t, text, "a.go:3:1")
+	assert.Contains(t, text, "2/2")
+
+	h.key(t, 'n')
+	assert.Equal(t, 0, h.pane.line, "n at the last match wraps to the first")
+	assert.Contains(t, components.SurfaceText(h.draw()), "1/2")
+
+	h.key(t, 'N')
+	assert.Equal(t, 2, h.pane.line, "N at the first match wraps to the last")
+	assert.Contains(t, components.SurfaceText(h.draw()), "2/2")
+
+	// The counter follows the caret: off a match there is no position in the
+	// match list to report, and saying nothing beats a stale "2/2".
+	h.key(t, 'k')
+	assert.Equal(t, 1, h.pane.line)
+	text = components.SurfaceText(h.draw())
+	assert.Contains(t, text, "a.go:2:1")
+	assert.NotContains(t, text, "1/2")
+	assert.NotContains(t, text, "2/2")
+
+	h.key(t, 'n')
+	assert.Equal(t, 2, h.pane.line)
+
+	// Selection extends with search match navigation
+	h.key(t, 'v')
+	h.key(t, 'N')
+	assert.True(t, h.pane.selecting)
+	assert.Equal(t, 0, h.pane.line)
+	lo, hi := h.pane.selectionLines()
+	assert.Equal(t, 0, lo)
+	assert.Equal(t, 2, hi)
+}
+
+func TestSearchWrapsToTheTopFromBelow(t *testing.T) {
+	h := newHarness(t, map[string]string{"a.go": "alpha one\nbeta two\ngamma three\n"})
+	h.pane.OpenAt("a.go", 3)
+
+	h.key(t, '/')
+	for _, r := range "alpha" {
+		h.key(t, r)
+	}
+	assert.Equal(t, 0, h.pane.line, "nothing matches below: the top is the next match")
+	assert.Contains(t, components.SurfaceText(h.draw()), "1/1")
+}
+
+func TestNextMatchStepsFromTheCaret(t *testing.T) {
+	h := newHarness(t, map[string]string{"a.go": "m0\nm1\nm2\nm3\nm4\n"})
+	h.pane.Open("a.go")
+
+	h.key(t, '/')
+	h.key(t, 'm')
+	h.code(t, xui.KeyEnter)
+	require.Equal(t, 0, h.pane.line)
+
+	for range 3 {
+		h.key(t, 'j')
+	}
+	require.Equal(t, 3, h.pane.line)
+
+	h.key(t, 'n')
+	assert.Equal(t, 4, h.pane.line, "n steps from the caret, not from the last match it visited")
+	h.key(t, 'n')
+	assert.Equal(t, 0, h.pane.line, "and wraps at the end of the file")
+	h.key(t, 'N')
+	assert.Equal(t, 4, h.pane.line)
+}
+
+func TestSearchEscapeRestoresTheCaret(t *testing.T) {
+	h := newHarness(t, map[string]string{"a.go": "alpha one\nbeta two\nalpha three\n"})
+	h.pane.Open("a.go")
+	h.key(t, 'j')
+	h.key(t, 'l')
+	before := h.pane.pos()
+
+	h.key(t, '/')
+	for _, r := range "alpha" {
+		h.key(t, r)
+	}
+	require.Equal(t, 2, h.pane.line, "typing walks the caret to the match")
+
+	h.code(t, xui.KeyEscape)
+	assert.Equal(t, before, h.pane.pos())
+	assert.Empty(t, h.pane.searchQuery)
+	text := components.SurfaceText(h.draw())
+	assert.Contains(t, text, "a.go:2:2")
+	assert.NotContains(t, text, "1/2")
+}
+
+func TestSearchEscapeRestoresTheScroll(t *testing.T) {
+	lines := make([]string, 30)
+	for i := range lines {
+		lines[i] = "filler"
+	}
+	lines[25] = "needle"
+	h := newHarness(t, map[string]string{"a.go": strings.Join(lines, "\n") + "\n"})
+	h.pane.Open("a.go")
+	h.draw() // the viewport is only known once a frame has been painted
+
+	h.key(t, '/')
+	for _, r := range "needle" {
+		h.key(t, r)
+	}
+	require.Equal(t, 25, h.pane.line)
+	require.Positive(t, h.pane.scroll, "the match is scrolled into view")
+
+	h.code(t, xui.KeyEscape)
+	assert.Equal(t, 0, h.pane.line)
+	assert.Equal(t, 0, h.pane.scroll, "Esc gives the scroll back too")
+}
+
+func TestSearchWithNothingToRepeat(t *testing.T) {
+	h := newHarness(t, map[string]string{"a.go": "alpha\n"})
+	h.pane.Open("a.go")
+
+	h.key(t, 'n')
+	assert.Empty(t, h.toasts, "n with no query to repeat does nothing")
+
+	h.key(t, '/')
+	for _, r := range "zzz" {
+		h.key(t, r)
+	}
+	assert.Contains(t, components.SurfaceText(h.draw()), "no matches")
+
+	h.code(t, xui.KeyEnter)
+	h.key(t, 'n')
+	assert.Equal(t, []string{"no matches"}, h.toasts)
+	assert.Contains(t, components.SurfaceText(h.draw()), "a.go:1:1")
+}
+
+func TestSearchScansOneLowercaseCopy(t *testing.T) {
+	h := newHarness(t, map[string]string{"a.go": "Alpha One\nbeta two\n"})
+	h.pane.Open("a.go")
+	assert.Nil(t, h.pane.lowered, "no lowercase copy before the first search")
+
+	h.key(t, '/')
+	h.key(t, 'a')
+	require.Len(t, h.pane.lowered, len(h.pane.lines))
+	assert.Equal(t, "alpha one", h.pane.lowered[0])
+
+	// Reopening drops the copy: it belongs to the lines it was built from.
+	h.pane.Open("a.go")
+	assert.Nil(t, h.pane.lowered)
+}
+
+func TestSelectParagraph(t *testing.T) {
+	h := newHarness(t, map[string]string{
+		"a.go": "line 1\nline 2\n\nline 3\nline 4\n",
+	})
+	h.pane.Open("a.go")
+
+	h.key(t, 'j') // inside the first paragraph
+	h.key(t, 'p')
+	assert.True(t, h.pane.selecting)
+	lo, hi := h.pane.selectionLines()
+	assert.Equal(t, 0, lo)
+	assert.Equal(t, 1, hi)
+
+	h.key(t, 'p')
+	assert.False(t, h.pane.selecting, "p again drops the paragraph")
+
+	h.pane.line = 4 // the second paragraph
+	h.key(t, 'p')
+	lo, hi = h.pane.selectionLines()
+	assert.Equal(t, 3, lo)
+	assert.Equal(t, 4, hi)
+
+	h.key(t, 'a')
+	require.Len(t, h.refs, 1)
+	assert.Equal(t, 4, h.refs[0].Start)
+	assert.Equal(t, 5, h.refs[0].End)
+}
+
+func TestGotoLine(t *testing.T) {
+	lines := make([]string, 50)
+	for i := range lines {
+		lines[i] = "content"
+	}
+	h := newHarness(t, map[string]string{
+		"a.go": strings.Join(lines, "\n") + "\n",
+	})
+	h.pane.Open("a.go")
+
+	h.key(t, ':')
+	assert.True(t, h.pane.gotoMode)
+
+	h.key(t, '2')
+	h.key(t, 'x') // only digits go into the buffer
+	h.key(t, '5')
+	text := components.SurfaceText(h.draw())
+	assert.Contains(t, text, ":25")
+	assert.Contains(t, text, "50 lines", "the prompt shows the range a number may land in")
+
+	h.code(t, xui.KeyEnter)
+	assert.False(t, h.pane.gotoMode)
+	assert.Equal(t, 24, h.pane.line)
+
+	// Selection extends with goto line
+	h.key(t, 'v')
+	h.key(t, ':')
+	h.key(t, '3')
+	h.key(t, '0')
+	h.code(t, xui.KeyEnter)
+	assert.True(t, h.pane.selecting)
+	lo, hi := h.pane.selectionLines()
+	assert.Equal(t, 24, lo)
+	assert.Equal(t, 29, hi)
+
+	h.code(t, xui.KeyEscape) // drop the selection, not the pane
+	require.False(t, h.pane.selecting)
+
+	// Past the end lands on the last line; a bare : goes nowhere.
+	h.key(t, ':')
+	for range 3 {
+		h.key(t, '9')
+	}
+	h.code(t, xui.KeyEnter)
+	assert.Equal(t, 49, h.pane.line)
+
+	h.key(t, ':')
+	h.code(t, xui.KeyEnter)
+	assert.Equal(t, 49, h.pane.line)
+}
+
+func TestReopenDropsPromptState(t *testing.T) {
+	h := newHarness(t, map[string]string{"a.go": "alpha\nbeta\n"})
+	h.pane.Open("a.go")
+
+	h.key(t, '/')
+	h.key(t, 'a')
+	h.code(t, xui.KeyEnter)
+	require.Equal(t, "a", h.pane.searchQuery)
+
+	h.pane.Close()
+	assert.False(t, h.pane.searchMode)
+	assert.Empty(t, h.pane.searchQuery)
+	assert.Nil(t, h.pane.matches)
+
+	h.pane.Open("a.go")
+	h.key(t, ':')
+	h.key(t, '1')
+	require.True(t, h.pane.gotoMode)
+
+	h.pane.Open("a.go")
+	assert.False(t, h.pane.gotoMode)
+	assert.Empty(t, h.pane.gotoBuf)
+}

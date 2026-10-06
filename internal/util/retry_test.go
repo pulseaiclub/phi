@@ -2,12 +2,17 @@ package util
 
 import (
 	"context"
+	"errors"
 	"io"
 	"math"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
 	"strconv"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -204,4 +209,133 @@ func TestDoWithRetryRetryAfterBehavior(t *testing.T) {
 			require.Equal(t, tt.wantRequests, requests.Load(), "requests mismatch")
 		})
 	}
+}
+
+func TestIsStaleConnError(t *testing.T) {
+	resetByPeer := &net.OpError{
+		Op:  "read",
+		Net: "tcp",
+		Err: &os.SyscallError{Syscall: "read", Err: syscall.ECONNRESET},
+	}
+	brokenPipe := &net.OpError{
+		Op:  "write",
+		Net: "tcp",
+		Err: &os.SyscallError{Syscall: "write", Err: syscall.EPIPE},
+	}
+	refused := &net.OpError{
+		Op:  "dial",
+		Net: "tcp",
+		Err: &os.SyscallError{Syscall: "connect", Err: syscall.ECONNREFUSED},
+	}
+	// Client.Do wraps transport failures in *url.Error before DoWithRetry sees them.
+	asHTTP := func(err error) error {
+		return &url.Error{Op: "Get", URL: "http://example.test", Err: err}
+	}
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", want: false},
+		{name: "closed connection", err: net.ErrClosed, want: true},
+		{name: "wrapped closed connection", err: asHTTP(net.ErrClosed), want: true},
+		{name: "connection reset", err: resetByPeer, want: true},
+		{name: "broken pipe", err: brokenPipe, want: true},
+		{name: "wrapped connection reset", err: asHTTP(resetByPeer), want: true},
+		{name: "broken pipe message", err: errors.New("write: broken pipe"), want: true},
+		{name: "connection reset message", err: errors.New("read: connection reset by peer"), want: true},
+		{name: "closed connection message", err: errors.New("use of closed network connection"), want: true},
+		{name: "unrelated error", err: errors.New("connection refused"), want: false},
+		{name: "connection refused", err: refused, want: false},
+		{name: "wrapped connection refused", err: asHTTP(refused), want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, isStaleConnError(tt.err), "isStaleConnError(%v)", tt.err)
+		})
+	}
+}
+
+func TestDoWithRetryStaleConn(t *testing.T) {
+	stale := &net.OpError{
+		Op:  "read",
+		Net: "tcp",
+		Err: &os.SyscallError{Syscall: "read", Err: syscall.ECONNRESET},
+	}
+	refused := &net.OpError{
+		Op:  "dial",
+		Net: "tcp",
+		Err: &os.SyscallError{Syscall: "connect", Err: syscall.ECONNREFUSED},
+	}
+
+	tests := []struct {
+		name      string
+		errs      []error
+		wantCalls int
+		wantErr   error
+	}{
+		{
+			name:      "retries a stale keep-alive once",
+			errs:      []error{stale, nil},
+			wantCalls: 2,
+		},
+		{
+			name:      "returns the second stale failure",
+			errs:      []error{stale, stale},
+			wantCalls: 2,
+			wantErr:   stale,
+		},
+		{
+			name:      "does not retry a non-stale transport error",
+			errs:      []error{refused},
+			wantCalls: 1,
+			wantErr:   refused,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			transport := &scriptedTransport{errs: tt.errs}
+			client := &http.Client{Transport: transport}
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://example.test", http.NoBody)
+			require.NoError(t, err)
+
+			resp, err := DoWithRetry(client, req)
+			require.Equal(t, tt.wantCalls, transport.calls, "round trips")
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				if resp != nil {
+					_ = resp.Body.Close()
+					require.Fail(t, "DoWithRetry returned a response with an error")
+				}
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			_ = resp.Body.Close()
+		})
+	}
+}
+
+// scriptedTransport replays one error per RoundTrip. A nil error is 200 OK.
+// Calls past the script also succeed, so an unexpected extra retry is visible.
+type scriptedTransport struct {
+	errs  []error
+	calls int
+}
+
+func (s *scriptedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	s.calls++
+	if s.calls <= len(s.errs) && s.errs[s.calls-1] != nil {
+		return nil, s.errs[s.calls-1]
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       http.NoBody,
+		Request:    req,
+	}, nil
 }

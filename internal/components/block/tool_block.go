@@ -37,28 +37,29 @@ func (toolBlock *ToolBlock) hasBody() bool {
 	return strings.TrimSpace(toolBlock.Output) != "" || strings.TrimSpace(toolBlock.Error) != ""
 }
 
-// Handle toggles expansion on Enter/space or a left-click on the title row.
+// Handle toggles expansion on Enter/space. Mouse clicks arrive through ClickAt.
 func (toolBlock *ToolBlock) Handle(ctx *components.EventContext, ev xui.Event) {
-	if !toolBlock.hasBody() {
+	if !toolBlock.hasBody() || !toggleKey(ev) {
 		return
 	}
-	switch e := ev.(type) {
-	case xui.KeyEvent:
-		if e.Code == xui.KeyEnter || (e.Code == xui.KeyRune && e.Rune == ' ') {
-			toolBlock.Expanded = !toolBlock.Expanded
-			if toolBlock.OnToggle != nil {
-				toolBlock.OnToggle(toolBlock.Expanded)
-			}
-			ctx.ConsumeAndRedraw()
-		}
-	case xui.MouseEvent:
-		if e.Action == xui.MousePress && e.Button == xui.MouseLeft && e.Y >= 0 && e.Y < toolBlock.titleH {
-			toolBlock.Expanded = !toolBlock.Expanded
-			if toolBlock.OnToggle != nil {
-				toolBlock.OnToggle(toolBlock.Expanded)
-			}
-			ctx.ConsumeAndRedraw()
-		}
+	toolBlock.toggle()
+	ctx.ConsumeAndRedraw()
+}
+
+// ClickAt toggles when the click lands on the title row.
+func (toolBlock *ToolBlock) ClickAt(_, y int) bool {
+	if !toolBlock.hasBody() || !titleHit(toolBlock.titleH, y) {
+		return false
+	}
+	toolBlock.toggle()
+	return true
+}
+
+// toggle flips expansion and reports the new state to OnToggle.
+func (toolBlock *ToolBlock) toggle() {
+	toolBlock.Expanded = !toolBlock.Expanded
+	if toolBlock.OnToggle != nil {
+		toolBlock.OnToggle(toolBlock.Expanded)
 	}
 }
 

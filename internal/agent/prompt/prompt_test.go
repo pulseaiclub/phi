@@ -20,8 +20,8 @@ func TestBuildAgentsEnabledToggle(t *testing.T) {
 
 func TestBuildEditHashCopyIsUnambiguous(t *testing.T) {
 	got := Build("", false, 0, nil)
-	require.NotContains(t, got, "copy `@file path#TAG` into")
-	require.Contains(t, got, "4 hex chars after `#`")
+	require.Contains(t, got, "*** SM:EDIT path")
+	require.Contains(t, got, "*** SM:FIND")
 	require.NotContains(t, got, "Known path or exact symbol")
 	require.NotContains(t, got, "creates a new file only")
 	require.NotContains(t, got, "fails if it already exists")

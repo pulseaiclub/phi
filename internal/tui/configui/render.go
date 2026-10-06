@@ -254,7 +254,9 @@ func (e *ConfigEditor) paintFooter(s *components.Surface, method xui.WidthMethod
 		s.Print(1, ruleY, strings.Repeat("─", max(w-2, 0)), th.Border, method)
 	}
 	y := h - 2
-	hints := e.hintLine()
+	// hintLine keeps the line inside the width on its own; the truncation is
+	// only there for the one-hint terminal, where nothing can be dropped.
+	hints := e.hintLine(max(w-6, 1), method)
 	printed := s.Print(2, y, layout.TruncateToWidth(hints, max(w-6, 1), method), th.Muted, method)
 	if e.status == "" {
 		return
@@ -267,18 +269,45 @@ func (e *ConfigEditor) paintFooter(s *components.Surface, method xui.WidthMethod
 	s.Print(start, y, layout.TruncateToWidth(e.status, max(w-4, 1), method), e.statusStyle(), method)
 }
 
-func (e *ConfigEditor) hintLine() string {
+// hintSegments lists the current state's shortcuts, most useful first. The
+// form has more keys than an 80-column footer holds, so the tail is what gets
+// dropped — see hintLine.
+func (e *ConfigEditor) hintSegments() []string {
 	switch {
 	case e.edit != nil:
-		return "⏎ apply" + chrome.Sep + "esc cancel" + chrome.Sep + "^u clear"
+		return []string{"⏎ apply", "esc cancel", "^u clear"}
 	case e.confirm != nil:
-		return chrome.ConfirmHint()
+		// The shared decision-panel line reads as one hint.
+		return []string{chrome.ConfirmHint()}
 	case e.expanded != "":
-		return "↑↓ move" + chrome.Sep + "⏎ edit" + chrome.Sep + "a add" + chrome.Sep + "d delete" + chrome.Sep + "esc close"
+		return []string{"↑↓ move", "⏎ edit", "a add", "d delete", "esc close"}
 	default:
-		return "↑↓ move" + chrome.Sep + "⏎ edit" + chrome.Sep + "←→ cycle" + chrome.Sep +
-			"a add model" + chrome.Sep + "f fetch" + chrome.Sep + "s save" + chrome.Sep + "q quit"
+		// Save outranks fetch: nothing reaches the file until it runs.
+		return []string{
+			"↑↓ move", "⏎ edit", "←→ cycle", "a add model", "d delete", "s save", "f fetch", "q quit",
+		}
 	}
+}
+
+// hintLine joins as many hints as maxWidth holds. A hint is shown whole or not
+// at all: dropping the last one reads better than the half word a plain
+// truncation leaves behind.
+func (e *ConfigEditor) hintLine(maxWidth int, method xui.WidthMethod) string {
+	line := ""
+	for _, seg := range e.hintSegments() {
+		next := seg
+		if line != "" {
+			next = line + chrome.Sep + seg
+		}
+		if xui.StringWidth(next, method) > maxWidth {
+			if line == "" {
+				return seg
+			}
+			break
+		}
+		line = next
+	}
+	return line
 }
 
 func (e *ConfigEditor) statusStyle() xui.Style {

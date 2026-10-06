@@ -12,7 +12,7 @@
   <a href="https://github.com/pulseaiclub/phi/releases"><img src="https://img.shields.io/github/v/release/pulseaiclub/phi?style=flat&colorA=222222&colorB=8957E5" alt="Release"></a>
 </p>
 
-- 15 MB · ~31 ms  · sub-agents · hashline edits · permission gate · progressive MCP · PXB extensions · native diff review & code selection · OpenAI / Anthropic / Gemini
+- 15 MB · ~31 ms  · sub-agents · anchored sloppy edits · permission gate · progressive MCP · PXB extensions · native diff review & code selection · OpenAI / Anthropic / Gemini
 
 ![phi welcome](assets/phi.png)
 
@@ -225,7 +225,7 @@ syntax highlighting. Structural markers (`#`, `` ` ``, `*`) are stripped.
 The editor supports:
 
 - `@` — fuzzy file mention picker (type `@` and start typing a path)
-- `/` — slash command picker (`/sessions`, `/branch`, `/clear`, `/diff`, `/code`)
+- `/` — slash command picker (`/sessions`, `/branch`, `/new`, `/diff`, `/code`)
 - `?` — shortcut help picker (lists `/`, `!`, `@`, and key bindings; `Esc` closes)
 - `!command` — run a shell command locally and stream its output into the
   transcript (see [Commands](#commands))
@@ -265,14 +265,16 @@ diffs drops them and nothing is written to disk.
 ## Code viewer
 
 `/code <path>[:line]` opens a full-screen source viewer: syntax highlighting, a
-CJK-aware caret (`j`/`k`, `h`/`l`, `gg`/`G`), and `v` to select lines then `a`
-to hand them to the chat input as a `path:12-18` reference the model reads.
-The pane reads files itself and answers to the same deny list as the tool
-gate, so sensitive paths (`~/.ssh`, `.env`, …), binaries and files over 8 MiB
-are refused with a toast.
+CJK-aware caret (`j`/`k`, `h`/`l`, `gg`/`G`), in-file search (`/`, then `n`/`N`),
+`:line` to jump to a line, and `v` for lines or `p` for the paragraph under the
+caret, then `a` to hand the selection to the chat input as a `path:12-18`
+reference the model reads. The pane reads files itself and answers to the same
+deny list as the tool gate, so sensitive paths (`~/.ssh`, `.env`, …), binaries
+and files over 8 MiB are refused with a toast.
 
-`Esc` closes. The status row shows the path, caret and line count while
-reading, and the selection size while `v` is active.
+`Esc` closes, or cancels a search back to where `/` was pressed. The status row
+shows the path, caret and line count while reading, the selection size while `v`
+is active, and the match counter (`2/5`) while a search is live.
 
 ## Branch switching
 
@@ -305,7 +307,7 @@ unfinished.
 | `phi sessions list`| List persisted sessions for this directory    |
 | `/sessions`        | List sessions for this directory (TUI)        |
 | `/branch`          | Switch the working branch — see [Branch switching](#branch-switching) |
-| `/clear`           | Start a fresh empty session (TUI)             |
+| `/new`             | Start a fresh empty session (TUI)             |
 | `/diff`            | Full-screen git review — see [Diff review](#diff-review) |
 | `/code`            | Full-screen source viewer — see [Code viewer](#code-viewer) |
 | `!command`         | Run a shell command locally, stream output into the transcript; `Esc` cancels it |
@@ -322,7 +324,7 @@ Sessions persist automatically per working directory under
 - `phi sessions list` — list session id, mtime, and preview for the current
   directory
 - `/sessions` in the TUI — same, in-app
-- `/clear` — start a fresh session (new id, empty transcript)
+- `/new` — start a fresh session (new id, empty transcript)
 - `phi run --session <id>` / `phi run --continue-last` — resume headlessly
 
 ## Headless mode
@@ -409,8 +411,9 @@ palette's settings → permissions entry toggles session-wide bypass.
 ## Extensions
 
 Extensions are native binaries speaking the **PXB** binary protocol over
-stdin/stdout (author SDKs: Go `github.com/pulseaiclub/phi/ext/go/phi` and Rust
-[`ext/rust`](ext/rust), `phi-ext`). They
+stdin/stdout (author SDKs: Go `github.com/pulseaiclub/phi/ext/go/phi`, Rust
+[`ext/rust`](ext/rust) (`phi-ext`), and TypeScript
+[`ext/ts`](ext/ts) (`@pulseaiclub/phi-ext`)). They
 subscribe to tool/session events, register LLM tools, and add slash commands.
 
 ```bash

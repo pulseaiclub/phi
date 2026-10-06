@@ -2,8 +2,11 @@ package permission
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/pulseaiclub/phi/internal/tools/edittool/sloppy"
 )
 
 // Extract builds a permission Request from a tool name and raw JSON args.
@@ -49,18 +52,33 @@ func ExtractAt(toolName string, args json.RawMessage, cwd string) (Request, erro
 
 	case "edit":
 		var in struct {
-			Path     string `json:"path"`
-			FilePath string `json:"file_path"`
+			Payload string `json:"payload"`
+			Patch   string `json:"patch"`
+			Input   string `json:"input"`
 		}
 		if err := json.Unmarshal(args, &in); err != nil {
 			return req, fmt.Errorf("edit args: %w", err)
 		}
-		path := in.Path
-		if path == "" {
-			path = in.FilePath
+		payload := in.Payload
+		if payload == "" {
+			payload = in.Patch
+		}
+		if payload == "" {
+			payload = in.Input
+		}
+		targets := sloppy.TargetPaths(payload)
+		if len(targets) == 0 {
+			return req, errors.New("edit payload has no *** SM:EDIT file target")
 		}
 		req.Action = ActionEdit
-		return withPath(req, path, cwd)
+		for _, target := range targets {
+			abs, err := AbsCleanAt(strings.TrimSpace(target), cwd)
+			if err != nil {
+				return req, err
+			}
+			req.Paths = append(req.Paths, abs)
+		}
+		return req, nil
 
 	case "grep":
 		var in struct {

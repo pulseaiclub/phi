@@ -1,7 +1,6 @@
 package readtool
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,10 +16,8 @@ func TestRunRead_RelativeHeader(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(root, "src", "main.go"), []byte("package main\n"), 0o644))
 	t.Chdir(root)
 
-	raw, err := json.Marshal(readInput{Path: "src/main.go"})
+	out, err := runRead(t.Context(), readInput{Path: "src/main.go"})
 	require.NoError(t, err)
-	out, err := runRead(t.Context(), raw)
-	require.NoError(t, err)
-	assert.True(t, strings.HasPrefix(out.Content, "@file src/main.go#"))
+	assert.True(t, strings.HasPrefix(out.Content, "@file src/main.go\n"))
 	assert.Equal(t, "src/main.go", out.Detail)
 }

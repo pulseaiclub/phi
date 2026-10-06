@@ -10,7 +10,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/transcript"
 )
 
-// SessionCommands owns /sessions and /clear UI side effects.
+// SessionCommands owns /sessions and /new UI side effects.
 type SessionCommands struct {
 	Ctrl       *controller.EngineController
 	Transcript *transcript.TranscriptPane
@@ -19,7 +19,7 @@ type SessionCommands struct {
 	SyncHooks  func()
 	// OpenPicker opens the session list overlay (wired by Builtin.Bind).
 	OpenPicker func(items []session.SessionMeta, currentID string)
-	// StreamActive reports whether resume/clear should be blocked.
+	// StreamActive reports whether resume/new should be blocked.
 	StreamActive func() bool
 	// SessionDir / SessionID override Ctrl for tests when set.
 	SessionDir func() string
@@ -43,7 +43,7 @@ func NewSessionCommands(
 	}
 }
 
-// Register wires /sessions and /clear into r.
+// Register wires /sessions and /new into r.
 func (s *SessionCommands) Register(r *CommandRegistry) {
 	r.Register(Command{
 		Name:        "sessions",
@@ -56,12 +56,12 @@ func (s *SessionCommands) Register(r *CommandRegistry) {
 		},
 	})
 	r.Register(Command{
-		Name:        "clear",
-		Description: "Start a new empty session",
+		Name:        "new",
+		Description: "Start a fresh empty session",
 		Slash:       true,
-		Insert:      "/clear",
+		Insert:      "/new",
 		Run: func(_ Context, _ []string) error {
-			s.Clear()
+			s.NewSession()
 			return nil
 		},
 	})
@@ -130,13 +130,18 @@ func (s *SessionCommands) resume(id string) {
 	publishToast(s.Bus, msg, toast.ToastSuccess, 3*time.Second)
 }
 
-// Clear starts a new empty session. Blocks while a stream or extension command is active.
-func (s *SessionCommands) Clear() {
+// NewSession starts a new empty session. Blocks while a stream or extension command is active.
+func (s *SessionCommands) NewSession() {
 	if s.StreamActive != nil && s.StreamActive() {
-		publishToast(s.Bus, "Cannot clear while a reply or command is running", toast.ToastWarning, 3*time.Second)
+		publishToast(
+			s.Bus,
+			"Cannot start a new session while a reply or command is running",
+			toast.ToastWarning,
+			3*time.Second,
+		)
 		return
 	}
-	if err := s.Ctrl.Clear(); err != nil {
+	if err := s.Ctrl.NewSession(); err != nil {
 		publishToast(s.Bus, err.Error(), toast.ToastError, 4*time.Second)
 		return
 	}
@@ -146,7 +151,7 @@ func (s *SessionCommands) Clear() {
 	s.Footer.Activity().Apply(controller.ActivityIdle)
 	s.Transcript.Sync()
 	s.Transcript.StickToBottom()
-	publishToast(s.Bus, "Cleared "+shortSessionID(s.Ctrl.SessionID()), toast.ToastSuccess, 3*time.Second)
+	publishToast(s.Bus, "New session "+shortSessionID(s.Ctrl.SessionID()), toast.ToastSuccess, 3*time.Second)
 }
 
 func shortSessionID(id string) string {

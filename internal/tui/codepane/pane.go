@@ -69,6 +69,23 @@ type Pane struct {
 	// (line) is the moving end, so plain movement extends it.
 	selecting bool
 	selAnchor int
+
+	// A search is / then n/N. searchMode is the open prompt; searchQuery and
+	// matches outlive it, because Enter commits the query and n/N repeat it.
+	// searchFrom is where the prompt opened: narrowing a query must not walk
+	// the caret down the file, and Esc hands the position back.
+	searchMode  bool
+	searchQuery string
+	matches     []int
+	searchFrom  caretPos
+	// lowered is a lowercase copy of lines, built on the first search of a
+	// file: scanning it costs a Contains per line, where lowercasing the file
+	// again on every keystroke costs a ToLower per line.
+	lowered []string
+
+	// goto line
+	gotoMode bool
+	gotoBuf  string
 }
 
 // New builds an inactive pane. onRef receives the line the user picked for the
@@ -104,6 +121,7 @@ func (p *Pane) OpenAt(path string, line int) {
 	p.active = true
 	p.pendingG = false
 	p.selecting = false
+	p.resetPrompts()
 
 	if err := p.load(path, line); err != nil {
 		p.lines = nil
@@ -118,6 +136,17 @@ func (p *Pane) OpenAt(path string, line int) {
 func (p *Pane) Close() {
 	p.active = false
 	p.pendingG = false
+	p.resetPrompts()
+}
+
+// resetPrompts drops the transient / and : state. Open and Close both need it:
+// the pane outlives a close, so a reopened file must not inherit a query.
+func (p *Pane) resetPrompts() {
+	p.searchMode = false
+	p.searchQuery = ""
+	p.matches = nil
+	p.gotoMode = false
+	p.gotoBuf = ""
 }
 
 // Handle consumes keyboard input while the overlay is active.
@@ -130,10 +159,71 @@ func (p *Pane) Handle(ctx *components.EventContext, ev xui.Event) {
 		if !e.Press {
 			return
 		}
+		if p.searchMode {
+			p.handleSearchKey(ctx, e)
+			return
+		}
+		if p.gotoMode {
+			p.handleGotoKey(ctx, e)
+			return
+		}
 		p.notify(p.handleKey(ctx, e))
 	default:
 		ctx.Consume = true
 	}
+}
+
+func (p *Pane) handleSearchKey(ctx *components.EventContext, e xui.KeyEvent) {
+	switch e.Code {
+	case xui.KeyEscape:
+		// Cancel: nothing was asked for, so the caret goes back to where the
+		// prompt opened rather than staying on a match nobody picked.
+		p.searchMode = false
+		p.searchQuery = ""
+		p.matches = nil
+		p.jumpTo(p.searchFrom)
+	case xui.KeyEnter:
+		p.searchMode = false
+	case xui.KeyBackspace:
+		if p.searchQuery != "" {
+			runes := []rune(p.searchQuery)
+			p.searchQuery = string(runes[:len(runes)-1])
+			p.updateSearch()
+		}
+	case xui.KeyRune:
+		if e.Mods.Has(xui.ModCtrl) || e.Mods.Has(xui.ModAlt) {
+			break
+		}
+		if e.Rune >= 0x20 {
+			p.searchQuery += string(e.Rune)
+			p.updateSearch()
+		}
+	}
+	ctx.ConsumeAndRedraw()
+}
+
+func (p *Pane) handleGotoKey(ctx *components.EventContext, e xui.KeyEvent) {
+	switch e.Code {
+	case xui.KeyEscape:
+		p.gotoMode = false
+		p.gotoBuf = ""
+	case xui.KeyEnter:
+		p.gotoMode = false
+		// Atoi rejects the empty buffer, so a bare : is a no-op.
+		if n, err := strconv.Atoi(p.gotoBuf); err == nil && n > 0 {
+			p.jumpToLine(n - 1)
+		}
+		p.gotoBuf = ""
+	case xui.KeyBackspace:
+		if p.gotoBuf != "" {
+			p.gotoBuf = p.gotoBuf[:len(p.gotoBuf)-1]
+		}
+	case xui.KeyRune:
+		if e.Rune >= '0' && e.Rune <= '9' {
+			p.gotoBuf += string(e.Rune)
+		}
+	}
+	ctx.ConsumeAndRedraw()
 }
 
 // handleKey runs one key against pane state. It returns a toast to raise, which
@@ -230,10 +320,34 @@ func (p *Pane) handleRune(ctx *components.EventContext, r rune) string {
 		p.col = 0
 	case '$':
 		p.col = len(p.lineText())
-	case 'v':
+	case 'v', 'V':
 		p.toggleSelect()
 	case 'a':
 		return p.addRef()
+	case '/':
+		p.searchMode = true
+		p.searchQuery = ""
+		p.matches = nil
+		p.searchFrom = p.pos()
+		ctx.ConsumeAndRedraw()
+		return ""
+	case 'n':
+		msg := p.moveMatch(1)
+		ctx.ConsumeAndRedraw()
+		return msg
+	case 'N':
+		msg := p.moveMatch(-1)
+		ctx.ConsumeAndRedraw()
+		return msg
+	case ':':
+		p.gotoMode = true
+		p.gotoBuf = ""
+		ctx.ConsumeAndRedraw()
+		return ""
+	case 'p':
+		p.selectParagraph()
+		ctx.ConsumeAndRedraw()
+		return ""
 	default:
 		ctx.Consume = true
 		return ""
@@ -261,6 +375,7 @@ func (p *Pane) load(path string, line int) error {
 	p.abs = abs
 	p.rel = relPath(p.cwd, abs)
 	p.lines = lines
+	p.lowered = nil // the next search builds its copy from these lines
 	p.hl = codeview.Highlight(abs, lines, p.theme)
 	p.loadErr = ""
 	p.selecting = false
@@ -433,6 +548,36 @@ func (p *Pane) reveal() {
 	}
 }
 
+// caretPos is a cursor position, scroll included, that can be put back later.
+type caretPos struct {
+	line    int
+	col     int
+	scroll  int
+	xScroll int
+}
+
+func (p *Pane) pos() caretPos {
+	return caretPos{line: p.line, col: p.col, scroll: p.scroll, xScroll: p.xScroll}
+}
+
+// jumpTo restores a caretPos verbatim. reveal only nudges the scroll when the
+// caret falls outside the viewport, so a canceled search would not get its
+// scroll back without the explicit restore.
+func (p *Pane) jumpTo(c caretPos) {
+	p.line, p.col, p.scroll, p.xScroll = c.line, c.col, c.scroll, c.xScroll
+	p.clamp()
+	p.reveal()
+}
+
+// jumpToLine lands on the first non-blank of a line: a goto and a search hit
+// both want the code, not the indentation in front of it.
+func (p *Pane) jumpToLine(line int) {
+	p.line = clampLine(line, len(p.lines))
+	p.col = firstNonBlank(p.lineText())
+	p.clamp()
+	p.reveal()
+}
+
 func clampLine(line, total int) int {
 	if total <= 0 {
 		return 0
@@ -520,12 +665,13 @@ func (p *Pane) selectedRef() (chat.Ref, bool) {
 	if p.selecting {
 		lo, hi = p.selectionLines()
 	}
+	text := strings.Join(p.lines[lo:hi+1], "\n")
 	return chat.Ref{
 		Path:  p.rel,
 		Start: lo + 1,
 		End:   hi + 1,
 		Lang:  fenceLang(p.abs),
-		Text:  strings.Join(p.lines[lo:hi+1], "\n"),
+		Text:  text,
 	}, true
 }
 
@@ -544,18 +690,10 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 }
 
 func (p *Pane) snapshot(ctx components.DrawContext) codeview.Model {
-	status := p.location()
-	switch {
-	case p.loadErr != "":
-		status = p.loadErr
-	case p.selecting:
-		lo, hi := p.selectionLines()
-		status = selectionStatus(hi - lo + 1)
-	}
 	m := codeview.Model{
 		Theme:      p.theme,
 		Title:      "code" + chrome.Sep + p.title(),
-		Status:     status,
+		Status:     p.status(),
 		Hint:       hintLine,
 		Path:       p.abs,
 		Lines:      p.lines,
@@ -568,14 +706,37 @@ func (p *Pane) snapshot(ctx components.DrawContext) codeview.Model {
 		Empty:      p.emptyText(),
 	}
 	if p.selecting {
-		// Line-wise: the moving end is pinned past any real line so the
-		// tint is clipped at the frame edge rather than stopping mid-line.
 		lo, hi := p.selectionLines()
 		m.Selecting = true
+		// Line-wise: the moving end is pinned past any real line so the
+		// tint is clipped at the frame edge rather than stopping mid-line.
 		m.SelStart = components.Point{X: 0, Y: lo}
 		m.SelEnd = components.Point{X: selLineWide, Y: hi}
 	}
 	return m
+}
+
+// status is the resting status row: where the reader is and where the search
+// stands, or the prompt itself while one is being typed.
+func (p *Pane) status() string {
+	switch {
+	case p.loadErr != "":
+		return p.loadErr
+	case p.searchMode:
+		return p.searchPrompt()
+	case p.gotoMode:
+		return p.gotoPrompt()
+	case p.selecting:
+		lo, hi := p.selectionLines()
+		return selectionStatus(hi - lo + 1)
+	}
+	loc, label := p.location(), p.matchLabel()
+	if loc == "" || label == "" {
+		return loc
+	}
+	// The query outlives the prompt — n and N repeat it — so the counter rides
+	// beside the location instead of replacing it.
+	return loc + chrome.Sep + label
 }
 
 // selectionStatus is the status row while v is active.
@@ -619,8 +780,177 @@ func (p *Pane) emptyText() string {
 var hintLine = strings.Join([]string{
 	"esc close",
 	"j/k move",
-	"h/l ←/→",
-	"gg/G top/bottom",
+	"/ find",
+	": line",
 	"v select",
+	"p para",
 	"a add",
 }, chrome.Sep)
+
+// updateSearch rebuilds the match list for the query typed so far and lands the
+// caret on the first match at or below the line the prompt opened on, wrapping
+// to the top when the query only matches above it. Anchoring on that opening
+// line, not on the caret, is what keeps the caret from walking down the file as
+// characters are added to the query.
+func (p *Pane) updateSearch() {
+	q := strings.ToLower(p.searchQuery)
+	p.matches = p.matches[:0]
+	if q == "" {
+		return
+	}
+	p.ensureLowered()
+	for i, line := range p.lowered {
+		if strings.Contains(line, q) {
+			p.matches = append(p.matches, i)
+		}
+	}
+	if len(p.matches) > 0 {
+		p.jumpToLine(p.matches[p.firstMatchAtOrAfter(p.searchFrom.line)])
+	}
+}
+
+// ensureLowered builds the lowercase copy search scans. One pass per file beats
+// a ToLower per line per keystroke: on an 8 MiB file the first character typed
+// pays ~9 ms once, and the ones after it scan in ~1 ms.
+func (p *Pane) ensureLowered() {
+	if p.lowered != nil {
+		return
+	}
+	p.lowered = make([]string, len(p.lines))
+	for i, line := range p.lines {
+		p.lowered[i] = strings.ToLower(line)
+	}
+}
+
+// moveMatch steps n (dir > 0) and N (dir < 0) from the caret. Measuring from
+// the caret rather than from the index of the match last visited is what stops
+// n from stepping backwards after a j or k.
+func (p *Pane) moveMatch(dir int) string {
+	if len(p.matches) == 0 {
+		if p.searchQuery == "" {
+			return "" // no query to repeat: n has nothing to do
+		}
+		p.updateSearch()
+		if len(p.matches) == 0 {
+			return "no matches"
+		}
+	}
+	idx := p.matchBefore(p.line)
+	if dir > 0 {
+		idx = p.matchAfter(p.line)
+	}
+	p.jumpToLine(p.matches[idx])
+	return ""
+}
+
+// searchPrompt is the status row while a query is being typed: the query, then
+// the caret's place among its matches.
+func (p *Pane) searchPrompt() string {
+	out := "/" + p.searchQuery
+	if label := p.matchLabel(); label != "" {
+		out += "  " + label
+	}
+	return out
+}
+
+// gotoPrompt is the status row while : takes a line number: the digits typed
+// and the file's length, so the range a number has to land in is on screen.
+func (p *Pane) gotoPrompt() string {
+	if p.gotoBuf == "" {
+		return ":"
+	}
+	return fmt.Sprintf(":%s%s%d lines", p.gotoBuf, chrome.Sep, len(p.lines))
+}
+
+// matchLabel is the caret's place among the matches: "2/5" while it sits on
+// one, "no matches" for a query that hit nothing, "" when no query is live. It
+// is derived from the caret line, so a j/k after a search cannot leave a stale
+// counter on screen.
+func (p *Pane) matchLabel() string {
+	if p.searchQuery == "" {
+		return ""
+	}
+	if len(p.matches) == 0 {
+		return "no matches"
+	}
+	if i := p.matchIndex(); i >= 0 {
+		return fmt.Sprintf("%d/%d", i+1, len(p.matches))
+	}
+	return ""
+}
+
+// matchIndex is where the caret sits in the match list, or -1 when its line is
+// not one of them.
+func (p *Pane) matchIndex() int {
+	for i, m := range p.matches {
+		if m == p.line {
+			return i
+		}
+	}
+	return -1
+}
+
+// firstMatchAtOrAfter is the index of the first match on or below line, or the
+// top of the file when the query only matches above it.
+func (p *Pane) firstMatchAtOrAfter(line int) int {
+	for i, m := range p.matches {
+		if m >= line {
+			return i
+		}
+	}
+	return 0
+}
+
+// matchAfter is the index of the first match below line, wrapping to the top:
+// what n does at the end of the file.
+func (p *Pane) matchAfter(line int) int {
+	for i, m := range p.matches {
+		if m > line {
+			return i
+		}
+	}
+	return 0
+}
+
+// matchBefore is the index of the last match above line, wrapping to the
+// bottom: what N does at the top of the file.
+func (p *Pane) matchBefore(line int) int {
+	idx := len(p.matches) - 1 // nothing above: wrap to the bottom match
+	for i, m := range p.matches {
+		if m >= line {
+			break
+		}
+		idx = i
+	}
+	return idx
+}
+
+// selectParagraph selects the paragraph around the caret: the run of non-blank
+// lines it sits in. The caret parks on the paragraph's last line, as it must,
+// because the selection has one moving end and a paragraph cannot be selected
+// without the caret riding it.
+func (p *Pane) selectParagraph() {
+	if len(p.lines) == 0 {
+		return
+	}
+	lo, hi := p.paragraph()
+	if p.selecting && p.selAnchor == lo && p.line == hi {
+		p.selecting = false // p again drops the paragraph it just selected
+		return
+	}
+	p.selecting = true
+	p.selAnchor = lo
+	p.jumpToLine(hi)
+}
+
+// paragraph is the run of non-blank lines the caret sits in.
+func (p *Pane) paragraph() (lo, hi int) {
+	lo, hi = p.line, p.line
+	for lo > 0 && strings.TrimSpace(p.lines[lo-1]) != "" {
+		lo--
+	}
+	for hi < len(p.lines)-1 && strings.TrimSpace(p.lines[hi+1]) != "" {
+		hi++
+	}
+	return lo, hi
+}

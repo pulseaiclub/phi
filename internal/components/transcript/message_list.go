@@ -34,6 +34,11 @@ type MessageList struct {
 	lastPad    int
 	lastOrigin int
 	lastItems  []listItemGeom
+
+	// lastChildCtx and lastWidth replay the last Draw's geometry so
+	// SelectionText can re-render entries the viewport virtualized away.
+	lastChildCtx components.DrawContext
+	lastWidth    int
 }
 
 type listItemGeom struct {
@@ -123,6 +128,17 @@ func (m *MessageList) syncHeightCache(n, innerW int) {
 		m.heights = append(m.heights, make([]int, n-len(m.heights))...)
 	} else if len(m.heights) > n {
 		m.heights = m.heights[:n]
+	}
+}
+
+// ensureHeights lays the height cache out for n entries at childCtx's width,
+// measuring only entries that are new or invalidated.
+func (m *MessageList) ensureHeights(n int, childCtx components.DrawContext) {
+	m.syncHeightCache(n, childCtx.Max.Width)
+	for i := range n {
+		if m.heights[i] < 1 {
+			m.heights[i] = m.measure(i, childCtx)
+		}
 	}
 }
 
@@ -228,15 +244,10 @@ func (m *MessageList) Draw(ctx components.DrawContext) components.Surface {
 	gap := m.spacing()
 	n := len(m.Entries)
 	childCtx := ctx.WithConstraints(components.Size{}, components.Size{Width: innerW, Height: 10000})
+	m.lastChildCtx = childCtx
+	m.lastWidth = w
 
-	m.syncHeightCache(n, innerW)
-
-	// Ensure every row has a height (measure missing only — O(new/invalidated)).
-	for i := range n {
-		if m.heights[i] < 1 {
-			m.heights[i] = m.measure(i, childCtx)
-		}
-	}
+	m.ensureHeights(n, childCtx)
 
 	var root components.Surface
 	for pass := range 2 {
@@ -295,6 +306,47 @@ func (m *MessageList) Draw(ctx components.DrawContext) components.Surface {
 // StickToBottom resets follow mode.
 func (m *MessageList) StickToBottom() {
 	m.ScrollFromBottom = 0
+}
+
+// SelectionText returns the text covered by a drag selection given in content
+// space (rows relative to the content top, columns list-local). Draw realizes
+// only the entries the viewport shows, so the selected rows are rendered again
+// here: a selection spanning more than one screenful would otherwise copy just
+// the page that happened to be on screen.
+func (m *MessageList) SelectionText(ax, ay, ex, ey int) string {
+	n := len(m.Entries)
+	if n == 0 || m.lastWidth <= 0 {
+		return "" // nothing drawn yet — no geometry to select against
+	}
+	childCtx := m.lastChildCtx
+	m.ensureHeights(n, childCtx)
+	tops, total := m.contentOffsets(n, m.spacing())
+
+	// Rows above and below the content (short list, bottom-anchored) hold no
+	// text; clamping keeps the copied block free of blank edge lines.
+	x0, y0, x1, y1 := components.NormalizeSelectionOrder(ax, ay, ex, ey)
+	y0, y1 = max(y0, 0), min(y1, total-1)
+	if y1 < y0 {
+		return ""
+	}
+
+	// Row 0 of the surface is content row y0, and it keeps the list's full
+	// width: an interior row of a drag is grabbed whole, so clipping the
+	// surface to the selection's columns would truncate every row between the
+	// two endpoints.
+	root := components.Surface{Size: components.Size{Width: m.lastWidth, Height: y1 - y0 + 1}}
+	pad := m.padX()
+	for i := range n {
+		top := tops[i]
+		if top+m.heights[i] <= y0 || top > y1 {
+			continue
+		}
+		root.Children = append(root.Children, components.SubSurface{
+			Origin:  components.Point{X: pad, Y: top - y0},
+			Surface: m.Entries[i].Draw(childCtx),
+		})
+	}
+	return components.ExtractSurfaceText(root, x0, 0, x1, root.Size.Height-1)
 }
 
 // ContentOrigin is the list-local Y of content row 0 after the last Draw.

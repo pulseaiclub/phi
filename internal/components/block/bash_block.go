@@ -32,7 +32,7 @@ type BashBlock struct {
 	// OnToggle is called when the user expands/collapses (click title / Enter).
 	OnToggle func(expanded bool)
 
-	titleH int // title row count; body clicks don't toggle (allow selection)
+	titleH int // title row count; only the title responds to ClickAt
 }
 
 func (bashBlock *BashBlock) theme() components.Theme {
@@ -42,33 +42,31 @@ func (bashBlock *BashBlock) theme() components.Theme {
 	return bashBlock.Theme
 }
 
-// Handle toggles expansion on Enter/space or a left-click on the title row.
+// Handle toggles expansion on Enter/space. Mouse clicks arrive through ClickAt.
 func (bashBlock *BashBlock) Handle(ctx *components.EventContext, ev xui.Event) {
-	switch e := ev.(type) {
-	case xui.KeyEvent:
-		if e.Code == xui.KeyEnter || (e.Code == xui.KeyRune && e.Rune == ' ') {
-			if bashBlock.hasBody() {
-				bashBlock.toggle(ctx)
-			}
-		}
-	case xui.MouseEvent:
-		if e.Action != xui.MousePress || e.Button != xui.MouseLeft {
-			return
-		}
-		// Only the title toggles expand; body stays selectable for copy-on-select.
-		if bashBlock.hasBody() && e.Y >= 0 && e.Y < bashBlock.titleH {
-			bashBlock.toggle(ctx)
-		}
+	if !bashBlock.hasBody() || !toggleKey(ev) {
+		return
 	}
+	bashBlock.toggle()
+	ctx.ConsumeAndRedraw()
 }
 
-// toggle flips expansion, notifies OnToggle, and schedules a redraw.
-func (bashBlock *BashBlock) toggle(ctx *components.EventContext) {
+// ClickAt toggles when the click lands on the title row; the output body stays
+// selectable for copy-on-select.
+func (bashBlock *BashBlock) ClickAt(_, y int) bool {
+	if !bashBlock.hasBody() || !titleHit(bashBlock.titleH, y) {
+		return false
+	}
+	bashBlock.toggle()
+	return true
+}
+
+// toggle flips expansion and reports the new state to OnToggle.
+func (bashBlock *BashBlock) toggle() {
 	bashBlock.Expanded = !bashBlock.Expanded
 	if bashBlock.OnToggle != nil {
 		bashBlock.OnToggle(bashBlock.Expanded)
 	}
-	ctx.ConsumeAndRedraw()
 }
 
 // CopyText returns "$ command" plus output when present.

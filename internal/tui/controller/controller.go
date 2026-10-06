@@ -431,6 +431,12 @@ func (c *EngineController) ModelName() string {
 	return c.modelCfg.Name
 }
 
+// ContextWindow returns the active model's context window in tokens, so the
+// UI can re-render context pressure after a model switch.
+func (c *EngineController) ContextWindow() int {
+	return c.modelCfg.ContextWindow
+}
+
 func (c *EngineController) ImageEnabled() bool {
 	return c.modelCfg.ImageEnabled
 }
@@ -480,9 +486,9 @@ func (c *EngineController) Resume(id string) (cwdWarning string, err error) {
 	return cwdWarning, nil
 }
 
-// Clear starts a brand-new persisted session. Caller must ensure no agent
+// NewSession starts a brand-new persisted session. Caller must ensure no agent
 // stream / local bash is in flight.
-func (c *EngineController) Clear() error {
+func (c *EngineController) NewSession() error {
 	prevID, err := c.beginSessionSwitch("new", "", false)
 	if err != nil {
 		return err

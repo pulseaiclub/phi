@@ -40,6 +40,18 @@ func TestExtractSurfaceTextSkipsRuleChrome(t *testing.T) {
 	require.Equal(t, "你好", got)
 }
 
+// Titles carry a disclosure arrow; a selection across one is body text, and the
+// clipboard should not inherit the transcript's chrome.
+func TestExtractSurfaceTextSkipsDisclosureArrow(t *testing.T) {
+	s := NewSurface(20, 1, nil)
+	s.Print(0, 0, "$ ls", xui.Style{}, xui.WidthUnicode)
+	s.Print(5, 0, " ▶", xui.Style{}, xui.WidthUnicode)
+	require.Equal(t, "$ ls", ExtractSurfaceText(s, 0, 0, 19, 0))
+
+	s.Print(5, 0, " ▼", xui.Style{}, xui.WidthUnicode)
+	require.Equal(t, "$ ls", ExtractSurfaceText(s, 0, 0, 19, 0))
+}
+
 func TestInTextSelection(t *testing.T) {
 	require.True(t, InTextSelection(2, 0, 0, 0, 5, 0), "mid single line")
 	require.False(t, InTextSelection(0, 1, 2, 0, 5, 0), "below single line")

@@ -648,11 +648,9 @@ func (p *Proc) BuildAPI(api *ext.API) {
 	}
 	for _, c := range p.cmds {
 		name := c.Name
-		desc := c.Description
-		needsArgs := c.NeedsArgs
 		api.RegisterCommand(name, ext.Command{
-			Description: desc,
-			NeedsArgs:   needsArgs,
+			Description: c.Description,
+			NeedsArgs:   c.NeedsArgs,
 			Handler: func(args string, _ *ext.Context) error {
 				resp, err := p.CallCommand(context.Background(), name, args)
 				if err != nil {
@@ -668,80 +666,79 @@ func (p *Proc) BuildAPI(api *ext.API) {
 			},
 		})
 	}
-	if p.WantsIntercept(pxb.EvToolCall) {
-		api.On(ext.EventToolCall, func(ev ext.ToolCallEvent, _ *ext.Context) *ext.ToolCallResult {
-			resp, err := p.Intercept(context.Background(), pxb.InterceptReq{
-				Event: pxb.EvToolCall, ToolName: ev.ToolName, ToolCallID: ev.ToolCallID, Input: ev.Input,
-			})
-			if err != nil {
-				debuglog.Logf("extension %q: tool_call intercept: %v", p.Manifest.Name, err)
-				return nil
-			}
-			return &ext.ToolCallResult{Block: resp.Block, Reason: resp.Reason, Input: resp.Input, Context: resp.Context}
+	p.registerInterceptShims(api)
+	p.registerEventShims(api)
+}
+
+// registerInterceptShims forwards subscribed events through the child's intercept hook.
+func (p *Proc) registerInterceptShims(api *ext.API) {
+	on := func(code uint16, event string, handler any) {
+		if p.WantsIntercept(code) {
+			api.On(event, handler)
+		}
+	}
+	on(pxb.EvToolCall, ext.EventToolCall, func(ev ext.ToolCallEvent, _ *ext.Context) *ext.ToolCallResult {
+		resp, err := p.Intercept(context.Background(), pxb.InterceptReq{
+			Event: pxb.EvToolCall, ToolName: ev.ToolName, ToolCallID: ev.ToolCallID, Input: ev.Input,
 		})
-	}
-	if p.WantsIntercept(pxb.EvToolResult) {
-		api.On(ext.EventToolResult, func(ev ext.ToolResultEvent, _ *ext.Context) *ext.ToolResultResult {
-			resp, err := p.Intercept(context.Background(), pxb.InterceptReq{
-				Event: pxb.EvToolResult, ToolName: ev.ToolName, ToolCallID: ev.ToolCallID,
-				Input: ev.Input, Content: ev.Content, IsError: ev.IsError, ErrText: ev.Err,
-			})
-			if err != nil {
-				debuglog.Logf("extension %q: tool_result intercept: %v", p.Manifest.Name, err)
-				return nil
-			}
-			return &ext.ToolResultResult{
-				Content: resp.Content,
-				Context: resp.Context,
-				Stop:    resp.Stop,
-				Reason:  resp.Reason,
-			}
+		if err != nil {
+			debuglog.Logf("extension %q: tool_call intercept: %v", p.Manifest.Name, err)
+			return nil
+		}
+		return &ext.ToolCallResult{Block: resp.Block, Reason: resp.Reason, Input: resp.Input, Context: resp.Context}
+	})
+	on(pxb.EvToolResult, ext.EventToolResult, func(ev ext.ToolResultEvent, _ *ext.Context) *ext.ToolResultResult {
+		resp, err := p.Intercept(context.Background(), pxb.InterceptReq{
+			Event: pxb.EvToolResult, ToolName: ev.ToolName, ToolCallID: ev.ToolCallID,
+			Input: ev.Input, Content: ev.Content, IsError: ev.IsError, ErrText: ev.Err,
 		})
-	}
-	if p.WantsIntercept(pxb.EvSessionBeforeSwitch) {
-		api.On(
-			ext.EventSessionBeforeSwitch,
-			func(ev ext.SessionBeforeSwitchEvent, _ *ext.Context) *ext.SessionBeforeSwitchResult {
-				resp, err := p.Intercept(context.Background(), pxb.InterceptReq{
-					Event: pxb.EvSessionBeforeSwitch, Reason: ev.Reason, TargetID: ev.TargetSessionID,
-				})
-				if err != nil {
-					return nil
-				}
-				return &ext.SessionBeforeSwitchResult{Cancel: resp.Cancel, Reason: resp.Reason, Toast: resp.Toast}
-			},
-		)
-	}
-	if p.WantsIntercept(pxb.EvBeforeAgentStart) {
-		api.On(
-			ext.EventBeforeAgentStart,
-			func(ev ext.BeforeAgentStartEvent, _ *ext.Context) *ext.BeforeAgentStartResult {
-				resp, err := p.Intercept(context.Background(), pxb.InterceptReq{
-					Event: pxb.EvBeforeAgentStart, Prompt: ev.Prompt,
-				})
-				if err != nil {
-					return nil
-				}
-				return &ext.BeforeAgentStartResult{
-					Prompt:             resp.Prompt,
-					SystemPromptAppend: resp.SystemPromptAppend,
-				}
-			},
-		)
-	}
-	if p.WantsIntercept(pxb.EvUserInput) {
-		api.On(ext.EventUserInput, func(ev ext.UserInputEvent, _ *ext.Context) *ext.UserInputResult {
+		if err != nil {
+			debuglog.Logf("extension %q: tool_result intercept: %v", p.Manifest.Name, err)
+			return nil
+		}
+		return &ext.ToolResultResult{
+			Content: resp.Content,
+			Context: resp.Context,
+			Stop:    resp.Stop,
+			Reason:  resp.Reason,
+		}
+	})
+	on(pxb.EvSessionBeforeSwitch, ext.EventSessionBeforeSwitch,
+		func(ev ext.SessionBeforeSwitchEvent, _ *ext.Context) *ext.SessionBeforeSwitchResult {
 			resp, err := p.Intercept(context.Background(), pxb.InterceptReq{
-				Event: pxb.EvUserInput, Prompt: ev.Text,
+				Event: pxb.EvSessionBeforeSwitch, Reason: ev.Reason, TargetID: ev.TargetSessionID,
 			})
 			if err != nil {
 				return nil
 			}
-			return &ext.UserInputResult{Handled: resp.Handled, Text: resp.Prompt, Reason: resp.Reason}
+			return &ext.SessionBeforeSwitchResult{Cancel: resp.Cancel, Reason: resp.Reason, Toast: resp.Toast}
 		})
-	}
-	if p.WantsIntercept(pxb.EvTurnStopping) {
-		api.On(ext.EventTurnStopping, func(ev ext.TurnStoppingEvent, _ *ext.Context) *ext.TurnStoppingResult {
+	on(pxb.EvBeforeAgentStart, ext.EventBeforeAgentStart,
+		func(ev ext.BeforeAgentStartEvent, _ *ext.Context) *ext.BeforeAgentStartResult {
+			resp, err := p.Intercept(context.Background(), pxb.InterceptReq{
+				Event: pxb.EvBeforeAgentStart, Prompt: ev.Prompt,
+			})
+			if err != nil {
+				return nil
+			}
+			return &ext.BeforeAgentStartResult{
+				Prompt:             resp.Prompt,
+				SystemPromptAppend: resp.SystemPromptAppend,
+			}
+		})
+	on(pxb.EvUserInput, ext.EventUserInput, func(ev ext.UserInputEvent, _ *ext.Context) *ext.UserInputResult {
+		resp, err := p.Intercept(context.Background(), pxb.InterceptReq{
+			Event: pxb.EvUserInput, Prompt: ev.Text,
+		})
+		if err != nil {
+			return nil
+		}
+		return &ext.UserInputResult{Handled: resp.Handled, Text: resp.Prompt, Reason: resp.Reason}
+	})
+	on(
+		pxb.EvTurnStopping,
+		ext.EventTurnStopping,
+		func(ev ext.TurnStoppingEvent, _ *ext.Context) *ext.TurnStoppingResult {
 			resp, err := p.Intercept(context.Background(), pxb.InterceptReq{
 				Event: pxb.EvTurnStopping, TurnIndex: uint32(ev.TurnIndex), //nolint:gosec // G115
 			})
@@ -749,76 +746,58 @@ func (p *Proc) BuildAPI(api *ext.API) {
 				return nil
 			}
 			return &ext.TurnStoppingResult{Continue: resp.Continue, Message: resp.Prompt, Reason: resp.Reason}
-		})
+		},
+	)
+}
+
+// registerEventShims forwards fire-and-forget lifecycle events to the child.
+func (p *Proc) registerEventShims(api *ext.API) {
+	on := func(code uint16, event string, handler any) {
+		if _, ok := p.events[code]; ok {
+			api.On(event, handler)
+		}
 	}
-	// Fire-and-forget event shims.
-	if _, ok := p.events[pxb.EvSessionStart]; ok {
-		api.On(ext.EventSessionStart, func(ev ext.SessionStartEvent, _ *ext.Context) {
-			p.Emit(pxb.EventNotify{
-				Event:             pxb.EvSessionStart,
-				Reason:            ev.Reason,
-				PreviousSessionID: ev.PreviousSessionID,
-			})
+	on(pxb.EvSessionStart, ext.EventSessionStart, func(ev ext.SessionStartEvent, _ *ext.Context) {
+		p.Emit(pxb.EventNotify{Event: pxb.EvSessionStart, Reason: ev.Reason, PreviousSessionID: ev.PreviousSessionID})
+	})
+	on(pxb.EvSessionShutdown, ext.EventSessionShutdown, func(ev ext.SessionShutdownEvent, _ *ext.Context) {
+		p.Emit(pxb.EventNotify{
+			Event:           pxb.EvSessionShutdown,
+			Reason:          ev.Reason,
+			TargetSessionID: ev.TargetSessionID,
 		})
-	}
-	if _, ok := p.events[pxb.EvSessionShutdown]; ok {
-		api.On(ext.EventSessionShutdown, func(ev ext.SessionShutdownEvent, _ *ext.Context) {
-			p.Emit(pxb.EventNotify{
-				Event:           pxb.EvSessionShutdown,
-				Reason:          ev.Reason,
-				TargetSessionID: ev.TargetSessionID,
-			})
+	})
+	on(pxb.EvSessionCompact, ext.EventSessionCompact, func(ev ext.SessionCompactEvent, _ *ext.Context) {
+		p.Emit(pxb.EventNotify{Event: pxb.EvSessionCompact, Reason: ev.Reason})
+	})
+	on(pxb.EvAgentStart, ext.EventAgentStart, func(ext.AgentStartEvent, *ext.Context) {
+		p.Emit(pxb.EventNotify{Event: pxb.EvAgentStart})
+	})
+	on(pxb.EvAgentEnd, ext.EventAgentEnd, func(ext.AgentEndEvent, *ext.Context) {
+		p.Emit(pxb.EventNotify{Event: pxb.EvAgentEnd})
+	})
+	on(pxb.EvTurnStart, ext.EventTurnStart, func(ev ext.TurnStartEvent, _ *ext.Context) {
+		//nolint:gosec // G115: turn index is a small session counter
+		p.Emit(pxb.EventNotify{Event: pxb.EvTurnStart, TurnIndex: uint32(ev.TurnIndex)})
+	})
+	on(pxb.EvTurnEnd, ext.EventTurnEnd, func(ev ext.TurnEndEvent, _ *ext.Context) {
+		//nolint:gosec // G115: turn index is a small session counter
+		p.Emit(pxb.EventNotify{Event: pxb.EvTurnEnd, TurnIndex: uint32(ev.TurnIndex)})
+	})
+	on(pxb.EvToolExecStart, ext.EventToolExecutionStart, func(ev ext.ToolExecutionStartEvent, _ *ext.Context) {
+		p.Emit(pxb.EventNotify{
+			Event:      pxb.EvToolExecStart,
+			ToolName:   ev.ToolName,
+			ToolCallID: ev.ToolCallID,
+			Input:      ev.Args,
 		})
-	}
-	if _, ok := p.events[pxb.EvSessionCompact]; ok {
-		api.On(ext.EventSessionCompact, func(ev ext.SessionCompactEvent, _ *ext.Context) {
-			p.Emit(pxb.EventNotify{Event: pxb.EvSessionCompact, Reason: ev.Reason})
+	})
+	on(pxb.EvToolExecEnd, ext.EventToolExecutionEnd, func(ev ext.ToolExecutionEndEvent, _ *ext.Context) {
+		p.Emit(pxb.EventNotify{
+			Event:      pxb.EvToolExecEnd,
+			ToolName:   ev.ToolName,
+			ToolCallID: ev.ToolCallID,
+			IsError:    ev.IsError,
 		})
-	}
-	if _, ok := p.events[pxb.EvAgentStart]; ok {
-		api.On(ext.EventAgentStart, func(ext.AgentStartEvent, *ext.Context) {
-			p.Emit(pxb.EventNotify{Event: pxb.EvAgentStart})
-		})
-	}
-	if _, ok := p.events[pxb.EvAgentEnd]; ok {
-		api.On(ext.EventAgentEnd, func(ext.AgentEndEvent, *ext.Context) {
-			p.Emit(pxb.EventNotify{Event: pxb.EvAgentEnd})
-		})
-	}
-	if _, ok := p.events[pxb.EvTurnStart]; ok {
-		api.On(ext.EventTurnStart, func(ev ext.TurnStartEvent, _ *ext.Context) {
-			//nolint:gosec // G115: turn index is a small session counter
-			p.Emit(pxb.EventNotify{Event: pxb.EvTurnStart, TurnIndex: uint32(ev.TurnIndex)})
-		})
-	}
-	if _, ok := p.events[pxb.EvTurnEnd]; ok {
-		api.On(ext.EventTurnEnd, func(ev ext.TurnEndEvent, _ *ext.Context) {
-			//nolint:gosec // G115: turn index is a small session counter
-			p.Emit(pxb.EventNotify{Event: pxb.EvTurnEnd, TurnIndex: uint32(ev.TurnIndex)})
-		})
-	}
-	if _, ok := p.events[pxb.EvToolExecStart]; ok {
-		api.On(ext.EventToolExecutionStart, func(ev ext.ToolExecutionStartEvent, _ *ext.Context) {
-			p.Emit(
-				pxb.EventNotify{
-					Event:      pxb.EvToolExecStart,
-					ToolName:   ev.ToolName,
-					ToolCallID: ev.ToolCallID,
-					Input:      ev.Args,
-				},
-			)
-		})
-	}
-	if _, ok := p.events[pxb.EvToolExecEnd]; ok {
-		api.On(ext.EventToolExecutionEnd, func(ev ext.ToolExecutionEndEvent, _ *ext.Context) {
-			p.Emit(
-				pxb.EventNotify{
-					Event:      pxb.EvToolExecEnd,
-					ToolName:   ev.ToolName,
-					ToolCallID: ev.ToolCallID,
-					IsError:    ev.IsError,
-				},
-			)
-		})
-	}
+	})
 }

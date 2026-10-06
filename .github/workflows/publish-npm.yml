@@ -1,0 +1,80 @@
+name: Publish npm package
+
+# The TS package owns the ext/ts/v* tag namespace: npm rejects a re-published
+# version, so the package must bump independently of the Go SDK (which keeps
+# releasing under ext/go/v*, untouched), the Rust crate (ext/rust/v*), and the
+# phi binaries.
+on:
+  push:
+    tags:
+      # matches ext/ts/v0.1.0, ext/ts/v0.2.0, ...
+      - 'ext/ts/v*'
+      # matches ext/ts/v0.2.0-rc1, ... (mirrors the v*-* pattern in release.yml)
+      - 'ext/ts/v*-*'
+
+permissions:
+  contents: read
+  id-token: write # npm provenance
+
+jobs:
+  npm-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      # Fail closed on a tag that disagrees with the package version:
+      # publishing the wrong version would burn it on npm.
+      - name: Check tag matches package version
+        id: manifest
+        working-directory: ext/ts
+        run: |
+          NAME="$(node -p 'require("./package.json").name')"
+          VERSION="$(node -p 'require("./package.json").version')"
+          if [ "${GITHUB_REF_NAME#ext/ts/}" != "v${VERSION}" ]; then
+            echo "error: tag ${GITHUB_REF_NAME}: expected ext/ts/v${VERSION} per ext/ts/package.json" >&2
+            echo "       bump the package version and retag, then push the tag again" >&2
+            exit 1
+          fi
+          echo "name=${NAME}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      # Re-running a finished release would otherwise fail on npm's "cannot
+      # publish over" error; treat it as a no-op instead.
+      - name: Check version is not yet published
+        id: published
+        env:
+          NAME: ${{ steps.manifest.outputs.name }}
+          VERSION: ${{ steps.manifest.outputs.version }}
+        run: |
+          NAME_ENC="${NAME//@/%2F}"
+          if curl -sf -A "phi-publish-ci" \
+            "https://registry.npmjs.org/${NAME_ENC}/${VERSION}" > /dev/null; then
+            echo "exists=true" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" | tee -a "$GITHUB_OUTPUT"
+          fi
+
+      # prepublishOnly runs the full gate: typecheck, tests, build. The
+      # published tarball carries dist/ only (files in package.json).
+      - name: Publish to npm
+        if: steps.published.outputs.exists == 'false'
+        working-directory: ext/ts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN}" ]; then
+            echo "error: secrets.NPM_TOKEN is not set" >&2
+            echo "       create an npm automation token for the pulseaiclub account" >&2
+            echo "       (granular or classic automation, read-write) and add it" >&2
+            echo "       as the repository secret NPM_TOKEN" >&2
+            exit 1
+          fi
+          npm install --no-audit --no-fund
+          npm publish --provenance --access public

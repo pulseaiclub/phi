@@ -30,6 +30,60 @@ type Tool struct {
 	DetailFromArgs func(input json.RawMessage) string
 }
 
+// ToolOption mutates a Tool during construction.
+type ToolOption func(tool *Tool)
+
+// NewTool builds a Tool from options.
+func NewTool(option ...ToolOption) Tool {
+	tool := &Tool{}
+	for _, opt := range option {
+		opt(tool)
+	}
+	return *tool
+}
+
+// WithDetail registers a typed detail extractor. Args that fail to decode
+// surface as the detail line itself.
+func WithDetail[T any](call func(input T) string) ToolOption {
+	return func(tool *Tool) {
+		tool.DetailFromArgs = func(input json.RawMessage) string {
+			var in T
+			err := json.Unmarshal(input, &in)
+			if err != nil {
+				return err.Error()
+			}
+			return call(in)
+		}
+	}
+}
+
+// WithDefinition sets the LLM-facing schema.
+func WithDefinition(definition llm.ToolDefinition) ToolOption {
+	return func(tool *Tool) {
+		tool.Definition = definition
+	}
+}
+
+// WithHandler adapts a typed handler, decoding raw JSON args into T.
+func WithHandler[T any](call func(ctx context.Context, input T) (Result, error)) ToolOption {
+	return func(tool *Tool) {
+		tool.Run = func(ctx context.Context, input json.RawMessage) (Result, error) {
+			var in T
+			if err := json.Unmarshal(input, &in); err != nil {
+				return Result{}, err
+			}
+			return call(ctx, in)
+		}
+	}
+}
+
+// WithRun installs a raw handler for tools that decode args themselves.
+func WithRun(run Handler) ToolOption {
+	return func(tool *Tool) {
+		tool.Run = run
+	}
+}
+
 // Definitions extracts LLM schemas from tools.
 func Definitions(tools []Tool) []llm.ToolDefinition {
 	out := make([]llm.ToolDefinition, len(tools))

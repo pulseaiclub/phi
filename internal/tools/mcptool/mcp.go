@@ -2,7 +2,6 @@ package mcptool
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -24,9 +23,24 @@ func Tools(pool *mcp.Pool) []tooldef.Tool {
 	}
 }
 
+type serverInput struct {
+	Server string `json:"server"`
+}
+
+type serverToolInput struct {
+	Server string `json:"server"`
+	Tool   string `json:"tool"`
+}
+
+type callInput struct {
+	Server string         `json:"server"`
+	Tool   string         `json:"tool"`
+	Args   map[string]any `json:"args"`
+}
+
 func listTool(pool *mcp.Pool) tooldef.Tool {
-	return tooldef.Tool{
-		Definition: llm.ToolDefinition{
+	return tooldef.NewTool(
+		tooldef.WithDefinition(llm.ToolDefinition{
 			Name: "mcp_list",
 			Description: `List MCP tool names on one server (compact text, not full JSON schemas).
 
@@ -41,21 +55,9 @@ Returns space-separated tool names. Schemas never enter the model context — us
 				},
 				Required: []string{"server"},
 			},
-		},
-		DetailFromArgs: func(input json.RawMessage) string {
-			var in struct {
-				Server string `json:"server"`
-			}
-			_ = json.Unmarshal(input, &in)
-			return in.Server
-		},
-		Run: func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
-			var in struct {
-				Server string `json:"server"`
-			}
-			if err := json.Unmarshal(input, &in); err != nil {
-				return tooldef.Result{}, fmt.Errorf("mcp_list: %w", err)
-			}
+		}),
+		tooldef.WithDetail(func(in serverInput) string { return in.Server }),
+		tooldef.WithHandler(func(ctx context.Context, in serverInput) (tooldef.Result, error) {
 			if in.Server == "" {
 				return tooldef.Result{}, errors.New("mcp_list: server is required")
 			}
@@ -69,13 +71,13 @@ Returns space-separated tool names. Schemas never enter the model context — us
 				Detail:  fmt.Sprintf("%s: %d tools", in.Server, len(tools)),
 				Output:  body,
 			}, nil
-		},
-	}
+		}),
+	)
 }
 
 func inspectTool(pool *mcp.Pool) tooldef.Tool {
-	return tooldef.Tool{
-		Definition: llm.ToolDefinition{
+	return tooldef.NewTool(
+		tooldef.WithDefinition(llm.ToolDefinition{
 			Name: "mcp_inspect",
 			Description: `Show a compact parameter summary for one MCP tool (slim text).
 
@@ -94,36 +96,22 @@ Use after mcp_list to learn required args before mcp_call.`,
 				},
 				Required: []string{"server", "tool"},
 			},
-		},
-		DetailFromArgs: func(input json.RawMessage) string {
-			var in struct {
-				Server string `json:"server"`
-				Tool   string `json:"tool"`
-			}
-			_ = json.Unmarshal(input, &in)
-			return in.Server + "/" + in.Tool
-		},
-		Run: func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
-			var in struct {
-				Server string `json:"server"`
-				Tool   string `json:"tool"`
-			}
-			if err := json.Unmarshal(input, &in); err != nil {
-				return tooldef.Result{}, fmt.Errorf("mcp_inspect: %w", err)
-			}
+		}),
+		tooldef.WithDetail(func(in serverToolInput) string { return in.Server + "/" + in.Tool }),
+		tooldef.WithHandler(func(ctx context.Context, in serverToolInput) (tooldef.Result, error) {
 			def, err := pool.Inspect(ctx, in.Server, in.Tool)
 			if err != nil {
 				return tooldef.Result{}, err
 			}
 			body := mcp.SlimTool(*def)
 			return tooldef.Result{Content: body, Detail: in.Server + "/" + in.Tool, Output: body}, nil
-		},
-	}
+		}),
+	)
 }
 
 func callTool(pool *mcp.Pool) tooldef.Tool {
-	return tooldef.Tool{
-		Definition: llm.ToolDefinition{
+	return tooldef.NewTool(
+		tooldef.WithDefinition(llm.ToolDefinition{
 			Name: "mcp_call",
 			Description: `Call one MCP tool on a configured server.
 
@@ -146,30 +134,15 @@ Prefer mcp_list then mcp_inspect before calling unfamiliar tools.`,
 				},
 				Required: []string{"server", "tool"},
 			},
-		},
-		DetailFromArgs: func(input json.RawMessage) string {
-			var in struct {
-				Server string `json:"server"`
-				Tool   string `json:"tool"`
-			}
-			_ = json.Unmarshal(input, &in)
-			return in.Server + "/" + in.Tool
-		},
-		Run: func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
-			var in struct {
-				Server string         `json:"server"`
-				Tool   string         `json:"tool"`
-				Args   map[string]any `json:"args"`
-			}
-			if err := json.Unmarshal(input, &in); err != nil {
-				return tooldef.Result{}, fmt.Errorf("mcp_call: %w", err)
-			}
+		}),
+		tooldef.WithDetail(func(in serverToolInput) string { return in.Server + "/" + in.Tool }),
+		tooldef.WithHandler(func(ctx context.Context, in callInput) (tooldef.Result, error) {
 			out, err := pool.Call(ctx, in.Server, in.Tool, in.Args)
 			if err != nil {
 				return tooldef.Result{}, err
 			}
 			body := mcp.FormatCallResult(out, 32_000)
 			return tooldef.Result{Content: body, Detail: in.Server + "/" + in.Tool, Output: body}, nil
-		},
-	}
+		}),
+	)
 }

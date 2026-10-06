@@ -62,8 +62,8 @@ func AgentTools(deps AgentDeps) []tooldef.Tool {
 }
 
 func agentSpawnTool(deps AgentDeps) tooldef.Tool {
-	return tooldef.Tool{
-		Definition: llm.ToolDefinition{
+	return tooldef.NewTool(
+		tooldef.WithDefinition(llm.ToolDefinition{
 			Name: "agent_spawn",
 			Description: fmt.Sprintf(agentLaunchGuidance+`
 
@@ -97,13 +97,9 @@ Concurrency cap: at most %d sub-agents run concurrently; spawning more fails (jo
 				},
 				Required: []string{"prompt"},
 			},
-		},
-		DetailFromArgs: spawnDetail,
-		Run: func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
-			in, err := parseSpawnInput(input)
-			if err != nil {
-				return tooldef.Result{}, err
-			}
+		}),
+		tooldef.WithDetail(spawnDetail),
+		tooldef.WithHandler(func(ctx context.Context, in spawnInput) (tooldef.Result, error) {
 			role, err := job.ParseRole(in.Role)
 			if err != nil {
 				return tooldef.Result{}, err
@@ -136,8 +132,8 @@ Concurrency cap: at most %d sub-agents run concurrently; spawning more fails (jo
 				"result_path": info.ResultPath,
 			})
 			return tooldef.Result{Content: body, Detail: roleDetail(string(info.Role), info.ID), Output: body}, nil
-		},
-	}
+		}),
+	)
 }
 
 type spawnInput struct {
@@ -148,26 +144,21 @@ type spawnInput struct {
 	TimeoutSec  int    `json:"timeout_sec"`
 }
 
-func parseSpawnInput(input json.RawMessage) (spawnInput, error) {
-	var in spawnInput
-	if err := json.Unmarshal(input, &in); err != nil {
-		return spawnInput{}, err
-	}
-	return in, nil
-}
-
-func spawnDetail(input json.RawMessage) string {
-	var in struct {
-		Description string `json:"description"`
-		Prompt      string `json:"prompt"`
-		Role        string `json:"role"`
-	}
-	_ = json.Unmarshal(input, &in)
+func spawnDetail(in spawnInput) string {
 	label := strings.TrimSpace(in.Description)
 	if label == "" {
 		label = truncateRunes(in.Prompt, 80)
 	}
 	return roleDetail(in.Role, label)
+}
+
+// jobIDInput is the shared {job_id} payload of agent_wait and agent_cancel.
+type jobIDInput struct {
+	JobID string `json:"job_id"`
+}
+
+func jobIDDetail(in jobIDInput) string {
+	return in.JobID
 }
 
 // roleDetail is the one-line TUI suffix: "explore · find auth".
@@ -181,8 +172,8 @@ func roleDetail(role, rest string) string {
 }
 
 func agentWaitTool(deps AgentDeps) tooldef.Tool {
-	return tooldef.Tool{
-		Definition: llm.ToolDefinition{
+	return tooldef.NewTool(
+		tooldef.WithDefinition(llm.ToolDefinition{
 			Name: "agent_wait",
 			Description: `Block until a sub-agent job reaches a terminal status and return its result.md summary.
 
@@ -202,15 +193,9 @@ Use agent_cancel to stop a running job.`,
 				},
 				Required: []string{"job_id"},
 			},
-		},
-		DetailFromArgs: func(input json.RawMessage) string {
-			var in struct {
-				JobID string `json:"job_id"`
-			}
-			_ = json.Unmarshal(input, &in)
-			return in.JobID
-		},
-		Run: func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
+		}),
+		tooldef.WithDetail(jobIDDetail),
+		tooldef.WithRun(func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
 			res, err := deps.Manager.HandleWait(ctx, input)
 			if err != nil {
 				return tooldef.Result{}, err
@@ -229,13 +214,13 @@ Use agent_cancel to stop a running job.`,
 				Detail:  roleDetail(string(res.Info.Role), string(res.Info.Status)),
 				Output:  body,
 			}, nil
-		},
-	}
+		}),
+	)
 }
 
 func agentCancelTool(deps AgentDeps) tooldef.Tool {
-	return tooldef.Tool{
-		Definition: llm.ToolDefinition{
+	return tooldef.NewTool(
+		tooldef.WithDefinition(llm.ToolDefinition{
 			Name:        "agent_cancel",
 			Description: `Cancel a running or starting sub-agent job and wait until it stops.`,
 			Params: &llm.FunctionParameters{
@@ -247,22 +232,16 @@ func agentCancelTool(deps AgentDeps) tooldef.Tool {
 				},
 				Required: []string{"job_id"},
 			},
-		},
-		DetailFromArgs: func(input json.RawMessage) string {
-			var in struct {
-				JobID string `json:"job_id"`
-			}
-			_ = json.Unmarshal(input, &in)
-			return in.JobID
-		},
-		Run: func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
+		}),
+		tooldef.WithDetail(jobIDDetail),
+		tooldef.WithRun(func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
 			if err := deps.Manager.HandleCancel(ctx, input); err != nil {
 				return tooldef.Result{}, err
 			}
 			body := mustJSON(map[string]any{"ok": true})
 			return tooldef.Result{Content: body, Detail: "cancelled", Output: body}, nil
-		},
-	}
+		}),
+	)
 }
 
 func mustJSON(v any) string {

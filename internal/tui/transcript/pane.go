@@ -27,6 +27,10 @@ type textSel struct {
 	active   bool
 	ax, ay   int
 	ex, ey   int
+	// pointerY is the last drag row in view space. The terminal cannot report a
+	// mouse past the last row, so Draw auto-scrolls while the pointer rests on
+	// an edge row (see autoScroll) and re-anchors ey to it.
+	pointerY int
 }
 
 func (s *textSel) clear() {
@@ -210,7 +214,7 @@ func (t *TranscriptPane) LoadReplay(snap session.Snapshot) {
 	t.list.InvalidateHeights()
 }
 
-// ResetSubagents clears nested job UI state (e.g. after /clear).
+// ResetSubagents clears nested job UI state (e.g. after /new).
 func (t *TranscriptPane) ResetSubagents() {
 	if t == nil {
 		return
@@ -246,12 +250,22 @@ func (t *TranscriptPane) Draw(ctx components.DrawContext, width, height int) com
 	if t.welcome.Sphere != nil {
 		t.welcome.Sphere.Time = time.Since(t.startedAt).Seconds()
 	}
+	if t.sel.dragging {
+		// Scrolling lives in the frame, not in mouse events: the terminal
+		// reports nothing while the pointer rests on an edge row.
+		t.autoScroll()
+	}
 	constraints := ctx.WithConstraints(components.Size{}, components.Size{Width: width, Height: height})
 	var listSurf components.Surface
 	if len(t.list.Entries) == 0 {
 		listSurf = t.welcome.Draw(constraints)
 	} else {
 		listSurf = t.list.Draw(constraints)
+	}
+	if t.sel.dragging {
+		// The content scrolled: keep the moving end on the row under the
+		// pointer so the selection covers what the drag swept over.
+		t.sel.ey = t.toContentY(t.sel.pointerY)
 	}
 	if t.sel.active {
 		hl := t.theme.SelectionBg
@@ -328,11 +342,12 @@ func (t *TranscriptPane) HandleMouse(ctx *components.EventContext, e xui.MouseEv
 		}
 		cy := t.toContentY(e.Y)
 		t.sel = textSel{
-			pending: true,
-			ax:      e.X,
-			ay:      cy,
-			ex:      e.X,
-			ey:      cy,
+			pending:  true,
+			ax:       e.X,
+			ay:       cy,
+			ex:       e.X,
+			ey:       cy,
+			pointerY: e.Y,
 		}
 		if focusComposer != nil {
 			focusComposer()
@@ -345,12 +360,19 @@ func (t *TranscriptPane) HandleMouse(ctx *components.EventContext, e xui.MouseEv
 			return
 		}
 		if e.Action == xui.MouseMotion && e.Button != xui.MouseLeft {
+			// Motion with the button up means the release never arrived (the
+			// pointer left the window, an overlay swallowed it). End the drag
+			// here, or autoScroll would keep pulling the viewport to an edge.
+			if t.sel.dragging {
+				t.finishDrag(ctx)
+			}
 			return
 		}
 		t.sel.dragging = true
 		t.sel.active = true
 		t.sel.ex = e.X
 		t.sel.ey = t.toContentY(e.Y)
+		t.sel.pointerY = e.Y
 		ctx.ConsumeAndRedraw()
 		return
 
@@ -364,16 +386,17 @@ func (t *TranscriptPane) HandleMouse(ctx *components.EventContext, e xui.MouseEv
 		t.sel.ex = e.X
 		t.sel.ey = t.toContentY(e.Y)
 		if t.sel.dragging && (t.sel.ax != t.sel.ex || t.sel.ay != t.sel.ey) {
-			ax, ay, ex, ey := t.viewSel()
-			text := components.ExtractSurfaceText(t.lastListSurf, ax, ay, ex, ey)
-			t.sel.active = true
-			if text != "" {
-				t.copyResult(text, "Selection copied to clipboard", "Failed to copy selection")
-			}
-			t.sel.pending = false
-			t.sel.dragging = false
-			ctx.ConsumeAndRedraw()
+			t.finishDrag(ctx)
 			return
+		}
+		// A press that never moved is a click. Disclosure toggles live here
+		// because this is the only place that knows the press did not become a
+		// drag-selection — a block that decided for itself would expand instead
+		// of letting a selection start on its title row.
+		if w, lx, ly := t.lastListSurf.HitTestAt(e.X, e.Y); w != nil {
+			if toggler, ok := w.(components.ClickToggler); ok {
+				toggler.ClickAt(lx, ly)
+			}
 		}
 		idx := t.list.IndexAtPoint(e.X, e.Y)
 		if idx >= 0 {
@@ -411,6 +434,31 @@ func (t *TranscriptPane) toContentY(viewY int) int {
 	return viewY - t.list.ContentOrigin()
 }
 
+// finishDrag copies the current selection and ends the drag.
+func (t *TranscriptPane) finishDrag(ctx *components.EventContext) {
+	t.sel.active = true
+	t.sel.pending = false
+	t.sel.dragging = false
+	t.copySelection()
+	ctx.ConsumeAndRedraw()
+}
+
+// autoScroll walks the viewport along while a drag rests on or past the list's
+// first / last row: the pointer cannot leave the screen, so without this a
+// selection could never cover more than the visible page. Overshoot is
+// harmless — the next list Draw clamps ScrollFromBottom to the content extent.
+func (t *TranscriptPane) autoScroll() {
+	if t.listH < 1 {
+		return
+	}
+	switch {
+	case t.sel.pointerY <= 0:
+		t.list.ScrollFromBottom++
+	case t.sel.pointerY >= t.listH-1:
+		t.list.ScrollFromBottom--
+	}
+}
+
 func (t *TranscriptPane) copyResult(text, okMsg, failMsg string) {
 	if text == "" {
 		return
@@ -430,6 +478,14 @@ func (t *TranscriptPane) CopyBlock(text string) {
 
 func (t *TranscriptPane) copyBlock(text string) {
 	t.copyResult(text, "Copied to clipboard", "Failed to copy")
+}
+
+// copySelection copies the drag selection. Its rows are content-space and may
+// reach past the viewport, so the list re-renders them rather than reading
+// t.lastListSurf, which only holds the current scroll position.
+func (t *TranscriptPane) copySelection() {
+	text := t.list.SelectionText(t.sel.ax, t.sel.ay, t.sel.ex, t.sel.ey)
+	t.copyResult(text, "Selection copied to clipboard", "Failed to copy selection")
 }
 
 func applyThemeToWidgets(entries []components.Widget, th components.Theme) {

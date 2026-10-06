@@ -304,6 +304,44 @@ cp target/release/examples/hello phi.yaml ~/.phi/extensions/hello/
 
 Reload: **Ctrl+K → extensions → reload**.
 
+## Authoring (TypeScript SDK)
+
+Zero-dependency package under [`ext/ts`](../ext/ts) (`@pulseaiclub/phi-ext`)
+— same wire protocol, same features, `Extension` / `Tool` / `Command` /
+`Context` / `Schema` mirror the Rust SDK. See its
+[README](../ext/ts/README.md) for the full API.
+
+```ts
+import { Extension } from "@pulseaiclub/phi-ext";
+
+const m = new Extension("hello", "0.1.0");
+m.registerCommand("hello", {
+  description: "Say hi",
+  handler: async (_args, ctx) => {
+    await ctx.notify("info", "Hello!");
+  },
+});
+await m.run();
+```
+
+The manifest points at Node; sources run directly on Node ≥ 23.6 (type
+stripping), or ship a `dist/` build for older runtimes:
+
+```yaml
+name: hello
+exec: node
+args: [dist/hello.js]
+```
+
+```bash
+cd ext/ts
+npm install && npm run build
+mkdir -p ~/.phi/extensions/hello
+cp -r dist phi.yaml ~/.phi/extensions/hello/
+```
+
+Reload: **Ctrl+K → extensions → reload**.
+
 ## Install from GitHub
 
 ```bash
@@ -366,6 +404,7 @@ them under management.
 | `ext/go/pxb` | Binary wire protocol |
 | `ext/go/phi` | Go author SDK (`ExtensionAPI.Run`) |
 | `ext/rust` (crate `phi-ext`) | Rust author SDK (`pxb` + `phi` modules; deps: serde/serde_json + tokio `rt`) |
+| `ext/ts` (npm `@pulseaiclub/phi-ext`) | TypeScript author SDK (`pxb` + `phi` modules; zero runtime deps, Node ≥ 20) |
 | `internal/extension` | Discover, spawn, Runner shims |
 
 ## Migration from yaegi

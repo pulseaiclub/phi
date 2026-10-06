@@ -168,8 +168,8 @@ func (a *App) handleEvent(ev xui.Event) (quit bool) {
 	case xui.MouseEvent:
 		hit, lx, ly := a.lastSurf.HitTestAt(e.X, e.Y)
 		if hit != nil {
-			// Only text-entry widgets take keyboard focus. Transcript blocks
-			// (tool/thinking/bash headers) consume clicks to expand, and used
+			// Only text-entry widgets take keyboard focus. Transcript rows
+			// handle clicks themselves (the pane expands or selects), and used
 			// to steal focus — leaving the composer cursor visible but dead.
 			if e.Action == xui.MousePress {
 				if acceptsKeyboardFocus(hit) {

@@ -372,10 +372,15 @@ func TestExecutorToolErrorKeepsOutputEmptyForUI(t *testing.T) {
 
 	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
 	var last session.ToolRun
-	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{{
-		ID:       "c1",
-		Function: llm.Function{Name: "edit", Arguments: `{}`},
-	}}, func(td session.ToolData) bool {
+	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{
+		{
+			ID: "c1",
+			Function: llm.Function{
+				Name:      "edit",
+				Arguments: `{"payload":"*** SM:EDIT a.ts\n*** SM:FIND\nx\n*** SM:PUT\ny\n"}`,
+			},
+		},
+	}, func(td session.ToolData) bool {
 		if td.Run.Status == session.ToolError {
 			last = td.Run
 		}

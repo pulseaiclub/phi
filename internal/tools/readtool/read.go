@@ -2,7 +2,6 @@ package readtool
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -21,18 +20,17 @@ const (
 	readMaxHashBytes = 8 << 20 // 8 MiB
 )
 
-var readDescription = fmt.Sprintf(`Read a file and return its contents with an @file path#TAG header.
+var readDescription = fmt.Sprintf(`Read a file and return its contents with an @file path header.
 
-Pass the file path; use offset (1-based) and limit to paginate. The TAG is 4 hex
-chars after # (required by edit.hash, e.g. A1B2 from @file src/app.py#A1B2).
-Body lines are N#abc|content — copy N#abc into edit from/to, not the |content.
+Pass the file path; use offset (1-based) and limit to paginate. Body lines are
+N|content — quote the content in edit payloads, not the N| prefix.
 Output body is capped at %d lines and %d KiB per call.`,
 	readDefaultMaxLines, readDefaultMaxBytes/1024)
 
 // ReadTool returns the read tool definition + handler.
 func ReadTool() tooldef.Tool {
-	return tooldef.Tool{
-		Definition: llm.ToolDefinition{
+	return tooldef.NewTool(
+		tooldef.WithDefinition(llm.ToolDefinition{
 			Name:        "read",
 			Description: readDescription,
 			Params: &llm.FunctionParameters{
@@ -54,14 +52,14 @@ func ReadTool() tooldef.Tool {
 				Required: []string{"path"},
 			},
 			Readable: true,
-		},
-		DetailFromArgs: func(input json.RawMessage) string {
-			var in readInput
-			_ = json.Unmarshal(input, &in)
-			return strings.TrimSpace(in.Path)
-		},
-		Run: runRead,
-	}
+		}),
+		tooldef.WithDetail(readDetail),
+		tooldef.WithHandler(runRead),
+	)
+}
+
+func readDetail(in readInput) string {
+	return strings.TrimSpace(in.Path)
 }
 
 type readInput struct {
@@ -70,11 +68,7 @@ type readInput struct {
 	Offset int    `json:"offset,omitempty"`
 }
 
-func runRead(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
-	var in readInput
-	if err := json.Unmarshal(input, &in); err != nil {
-		return tooldef.Result{}, fmt.Errorf("failed to parse read arguments: %w", err)
-	}
+func runRead(ctx context.Context, in readInput) (tooldef.Result, error) {
 	path := strings.TrimSpace(in.Path)
 	if path == "" {
 		return tooldef.Result{}, errors.New("path is required")
@@ -106,9 +100,8 @@ func runRead(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 		return tooldef.Result{}, err
 	}
 	text := util.NormalizeLF(string(raw))
-	tag := util.ComputeFileHash(text)
 	display := tooldef.RelToCwd(ctx, path)
-	header := util.FormatFileHeader(display, tag)
+	header := "@file " + display
 
 	startLine := in.Offset
 	startLine = max(startLine, 1)
@@ -143,8 +136,7 @@ func runRead(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 			fmt.Fprintf(&b, "\n... truncated at %d bytes. Next offset: %d\n", readDefaultMaxBytes, lineNo)
 			break
 		}
-		hash := util.ComputeLineHash(line)
-		fmt.Fprintf(&b, "%d#%s|%s\n", lineNo, hash, line)
+		fmt.Fprintf(&b, "%d|%s\n", lineNo, line)
 		bytesN += len(line) + 1
 		collected++
 		if collected >= limit {

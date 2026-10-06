@@ -10,25 +10,41 @@ import (
 	"github.com/pulseaiclub/phi/internal/session"
 )
 
-func TestExtractPathFromArgs(t *testing.T) {
+func TestExtractPathsFromArgs(t *testing.T) {
 	tests := []struct {
-		name     string
-		args     string
-		wantPath string
+		name string
+		tool string
+		args string
+		want []string
 	}{
-		{"path field", `{"path":"a/b.go"}`, "a/b.go"},
-		{"file_path field", `{"file_path":"x/y.txt","content":""}`, "x/y.txt"},
-		{"path takes precedence over file_path", `{"path":"p","file_path":"fp"}`, "p"},
-		{"use file_path when path is empty", `{"path":"","file_path":"fp"}`, "fp"},
-		{"empty string", `""`, ""},
-		{"invalid JSON", `{path}`, ""},
-		{"empty object", `{}`, ""},
-		{"path is not a string", `{"path":123}`, ""},
+		{name: "path field", tool: "read", args: `{"path":"a/b.go"}`, want: []string{"a/b.go"}},
+		{
+			name: "file_path field",
+			tool: "write",
+			args: `{"file_path":"x/y.txt","content":""}`,
+			want: []string{"x/y.txt"},
+		},
+		{
+			name: "path takes precedence over file_path",
+			tool: "read",
+			args: `{"path":"p","file_path":"fp"}`,
+			want: []string{"p"},
+		},
+		{name: "empty string", tool: "read", args: `""`, want: nil},
+		{name: "invalid JSON", tool: "read", args: `{path}`, want: nil},
+		{name: "empty object", tool: "read", args: `{}`, want: nil},
+		{
+			name: "edit payload targets",
+			tool: "edit",
+			args: `{"payload":"*** SM:EDIT a.ts\n*** SM:FIND\nx\n*** SM:PUT\ny\n*** SM:EDIT b.ts\n*** SM:FIND\nx\n*** SM:PUT\ny\n"}`,
+			want: []string{"a.ts", "b.ts"},
+		},
+		{name: "edit without payload", tool: "edit", args: `{}`, want: nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := extractPathFromArgs(tt.args)
-			assert.Equal(t, tt.wantPath, got)
+			got := extractPathsFromArgs(tt.tool, tt.args)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -63,7 +79,12 @@ func TestFileOperation_extractMessageContent(t *testing.T) {
 				{Function: llm.Function{Name: "read", Arguments: `{"path":"a.go"}`}},
 				{Function: llm.Function{Name: "read", Arguments: `{"path":"b.go"}`}},
 				{Function: llm.Function{Name: "write", Arguments: `{"file_path":"c.go","content":"x"}`}},
-				{Function: llm.Function{Name: "edit", Arguments: `{"path":"d.go","edits":[]}`}},
+				{
+					Function: llm.Function{
+						Name:      "edit",
+						Arguments: `{"payload":"*** SM:EDIT d.go\n*** SM:FIND\nx\n*** SM:PUT\ny\n"}`,
+					},
+				},
 			},
 		}
 		f.extractMessageContent(msg)
@@ -171,7 +192,12 @@ func TestExtractFileOperations(t *testing.T) {
 				Role: llm.RoleAssistant,
 				ToolCalls: []llm.ToolCall{
 					{Function: llm.Function{Name: "read", Arguments: `{"path":"msg_read.go"}`}},
-					{Function: llm.Function{Name: "edit", Arguments: `{"path":"msg_edit.go"}`}},
+					{
+						Function: llm.Function{
+							Name:      "edit",
+							Arguments: `{"payload":"*** SM:EDIT msg_edit.go\n*** SM:FIND\nx\n*** SM:PUT\ny\n"}`,
+						},
+					},
 				},
 			},
 		}

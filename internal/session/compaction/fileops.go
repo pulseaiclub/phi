@@ -7,6 +7,7 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/pulseaiclub/phi/internal/tools/edittool/sloppy"
 )
 
 // FileOperation tracks the file paths read, written, or edited by assistant
@@ -17,18 +18,38 @@ type FileOperation struct {
 	edited  []string
 }
 
-func extractPathFromArgs(args string) string {
+// extractPathsFromArgs lists the file paths a tool call touches. An edit call
+// names its targets inside the sloppy payload.
+func extractPathsFromArgs(name, args string) []string {
+	if name == "edit" {
+		var in struct {
+			Payload string `json:"payload"`
+			Patch   string `json:"patch"`
+			Input   string `json:"input"`
+		}
+		if err := json.Unmarshal([]byte(args), &in); err != nil {
+			return nil
+		}
+		payload := in.Payload
+		if payload == "" {
+			payload = in.Patch
+		}
+		if payload == "" {
+			payload = in.Input
+		}
+		return sloppy.TargetPaths(payload)
+	}
 	var m map[string]any
 	if err := json.Unmarshal([]byte(args), &m); err != nil || m == nil {
-		return ""
+		return nil
 	}
 	if p, ok := m["path"].(string); ok && p != "" {
-		return p
+		return []string{p}
 	}
 	if p, ok := m["file_path"].(string); ok && p != "" {
-		return p
+		return []string{p}
 	}
-	return ""
+	return nil
 }
 
 func (f *FileOperation) extractMessageContent(message llm.Message) {
@@ -40,17 +61,15 @@ func (f *FileOperation) extractMessageContent(message llm.Message) {
 	}
 	for _, toolCall := range message.ToolCalls {
 		name := toolCall.Function.Name
-		path := extractPathFromArgs(toolCall.Function.Arguments)
-		if path == "" {
-			continue
-		}
-		switch name {
-		case "read":
-			f.read = append(f.read, path)
-		case "write":
-			f.written = append(f.written, path)
-		case "edit":
-			f.edited = append(f.edited, path)
+		for _, path := range extractPathsFromArgs(name, toolCall.Function.Arguments) {
+			switch name {
+			case "read":
+				f.read = append(f.read, path)
+			case "write":
+				f.written = append(f.written, path)
+			case "edit":
+				f.edited = append(f.edited, path)
+			}
 		}
 	}
 }

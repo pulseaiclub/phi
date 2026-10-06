@@ -61,7 +61,7 @@ internal/tui/
 | `diffpane` | Full-screen git diff review; notes stay in memory |
 | `codepane` | Full-screen source viewer: syntax highlight, caret, line selection |
 | `submit` | User submit path: agent prompt, slash commands, `!bash`, cancel |
-| `commands` | Slash/palette registry; session load/clear; extension command bridge |
+| `commands` | Slash/palette registry; session load/new; extension command bridge |
 | `pathutil` | Cwd shortening and git branch labels for composer chrome |
 
 Dumb rendering widgets stay in `internal/components/` (chat, input, palette, mention, transcript blocks, …).
@@ -228,7 +228,7 @@ Composer input is blocked while an overlay is active (`OverlayBlocksComposer`).
 /something or Ctrl+K
   → ComposerPane local UI OR SubmitMsg with slash text
   → Submitter.dispatchSlash → CommandRegistry
-  → SessionCommands (/clear) or builtins
+  → SessionCommands (/new) or builtins
   → ExtCommands (async) → ExtCommandResultMsg → palette push / toast
 ```
 

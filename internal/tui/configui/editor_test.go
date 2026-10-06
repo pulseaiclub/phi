@@ -14,6 +14,7 @@ import (
 	"github.com/pulseaiclub/xui"
 
 	"github.com/pulseaiclub/phi/internal/components"
+	"github.com/pulseaiclub/phi/internal/components/chrome"
 	"github.com/pulseaiclub/phi/internal/project"
 )
 
@@ -496,6 +497,35 @@ func TestDrawIsStableOnTinyScreens(t *testing.T) {
 	for _, size := range []components.Size{{Width: 1, Height: 1}, {Width: 20, Height: 4}, {Width: 40, Height: 6}} {
 		surf := e.Draw(components.DrawContext{Max: size, Method: xui.WidthUnicode})
 		assert.Equal(t, size, surf.Size)
+	}
+}
+
+// Every state's footer has to name its destructive key: `d` deletes a model or
+// a rule, and the top-level line used to leave it out.
+func TestFooterHintsDeletion(t *testing.T) {
+	e := newTestEditor(t, sampleDoc())
+	ctx := components.DrawContext{Max: components.Size{Width: 100, Height: 32}, Method: xui.WidthUnicode}
+	assert.Contains(t, components.SurfaceText(e.Draw(ctx)), "d delete")
+
+	focus(t, e, keyPermBashAllow)
+	press(e, xui.KeyEnter, 0) // expand the rule list
+	require.Equal(t, keyPermBashAllow, e.expanded)
+	assert.Contains(t, components.SurfaceText(e.Draw(ctx)), "d delete")
+}
+
+// A footer too narrow for every hint drops whole ones from the end; it never
+// paints half a word.
+func TestFooterDropsHintsItCannotFit(t *testing.T) {
+	e := newTestEditor(t, sampleDoc())
+	segs := e.hintSegments()
+	assert.Equal(t, segs, strings.Split(e.hintLine(200, xui.WidthUnicode), chrome.Sep))
+
+	for _, w := range []int{30, 50, 80, 100} {
+		budget := max(w-6, 1)
+		line := e.hintLine(budget, xui.WidthUnicode)
+		require.NotEmpty(t, line)
+		assert.LessOrEqual(t, xui.StringWidth(line, xui.WidthUnicode), budget)
+		assert.Equal(t, segs[:strings.Count(line, chrome.Sep)+1], strings.Split(line, chrome.Sep))
 	}
 }
 

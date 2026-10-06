@@ -4,7 +4,6 @@ package findtool
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -32,8 +31,8 @@ Prefer this over bash find/ls for filename search.`,
 
 // FindTool returns the find tool definition + handler.
 func FindTool() tooldef.Tool {
-	return tooldef.Tool{
-		Definition: llm.ToolDefinition{
+	return tooldef.NewTool(
+		tooldef.WithDefinition(llm.ToolDefinition{
 			Name:        "find",
 			Description: findDescription,
 			Params: &llm.FunctionParameters{
@@ -58,22 +57,22 @@ func FindTool() tooldef.Tool {
 				Required: []string{"pattern"},
 			},
 			Readable: true,
-		},
-		DetailFromArgs: func(input json.RawMessage) string {
-			var in findInput
-			_ = json.Unmarshal(input, &in)
-			pat := strings.TrimSpace(in.Pattern)
-			p := strings.TrimSpace(in.Path)
-			if p == "" {
-				p = "."
-			}
-			if pat != "" {
-				return fmt.Sprintf("find %q in %s", pat, p)
-			}
-			return "find"
-		},
-		Run: runFind,
+		}),
+		tooldef.WithDetail(findDetail),
+		tooldef.WithHandler(runFind),
+	)
+}
+
+func findDetail(in findInput) string {
+	pat := strings.TrimSpace(in.Pattern)
+	p := strings.TrimSpace(in.Path)
+	if p == "" {
+		p = "."
 	}
+	if pat != "" {
+		return fmt.Sprintf("find %q in %s", pat, p)
+	}
+	return "find"
 }
 
 type findInput struct {
@@ -82,11 +81,7 @@ type findInput struct {
 	Limit   int    `json:"limit,omitempty"`
 }
 
-func runFind(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
-	var in findInput
-	if err := json.Unmarshal(input, &in); err != nil {
-		return tooldef.Result{}, fmt.Errorf("failed to parse find arguments: %w", err)
-	}
+func runFind(ctx context.Context, in findInput) (tooldef.Result, error) {
 	pattern := strings.TrimSpace(in.Pattern)
 	if pattern == "" {
 		return tooldef.Result{}, errors.New("pattern is required: provide a glob such as *.go or **/*.md")

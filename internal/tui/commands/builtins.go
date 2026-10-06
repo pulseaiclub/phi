@@ -52,6 +52,7 @@ func NewBuiltinRegistry(
 		Ctrl:       ctrl,
 		Bus:        bus,
 		Composer:   composer,
+		Footer:     ft,
 		ModelNames: append([]string(nil), modelNames...),
 	}
 	skills := &SkillsCommands{

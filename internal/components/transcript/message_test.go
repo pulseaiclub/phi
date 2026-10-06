@@ -1,6 +1,8 @@
 package transcript
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/pulseaiclub/xui"
@@ -27,6 +29,74 @@ func (r *rowStub) Draw(ctx components.DrawContext) components.Surface {
 	s := components.NewSurface(w, h, r)
 	s.Print(0, 0, r.text, xui.Style{}, ctx.Method)
 	return s
+}
+
+// lineStub renders one numbered line per row, so a selection can be checked
+// row by row once the viewport boundary is crossed.
+type lineStub struct{ h int }
+
+func (*lineStub) Handle(_ *components.EventContext, _ xui.Event) {}
+
+func (l *lineStub) Draw(ctx components.DrawContext) components.Surface {
+	s := components.NewSurface(max(ctx.Max.Width, 1), max(l.h, 1), l)
+	for y := range max(l.h, 1) {
+		s.Print(0, y, stubLine(y), xui.Style{}, ctx.Method)
+	}
+	return s
+}
+
+// stubLine is what lineStub prints on row y, and so the text a copy of that row
+// must hold.
+func stubLine(y int) string { return fmt.Sprintf("a%02d", y) }
+
+// requireStubRows asserts text is the stub's body line by line: one line per
+// row 0..rows-1, in order, nothing missing and nothing extra.
+func requireStubRows(t *testing.T, text string, rows int) {
+	t.Helper()
+	lines := strings.Split(text, "\n")
+	require.Len(t, lines, rows, "got %d rows, want %d:\n%s", len(lines), rows, text)
+	for i, line := range lines {
+		require.Equal(t, stubLine(i), strings.TrimSpace(line), "row %d", i)
+	}
+}
+
+// A drag selection is tracked in content space, so it can span rows the
+// viewport virtualized away. Copying must render those rows, not read back the
+// windowed surface (which would silently drop everything off screen).
+func TestMessageListSelectionTextCoversOffscreenRows(t *testing.T) {
+	const total, viewH = 30, 6
+	list := &MessageList{Entries: []components.Widget{&lineStub{h: total}}}
+	_ = list.Draw(components.DrawContext{Max: components.Size{Width: 40, Height: viewH}})
+	require.Negative(t, list.ContentOrigin(), "setup: content must overflow the viewport")
+
+	// Columns 1.. are the entry body (pad 1); rows 0..total-1 are the whole message.
+	requireStubRows(t, list.SelectionText(1, 0, 39, total-1), total)
+}
+
+// A drag grabs interior lines whole, so the re-rendered surface must keep the
+// list's full width: clipping it to the selection's x range would truncate
+// every row between the two endpoints.
+func TestMessageListSelectionTextKeepsWholeInteriorRows(t *testing.T) {
+	list := &MessageList{Entries: []components.Widget{&lineStub{h: 4}}}
+	_ = list.Draw(components.DrawContext{Max: components.Size{Width: 20, Height: 10}})
+
+	// Columns 1..1, rows 0..2: the endpoints stop at the drag columns, and the
+	// row between them is grabbed whole.
+	lines := strings.Split(list.SelectionText(1, 0, 1, 2), "\n")
+	require.Len(t, lines, 3)
+	require.Equal(t, stubLine(0), lines[0])
+	require.Equal(t, stubLine(1), strings.TrimSpace(lines[1]), "interior row must be copied whole")
+	require.Equal(t, "a", strings.TrimSpace(lines[2]), "last row stops at the drag end column")
+}
+
+func TestMessageListSelectionTextClampsToContent(t *testing.T) {
+	// Short content: the list bottom-anchors it under a blank margin, and a
+	// selection dragged into that margin must not gain blank edge lines.
+	list := &MessageList{Entries: []components.Widget{&lineStub{h: 3}}}
+	_ = list.Draw(components.DrawContext{Max: components.Size{Width: 40, Height: 10}})
+	require.Positive(t, list.ContentOrigin(), "setup: content must sit below the viewport top")
+
+	requireStubRows(t, list.SelectionText(1, -4, 39, 8), 3)
 }
 
 func TestMessageListBottomPin(t *testing.T) {

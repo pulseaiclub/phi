@@ -18,9 +18,7 @@ func TestLs_RelativePath(t *testing.T) {
 
 	t.Chdir(root)
 
-	raw, err := json.Marshal(lsInput{Path: "pkg"})
-	require.NoError(t, err)
-	out, err := runLs(t.Context(), raw)
+	out, err := runLs(t.Context(), lsInput{Path: "pkg"})
 	require.NoError(t, err)
 	require.Contains(t, out.Content, "main.go")
 	require.True(
@@ -36,9 +34,7 @@ func TestLs_Errors(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "a.txt")
 	require.NoError(t, os.WriteFile(file, []byte("x"), 0o644))
 
-	raw, err := json.Marshal(lsInput{Path: file})
-	require.NoError(t, err)
-	_, err = runLs(t.Context(), raw)
+	_, err := runLs(t.Context(), lsInput{Path: file})
 	require.Error(t, err, "expected error for file path")
 	require.Contains(t, strings.ToLower(err.Error()), "not a directory")
 }
@@ -48,14 +44,11 @@ func TestLs_MaxDepthStopsExpansion(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "lvl1", "lvl2", "lvl3"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "lvl1", "lvl2", "lvl3", "deep.txt"), []byte("x"), 0o644))
 
-	raw, err := json.Marshal(lsInput{
+	out, err := runLs(t.Context(), lsInput{
 		Path:     root,
 		MaxDepth: 3,
 		Limit:    100,
 	})
-	require.NoError(t, err)
-
-	out, err := runLs(t.Context(), raw)
 	require.NoError(t, err)
 	result := out.Content
 
@@ -70,13 +63,10 @@ func TestLs_LimitTriggersTruncationMessage(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.txt"), []byte("a"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "b.txt"), []byte("b"), 0o644))
 
-	raw, err := json.Marshal(lsInput{
+	out, err := runLs(t.Context(), lsInput{
 		Path:  root,
 		Limit: 1,
 	})
-	require.NoError(t, err)
-
-	out, err := runLs(t.Context(), raw)
 	require.NoError(t, err)
 	result := out.Content
 
@@ -94,10 +84,32 @@ func TestLs_PlainStringPath(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "x.txt"), []byte("x"), 0o644))
 
-	// Pass path as a plain JSON string, not an object.
+	// Pass path as a plain JSON string, not an object. Only the wire path
+	// (LsTool().Run) exercises lsInput.UnmarshalJSON.
 	raw, err := json.Marshal(root)
 	require.NoError(t, err)
-	out, err := runLs(t.Context(), raw)
+	out, err := LsTool().Run(t.Context(), raw)
 	require.NoError(t, err)
 	require.Contains(t, out.Content, "x.txt")
+}
+
+func TestLs_ExactLimitIsNotTruncated(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "only.txt"), []byte("x"), 0o644))
+
+	out, err := runLs(t.Context(), lsInput{Path: root, Limit: 1})
+	require.NoError(t, err)
+	require.Contains(t, out.Content, "only.txt")
+	require.NotContains(t, out.Content, "Tree truncated",
+		"a directory holding exactly limit files is not truncated")
+}
+
+func TestLs_OverLimitStillTruncates(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "a.txt"), []byte("a"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "b.txt"), []byte("b"), 0o644))
+
+	out, err := runLs(t.Context(), lsInput{Path: root, Limit: 1})
+	require.NoError(t, err)
+	require.Contains(t, out.Content, "Tree truncated after 1 files")
 }

@@ -52,7 +52,7 @@ func TestNewBuiltinRegistry_RegistersDomains(t *testing.T) {
 	require.NotNil(t, b.Ext)
 
 	assert.Equal(t, "/sessions", b.Registry.LookupInsert("sessions"))
-	assert.Equal(t, "/clear", b.Registry.LookupInsert("clear"))
+	assert.Equal(t, "/new", b.Registry.LookupInsert("new"))
 	assert.Equal(t, "/diff ", b.Registry.LookupInsert("diff"))
 
 	ctx := NewContext(bus, nil)
@@ -74,6 +74,6 @@ func TestNewBuiltinRegistry_RegistersDomains(t *testing.T) {
 	assert.Equal(t, []string{"staged"}, opened)
 
 	b.Bind(nil, nil, nil, nil, nil, func() bool { return true })
-	b.Sessions.Clear()
-	assert.Contains(t, drainToast(t, bus), "Cannot clear")
+	b.Sessions.NewSession()
+	assert.Contains(t, drainToast(t, bus), "Cannot start a new session")
 }

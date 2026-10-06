@@ -2,7 +2,6 @@ package writetool
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -18,8 +17,8 @@ var writeDescription = `Write content to a file. Creates the file if it does not
 
 // WriteTool returns the write tool definition + handler.
 func WriteTool() tooldef.Tool {
-	return tooldef.Tool{
-		Definition: llm.ToolDefinition{
+	return tooldef.NewTool(
+		tooldef.WithDefinition(llm.ToolDefinition{
 			Name:        "write",
 			Description: writeDescription,
 			Params: &llm.FunctionParameters{
@@ -36,14 +35,14 @@ func WriteTool() tooldef.Tool {
 				},
 				Required: []string{"path", "content"},
 			},
-		},
-		DetailFromArgs: func(input json.RawMessage) string {
-			var in writeInput
-			_ = json.Unmarshal(input, &in)
-			return strings.TrimSpace(in.Path)
-		},
-		Run: runWrite,
-	}
+		}),
+		tooldef.WithDetail(writeDetail),
+		tooldef.WithHandler(runWrite),
+	)
+}
+
+func writeDetail(in writeInput) string {
+	return strings.TrimSpace(in.Path)
 }
 
 type writeInput struct {
@@ -51,11 +50,7 @@ type writeInput struct {
 	Content string `json:"content"`
 }
 
-func runWrite(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
-	var in writeInput
-	if err := json.Unmarshal(input, &in); err != nil {
-		return tooldef.Result{}, fmt.Errorf("failed to parse write arguments: %w", err)
-	}
+func runWrite(ctx context.Context, in writeInput) (tooldef.Result, error) {
 	path := strings.TrimSpace(in.Path)
 	if path == "" {
 		return tooldef.Result{}, errors.New("path is required")

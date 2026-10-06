@@ -81,6 +81,24 @@ func TestClearTokenDisplayDropsLabel(t *testing.T) {
 	assert.False(t, comp.set)
 }
 
+// A model switch changes the window the fill label is measured against; the
+// footer starts with the startup model's window, so it must be replaceable.
+func TestSetContextWindowRefreshesLabel(t *testing.T) {
+	f := NewFooterChrome(components.DefaultTheme(), 192000)
+	comp := &stubComposer{}
+	f.BindComposer(comp)
+	f.UpdateTokenDisplay(session.TokenUsage{PromptTokens: 50000, TotalTokens: 50000})
+	require.True(t, comp.set)
+	assert.Contains(t, comp.label.Text, "%/192k")
+
+	f.SetContextWindow(1_000_000)
+	assert.Contains(t, comp.label.Text, "%/1.0M")
+
+	f.SetContextWindow(0)
+	assert.NotContains(t, comp.label.Text, "%", "unknown window drops the fill fragment")
+	assert.Contains(t, comp.label.Text, "↑50k", "usage stats survive a window reset")
+}
+
 func TestStatusSlotSwapsActivityAndTokens(t *testing.T) {
 	f := NewFooterChrome(components.DefaultTheme(), 128000)
 	comp := &stubComposer{}

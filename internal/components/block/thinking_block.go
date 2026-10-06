@@ -31,25 +31,29 @@ func (t *ThinkingBlock) theme() components.Theme {
 	return t.Theme
 }
 
-// Handle toggles expansion on Enter/space or a left-click on the title row.
+// Handle toggles expansion on Enter/space. Mouse clicks arrive through ClickAt.
 func (t *ThinkingBlock) Handle(ctx *components.EventContext, ev xui.Event) {
-	switch e := ev.(type) {
-	case xui.KeyEvent:
-		if e.Code == xui.KeyEnter || (e.Code == xui.KeyRune && e.Rune == ' ') {
-			t.Expanded = !t.Expanded
-			if t.OnToggle != nil {
-				t.OnToggle(t.Expanded)
-			}
-			ctx.ConsumeAndRedraw()
-		}
-	case xui.MouseEvent:
-		if e.Action == xui.MousePress && e.Button == xui.MouseLeft && e.Y >= 0 && e.Y < t.titleH {
-			t.Expanded = !t.Expanded
-			if t.OnToggle != nil {
-				t.OnToggle(t.Expanded)
-			}
-			ctx.ConsumeAndRedraw()
-		}
+	if !toggleKey(ev) {
+		return
+	}
+	t.toggle()
+	ctx.ConsumeAndRedraw()
+}
+
+// ClickAt toggles when the click lands on the title row.
+func (t *ThinkingBlock) ClickAt(_, y int) bool {
+	if !titleHit(t.titleH, y) {
+		return false
+	}
+	t.toggle()
+	return true
+}
+
+// toggle flips expansion and reports the new state to OnToggle.
+func (t *ThinkingBlock) toggle() {
+	t.Expanded = !t.Expanded
+	if t.OnToggle != nil {
+		t.OnToggle(t.Expanded)
 	}
 }
 

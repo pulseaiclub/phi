@@ -62,12 +62,12 @@ func TestSessionCommands_AcceptBlocksWhenBusy(t *testing.T) {
 	assert.Contains(t, drainToast(t, bus), "Cannot resume")
 }
 
-func TestSessionCommands_ClearBlocksWhenBusy(t *testing.T) {
+func TestSessionCommands_NewSessionBlocksWhenBusy(t *testing.T) {
 	bus := controller.NewBus(nil)
 	s := &SessionCommands{
 		Bus:          bus,
 		StreamActive: func() bool { return true },
 	}
-	s.Clear()
-	assert.Contains(t, drainToast(t, bus), "Cannot clear")
+	s.NewSession()
+	assert.Contains(t, drainToast(t, bus), "Cannot start a new session")
 }

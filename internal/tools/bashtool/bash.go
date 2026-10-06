@@ -2,7 +2,6 @@ package bashtool
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -25,8 +24,8 @@ tools. Large output is truncated with the retained output written to a temp file
 
 // BashTool returns the bash tool definition + handler.
 func BashTool() tooldef.Tool {
-	return tooldef.Tool{
-		Definition: llm.ToolDefinition{
+	return tooldef.NewTool(
+		tooldef.WithDefinition(llm.ToolDefinition{
 			Name:        "bash",
 			Description: bashDescription,
 			Params: &llm.FunctionParameters{
@@ -43,14 +42,14 @@ func BashTool() tooldef.Tool {
 				},
 				Required: []string{"command"},
 			},
-		},
-		DetailFromArgs: func(input json.RawMessage) string {
-			var in bashInput
-			_ = json.Unmarshal(input, &in)
-			return strings.TrimSpace(in.Command)
-		},
-		Run: runBash,
-	}
+		}),
+		tooldef.WithDetail(bashDetail),
+		tooldef.WithHandler(runBash),
+	)
+}
+
+func bashDetail(in bashInput) string {
+	return strings.TrimSpace(in.Command)
 }
 
 type bashInput struct {
@@ -58,11 +57,7 @@ type bashInput struct {
 	Timeout int    `json:"timeout"`
 }
 
-func runBash(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
-	var in bashInput
-	if err := json.Unmarshal(input, &in); err != nil {
-		return tooldef.Result{}, fmt.Errorf("failed to parse bash arguments: %w", err)
-	}
+func runBash(ctx context.Context, in bashInput) (tooldef.Result, error) {
 	cmd := strings.TrimSpace(in.Command)
 	if cmd == "" {
 		return tooldef.Result{}, errors.New("empty command")

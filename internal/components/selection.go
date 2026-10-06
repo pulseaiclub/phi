@@ -11,6 +11,16 @@ type CopyTexter interface {
 	CopyText() string
 }
 
+// ClickToggler is implemented by collapsible transcript blocks. The transcript
+// pane owns the click/drag decision — it is the only layer that knows whether a
+// press became a drag-selection — so a block reports the hit and flips instead
+// of toggling on every mouse press it happens to see.
+type ClickToggler interface {
+	// ClickAt toggles when a click lands on the disclosure title at
+	// surface-local (x,y), reporting whether it toggled.
+	ClickAt(x, y int) bool
+}
+
 // NormalizeSelectionOrder returns reading-order start/end for a drag selection.
 func NormalizeSelectionOrder(ax, ay, ex, ey int) (x0, y0, x1, y1 int) {
 	if ay > ey || (ay == ey && ax > ex) {
@@ -194,9 +204,13 @@ func EntryCopyText(w Widget) string {
 }
 
 // isSelectionChrome reports glyphs used as transcript chrome, not message body.
+// The disclosure arrows are chrome.Expand / chrome.Collapse spelled out: chrome
+// imports this package, so the glyphs cannot be shared as constants.
 func isSelectionChrome(ch string) bool {
 	switch ch {
-	case "▎", "▌":
+	case "▎", "▌": // user-block left rule
+		return true
+	case "▶", "▼": // expand / collapse disclosure
 		return true
 	default:
 		return false

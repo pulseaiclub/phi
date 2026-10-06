@@ -30,7 +30,7 @@ type Picker struct {
 	// NoPrefix suppresses the default "@" when Prefix is empty (shortcut help list).
 	NoPrefix bool
 	// OnAccept applies the highlighted item on Enter. It may execute something
-	// (accepting `/clear` submits it).
+	// (accepting `/new` submits it).
 	OnAccept func(Item)
 	// OnComplete applies the highlighted item on Tab, which must never execute
 	// anything. nil falls back to OnAccept, which is correct when accept only

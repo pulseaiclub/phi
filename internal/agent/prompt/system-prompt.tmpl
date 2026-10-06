@@ -16,7 +16,7 @@ Sub-agents: `explore` (default, no edits; bash ok for recon), `review` (no edits
 Parallelize independent read-only calls: batch read/grep/ls/find in one message (they run concurrently); serialize only when one call's result feeds the next.
 
 # Change
-- Before `edit`, `read` (or `grep`) the target file; set `edit.hash` to the 4 hex chars after `#` in `@file path#TAG`.
+- Before `edit`, `read` (or `grep`) the target file. `edit` takes one `payload`: `*** SM:EDIT path`, `*** SM:FIND` with the current text, then `*** SM:PUT` (replacement; empty deletes) or `*** SM:AFTER` (new lines); `…` elides unchanged runs. Quote content from read output without the `N|` prefix.
 - If an approach fails: read the error, revise the hypothesis, retry with a different tactic—not the identical failing call.
 
 # Tool contracts

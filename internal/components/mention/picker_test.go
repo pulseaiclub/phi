@@ -41,7 +41,7 @@ func TestPickerHandleNav(t *testing.T) {
 func TestPickerTabCompletesWithoutAccepting(t *testing.T) {
 	var accepted, completed string
 	p := &Picker{
-		Items:      []Item{{Path: "clear"}, {Path: "compact"}},
+		Items:      []Item{{Path: "new"}, {Path: "compact"}},
 		OnAccept:   func(item Item) { accepted = item.Path },
 		OnComplete: func(item Item) { completed = item.Path },
 	}

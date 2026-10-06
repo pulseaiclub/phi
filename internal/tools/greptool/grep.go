@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -41,9 +42,9 @@ const (
 var errOversizedEvent = errors.New("ripgrep event exceeds size cap")
 
 var grepDescription = fmt.Sprintf(
-	`Search file contents by regex or literal text and return matching lines as LINE#HASH anchors.
+	`Search file contents by regex or literal text and return matching lines with file and line numbers.
 
-Each matched file is preceded by an @file path#TAG header (4 hex chars for edit.hash).
+Each matched file is preceded by an @file path header.
 Use the glob parameter to limit files (e.g. *_test.go); that is not the find tool.
 Results are capped at %d matches and %dKB; increase limit or refine the pattern if truncated.
 Use read for full untruncated line text. Prefer this over bash grep/rg.`,
@@ -53,8 +54,8 @@ Use read for full untruncated line text. Prefer this over bash grep/rg.`,
 
 // GrepTool returns the grep (search) tool definition + handler.
 func GrepTool() tooldef.Tool {
-	return tooldef.Tool{
-		Definition: llm.ToolDefinition{
+	return tooldef.NewTool(
+		tooldef.WithDefinition(llm.ToolDefinition{
 			Name:        "grep",
 			Description: grepDescription,
 			Params: &llm.FunctionParameters{
@@ -99,22 +100,22 @@ func GrepTool() tooldef.Tool {
 				Required: []string{"pattern"},
 			},
 			Readable: true,
-		},
-		DetailFromArgs: func(input json.RawMessage) string {
-			var in grepInput
-			_ = json.Unmarshal(input, &in)
-			pat := strings.TrimSpace(in.Pattern)
-			p := strings.TrimSpace(in.Path)
-			if p == "" {
-				p = "."
-			}
-			if pat != "" {
-				return fmt.Sprintf("grep %q in %s", pat, p)
-			}
-			return "grep"
-		},
-		Run: runGrep,
+		}),
+		tooldef.WithDetail(grepDetail),
+		tooldef.WithHandler(runGrep),
+	)
+}
+
+func grepDetail(in grepInput) string {
+	pat := strings.TrimSpace(in.Pattern)
+	p := strings.TrimSpace(in.Path)
+	if p == "" {
+		p = "."
 	}
+	if pat != "" {
+		return fmt.Sprintf("grep %q in %s", pat, p)
+	}
+	return "grep"
 }
 
 type grepInput struct {
@@ -143,11 +144,7 @@ type grepMatch struct {
 	lineNumber int
 }
 
-func runGrep(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
-	var in grepInput
-	if err := json.Unmarshal(input, &in); err != nil {
-		return tooldef.Result{}, fmt.Errorf("failed to parse grep arguments: %w", err)
-	}
+func runGrep(ctx context.Context, in grepInput) (tooldef.Result, error) {
 	if strings.TrimSpace(in.Pattern) == "" {
 		return tooldef.Result{}, errors.New("pattern is required: provide a regex or literal search string")
 	}
@@ -301,7 +298,6 @@ func runGrep(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 
 	// Read matched files to produce output.
 	fileCache := make(map[string][]string)
-	fileTag := make(map[string]string)
 	getFileLines := func(abs string) []string {
 		if cached, ok := fileCache[abs]; ok {
 			return cached
@@ -314,7 +310,6 @@ func runGrep(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 		text := util.NormalizeLF(string(b))
 		lines := strings.Split(text, "\n")
 		fileCache[abs] = lines
-		fileTag[abs] = util.ComputeFileHash(text)
 		return lines
 	}
 
@@ -329,9 +324,7 @@ func runGrep(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 		if m.filePath != lastAbs {
 			lastAbs = m.filePath
 			_ = getFileLines(m.filePath)
-			if tag, ok := fileTag[m.filePath]; ok && tag != "" {
-				out = append(out, util.FormatFileHeader(formatPath(m.filePath), tag))
-			}
+			out = append(out, "@file "+formatPath(m.filePath))
 		}
 		block, lt := formatGrepBlock(formatPath, getFileLines, m.filePath, m.lineNumber, contextN)
 		if lt {
@@ -458,8 +451,7 @@ func formatGrepBlock(
 			lineText = fileLines[cur-1]
 		}
 		lineText = util.ReplaceAll(lineText, "\r", "")
-		h := util.ComputeLineHash(lineText)
-		ref := fmt.Sprintf("%d#%s", cur, h)
+		ref := strconv.Itoa(cur)
 		truncLine, wasTrunc := truncateLine(lineText, grepMaxLineRunes)
 		if wasTrunc {
 			anyLineTruncated = true
