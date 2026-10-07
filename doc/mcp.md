@@ -91,6 +91,57 @@ phi mcp doctor
 
 **Restart phi** after config changes (Pool loads at startup).
 
+### Keyless web search with Parallel
+
+[Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp) provides
+`web_search` and `web_fetch` over HTTP without a Parallel API key. Anonymous access
+is intended for exploration and light use, with lower rate limits. Model inference
+is separate; the direct CLI calls below do not need a model or model credentials.
+
+[Install phi](../CONTRIBUTING.md#development-setup) first (Go 1.26.3 or newer;
+`make install` puts `phi` in `$GOBIN`, or `$(go env GOPATH)/bin` by default).
+Ensure that directory is on your `PATH`.
+
+Merge this `parallel` entry into the `servers` object in `~/.phi/mcp.json` or your
+project's `.phi/mcp.json`. For a new file, use the complete JSON below. Keep other
+entries; if `parallel` already exists, choose another name and use it in the calls.
+Project entries override user entries with the same name.
+
+```json
+{
+  "servers": {
+    "parallel": {
+      "transport": "http",
+      "url": "https://search.parallel.ai/mcp",
+      "headers": {
+        "User-Agent": "phi (https://github.com/pulseaiclub/phi)"
+      }
+    }
+  }
+}
+```
+
+Restart any running phi instance after changing configuration. From the project
+where you saved the config, verify connectivity and make two direct tool calls:
+
+```sh
+phi mcp list
+phi mcp doctor
+phi mcp call parallel web_search '{"objective":"Find the official Go documentation for modules.","search_queries":["Go modules reference documentation"]}'
+phi mcp call parallel web_fetch '{"urls":["https://go.dev/ref/mod"],"objective":"Explain the purpose of go.mod."}'
+```
+
+`list` should include `parallel`; `doctor` should report it as `ok` with two tools.
+`doctor` also checks your other configured servers. Search returns source URLs and
+excerpts; fetch returns excerpts from the module reference, including what
+`go.mod` declares. Replace the fetch URL with a relevant search result when
+researching another topic. These commands send their queries and URLs to Parallel.
+If anonymous access is rate limited, wait for the server's retry window before
+trying again.
+
+This example uses the human CLI's direct-call path. It does not demonstrate a
+model tool loop or change the TUI's permission settings.
+
 ### Migrating from Claude Desktop config
 
 Claude / Cursor style:

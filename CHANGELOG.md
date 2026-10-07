@@ -10,6 +10,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Document opt-in, keyless Parallel Search MCP configuration and direct CLI search/fetch examples.
+
 ### Changed
 
 ### Deprecated
