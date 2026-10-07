@@ -68,6 +68,11 @@ type ComposerPane struct {
 	requestFocus          func(components.Widget)
 	ctrlClose             func()
 	imageEnabled          func() bool
+
+	// The clipboard is read on demand (Ctrl+V, Cmd+V) and never cached; tests
+	// swap these two for stubs.
+	clipboardImage func() (imgutil.Result, error)
+	clipboardText  func() (string, error)
 }
 
 // NewComposerPane builds composer widgets; call Wire before use.
@@ -95,6 +100,8 @@ func NewComposerPane(theme components.Theme, modelLabel, cwd string) *ComposerPa
 		},
 	}
 	c.bash = newBashSuggest(c, theme)
+	c.clipboardImage = clipboard.ReadImageResult
+	c.clipboardText = clipboard.ReadText
 	return c
 }
 
@@ -635,8 +642,8 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			return
 		}
 		if ev.Press && ev.Mods.Has(xui.ModCtrl) && ev.Code == xui.KeyRune && (ev.Rune == 'v' || ev.Rune == 'V') {
-			// Ctrl+V: attempt to attach an image from the system clipboard.
-			if c.tryAttachClipboardImage(ctx) {
+			// Ctrl+V: attach a clipboard image, else paste clipboard text.
+			if c.tryPasteClipboard(ctx) {
 				return
 			}
 		}
@@ -893,14 +900,45 @@ func (c *ComposerPane) showToast(msg string, kind toast.ToastKind, d time.Durati
 	c.bus.Publish(controller.ToastMsg{Message: msg, Kind: kind, Duration: d})
 }
 
+// tryPasteClipboard handles Ctrl+V. A copied image wins over its text flavor on
+// image-capable models; everywhere else text is pasted. Terminals that paste on
+// Ctrl+V swallow the key, so this fallback cannot double-insert what the
+// terminal already sent.
+func (c *ComposerPane) tryPasteClipboard(ctx *components.EventContext) bool {
+	if !c.imagesSupported() {
+		// Warn about images only when there is no text to paste instead: on a
+		// text clipboard, "model does not support images" would be a lie.
+		if c.insertClipboardText(ctx) {
+			return true
+		}
+		return c.tryAttachClipboardImage(ctx)
+	}
+	if c.tryAttachClipboardImage(ctx) {
+		return true
+	}
+	return c.insertClipboardText(ctx)
+}
+
+// insertClipboardText inserts clipboard text through the paste path, so it is
+// sanitized exactly like a terminal paste. Reports whether it inserted.
+func (c *ComposerPane) insertClipboardText(ctx *components.EventContext) bool {
+	text, err := c.clipboardText()
+	if err != nil || text == "" {
+		return false
+	}
+	c.Chat.Handle(ctx, xui.PasteEvent{Text: text})
+	ctx.ConsumeAndRedraw()
+	return true
+}
+
 func (c *ComposerPane) tryAttachClipboardImage(ctx *components.EventContext) bool {
 	if !c.imagesSupported() {
 		c.warnImagesDisabled()
 		ctx.ConsumeAndRedraw()
 		return true
 	}
-	res, err := clipboard.ReadImageResult()
-	if errors.Is(err, clipboard.ErrUnavailable) {
+	res, err := c.clipboardImage()
+	if errors.Is(err, clipboard.ErrUnavailable) || errors.Is(err, clipboard.ErrEmpty) {
 		return false
 	}
 	if err != nil {

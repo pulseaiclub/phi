@@ -16,7 +16,9 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/mention"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/pulseaiclub/phi/internal/util/clipboard"
 	"github.com/pulseaiclub/phi/internal/util/gitx"
+	imgutil "github.com/pulseaiclub/phi/internal/util/image"
 )
 
 // png1x1Base64 is a 1x1 transparent PNG (same fixture as util/image tests).
@@ -49,6 +51,69 @@ func TestTryAttachClipboardImageAllowedWithoutModelInfo(t *testing.T) {
 
 	ctx := &components.EventContext{}
 	require.False(t, c.tryAttachClipboardImage(ctx))
+}
+
+// stubClipboard replaces the two clipboard reads behind Ctrl+V.
+func stubClipboard(c *ComposerPane, image func() (imgutil.Result, error), text func() (string, error)) {
+	c.clipboardImage = image
+	c.clipboardText = text
+}
+
+func noClipboardImage() (imgutil.Result, error) { return imgutil.Result{}, clipboard.ErrUnavailable }
+
+func TestPasteKeyPastesClipboardText(t *testing.T) {
+	c := NewComposerPane(components.DefaultTheme(), "m", "/tmp")
+	c.imageEnabled = func() bool { return true }
+	stubClipboard(c, noClipboardImage, func() (string, error) { return "hello\nworld", nil })
+
+	ctx := &components.EventContext{}
+	require.True(t, c.tryPasteClipboard(ctx))
+	assert.True(t, ctx.Consume)
+	assert.Equal(t, "hello\nworld", c.Chat.Value)
+	assert.Equal(t, len("hello\nworld"), c.Chat.Cursor)
+	assert.Empty(t, c.Chat.PendingImages)
+}
+
+// A text paste must not need image support: only an image clipboard earns the
+// "model does not support images" warning.
+func TestPasteKeyPastesTextWithoutImageSupport(t *testing.T) {
+	c := NewComposerPane(components.DefaultTheme(), "m", "/tmp")
+	bus := controller.NewBus(nil)
+	c.bus = bus
+	c.imageEnabled = func() bool { return false }
+	stubClipboard(c, func() (imgutil.Result, error) {
+		return imgutil.Result{Data: []byte("png"), MimeType: "image/png"}, nil
+	}, func() (string, error) { return "just text", nil })
+
+	ctx := &components.EventContext{}
+	require.True(t, c.tryPasteClipboard(ctx))
+	assert.Equal(t, "just text", c.Chat.Value)
+	assert.Empty(t, c.Chat.PendingImages)
+	assert.Empty(t, drainToast(t, bus), "text paste must not warn about images")
+}
+
+func TestPasteKeyPrefersClipboardImage(t *testing.T) {
+	c := NewComposerPane(components.DefaultTheme(), "m", "/tmp")
+	c.imageEnabled = func() bool { return true }
+	stubClipboard(c, func() (imgutil.Result, error) {
+		return imgutil.Result{Data: []byte("png"), MimeType: "image/png"}, nil
+	}, func() (string, error) { return "ignored", nil })
+
+	ctx := &components.EventContext{}
+	require.True(t, c.tryPasteClipboard(ctx))
+	require.Len(t, c.Chat.PendingImages, 1)
+	assert.Empty(t, c.Chat.Value)
+}
+
+func TestPasteKeyFallsThroughWhenClipboardHoldsNothing(t *testing.T) {
+	c := NewComposerPane(components.DefaultTheme(), "m", "/tmp")
+	c.imageEnabled = func() bool { return true }
+	stubClipboard(c, noClipboardImage, func() (string, error) { return "", clipboard.ErrEmpty })
+
+	ctx := &components.EventContext{}
+	require.False(t, c.tryPasteClipboard(ctx))
+	assert.False(t, ctx.Consume)
+	assert.Empty(t, c.Chat.Value)
 }
 
 func TestAcceptMentionImageBlockedWithoutModelSupport(t *testing.T) {

@@ -23,10 +23,12 @@ var (
 	closeClipboard   = user32.NewProc("CloseClipboard")
 	emptyClipboard   = user32.NewProc("EmptyClipboard")
 	setClipboardData = user32.NewProc("SetClipboardData")
+	getClipboardData = user32.NewProc("GetClipboardData")
 	globalAlloc      = kernel32.NewProc("GlobalAlloc")
 	globalFree       = kernel32.NewProc("GlobalFree")
 	globalLock       = kernel32.NewProc("GlobalLock")
 	globalUnlock     = kernel32.NewProc("GlobalUnlock")
+	globalSize       = kernel32.NewProc("GlobalSize")
 	rtlMoveMemory    = kernel32.NewProc("RtlMoveMemory")
 )
 

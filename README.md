@@ -241,6 +241,7 @@ The editor supports:
 | `Ctrl+A`       | Jump to the start of the line   |
 | `Ctrl+E`       | Jump to the end of the line     |
 | `Ctrl+U`       | Clear the composer input, images, and skills |
+| `Ctrl+V`       | Paste a clipboard image, or text when there is no image |
 | `Ctrl+Shift+C` | Copy the selected transcript text |
 
 Themes: `Dark` (default), `Darcula`, `Pink`, and `Terminal`, switchable from

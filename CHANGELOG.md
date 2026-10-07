@@ -18,6 +18,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- `Ctrl+V` pastes clipboard text when the clipboard holds no image. The key was
+  wired to the image path only, so pasting text did nothing in terminals that
+  hand `Ctrl+V` to the app instead of pasting themselves (Windows consoles).
 - Report Anthropic stream errors instead of treating partial responses as completed messages.
 - Preserve Anthropic thinking across tool calls and resumed sessions ([#267](https://github.com/pulseaiclub/phi/pull/267)).
 
