@@ -19,6 +19,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/palette"
 	"github.com/pulseaiclub/phi/internal/components/sessionlist"
 	"github.com/pulseaiclub/phi/internal/components/toast"
+	"github.com/pulseaiclub/phi/internal/debuglog"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
@@ -642,7 +643,9 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			return
 		}
 		if ev.Press && ev.Mods.Has(xui.ModCtrl) && ev.Code == xui.KeyRune && (ev.Rune == 'v' || ev.Rune == 'V') {
-			// Ctrl+V: attach a clipboard image, else paste clipboard text.
+			// Ctrl+V: attach a clipboard image, else paste clipboard text. The
+			// log proves the key reached the composer at all.
+			debuglog.Logf("composer: ctrl+v")
 			if c.tryPasteClipboard(ctx) {
 				return
 			}
@@ -924,6 +927,7 @@ func (c *ComposerPane) tryPasteClipboard(ctx *components.EventContext) bool {
 func (c *ComposerPane) insertClipboardText(ctx *components.EventContext) bool {
 	text, err := c.clipboardText()
 	if err != nil || text == "" {
+		debuglog.Logf("composer: ctrl+v: no clipboard text (err=%v, bytes=%d)", err, len(text))
 		return false
 	}
 	c.Chat.Handle(ctx, xui.PasteEvent{Text: text})
@@ -939,6 +943,7 @@ func (c *ComposerPane) tryAttachClipboardImage(ctx *components.EventContext) boo
 	}
 	res, err := c.clipboardImage()
 	if errors.Is(err, clipboard.ErrUnavailable) || errors.Is(err, clipboard.ErrEmpty) {
+		debuglog.Logf("composer: ctrl+v: no clipboard image (err=%v)", err)
 		return false
 	}
 	if err != nil {
