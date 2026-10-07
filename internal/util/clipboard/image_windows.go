@@ -5,59 +5,15 @@ package clipboard
 import (
 	"os"
 	"strings"
-	"sync"
-	"syscall"
-	"unsafe"
 
 	"github.com/pulseaiclub/phi/internal/util"
 )
 
-// Clipboard formats that can carry a bitmap. Apps that copy a raw PNG register
-// a format name instead (browsers use "PNG"), so those names are probed too.
-const (
-	cfBitmap = 2
-	cfDib    = 5
-	cfDibV5  = 17
-)
-
-var (
-	isClipboardFormatAvailable = user32.NewProc("IsClipboardFormatAvailable")
-	registerClipboardFormat    = user32.NewProc("RegisterClipboardFormatW")
-
-	pngClipboardFormat     = sync.OnceValue(func() uintptr { return registeredFormat("PNG") })
-	pngMimeClipboardFormat = sync.OnceValue(func() uintptr { return registeredFormat("image/png") })
-)
-
-// registeredFormat resolves a clipboard format name to its id (0 if unknown).
-func registeredFormat(name string) uintptr {
-	ptr, err := syscall.UTF16PtrFromString(name)
-	if err != nil {
-		return 0
-	}
-	id, _, _ := registerClipboardFormat.Call(uintptr(unsafe.Pointer(ptr)))
-	return id
-}
-
-// clipboardHasImageFormat guards the PowerShell read below. Spawning PowerShell
-// costs hundreds of milliseconds and briefly holds the clipboard, while this
-// probe answers in microseconds: Ctrl+V on a text clipboard must not wait for
-// it before falling back to pasting text.
-func clipboardHasImageFormat() bool {
-	for _, id := range []uintptr{cfBitmap, cfDib, cfDibV5, pngClipboardFormat(), pngMimeClipboardFormat()} {
-		if id == 0 {
-			continue
-		}
-		if ok, _, _ := isClipboardFormatAvailable.Call(id); ok != 0 {
-			return true
-		}
-	}
-	return false
-}
-
+// readClipboardImagePlatform asks PowerShell for the image. A cheap format
+// probe cannot stand in for this: Clipboard.GetImage reads registered image
+// formats (JFIF, GIF, TIFF, EXIF, PNG) as well as the raw bitmaps, so an
+// allowlist would silently miss whatever the copy source happened to use.
 func readClipboardImagePlatform() (Image, error) {
-	if !clipboardHasImageFormat() {
-		return Image{}, ErrUnavailable
-	}
 	tmpFile, err := os.CreateTemp("", "phi-clip-*.png")
 	if err != nil {
 		return Image{}, ErrUnavailable
