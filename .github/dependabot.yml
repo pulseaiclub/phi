@@ -1,12 +1,14 @@
 # Dependency updates for Go modules and GitHub Actions.
 # Docs: https://docs.github.com/code-security/dependabot/dependabot-version-updates
+# Note: `interval` is how often Dependabot checks for updates; it cannot make a single
+# run faster. GH-hosted checks have no user-facing speed knob.
 version: 2
 updates:
   # Go module dependencies (go.mod / go.sum)
   - package-ecosystem: gomod
     directory: /
     schedule:
-      interval: weekly
+      interval: daily
     open-pull-requests-limit: 10
     labels:
       - dependencies
@@ -21,7 +23,7 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: daily
     open-pull-requests-limit: 5
     labels:
       - dependencies
