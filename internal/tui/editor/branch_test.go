@@ -37,6 +37,7 @@ func TestBranchSlashOpensPickerOverRealRepo(t *testing.T) {
 		nil,
 		func() commands.Context { return commands.NewContext(bus, nil) },
 		nil,
+		nil,
 		e.composer.ShowBranchList,
 		func() string { return dir },
 		func() bool { return false },

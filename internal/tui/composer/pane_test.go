@@ -14,6 +14,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/listpicker"
 	"github.com/pulseaiclub/phi/internal/components/mention"
+	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 	"github.com/pulseaiclub/phi/internal/util/gitx"
@@ -283,7 +284,7 @@ func TestEscapeUnclaimedWhenIdle(t *testing.T) {
 func TestListAcceptHandlerIsNotSharedBetweenDomains(t *testing.T) {
 	c := NewComposerPane(components.DefaultTheme(), "m", "/repo")
 	var sessions, branches []string
-	c.ShowList(nil, listpicker.ShowConfig{}, func(item listpicker.Item) { sessions = append(sessions, item.ID) })
+	c.ShowList(nil, listpicker.ShowConfig{}, func(item listpicker.Item) { sessions = append(sessions, item.ID) }, nil)
 	c.ShowBranchList([]gitx.Branch{{Name: "main", Current: true}}, nil, func(name string) {
 		branches = append(branches, name)
 	})
@@ -293,4 +294,47 @@ func TestListAcceptHandlerIsNotSharedBetweenDomains(t *testing.T) {
 
 	assert.Equal(t, []string{"main"}, branches)
 	assert.Empty(t, sessions, "opening a second picker must replace the first accept path")
+}
+
+func TestListDeleteHandlerIsNotSharedBetweenDomains(t *testing.T) {
+	c := NewComposerPane(components.DefaultTheme(), "m", "/repo")
+	var deleted []string
+	c.ShowSessionList(nil, "", nil, func(id string) { deleted = append(deleted, id) })
+	c.ShowBranchList([]gitx.Branch{{Name: "main", Current: true}}, nil, nil)
+
+	// ctrl+x must stay inert on the branch picker: the session delete path
+	// was cleared when the second domain took over the shared instance.
+	ctx := &components.EventContext{}
+	c.listPicker.Items = []listpicker.Item{{ID: "main"}}
+	c.listPicker.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'x', Mods: xui.ModCtrl})
+	c.listPicker.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'y'})
+	assert.Empty(t, deleted, "opening a branch picker must clear the session delete path")
+}
+
+func TestShowSessionListRoutesDelete(t *testing.T) {
+	c := NewComposerPane(components.DefaultTheme(), "m", "/repo")
+	var deleted string
+	c.ShowSessionList([]session.SessionMeta{{ID: "deadbeef"}}, "", nil, func(id string) { deleted = id })
+
+	ctx := &components.EventContext{}
+	c.listPicker.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'x', Mods: xui.ModCtrl})
+	c.listPicker.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'y'})
+	assert.Equal(t, "deadbeef", deleted)
+}
+
+func TestRefreshSessionListKeepsOpenPickerInPlace(t *testing.T) {
+	c := NewComposerPane(components.DefaultTheme(), "m", "/repo")
+	c.ShowSessionList([]session.SessionMeta{{ID: "a"}, {ID: "b"}}, "", nil, nil)
+	c.listPicker.Query = "a"
+
+	c.RefreshSessionList([]session.SessionMeta{{ID: "b"}}, "b")
+	assert.True(t, c.listPicker.Open)
+	assert.Equal(t, "a", c.listPicker.Query, "refresh keeps the filter")
+	require.Len(t, c.listPicker.Items, 1)
+	assert.Equal(t, "b", c.listPicker.Items[0].ID)
+
+	// Closed picker: refresh is a no-op, not a reopen.
+	c.listPicker.Hide()
+	c.RefreshSessionList([]session.SessionMeta{{ID: "a"}}, "")
+	assert.False(t, c.listPicker.Open)
 }

@@ -71,3 +71,77 @@ func TestSessionCommands_NewSessionBlocksWhenBusy(t *testing.T) {
 	s.NewSession()
 	assert.Contains(t, drainToast(t, bus), "Cannot start a new session")
 }
+
+func TestSessionCommands_DeleteRemovesAndRefreshes(t *testing.T) {
+	dir := t.TempDir()
+	// Managers only persist once an assistant message exists (hasAssistantMsg
+	// gates flushing), so each fixture needs both roles to hit the disk.
+	current, err := session.NewSessionManager(dir, session.WithSessionDir(dir), session.WithShouldFlush(true))
+	require.NoError(t, err)
+	_, err = current.Append(llm.Message{Role: llm.RoleUser, Content: "keep me"})
+	require.NoError(t, err)
+	_, err = current.Append(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+	require.NoError(t, err)
+	other, err := session.NewSessionManager(dir, session.WithSessionDir(dir), session.WithShouldFlush(true))
+	require.NoError(t, err)
+	_, err = other.Append(llm.Message{Role: llm.RoleUser, Content: "delete me"})
+	require.NoError(t, err)
+	_, err = other.Append(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+	require.NoError(t, err)
+
+	bus := controller.NewBus(nil)
+	var refreshed []session.SessionMeta
+	var refreshCurrent string
+	s := &SessionCommands{
+		Bus:        bus,
+		SessionDir: func() string { return dir },
+		SessionID:  func() string { return current.ID() },
+		RefreshPicker: func(items []session.SessionMeta, currentID string) {
+			refreshed = items
+			refreshCurrent = currentID
+		},
+	}
+	s.Delete(other.ID())
+
+	assert.Contains(t, drainToast(t, bus), "Deleted")
+	require.Len(t, refreshed, 1)
+	assert.Equal(t, current.ID(), refreshed[0].ID, "deleted session is gone from the refreshed list")
+	assert.Equal(t, current.ID(), refreshCurrent)
+	list, err := session.ListSessions(dir)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, current.ID(), list[0].ID)
+}
+
+func TestSessionCommands_DeleteBlocksWhenBusy(t *testing.T) {
+	bus := controller.NewBus(nil)
+	s := &SessionCommands{
+		Bus:          bus,
+		SessionDir:   func() string { return t.TempDir() },
+		StreamActive: func() bool { return true },
+	}
+	s.Delete("abc")
+	assert.Contains(t, drainToast(t, bus), "Cannot delete")
+}
+
+func TestSessionCommands_DeleteUnknownIdToastsAndKeepsList(t *testing.T) {
+	dir := t.TempDir()
+	m, err := session.NewSessionManager(dir, session.WithSessionDir(dir), session.WithShouldFlush(true))
+	require.NoError(t, err)
+	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "hi"})
+	require.NoError(t, err)
+	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+	require.NoError(t, err)
+
+	bus := controller.NewBus(nil)
+	var refreshed bool
+	s := &SessionCommands{
+		Bus:           bus,
+		SessionDir:    func() string { return dir },
+		SessionID:     func() string { return m.ID() },
+		RefreshPicker: func([]session.SessionMeta, string) { refreshed = true },
+	}
+	s.Delete("nosuchsession")
+	assert.Contains(t, drainToast(t, bus), "not found")
+	assert.False(t, refreshed, "failed delete must not touch the picker")
+}
