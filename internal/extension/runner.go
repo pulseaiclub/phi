@@ -181,6 +181,26 @@ func (*Runner) handleHostRequest(
 				p.ReplyHost(id, pxb.HostResult{OK: reply.OK})
 			}
 		}()
+	case "picker":
+		// Off the read loop: the overlay waits for a person.
+		go func() {
+			reply := ext.PickerReply{}
+			var pr ext.PickerRequest
+			if req.Arg != "" {
+				_ = json.Unmarshal([]byte(req.Arg), &pr)
+			}
+			switch {
+			case ui == nil:
+			case len(pr.Items) == 0:
+				debuglog.Logf("extension: picker request without items dropped")
+			default:
+				reply = ui.ShowPicker(pr)
+			}
+			if hasID {
+				// Bodies carry the chosen ID; an empty body is a dismissal.
+				p.ReplyHost(id, pxb.HostResult{OK: reply.OK, Body: reply.ID})
+			}
+		}()
 	default:
 		debuglog.Logf("extension: unknown host request %q", req.Method)
 		if hasID {

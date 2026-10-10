@@ -3,6 +3,7 @@ package controller
 import (
 	"time"
 
+	ext "github.com/pulseaiclub/phi/ext/go"
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/permission"
@@ -137,6 +138,17 @@ type OverlayMsg struct {
 }
 
 func (OverlayMsg) isMsg() {}
+
+// ExtPickerMsg asks the shell to show the shared list picker for an extension
+// command. Dismiss closes a picker whose asker has already given up.
+// Reply must be buffered(1): the UI goroutine never blocks on it.
+type ExtPickerMsg struct {
+	Dismiss bool
+	Request ext.PickerRequest
+	Reply   chan ExtPickerReply
+}
+
+func (ExtPickerMsg) isMsg() {}
 
 // ExtCommandResultMsg delivers the result of an extension slash command.
 type ExtCommandResultMsg struct {

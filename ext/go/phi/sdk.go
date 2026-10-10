@@ -212,22 +212,52 @@ func (extension *ExtensionAPI) Confirm(title, message string) bool {
 
 // ConfirmOpts is Confirm with labels / danger styling.
 func (extension *ExtensionAPI) ConfirmOpts(req ext.ConfirmRequest) ext.ConfirmReply {
-	if extension.wr == nil || extension.rd == nil || extension.stopped() {
+	payload, _ := json.Marshal(req)
+	res, ok := extension.hostCall("confirm", payload)
+	if !ok {
 		return ext.ConfirmReply{}
 	}
+	return ext.ConfirmReply{OK: res.OK}
+}
+
+// ShowPicker opens the host list picker — the overlay /branch and /sessions use
+// — and waits for the user to pick a row or dismiss it. Must be called from a
+// command/tool/intercept handler (nested read on the PXB loop).
+//
+// An empty Items list opens nothing and answers as dismissed, so an extension
+// with nothing to offer never flashes an empty overlay.
+func (extension *ExtensionAPI) ShowPicker(req ext.PickerRequest) ext.PickerReply {
+	if len(req.Items) == 0 {
+		return ext.PickerReply{}
+	}
 	payload, _ := json.Marshal(req)
+	res, ok := extension.hostCall("picker", payload)
+	if !ok {
+		return ext.PickerReply{}
+	}
+	return ext.PickerReply{OK: res.OK, ID: res.Body}
+}
+
+// hostCall performs one HostRequest/HostResult round trip, deferring every
+// other frame it reads. The boolean is false when no answer can arrive
+// (shutdown, fatal transport error, deferred queue overflow); the handler is
+// then unwound through hostCallStopped instead of resuming with a default reply.
+func (extension *ExtensionAPI) hostCall(method string, payload []byte) (pxb.HostResult, bool) {
+	if extension.wr == nil || extension.rd == nil || extension.stopped() {
+		return pxb.HostResult{}, false
+	}
 	id := extension.nextHostID.Add(1)
 	extension.write(pxb.TypeHostRequest, pxb.FlagHasID, id, pxb.EncodeHostRequest(pxb.HostRequest{
-		Method: "confirm", Arg: string(payload),
+		Method: method, Arg: string(payload),
 	}))
 	if extension.stopped() {
-		panic(confirmStopped{})
+		panic(hostCallStopped{})
 	}
 	for {
 		fr, err := extension.rd.Read()
 		if err != nil {
 			extension.fail(err)
-			panic(confirmStopped{})
+			panic(hostCallStopped{})
 		}
 		body := pxb.CloneBody(fr)
 		switch fr.Type {
@@ -238,27 +268,27 @@ func (extension *ExtensionAPI) ConfirmOpts(req ext.ConfirmRequest) ext.ConfirmRe
 			res, err := pxb.DecodeHostResult(body)
 			if err != nil {
 				extension.fail(err)
-				panic(confirmStopped{})
+				panic(hostCallStopped{})
 			}
-			return ext.ConfirmReply{OK: res.OK}
+			return res, true
 		case pxb.TypeShutdown:
 			extension.write(pxb.TypeShutdownAck, 0, 0, nil)
 			extension.mu.Lock()
 			extension.shutdown = true
 			extension.mu.Unlock()
-			panic(confirmStopped{})
+			panic(hostCallStopped{})
 		case pxb.TypeToolInvoke, pxb.TypeToolDetailInvoke, pxb.TypeCommandInvoked, pxb.TypeIntercept,
 			pxb.TypeEvent, pxb.TypeSessionMeta:
 			if len(extension.deferred) >= maxDeferredFrames || len(body) > maxDeferredBytes-extension.deferredBytes {
-				extension.fail(errors.New("phi: confirmation deferred request queue is full"))
-				panic(confirmStopped{})
+				extension.fail(errors.New("phi: deferred request queue is full"))
+				panic(hostCallStopped{})
 			}
 			fr.Body = body
 			extension.deferred = append(extension.deferred, fr)
 			extension.deferredBytes += len(body)
 		}
 		if extension.stopped() {
-			panic(confirmStopped{})
+			panic(hostCallStopped{})
 		}
 	}
 }
@@ -273,7 +303,7 @@ func (extension *ExtensionAPI) run(r io.Reader, w io.Writer) (err error) {
 		extension.deferred = nil
 		extension.deferredBytes = 0
 		if v := recover(); v != nil {
-			if _, ok := v.(confirmStopped); !ok {
+			if _, ok := v.(hostCallStopped); !ok {
 				panic(v)
 			}
 			extension.mu.Lock()

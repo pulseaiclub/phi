@@ -8,9 +8,10 @@ const (
 	oversizeResponse  = "extension response exceeds PXB maximum payload (16 MiB)"
 )
 
-// confirmStopped unwinds the synchronous handler to Run on shutdown or a fatal
-// connection error. Returning a negative answer would let the handler continue.
-type confirmStopped struct{}
+// hostCallStopped unwinds the synchronous handler to Run when a nested host
+// call cannot return an answer (shutdown, fatal connection error, overflow).
+// Returning a default reply would let the handler continue on a dead host.
+type hostCallStopped struct{}
 
 func (extension *ExtensionAPI) stopped() bool {
 	extension.mu.Lock()

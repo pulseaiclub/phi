@@ -312,6 +312,7 @@ func (c *EngineController) bindExtensionHost(r *extension.Runner) {
 				c.publish(ExtSessionEffectsMsg{Status: text, StatusSet: true})
 			},
 			ConfirmFn: c.askExtConfirm,
+			PickerFn:  c.askExtPicker,
 		},
 		Cwd:       cwd,
 		SessionID: sessionID,
@@ -402,6 +403,19 @@ func (c *EngineController) askExtConfirm(req ext.ConfirmRequest) ext.ConfirmRepl
 		c.publish(OverlayMsg{Kind: OverlayExtConfirmDismiss})
 	})
 	return ext.ConfirmReply{OK: r.OK}
+}
+
+// askExtPicker shows the shared list picker for an extension command and waits
+// for the choice. Like the ask dialogs it runs off the UI goroutine.
+func (c *EngineController) askExtPicker(req ext.PickerRequest) ext.PickerReply {
+	reply := make(chan ExtPickerReply, 1)
+	c.publish(ExtPickerMsg{Request: req, Reply: reply})
+	r, _ := waitReply(context.Background(), reply, c.askTimeout(), func() {
+		// The asker is gone; take the overlay down so the next keystroke is not
+		// swallowed by a picker whose answer nobody reads.
+		c.publish(ExtPickerMsg{Dismiss: true})
+	})
+	return ext.PickerReply{OK: r.OK, ID: r.ID}
 }
 
 func (c *EngineController) SetModel(name string) error {

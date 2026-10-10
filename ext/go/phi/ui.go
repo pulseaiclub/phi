@@ -19,6 +19,10 @@ func (u extensionUI) ConfirmOpts(req ext.ConfirmRequest) ext.ConfirmReply {
 	return u.extensionAPI.ConfirmOpts(req)
 }
 
+func (u extensionUI) ShowPicker(req ext.PickerRequest) ext.PickerReply {
+	return u.extensionAPI.ShowPicker(req)
+}
+
 func appendUnique(xs []uint16, v uint16) []uint16 {
 	if slices.Contains(xs, v) {
 		return xs

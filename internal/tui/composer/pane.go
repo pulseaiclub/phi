@@ -10,6 +10,7 @@ import (
 
 	"github.com/pulseaiclub/xui"
 
+	ext "github.com/pulseaiclub/phi/ext/go"
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/branchlist"
 	"github.com/pulseaiclub/phi/internal/components/chat"
@@ -182,16 +183,20 @@ func (c *ComposerPane) HidePalette() {
 }
 
 // ShowList opens the opaque list picker overlay. Each caller passes its own
-// onAccept: the picker is a single instance, so a shared handler would leak one
-// domain's accept path into another's.
+// onAccept / onClose: the picker is a single instance, so a shared handler would
+// leak one domain's paths into another's.
 func (c *ComposerPane) ShowList(
 	items []listpicker.Item,
 	cfg listpicker.ShowConfig,
 	onAccept func(listpicker.Item),
+	onClose func(),
 ) {
 	c.HideCompleters()
 	c.HidePalette()
 	c.listPicker.OnAccept = onAccept
+	// Both handlers are replaced per opening, so neither may outlive the call
+	// that set it: the next picker would otherwise answer its predecessor.
+	c.listPicker.OnClose = onClose
 	c.listPicker.Show(items, cfg)
 	if c.requestFocus != nil {
 		c.requestFocus(&c.listPicker)
@@ -199,6 +204,17 @@ func (c *ComposerPane) ShowList(
 	if c.onRedraw != nil {
 		c.onRedraw()
 	}
+}
+
+// HideList closes the list picker and hands focus back to the composer. Taking
+// the picker down without a choice is a dismissal, so the caller waiting on it
+// hears about it; the picker reports that itself.
+func (c *ComposerPane) HideList() {
+	if !c.listPicker.Open {
+		return
+	}
+	c.listPicker.Hide()
+	c.FocusChat()
 }
 
 // ShowSessionList maps sessions into list rows and opens the picker.
@@ -211,7 +227,7 @@ func (c *ComposerPane) ShowSessionList(
 		if onAccept != nil {
 			onAccept(item.ID)
 		}
-	})
+	}, nil)
 }
 
 // ShowBranchList maps git branches into list rows and opens the picker.
@@ -224,7 +240,41 @@ func (c *ComposerPane) ShowBranchList(
 		if onAccept != nil {
 			onAccept(item.ID)
 		}
-	})
+	}, nil)
+}
+
+// extPickerColumn leaves room for the label, which is the row's identity for an
+// extension row (a branch, a path, a model id). The branch picker reserves the
+// same width for the same reason.
+const extPickerColumn = 30
+
+// ShowExtPicker maps extension rows into the list picker. Unlike the built-in
+// pickers, onClose is load-bearing here: the extension command is waiting for an
+// answer, so a picker that goes down without a choice has to be reported.
+func (c *ComposerPane) ShowExtPicker(
+	req ext.PickerRequest,
+	onAccept func(id string),
+	onClose func(),
+) {
+	items := make([]listpicker.Item, 0, len(req.Items))
+	for _, item := range req.Items {
+		items = append(items, listpicker.Item{
+			ID:      item.ID,
+			Primary: item.Label,
+			Detail:  item.Detail,
+			Badge:   item.Badge,
+		})
+	}
+	c.ShowList(
+		items,
+		listpicker.ShowConfig{Title: req.Title, PrimaryWidth: extPickerColumn},
+		func(item listpicker.Item) {
+			if onAccept != nil {
+				onAccept(item.ID)
+			}
+		},
+		onClose,
+	)
 }
 
 // ListOverlay returns the list picker surface when open.

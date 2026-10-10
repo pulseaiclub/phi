@@ -172,13 +172,36 @@ func main() {
 Requires `import "github.com/pulseaiclub/phi/ext/go/pxb"` for `SubscribeEvent` payloads.
 
 UI surface today: **toast** (`Notify`), **footer status** (`SetStatus`), **Submit** / **SendUserMessage**,
-**Confirm** / **ConfirmOpts**.
+**Confirm** / **ConfirmOpts**, **list picker** (`ShowPicker`).
 
 ```go
 ok := m.ConfirmOpts(ext.ConfirmRequest{
 	Title: "Delete?", Message: "Remove /tmp/x", Yes: "Delete", No: "Cancel", Danger: true,
 }).OK
 ```
+
+`ShowPicker` opens the same filterable overlay `/branch` and `/sessions` use and
+blocks until the user picks a row or dismisses it. `Label` is the bold identity
+column — keep it short, the wide column is reserved for it — and put the rest in
+`Detail`. An empty `Items` list opens nothing and answers as dismissed.
+
+```go
+reply := m.ShowPicker(ext.PickerRequest{
+	Title: "Branches",
+	Items: []ext.PickerItem{
+		{ID: "main", Label: "main", Detail: "release train", Badge: "current"},
+		{ID: "feat/ui", Label: "feat/ui", Detail: "extension picker"},
+	},
+})
+if !reply.OK {
+	return nil // dismissed
+}
+m.Notify("info", "Switching to "+reply.ID)
+```
+
+The Go SDK is the only one with `ShowPicker` so far. The wire is already there:
+send `HostRequest{Method: "picker", Arg: <PickerRequest JSON>}` and read the
+chosen ID from `HostResult.Body` (`OK: false` means dismissed).
 
 Build and install:
 
@@ -284,6 +307,9 @@ Sync `Tool::new` handlers keep working unchanged.
 UI surface today: **toast** (`ctx.notify`), **footer status** (`ctx.set_status`),
 **Submit** (`ctx.submit`), **SendUserMessage** (`ctx.send_user_message`),
 **Confirm / ConfirmOpts** (`ctx.confirm` / `ctx.confirm_opts`).
+
+The list picker (`ShowPicker` in the Go SDK) is not exposed here yet — see
+[Authoring (Go SDK)](#authoring-go-sdk) for the wire request.
 
 ```rust,no_run
 let reply = ctx.confirm_opts(phi::ConfirmRequest {

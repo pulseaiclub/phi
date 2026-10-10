@@ -16,6 +16,65 @@ import (
 	"github.com/pulseaiclub/phi/ext/go/pxb"
 )
 
+func TestShowPickerRoundTrip(t *testing.T) {
+	e := New("test", "1")
+	var reply ext.PickerReply
+	e.RegisterCommand("pick", ext.Command{Handler: func(string, *ext.Context) error {
+		reply = e.ShowPicker(ext.PickerRequest{
+			Title: "Models",
+			Items: []ext.PickerItem{{ID: "opus", Label: "opus", Detail: "smart"}},
+		})
+		return nil
+	}})
+	var in, out bytes.Buffer
+	handshake(t, &in)
+	inputFrame(t, &in, pxb.TypeCommandInvoked, 10, pxb.EncodeCommandInvoked(pxb.CommandInvoked{Name: "pick"}))
+	inputFrame(t, &in, pxb.TypeHostResult, 1, pxb.EncodeHostResult(pxb.HostResult{OK: true, Body: "opus"}))
+	inputFrame(t, &in, pxb.TypeShutdown, 0, nil)
+	require.NoError(t, e.run(&in, &out))
+	assert.Equal(t, ext.PickerReply{OK: true, ID: "opus"}, reply)
+
+	var requests []pxb.Frame
+	for _, f := range outputFrames(t, &out) {
+		if f.Type == pxb.TypeHostRequest {
+			requests = append(requests, f)
+		}
+	}
+	require.Len(t, requests, 1)
+	assert.Equal(t, uint32(1), requests[0].ID)
+	assert.Equal(t, pxb.FlagHasID, requests[0].Flags)
+	req, err := pxb.DecodeHostRequest(requests[0].Body)
+	require.NoError(t, err)
+	assert.Equal(t, "picker", req.Method)
+	var sent ext.PickerRequest
+	require.NoError(t, json.Unmarshal([]byte(req.Arg), &sent))
+	assert.Equal(
+		t,
+		ext.PickerRequest{Title: "Models", Items: []ext.PickerItem{{ID: "opus", Label: "opus", Detail: "smart"}}},
+		sent,
+	)
+}
+
+// An extension with nothing to offer must not flash an empty overlay; the host
+// is never asked.
+func TestShowPickerWithoutItemsSkipsTheHost(t *testing.T) {
+	e := New("test", "1")
+	reply := ext.PickerReply{OK: true, ID: "stale"}
+	e.RegisterCommand("pick", ext.Command{Handler: func(string, *ext.Context) error {
+		reply = e.ShowPicker(ext.PickerRequest{Title: "Models"})
+		return nil
+	}})
+	var in, out bytes.Buffer
+	handshake(t, &in)
+	inputFrame(t, &in, pxb.TypeCommandInvoked, 10, pxb.EncodeCommandInvoked(pxb.CommandInvoked{Name: "pick"}))
+	inputFrame(t, &in, pxb.TypeShutdown, 0, nil)
+	require.NoError(t, e.run(&in, &out))
+	assert.Equal(t, ext.PickerReply{}, reply)
+	for _, f := range outputFrames(t, &out) {
+		assert.NotEqual(t, pxb.TypeHostRequest, f.Type)
+	}
+}
+
 func TestOversizeResponseFallbacks(t *testing.T) {
 	large := make([]byte, pxb.MaxPayload+1)
 	for _, typ := range []uint16{pxb.TypeCommandResponse, pxb.TypeToolDetailResult, pxb.TypeInterceptResponse} {

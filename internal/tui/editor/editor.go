@@ -247,11 +247,34 @@ func (e *Editor) Update(m controller.Msg) {
 	case controller.BranchLabelMsg:
 		e.composer.SetBranchLabel(msg.Text)
 		e.vx.QueueRefresh()
+	case controller.ExtPickerMsg:
+		e.applyExtPicker(msg)
 	case controller.ExtCommandResultMsg:
 		e.extCmds.Apply(msg)
 	case controller.JobProgressMsg:
 		// Applied in drainBus so we can skip Sync when the tree is unchanged.
 	}
+}
+
+// applyExtPicker shows or takes down the list overlay an extension command asked
+// for. The reply channel is buffered(1) and its asker may already have timed
+// out, so answering must never block the UI goroutine.
+func (e *Editor) applyExtPicker(msg controller.ExtPickerMsg) {
+	if msg.Dismiss {
+		e.composer.HideList()
+		return
+	}
+	answer := func(r controller.ExtPickerReply) {
+		select {
+		case msg.Reply <- r:
+		default:
+		}
+	}
+	e.composer.ShowExtPicker(msg.Request, func(id string) {
+		answer(controller.ExtPickerReply{OK: true, ID: id})
+	}, func() {
+		answer(controller.ExtPickerReply{})
+	})
 }
 
 func (e *Editor) drainBus() {

@@ -62,6 +62,32 @@ func TestPickerEscapeCloses(t *testing.T) {
 	assert.False(t, p.Open)
 }
 
+// OnClose means "went down without a choice": a caller waiting on it must not
+// read an accepted row as a dismissal.
+func TestPickerCloseReportsOnlyDismissals(t *testing.T) {
+	var accepted []string
+	dismissed := 0
+	p := &Picker{
+		Theme:    components.DefaultTheme(),
+		OnAccept: func(item Item) { accepted = append(accepted, item.ID) },
+		OnClose:  func() { dismissed++ },
+	}
+	ctx := &components.EventContext{}
+
+	p.Show([]Item{{ID: "a", Primary: "a"}}, ShowConfig{})
+	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
+	assert.Equal(t, []string{"a"}, accepted)
+	assert.Zero(t, dismissed)
+
+	p.Show([]Item{{ID: "b", Primary: "b"}}, ShowConfig{})
+	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEscape, Press: true})
+	assert.Equal(t, []string{"a"}, accepted)
+	assert.Equal(t, 1, dismissed)
+
+	p.Hide()
+	assert.Equal(t, 1, dismissed, "hiding a closed picker reports nothing")
+}
+
 func TestPickerEmptyDraw(t *testing.T) {
 	p := &Picker{Theme: components.DefaultTheme()}
 	p.Show(nil, ShowConfig{Title: "Sessions", Empty: "No sessions in this directory"})

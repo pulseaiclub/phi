@@ -243,6 +243,86 @@ func main() {
 	assert.True(t, proc.Tools()[0].Readable)
 }
 
+// TestCommandPickerRoundTrip walks ShowPicker through the real wire: the
+// extension asks over PXB, the host answers from the UI, and the command's
+// Submit reports what the handler saw.
+func TestCommandPickerRoundTrip(t *testing.T) {
+	root := t.TempDir()
+	extDir := filepath.Join(root, "pick")
+	src := `package main
+
+import (
+	"github.com/pulseaiclub/phi/ext/go"
+	"github.com/pulseaiclub/phi/ext/go/phi"
+)
+
+func pick(m *phi.ExtensionAPI, req ext.PickerRequest) {
+	reply := m.ShowPicker(req)
+	if !reply.OK {
+		m.Submit("dismissed")
+		return
+	}
+	m.Submit("picked " + reply.ID)
+}
+
+func main() {
+	m := phi.New("pick", "0.0.1")
+	m.RegisterCommand("pick", ext.Command{
+		Description: "Pick a row",
+		Handler: func(args string, ctx *ext.Context) error {
+			pick(m, ext.PickerRequest{
+				Title: "Models",
+				Items: []ext.PickerItem{{ID: "opus", Label: "opus", Detail: "smart"}},
+			})
+			return nil
+		},
+	})
+	m.RegisterCommand("pick-empty", ext.Command{
+		Description: "Pick from nothing",
+		Handler: func(args string, ctx *ext.Context) error {
+			pick(m, ext.PickerRequest{Title: "Models"})
+			return nil
+		},
+	})
+	_ = m.Run()
+}
+`
+	require.NoError(t, create.Materialize(t.Context(), extDir, "pick", "0.0.1", src))
+	r, warns, err := extension.Load(root, "")
+	require.NoError(t, err)
+	require.Empty(t, warns, "%v", warns)
+	t.Cleanup(r.Close)
+
+	accept := true
+	var asked []ext.PickerRequest
+	r.Bind(ext.HostOpts{HasUI: true, UI: extension.BusUI{
+		PickerFn: func(req ext.PickerRequest) ext.PickerReply {
+			asked = append(asked, req)
+			if !accept {
+				return ext.PickerReply{}
+			}
+			return ext.PickerReply{OK: true, ID: req.Items[0].ID}
+		},
+	}})
+
+	out, err := r.RunCommand("pick", "")
+	require.NoError(t, err)
+	assert.Equal(t, "picked opus", out.Submit)
+	require.Len(t, asked, 1)
+	assert.Equal(t, "Models", asked[0].Title)
+	assert.Equal(t, "smart", asked[0].Items[0].Detail)
+
+	accept = false
+	out, err = r.RunCommand("pick", "")
+	require.NoError(t, err)
+	assert.Equal(t, "dismissed", out.Submit)
+
+	out, err = r.RunCommand("pick-empty", "")
+	require.NoError(t, err)
+	assert.Equal(t, "dismissed", out.Submit)
+	assert.Len(t, asked, 2, "an empty picker never reaches the UI")
+}
+
 func TestRegisterCommandNeedsArgsPropagates(t *testing.T) {
 	root := t.TempDir()
 	extDir := filepath.Join(root, "plan")

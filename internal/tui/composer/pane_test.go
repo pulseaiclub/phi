@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ext "github.com/pulseaiclub/phi/ext/go"
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/listpicker"
 	"github.com/pulseaiclub/phi/internal/components/mention"
@@ -283,7 +284,12 @@ func TestEscapeUnclaimedWhenIdle(t *testing.T) {
 func TestListAcceptHandlerIsNotSharedBetweenDomains(t *testing.T) {
 	c := NewComposerPane(components.DefaultTheme(), "m", "/repo")
 	var sessions, branches []string
-	c.ShowList(nil, listpicker.ShowConfig{}, func(item listpicker.Item) { sessions = append(sessions, item.ID) })
+	c.ShowList(
+		nil,
+		listpicker.ShowConfig{},
+		func(item listpicker.Item) { sessions = append(sessions, item.ID) },
+		nil,
+	)
 	c.ShowBranchList([]gitx.Branch{{Name: "main", Current: true}}, nil, func(name string) {
 		branches = append(branches, name)
 	})
@@ -293,4 +299,43 @@ func TestListAcceptHandlerIsNotSharedBetweenDomains(t *testing.T) {
 
 	assert.Equal(t, []string{"main"}, branches)
 	assert.Empty(t, sessions, "opening a second picker must replace the first accept path")
+}
+
+func TestShowExtPickerAnswersTheAsker(t *testing.T) {
+	c := NewComposerPane(components.DefaultTheme(), "m", "/repo")
+	var chosen []string
+	dismissed := 0
+	c.ShowExtPicker(ext.PickerRequest{
+		Title: "Branches",
+		Items: []ext.PickerItem{{ID: "main", Label: "main", Badge: "current"}},
+	}, func(id string) { chosen = append(chosen, id) }, func() { dismissed++ })
+
+	assert.Equal(t, "main", c.listPicker.Items[0].Primary)
+	assert.Equal(t, "current", c.listPicker.Items[0].Badge)
+	c.listPicker.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyEnter})
+	assert.Equal(t, []string{"main"}, chosen)
+	assert.Zero(t, dismissed, "accepting is not a dismissal")
+
+	c.ShowExtPicker(ext.PickerRequest{Items: []ext.PickerItem{{ID: "a"}}}, nil, func() { dismissed++ })
+	c.listPicker.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyEscape})
+	assert.Equal(t, 1, dismissed)
+}
+
+func TestHideListReportsTheDismissal(t *testing.T) {
+	c := NewComposerPane(components.DefaultTheme(), "m", "/repo")
+	var chosen []string
+	dismissed := 0
+	c.ShowExtPicker(
+		ext.PickerRequest{Items: []ext.PickerItem{{ID: "a"}}},
+		func(id string) { chosen = append(chosen, id) },
+		func() { dismissed++ },
+	)
+	c.HideList()
+
+	assert.False(t, c.listPicker.Open)
+	assert.Empty(t, chosen)
+	assert.Equal(t, 1, dismissed, "an asker waiting on the rows hears about a take-down")
+
+	c.HideList()
+	assert.Equal(t, 1, dismissed, "closing a closed picker reports nothing")
 }

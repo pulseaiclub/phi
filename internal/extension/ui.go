@@ -6,6 +6,7 @@ import ext "github.com/pulseaiclub/phi/ext/go"
 type BusUI struct {
 	NotifyFn    func(message, kind string)
 	ConfirmFn   func(ext.ConfirmRequest) ext.ConfirmReply
+	PickerFn    func(ext.PickerRequest) ext.PickerReply
 	SetStatusFn func(key, text string)
 }
 
@@ -24,6 +25,15 @@ func (u BusUI) ConfirmOpts(req ext.ConfirmRequest) ext.ConfirmReply {
 		return u.ConfirmFn(req)
 	}
 	return ext.ConfirmReply{}
+}
+
+// ShowPicker blocks until the host list overlay answers; without a PickerFn the
+// request counts as dismissed.
+func (u BusUI) ShowPicker(req ext.PickerRequest) ext.PickerReply {
+	if u.PickerFn != nil {
+		return u.PickerFn(req)
+	}
+	return ext.PickerReply{}
 }
 
 func (u BusUI) SetStatus(key, text string) {

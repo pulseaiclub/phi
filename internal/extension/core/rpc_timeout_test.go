@@ -41,6 +41,13 @@ func TestRPCWaitDurationLegacyCtxReplacesDefault(t *testing.T) {
 	assert.LessOrEqual(t, d, 90*time.Second)
 }
 
+// A tabbed-away terminal is not a hung extension: the wait a command is granted
+// has to outlast the host dialog (ask timeout 120s by default) it may be stuck
+// behind.
+func TestCommandWaitOutlastsHostDialogs(t *testing.T) {
+	assert.GreaterOrEqual(t, commandWait, 120*time.Second)
+}
+
 func TestToolRPCTimeoutLookup(t *testing.T) {
 	p := &Proc{tools: []pxb.RegisterTool{
 		{Name: "fetch", TimeoutSec: 180},

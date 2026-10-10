@@ -10,7 +10,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Extensions can open the list picker `/branch` and `/sessions` use:
+  `m.ShowPicker(ext.PickerRequest{…})` (Go SDK) returns the chosen row's ID, or
+  `OK: false` when the user dismissed it.
+
 ### Changed
+
+- Extension slash commands no longer die after 30s: a command may wait on host
+  UI (`Confirm` / `ShowPicker`) for as long as the dialog is up.
+- The list picker reports a dismissal through `OnClose`, and accepting a row no
+  longer also reports one.
 
 ### Deprecated
 

@@ -25,7 +25,13 @@ const (
 	handshakeTimeout = 5 * time.Second
 	rpcTimeout       = 30 * time.Second
 	rpcTimeoutMax    = 3600 * time.Second // matches bash tool upper bound
-	shutdownWait     = 2 * time.Second
+	// commandWait bounds a slash-command RPC. A handler may block on host UI
+	// (Confirm / ShowPicker) that the user paces, so the 30s RPC default would
+	// kill the process mid-dialog. Command handlers run off the agent loop, so
+	// waiting long beats killing a subprocess over a dialog nobody has read
+	// yet; reload recycles a command that truly never returns.
+	commandWait  = rpcTimeoutMax
+	shutdownWait = 2 * time.Second
 )
 
 // Proc is one extension subprocess speaking PXB over stdin/stdout.
@@ -443,7 +449,7 @@ func (p *Proc) CallToolDetail(ctx context.Context, name string, args json.RawMes
 // CallCommand runs a slash command.
 func (p *Proc) CallCommand(ctx context.Context, name, args string) (pxb.CommandResponse, error) {
 	body := pxb.EncodeCommandInvoked(pxb.CommandInvoked{Name: name, Args: args})
-	f, err := p.rpc(ctx, pxb.TypeCommandInvoked, body, pxb.TypeCommandResponse)
+	f, err := p.rpcWait(ctx, pxb.TypeCommandInvoked, body, pxb.TypeCommandResponse, commandWait)
 	if err != nil {
 		return pxb.CommandResponse{}, err
 	}

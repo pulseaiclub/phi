@@ -108,15 +108,23 @@ func normalizeConfig(cfg ShowConfig) ShowConfig {
 	return cfg
 }
 
-// Hide closes the picker.
+// Hide closes the picker and reports that it went down without a choice.
+// Closing an already closed picker reports nothing.
 func (p *Picker) Hide() {
+	if !p.Open {
+		return
+	}
+	p.close()
+	if p.OnClose != nil {
+		p.OnClose()
+	}
+}
+
+func (p *Picker) close() {
 	p.Open = false
 	p.Query = ""
 	p.Cursor = 0
 	p.filtered = nil
-	if p.OnClose != nil {
-		p.OnClose()
-	}
 }
 
 func (p *Picker) returnFocus(ctx *components.EventContext) {
@@ -179,7 +187,9 @@ func (p *Picker) accept() {
 	if p.OnAccept != nil {
 		p.OnAccept(item)
 	}
-	p.Hide()
+	// Accepting is an answer, not a dismissal: close without firing OnClose, so
+	// a caller that waits on OnClose does not also see the accept as a cancel.
+	p.close()
 }
 
 func (p *Picker) insert(text string) {
