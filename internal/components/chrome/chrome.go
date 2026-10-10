@@ -57,7 +57,18 @@ func ListHint(action string) string {
 	if action == "" {
 		action = "select"
 	}
-	return " ↑↓ move" + Sep + "⏎ " + action + Sep + "esc close "
+	return ListHintExtra(action)
+}
+
+// ListHintExtra is ListHint with extra key fragments spliced before "esc close".
+// Fragments keep the same "key verb" shape as the built-in ones, so domains
+// extend the caption instead of restating it.
+func ListHintExtra(action string, extra ...string) string {
+	parts := make([]string, 0, 3+len(extra))
+	parts = append(parts, " ↑↓ move", "⏎ "+action)
+	parts = append(parts, extra...)
+	parts = append(parts, "esc close ")
+	return strings.Join(parts, Sep)
 }
 
 // ListHintShort is the compact fallback when the full ListHint does not fit.

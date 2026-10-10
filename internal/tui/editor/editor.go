@@ -178,8 +178,9 @@ func NewEditor(
 		e.submitter,
 		func() commands.Context { return cmdCtx },
 		func(items []session.SessionMeta, currentID string) {
-			e.composer.ShowSessionList(items, currentID, e.sessions.Accept)
+			e.composer.ShowSessionList(items, currentID, e.sessions.Accept, e.sessions.Delete)
 		},
+		e.composer.RefreshSessionList,
 		e.composer.ShowBranchList,
 		func() string { return e.cwd },
 		e.submitter.StreamActive,

@@ -12,11 +12,12 @@ import (
 // Config returns chrome copy for the sessions picker.
 func Config() listpicker.ShowConfig {
 	return listpicker.ShowConfig{
-		Title:       "Sessions",
-		FilterHint:  "filter id or preview…",
-		Empty:       "No sessions in this directory",
-		EmptyFilter: "No sessions match %q",
-		Hint:        chrome.ListHint("resume"),
+		Title:          "Sessions",
+		FilterHint:     "filter id or preview…",
+		Empty:          "No sessions in this directory",
+		EmptyFilter:    "No sessions match %q",
+		Hint:           chrome.ListHintExtra("resume", "ctrl+x delete"),
+		ConfirmMessage: "Delete this session?",
 	}
 }
 

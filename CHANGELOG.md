@@ -10,6 +10,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Sessions picker: delete a session with `Ctrl+X` then `Y`. The confirm is
+  in-place; the list refreshes keeping the filter query, and deleting the
+  current session starts a fresh one.
+- CLI: `phi sessions remove <id>` (alias `rm`) deletes a persisted session by
+  id prefix.
+
 ### Changed
 
 ### Deprecated

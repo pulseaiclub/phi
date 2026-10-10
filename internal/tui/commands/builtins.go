@@ -78,6 +78,7 @@ func (b *Builtin) Bind(
 	submitter extSubmitter,
 	commandCtx func() Context,
 	openPicker func(items []session.SessionMeta, currentID string),
+	refreshPicker func(items []session.SessionMeta, currentID string),
 	openBranchPicker func(branches []gitx.Branch, recent []string, onAccept func(name string)),
 	cwd func() string,
 	streamActive func() bool,
@@ -85,6 +86,7 @@ func (b *Builtin) Bind(
 	b.Ext.Submitter = submitter
 	b.Ext.CommandCtx = commandCtx
 	b.Sessions.OpenPicker = openPicker
+	b.Sessions.RefreshPicker = refreshPicker
 	b.Sessions.StreamActive = streamActive
 	b.Branches.OpenOverlay = openBranchPicker
 	b.Branches.Dir = cwd

@@ -73,7 +73,7 @@ func TestNewBuiltinRegistry_RegistersDomains(t *testing.T) {
 	assert.True(t, b.Registry.DispatchSlash("/diff staged", ctx))
 	assert.Equal(t, []string{"staged"}, opened)
 
-	b.Bind(nil, nil, nil, nil, nil, func() bool { return true })
+	b.Bind(nil, nil, nil, nil, nil, nil, func() bool { return true })
 	b.Sessions.NewSession()
 	assert.Contains(t, drainToast(t, bus), "Cannot start a new session")
 }

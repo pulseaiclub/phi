@@ -261,6 +261,54 @@ func TestListSessions(t *testing.T) {
 	assert.Equal(t, dir, list[0].Cwd)
 }
 
+func TestDeleteSession(t *testing.T) {
+	dir := t.TempDir()
+
+	write := func(id string) string {
+		name := "2026-01-01T00-00-00_" + id + ".jsonl"
+		path := filepath.Join(dir, name)
+		header := SessionHeader{
+			Type:      EntrySession,
+			ID:        id,
+			Timestamp: "2026-01-01T00-00-00",
+			Cwd:       dir,
+		}
+		f, err := os.Create(path)
+		require.NoError(t, err)
+		require.NoError(t, jsonEncode(f, header))
+		require.NoError(t, f.Close())
+		return path
+	}
+
+	gone := write("deadbeef00001111")
+	_ = write("abcdef1234567890")
+	hist := filepath.Join(dir, "history.jsonl")
+	require.NoError(t, os.WriteFile(hist, []byte("{}\n"), 0o644))
+
+	// Exact id.
+	require.NoError(t, DeleteSession(dir, "deadbeef00001111"))
+	_, err := os.Stat(gone)
+	require.ErrorIs(t, err, os.ErrNotExist)
+
+	// Unique prefix resolves and deletes.
+	require.NoError(t, DeleteSession(dir, "abcdef"))
+	list, err := ListSessions(dir)
+	require.NoError(t, err)
+	assert.Empty(t, list)
+
+	// Reserved shell-history files survive even when named directly.
+	err = DeleteSession(dir, "history.jsonl")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reserved")
+	_, err = os.Stat(hist)
+	require.NoError(t, err)
+
+	// Unknown id is an error, not a silent no-op.
+	err = DeleteSession(dir, "abcdef1234567890")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}
+
 func TestOpenSessionFailFastBadLine(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "2026-01-01T00-00-00_badbadbadbadbadb.jsonl")

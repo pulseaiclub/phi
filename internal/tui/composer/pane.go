@@ -188,10 +188,14 @@ func (c *ComposerPane) ShowList(
 	items []listpicker.Item,
 	cfg listpicker.ShowConfig,
 	onAccept func(listpicker.Item),
+	onDelete func(listpicker.Item),
 ) {
 	c.HideCompleters()
 	c.HidePalette()
 	c.listPicker.OnAccept = onAccept
+	// Assign unconditionally: a nil clears a prior domain's delete path off
+	// the shared picker, mirroring the accept-leak guard above.
+	c.listPicker.OnDelete = onDelete
 	c.listPicker.Show(items, cfg)
 	if c.requestFocus != nil {
 		c.requestFocus(&c.listPicker)
@@ -206,12 +210,29 @@ func (c *ComposerPane) ShowSessionList(
 	items []session.SessionMeta,
 	currentID string,
 	onAccept func(id string),
+	onDelete func(id string),
 ) {
 	c.ShowList(sessionlist.Items(items, currentID, time.Time{}), sessionlist.Config(), func(item listpicker.Item) {
 		if onAccept != nil {
 			onAccept(item.ID)
 		}
+	}, func(item listpicker.Item) {
+		if onDelete != nil {
+			onDelete(item.ID)
+		}
 	})
+}
+
+// RefreshSessionList swaps the rows of an open session picker in place,
+// keeping the filter query — used after a delete instead of reopening.
+func (c *ComposerPane) RefreshSessionList(items []session.SessionMeta, currentID string) {
+	if !c.listPicker.Open {
+		return
+	}
+	c.listPicker.SetItems(sessionlist.Items(items, currentID, time.Time{}))
+	if c.onRedraw != nil {
+		c.onRedraw()
+	}
 }
 
 // ShowBranchList maps git branches into list rows and opens the picker.
@@ -224,7 +245,7 @@ func (c *ComposerPane) ShowBranchList(
 		if onAccept != nil {
 			onAccept(item.ID)
 		}
-	})
+	}, nil)
 }
 
 // ListOverlay returns the list picker surface when open.
