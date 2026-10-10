@@ -27,16 +27,20 @@ type Item struct {
 
 // ShowConfig customizes chrome copy for one opening.
 type ShowConfig struct {
-	Title        string // default "Select"
-	FilterHint   string // placeholder when query empty
-	Empty        string // no items at all
-	EmptyFilter  string // no matches; may contain %q for the query
-	Hint         string // bottom border caption
-	LeadingWidth int    // fixed leading column; 0 = auto from content / 10
-	PrimaryWidth int    // fixed primary column; 0 = 8
+	Title          string // default "Select"
+	FilterHint     string // placeholder when query empty
+	Empty          string // no items at all
+	EmptyFilter    string // no matches; may contain %q for the query
+	Hint           string // bottom border caption
+	ConfirmMessage string // replaces the filter prompt while confirming a delete
+	ConfirmHint    string // bottom border caption while confirming; default " y delete · n cancel "
+	LeadingWidth   int    // fixed leading column; 0 = auto from content / 10
+	PrimaryWidth   int    // fixed primary column; 0 = 8
 }
 
 // Picker is a filterable list overlay. Enter accepts the selection.
+// Ctrl+X arms deletion of the selected row; y/Enter fires OnDelete, n/Esc
+// cancels (crush-style in-place confirm — the overlay stays open either way).
 type Picker struct {
 	Open     bool
 	Query    string
@@ -47,13 +51,15 @@ type Picker struct {
 	MaxItems int
 	Width    int
 
-	OnAccept    func(Item)
-	OnClose     func()
+	OnAccept func(Item)
+	OnDelete func(Item)
+	OnClose  func()
 	FocusReturn components.Widget
 
 	cfg      ShowConfig
 	filtered []int
 	scroll   int
+	confirming bool
 }
 
 func (p *Picker) theme() components.Theme {
@@ -99,6 +105,12 @@ func normalizeConfig(cfg ShowConfig) ShowConfig {
 	if cfg.Hint == "" {
 		cfg.Hint = chrome.ListHint("select")
 	}
+	if cfg.ConfirmMessage == "" {
+		cfg.ConfirmMessage = "Delete?"
+	}
+	if cfg.ConfirmHint == "" {
+		cfg.ConfirmHint = " y delete" + chrome.Sep + "n cancel "
+	}
 	if cfg.LeadingWidth <= 0 {
 		cfg.LeadingWidth = 10
 	}
@@ -114,9 +126,18 @@ func (p *Picker) Hide() {
 	p.Query = ""
 	p.Cursor = 0
 	p.filtered = nil
+	p.confirming = false
 	if p.OnClose != nil {
 		p.OnClose()
 	}
+}
+
+// SetItems replaces the rows of an open picker in place, keeping the filter
+// query. Selection clamps to the new filtered bounds; callers use this after
+// deleting a row instead of reopening via Show, which would reset the query.
+func (p *Picker) SetItems(items []Item) {
+	p.Items = append([]Item(nil), items...)
+	p.refilter()
 }
 
 func (p *Picker) returnFocus(ctx *components.EventContext) {
@@ -213,6 +234,10 @@ func (p *Picker) Handle(ctx *components.EventContext, ev xui.Event) {
 }
 
 func (p *Picker) handleKey(ctx *components.EventContext, e xui.KeyEvent) {
+	if p.confirming {
+		p.handleConfirmKey(ctx, e)
+		return
+	}
 	switch e.Code {
 	case xui.KeyEscape:
 		p.Hide()
@@ -278,6 +303,13 @@ func (p *Picker) handleKey(ctx *components.EventContext, e xui.KeyEvent) {
 					p.Selected--
 				}
 				ctx.ConsumeAndRedraw()
+			case 'x', 'X':
+				// Arm delete-confirm only for callers that own a delete path;
+				// other picker domains (branches, …) keep Ctrl+X inert.
+				if p.OnDelete != nil {
+					p.confirming = true
+					ctx.ConsumeAndRedraw()
+				}
 			}
 			return
 		}
@@ -291,6 +323,27 @@ func (p *Picker) handleKey(ctx *components.EventContext, e xui.KeyEvent) {
 	default:
 		ctx.Consume = true
 	}
+}
+
+// handleConfirmKey drives delete-confirm mode: y/Enter fires OnDelete on the
+// selected row, n/Esc disarms. Everything else is swallowed so the filter
+// cannot drift while a destructive action is pending.
+func (p *Picker) handleConfirmKey(ctx *components.EventContext, e xui.KeyEvent) {
+	plainRune := func(r rune) bool {
+		return e.Code == xui.KeyRune && !e.Mods.Has(xui.ModCtrl) && !e.Mods.Has(xui.ModAlt) && e.Rune == r
+	}
+	confirm := e.Code == xui.KeyEnter || plainRune('y') || plainRune('Y')
+	cancel := e.Code == xui.KeyEscape || plainRune('n') || plainRune('N')
+	switch {
+	case confirm:
+		p.confirming = false
+		if item, ok := p.selectedItem(); ok && p.OnDelete != nil {
+			p.OnDelete(item)
+		}
+	case cancel:
+		p.confirming = false
+	}
+	ctx.ConsumeAndRedraw()
 }
 
 // Draw renders the bordered list panel.
@@ -322,7 +375,14 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 			panel.SetCell(x, y, xui.Cell{Char: " ", Width: 1, Style: fillStyle})
 		}
 	}
-	layout.DrawRoundedBorder(&panel, layout.BorderRounded, th.Border, nil, nil, nil, nil, ctx.Method)
+	borderSt := th.Border
+	titleSt := chrome.PanelTitle(th)
+	if p.confirming {
+		borderSt = th.Destructive
+		titleSt.Fg = th.Destructive.Fg
+		titleSt.Bold = true
+	}
+	layout.DrawRoundedBorder(&panel, layout.BorderRounded, borderSt, nil, nil, nil, nil, ctx.Method)
 
 	title := " " + p.cfg.Title + " · " + strconv.Itoa(len(p.Items)) + " "
 	if n := len(p.filtered); n != len(p.Items) {
@@ -330,7 +390,6 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 	}
 	tw := xui.StringWidth(title, ctx.Method)
 	tx := max((boxW-tw)/2, 1)
-	titleSt := chrome.PanelTitle(th)
 	panel.Print(tx, 0, title, titleSt, ctx.Method)
 
 	p.drawPrompt(&panel, ctx, th, boxW)
@@ -404,6 +463,13 @@ func (p *Picker) syncScroll(visible int) {
 
 func (p *Picker) drawPrompt(panel *components.Surface, ctx components.DrawContext, th components.Theme, boxW int) {
 	const y = 1
+	if p.confirming {
+		// The filter is frozen while a delete is pending; its line becomes the
+		// destructive question so no extra row is needed in the box layout.
+		msg := layout.TruncateToWidth(p.cfg.ConfirmMessage, max(boxW-3, 1), ctx.Method)
+		panel.Print(1, y, msg, th.Destructive, ctx.Method)
+		return
+	}
 	panel.Print(1, y, chrome.FilterPrompt, th.Foreground, ctx.Method)
 	avail := max(boxW-5, 1)
 	q := p.Query
@@ -509,7 +575,9 @@ func (p *Picker) drawHint(
 	boxW, boxH int,
 ) {
 	hint := p.cfg.Hint
-	if xui.StringWidth(hint, ctx.Method) > boxW-2 {
+	if p.confirming {
+		hint = p.cfg.ConfirmHint
+	} else if xui.StringWidth(hint, ctx.Method) > boxW-2 {
 		hint = chrome.ListHintShort("select")
 	}
 	y := boxH - 1
