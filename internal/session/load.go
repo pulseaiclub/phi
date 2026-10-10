@@ -42,7 +42,7 @@ func ListSessions(dir string) ([]SessionMeta, error) {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
 			continue
 		}
-		if e.Name() == "history.jsonl" || e.Name() == "history.1.jsonl" {
+		if isShellHistory(e.Name()) {
 			continue
 		}
 		path := filepath.Join(dir, e.Name())
@@ -188,7 +188,8 @@ func sessionIDFromFilename(name string) (string, bool) {
 func DeleteSession(dir, id string) error {
 	// Guard before FindSessionFile: a bare "history.jsonl" id would otherwise
 	// fail with a confusing stat error instead of a refusal.
-	if base := filepath.Base(strings.TrimSpace(id)); strings.HasPrefix(base, "history") && strings.HasSuffix(base, ".jsonl") {
+	base := filepath.Base(strings.TrimSpace(id))
+	if isShellHistory(base) {
 		return fmt.Errorf("session: refusing to delete reserved file %s", base)
 	}
 	path, err := FindSessionFile(dir, id)
@@ -199,6 +200,12 @@ func DeleteSession(dir, id string) error {
 		return fmt.Errorf("session: delete %s: %w", path, err)
 	}
 	return nil
+}
+
+// isShellHistory reports whether name is a reserved shell-history file in the
+// session dir: listed by no picker, deleted by no caller.
+func isShellHistory(name string) bool {
+	return name == "history.jsonl" || name == "history.1.jsonl"
 }
 
 // OpenSession loads a JSONL session file and returns a Manager ready to append.
