@@ -22,10 +22,21 @@ var (
 		Desc: "list persisted sessions for this directory",
 		Run:  func(_ []string, _ cli.Flags) error { return listSessions() },
 	}
+
+	sessionsRemoveCommand = cli.Command{
+		Name:    "remove",
+		Aliases: []string{"rm"},
+		ArgsUse: "<session-id>",
+		Desc:    "delete a persisted session for this directory (id prefix ok)",
+	}
 )
 
 func init() {
+	// Run is assigned here, not in the literal: removeSession refers back to
+	// sessionsRemoveCommand for Usagef and Go rejects that initialization cycle.
+	sessionsRemoveCommand.Run = func(args []string, _ cli.Flags) error { return removeSession(args) }
 	sessionsCommand.Add(&sessionsListCommand)
+	sessionsCommand.Add(&sessionsRemoveCommand)
 }
 
 // listSessions prints persisted sessions for the current project, newest first.
@@ -43,5 +54,18 @@ func listSessions() error {
 	for _, s := range list {
 		fmt.Printf("%s  %s  %s\n", s.ID, s.Mtime.Format("2006-01-02 15:04:05"), s.Preview)
 	}
+	return nil
+}
+
+// removeSession deletes one session file by id (exact or unique prefix).
+func removeSession(args []string) error {
+	if len(args) != 1 {
+		return sessionsRemoveCommand.Usagef("expected <session-id>")
+	}
+	proj := project.GetDefaultProject()
+	if err := session.DeleteSession(proj.SessionDir(), args[0]); err != nil {
+		return err
+	}
+	fmt.Printf("deleted session %s\n", args[0])
 	return nil
 }

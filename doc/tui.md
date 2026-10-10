@@ -236,6 +236,14 @@ Composer input is blocked while an overlay is active (`OverlayBlocksComposer`).
 (`SessionCommands`, `SettingsCommands`, `ExtCommands`, …) call `Ctrl` / `Bus` /
 composer directly — no Editor closures.
 
+The `/sessions` overlay follows this wiring: `SessionCommands.Show` lists the
+project's sessions and opens the shared `listpicker` through the
+`Builtin.Bind`-injected callbacks. Enter resumes the selection; `ctrl+x` arms
+an in-place destructive confirm (`y`/Enter deletes, `n`/Esc cancels) and the
+picker refreshes its rows in place via `RefreshPicker`, keeping the filter
+query. Deleting the current session resets the engine to a fresh one, since
+the old JSONL file is gone. The same store call backs `phi sessions remove`.
+
 ### 6. Background chrome
 
 | Source | Msg | Target |

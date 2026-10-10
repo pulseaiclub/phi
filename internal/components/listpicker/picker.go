@@ -51,14 +51,14 @@ type Picker struct {
 	MaxItems int
 	Width    int
 
-	OnAccept func(Item)
-	OnDelete func(Item)
-	OnClose  func()
+	OnAccept    func(Item)
+	OnDelete    func(Item)
+	OnClose     func()
 	FocusReturn components.Widget
 
-	cfg      ShowConfig
-	filtered []int
-	scroll   int
+	cfg        ShowConfig
+	filtered   []int
+	scroll     int
 	confirming bool
 }
 
