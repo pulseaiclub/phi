@@ -132,9 +132,9 @@ func (s *SessionCommands) resume(id string) {
 	publishToast(s.Bus, msg, toast.ToastSuccess, 3*time.Second)
 }
 
-// Delete removes a session chosen in the picker overlay (ctrl+x, then y).
-// Deleting the current session also resets to a fresh one, mirroring crush:
-// the engine must not keep appending to a file the user asked to remove.
+// Delete removes a session chosen in the picker overlay (Ctrl+X, then Y).
+// Deleting the current session also resets to a fresh one: the engine must
+// not keep appending to a file the user asked to remove.
 func (s *SessionCommands) Delete(id string) {
 	if s.StreamActive != nil && s.StreamActive() {
 		publishToast(s.Bus, "Cannot delete while a reply or command is running", toast.ToastWarning, 3*time.Second)
@@ -153,7 +153,7 @@ func (s *SessionCommands) Delete(id string) {
 }
 
 // refreshPicker re-lists sessions and pushes the rows into the open overlay
-// in place, keeping the filter query (crush-style post-delete refresh).
+// in place, keeping the filter query instead of reopening via Show.
 func (s *SessionCommands) refreshPicker() {
 	if s.RefreshPicker == nil {
 		return

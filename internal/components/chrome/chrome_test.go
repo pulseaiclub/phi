@@ -14,6 +14,7 @@ import (
 func TestHintDialect(t *testing.T) {
 	assert.Equal(t, " ↑↓ move · ⏎ select · esc close ", chrome.ListHint("select"))
 	assert.Equal(t, " ↑↓ move · ⏎ resume · esc close ", chrome.ListHint("resume"))
+	assert.Equal(t, " ↑↓ move · ⏎ resume · ctrl+x delete · esc close ", chrome.ListHintExtra("resume", "ctrl+x delete"))
 	assert.Equal(t, " ⏎ select · esc close ", chrome.ListHintShort("select"))
 	assert.Equal(t, "↑↓ move · Enter select · Esc cancel", chrome.AskHint("↑↓ move", "select", "cancel"))
 	assert.Equal(t, "↑↓ move · Enter select · Esc stop", chrome.AskHint("↑↓ move", "select", "stop"))

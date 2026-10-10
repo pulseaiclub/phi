@@ -231,6 +231,6 @@ func TestPickerDrawConfirmChrome(t *testing.T) {
 	require.Len(t, s.Children, 1)
 	text := components.SurfaceText(s.Children[0].Surface)
 	assert.Contains(t, text, "Delete this session?")
-	assert.Contains(t, text, "y delete")
-	assert.Contains(t, text, "n cancel")
+	assert.Contains(t, text, "y/enter delete")
+	assert.Contains(t, text, "n/esc cancel")
 }

@@ -16,7 +16,7 @@ func Config() listpicker.ShowConfig {
 		FilterHint:     "filter id or preview…",
 		Empty:          "No sessions in this directory",
 		EmptyFilter:    "No sessions match %q",
-		Hint:           " ↑↓ move" + chrome.Sep + "⏎ resume" + chrome.Sep + "^X delete" + chrome.Sep + "esc close ",
+		Hint:           chrome.ListHintExtra("resume", "ctrl+x delete"),
 		ConfirmMessage: "Delete this session?",
 	}
 }

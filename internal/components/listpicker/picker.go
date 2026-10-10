@@ -33,14 +33,15 @@ type ShowConfig struct {
 	EmptyFilter    string // no matches; may contain %q for the query
 	Hint           string // bottom border caption
 	ConfirmMessage string // replaces the filter prompt while confirming a delete
-	ConfirmHint    string // bottom border caption while confirming; default " y delete · n cancel "
+	ConfirmHint    string // bottom border caption while confirming; default " y/enter delete · n/esc cancel "
 	LeadingWidth   int    // fixed leading column; 0 = auto from content / 10
 	PrimaryWidth   int    // fixed primary column; 0 = 8
 }
 
 // Picker is a filterable list overlay. Enter accepts the selection.
-// Ctrl+X arms deletion of the selected row; y/Enter fires OnDelete, n/Esc
-// cancels (crush-style in-place confirm — the overlay stays open either way).
+// Ctrl+X arms deletion of the selected row; Y/Enter fires OnDelete, N/Esc
+// disarms. The overlay stays open after a delete so callers can remove
+// several rows without reopening.
 type Picker struct {
 	Open     bool
 	Query    string
@@ -109,7 +110,7 @@ func normalizeConfig(cfg ShowConfig) ShowConfig {
 		cfg.ConfirmMessage = "Delete?"
 	}
 	if cfg.ConfirmHint == "" {
-		cfg.ConfirmHint = " y delete" + chrome.Sep + "n cancel "
+		cfg.ConfirmHint = " y/enter delete" + chrome.Sep + "n/esc cancel "
 	}
 	if cfg.LeadingWidth <= 0 {
 		cfg.LeadingWidth = 10
@@ -325,8 +326,8 @@ func (p *Picker) handleKey(ctx *components.EventContext, e xui.KeyEvent) {
 	}
 }
 
-// handleConfirmKey drives delete-confirm mode: y/Enter fires OnDelete on the
-// selected row, n/Esc disarms. Everything else is swallowed so the filter
+// handleConfirmKey drives delete-confirm mode: Y/Enter fires OnDelete on the
+// selected row, N/Esc disarms. Everything else is swallowed so the filter
 // cannot drift while a destructive action is pending.
 func (p *Picker) handleConfirmKey(ctx *components.EventContext, e xui.KeyEvent) {
 	plainRune := func(r rune) bool {
