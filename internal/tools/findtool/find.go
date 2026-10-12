@@ -132,7 +132,6 @@ func runFD(ctx context.Context, pattern, absSearchRoot string, limit int) ([]str
 	}
 
 	args := []string{
-		"--glob",
 		"--color=never",
 		"--hidden",
 		"--no-require-git",
@@ -141,16 +140,23 @@ func runFD(ctx context.Context, pattern, absSearchRoot string, limit int) ([]str
 		"--max-results", strconv.Itoa(limit),
 	}
 
-	// fd --glob matches the basename unless --full-path is set; path-containing
-	// patterns need a leading **/ so they match under the search root.
-	effective := pattern
-	if strings.Contains(pattern, "/") {
+	// fd matches the file name unless --full-path is set; path-containing
+	// patterns need a leading **/ so they match under the search root. The
+	// glob is translated to a regex (see globToRegex) because fd's own glob
+	// matching is broken on Windows.
+	normalized := strings.ReplaceAll(pattern, `\`, "/")
+	effective := normalized
+	if strings.Contains(normalized, "/") {
 		args = append(args, "--full-path")
-		if !strings.HasPrefix(pattern, "/") && !strings.HasPrefix(pattern, "**/") && pattern != "**" {
-			effective = "**/" + pattern
+		if !strings.HasPrefix(normalized, "/") && !strings.HasPrefix(normalized, "**/") {
+			effective = "**/" + normalized
 		}
 	}
-	args = append(args, "--", effective, absSearchRoot)
+	re, err := globToRegex(effective)
+	if err != nil {
+		return nil, false, fmt.Errorf("invalid glob pattern %q: %w", pattern, err)
+	}
+	args = append(args, "--", re, absSearchRoot)
 
 	cmd := exec.CommandContext(ctx, bin, args...)
 	var stdout, stderr bytes.Buffer
@@ -163,7 +169,7 @@ func runFD(ctx context.Context, pattern, absSearchRoot string, limit int) ([]str
 
 	if err != nil {
 		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok && exitErr.ExitCode() == 1 && out == "" {
-			if isFDGlobParseError(errMsg) {
+			if isFDPatternError(errMsg) {
 				return nil, false, fmt.Errorf("invalid glob pattern %q: %s", pattern, errMsg)
 			}
 			// fd exits 1 when there are no matches.
@@ -173,7 +179,7 @@ func runFD(ctx context.Context, pattern, absSearchRoot string, limit int) ([]str
 			if errMsg == "" {
 				errMsg = err.Error()
 			}
-			if isFDGlobParseError(errMsg) {
+			if isFDPatternError(errMsg) {
 				return nil, false, fmt.Errorf("invalid glob pattern %q: %s", pattern, errMsg)
 			}
 			return nil, false, fmt.Errorf("fd: %s", errMsg)
@@ -205,9 +211,10 @@ func runFD(ctx context.Context, pattern, absSearchRoot string, limit int) ([]str
 	return files, truncated, nil
 }
 
-func isFDGlobParseError(msg string) bool {
+func isFDPatternError(msg string) bool {
 	lower := strings.ToLower(msg)
 	return strings.Contains(lower, "error parsing glob") ||
+		strings.Contains(lower, "error parsing regex") ||
 		strings.Contains(lower, "invalid glob")
 }
 

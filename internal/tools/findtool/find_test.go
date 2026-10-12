@@ -103,6 +103,25 @@ func TestFind_PathPatternUsesFullPath(t *testing.T) {
 	assert.Equal(t, "src/pkg/a.go", strings.TrimSpace(out.Content))
 }
 
+func TestFind_PathPatternLiteralFileName(t *testing.T) {
+	requireFD(t)
+
+	root := t.TempDir()
+	nested := filepath.Join(root, "src", "pkg")
+	require.NoError(t, os.MkdirAll(nested, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(nested, "a.go"), []byte("x"), 0o644))
+
+	t.Chdir(root)
+
+	out, err := runFind(t.Context(), findInput{Pattern: "src/pkg/a.go"})
+	require.NoError(t, err)
+	assert.Equal(t, "src/pkg/a.go", strings.TrimSpace(out.Content))
+
+	out, err = runFind(t.Context(), findInput{Pattern: `src\pkg\*.go`})
+	require.NoError(t, err)
+	assert.Equal(t, "src/pkg/a.go", strings.TrimSpace(out.Content))
+}
+
 func TestFind_Errors(t *testing.T) {
 	requireFD(t)
 

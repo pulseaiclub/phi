@@ -31,6 +31,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Find tool: path patterns with literal segments (e.g. `src/pkg/a.go`) now
+  match on Windows; globs are translated to separator-agnostic regexes instead
+  of relying on fd's glob matching, which silently missed them there.
 - Config editor: add a `>` focus marker and bold the active field label so
   keyboard navigation remains visible when selection colors disappear.
 - TUI and config editor: detect Windows Terminal's truecolor support even when
