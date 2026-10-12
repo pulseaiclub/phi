@@ -157,6 +157,29 @@ func TestPatternArgs(t *testing.T) {
 	})
 }
 
+// TestFDRunError pins the rule that kept a broken pattern from being reported as
+// an absent file: any stderr text from fd is a failure, never "no matches".
+func TestFDRunError(t *testing.T) {
+	// fd rejects the pattern: the error must name the pattern, not report an
+	// empty result set.
+	err := fdRunError("*.go", "", "[fd error]: The search pattern 'x' contains a path-separation character")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid glob pattern")
+	assert.Contains(t, err.Error(), "*.go")
+
+	err = fdRunError("*.go", "", "error parsing glob: unclosed character class")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid glob pattern")
+
+	// Unreadable root: not the pattern's fault, but still not "no matches".
+	err = fdRunError("*.go", "", "[fd error]: Search path 'nope' is not a directory.")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "fd: ")
+
+	assert.NoError(t, fdRunError("*.go", "", ""))         // exit with empty stderr: no matches
+	assert.NoError(t, fdRunError("*.go", "a.go", "warn")) // partial output: keep it
+}
+
 func TestFind_Errors(t *testing.T) {
 	requireFD(t)
 

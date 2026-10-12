@@ -161,26 +161,10 @@ func runFD(ctx context.Context, pattern, absSearchRoot string, limit int) ([]str
 	err = cmd.Run()
 
 	out := strings.TrimSpace(stdout.String())
-	errMsg := strings.TrimSpace(stderr.String())
-
 	if err != nil {
-		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok && exitErr.ExitCode() == 1 && out == "" {
-			if isFDPatternError(errMsg) {
-				return nil, false, fmt.Errorf("invalid glob pattern %q: %s", pattern, errMsg)
-			}
-			// fd exits 1 when there are no matches.
-			return nil, false, nil
+		if runErr := fdRunError(pattern, out, strings.TrimSpace(stderr.String())); runErr != nil {
+			return nil, false, runErr
 		}
-		if out == "" {
-			if errMsg == "" {
-				errMsg = err.Error()
-			}
-			if isFDPatternError(errMsg) {
-				return nil, false, fmt.Errorf("invalid glob pattern %q: %s", pattern, errMsg)
-			}
-			return nil, false, fmt.Errorf("fd: %s", errMsg)
-		}
-		// Partial stdout with non-zero exit: keep what we got.
 	}
 
 	if out == "" {
@@ -207,10 +191,35 @@ func runFD(ctx context.Context, pattern, absSearchRoot string, limit int) ([]str
 	return files, truncated, nil
 }
 
+// fdRunError turns a failed fd run into an actionable error, or nil when the run
+// simply matched nothing.
+//
+// fd 10.x exits 0 with empty output when nothing matched and reserves a non-zero
+// exit plus stderr for real failures (a rejected pattern, an unreadable root),
+// so stderr text must never be read as "no matches": that reports a file as
+// absent when the search never ran. An exit with empty stderr stays "no
+// matches", which is how older fd and `-q` signal it.
+func fdRunError(pattern, out, errMsg string) error {
+	if out != "" {
+		// Partial output with a non-zero exit: keep what we got.
+		return nil
+	}
+	if errMsg == "" {
+		return nil
+	}
+	if isFDPatternError(errMsg) {
+		return fmt.Errorf("invalid glob pattern %q: %s", pattern, errMsg)
+	}
+	return fmt.Errorf("fd: %s", errMsg)
+}
+
+// isFDPatternError reports whether fd blamed the pattern rather than the tree,
+// so the caller can say which argument to fix.
 func isFDPatternError(msg string) bool {
 	lower := strings.ToLower(msg)
 	return strings.Contains(lower, "error parsing glob") ||
 		strings.Contains(lower, "error parsing regex") ||
+		strings.Contains(lower, "path-separation character") ||
 		strings.Contains(lower, "invalid glob")
 }
 
