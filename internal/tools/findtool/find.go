@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -140,23 +141,18 @@ func runFD(ctx context.Context, pattern, absSearchRoot string, limit int) ([]str
 		"--max-results", strconv.Itoa(limit),
 	}
 
-	// fd matches the file name unless --full-path is set; path-containing
-	// patterns need a leading **/ so they match under the search root. The
-	// glob is translated to a regex (see globToRegex) because fd's own glob
-	// matching is broken on Windows.
-	normalized := strings.ReplaceAll(pattern, `\`, "/")
-	effective := normalized
-	if strings.Contains(normalized, "/") {
-		args = append(args, "--full-path")
-		if !strings.HasPrefix(normalized, "/") && !strings.HasPrefix(normalized, "**/") {
-			effective = "**/" + normalized
+	// On Windows, fd's --glob matching is broken (globset matches backslash
+	// paths against slash-only pattern semantics), so we translate the glob
+	// to a regex. On other platforms, --glob works correctly and is simpler.
+	if runtime.GOOS == "windows" {
+		args, err = appendWindowsPattern(args, pattern)
+		if err != nil {
+			return nil, false, err
 		}
+	} else {
+		args = appendGlobPattern(args, pattern)
 	}
-	re, err := globToRegex(effective)
-	if err != nil {
-		return nil, false, fmt.Errorf("invalid glob pattern %q: %w", pattern, err)
-	}
-	args = append(args, "--", re, absSearchRoot)
+	args = append(args, absSearchRoot)
 
 	cmd := exec.CommandContext(ctx, bin, args...)
 	var stdout, stderr bytes.Buffer
@@ -216,6 +212,43 @@ func isFDPatternError(msg string) bool {
 	return strings.Contains(lower, "error parsing glob") ||
 		strings.Contains(lower, "error parsing regex") ||
 		strings.Contains(lower, "invalid glob")
+}
+
+// appendGlobPattern appends fd --glob arguments for the pattern (macOS/Linux).
+func appendGlobPattern(args []string, pattern string) []string {
+	args = append(args, "--glob")
+	// Normalize backslash to forward slash (on non-Windows, backslash is
+	// treated as an escape character in globs, not a path separator).
+	normalized := strings.ReplaceAll(pattern, `\`, "/")
+	effective := normalized
+	if strings.Contains(normalized, "/") {
+		args = append(args, "--full-path")
+		if !strings.HasPrefix(normalized, "/") && !strings.HasPrefix(normalized, "**/") {
+			effective = "**/" + normalized
+		}
+	}
+	return append(args, "--", effective)
+}
+
+// appendWindowsPattern appends fd regex arguments for the pattern (Windows workaround).
+//
+// Unlike the --glob path, every generated regex contains a path separator
+// ([^/\\] / [/\\]), and fd aborts with "contains a path-separation character"
+// when a separator appears in a pattern without --full-path. So match the full
+// path unconditionally and anchor the pattern with a leading **/ so bare names
+// still match at any depth.
+func appendWindowsPattern(args []string, pattern string) ([]string, error) {
+	// Normalize backslash to forward slash so the regex can match either separator.
+	normalized := strings.ReplaceAll(pattern, `\`, "/")
+	if !strings.HasPrefix(normalized, "/") && !strings.HasPrefix(normalized, "**/") {
+		normalized = "**/" + normalized
+	}
+
+	re, err := globToRegex(normalized)
+	if err != nil {
+		return nil, fmt.Errorf("invalid glob pattern %q: %w", pattern, err)
+	}
+	return append(args, "--full-path", "--", re), nil
 }
 
 func renderFindResult(files []string, truncated bool, limit int) string {

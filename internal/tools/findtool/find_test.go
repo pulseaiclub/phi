@@ -122,6 +122,41 @@ func TestFind_PathPatternLiteralFileName(t *testing.T) {
 	assert.Equal(t, "src/pkg/a.go", strings.TrimSpace(out.Content))
 }
 
+// TestPatternArgs pins the exact fd argv for both platform paths. Every Windows
+// pattern must carry --full-path: its generated regex always contains a path
+// separator, and fd refuses to run (exit 1) when a separator appears without
+// --full-path — which runFD would otherwise report as "No files found".
+func TestPatternArgs(t *testing.T) {
+	t.Run("windows", func(t *testing.T) {
+		cases := map[string]string{
+			"*.go":          `^(?:.*[/\\])?[^/\\]*\.go$`,
+			"src/pkg/a.go":  `^(?:.*[/\\])?src[/\\]pkg[/\\]a\.go$`,
+			`src\pkg\*.go`:  `^(?:.*[/\\])?src[/\\]pkg[/\\][^/\\]*\.go$`,
+			"**/*.go":       `^(?:.*[/\\])?[^/\\]*\.go$`,
+			"/abs/a.go":     `^[/\\]abs[/\\]a\.go$`,
+			"[a-z][0-9].md": `^(?:.*[/\\])?[a-z][0-9]\.md$`,
+		}
+		for pattern, want := range cases {
+			args, err := appendWindowsPattern(nil, pattern)
+			require.NoError(t, err, pattern)
+			assert.Equal(t, []string{"--full-path", "--", want}, args, pattern)
+		}
+	})
+
+	t.Run("posix", func(t *testing.T) {
+		cases := map[string][]string{
+			"*.go":         {"--glob", "--", "*.go"},
+			"src/pkg/a.go": {"--glob", "--full-path", "--", "**/src/pkg/a.go"},
+			`src\pkg\*.go`: {"--glob", "--full-path", "--", "**/src/pkg/*.go"},
+			"**/*.go":      {"--glob", "--full-path", "--", "**/*.go"},
+			"/abs/a.go":    {"--glob", "--full-path", "--", "/abs/a.go"},
+		}
+		for pattern, want := range cases {
+			assert.Equal(t, want, appendGlobPattern(nil, pattern), pattern)
+		}
+	})
+}
+
 func TestFind_Errors(t *testing.T) {
 	requireFD(t)
 
@@ -132,7 +167,6 @@ func TestFind_Errors(t *testing.T) {
 	_, err = runFind(t.Context(), findInput{Pattern: "["})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid glob pattern")
-
 	missing := filepath.Join(t.TempDir(), "missing")
 	_, err = runFind(t.Context(), findInput{Pattern: "*.go", Path: missing})
 	require.Error(t, err)
