@@ -40,6 +40,11 @@ func TestGlobToRegex_Matches(t *testing.T) {
 		{"**", "anything/at/all", true},
 		{"foo+.go", "foo+.go", true}, // regex metachars are literal
 		{"foo+.go", "fooggo", false},
+		// Non-ASCII literals must survive byte-for-byte; encoding a single
+		// byte as a code point double-encodes them and matches nothing.
+		{"rép*.md", "rép.md", true},
+		{"**/报告*.md", "dir/报告1.md", true},
+		{"**/报告*.md", "dir/report.md", false},
 	}
 	for _, tc := range cases {
 		re, err := globToRegex(tc.pattern)

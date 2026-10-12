@@ -6,14 +6,18 @@ import (
 	"strings"
 )
 
-// globToRegex converts a find glob into an anchored regex for fd.
+// globToRegex converts a find glob into an anchored regex for fd, used by the
+// Windows path in appendWindowsPattern.
 //
 // fd's own --glob matching is broken on Windows: globset matches the raw
 // backslash path against slash-only pattern semantics, so any pattern with a
 // literal path component or a literal file name silently matches nothing.
-// Translating the glob here gives one code path for every OS and accepts both
-// separators in the candidate path. Backslash escapes are not supported; both
-// / and \ in a pattern act as path separators.
+// The generated regex accepts both separators in the candidate path, so one
+// pattern works on every OS. Backslash escapes are not supported; both / and \
+// in a pattern act as path separators.
+//
+// The regex always contains a path separator, so it must be paired with
+// --full-path: fd refuses to run a pattern holding a separator otherwise.
 //
 // Supported: * / ** / ? / [abc] / [!abc] / {a,b}.
 func globToRegex(pattern string) (string, error) {
@@ -79,7 +83,10 @@ func writeGlob(b *strings.Builder, s string) error {
 			b.WriteByte(')')
 			i = next
 		default:
-			b.WriteString(regexp.QuoteMeta(string(s[i])))
+			// Quote the single byte, not string(s[i]): converting a byte to a
+			// string encodes it as a code point, which mangles UTF-8 literals
+			// (é -> Ã©) and makes non-ASCII patterns match nothing.
+			b.WriteString(regexp.QuoteMeta(s[i : i+1]))
 			i++
 		}
 	}
