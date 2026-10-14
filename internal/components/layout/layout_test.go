@@ -124,45 +124,69 @@ func TestBorderLabelWidth(t *testing.T) {
 	assert.Equal(t, 4, borderLabelWidth(&BorderLabel{Text: "中文"}, xui.WidthUnicode), "wide glyphs count two columns")
 }
 
+// assertSpans compares fitted spans, counting nil and empty as the same result:
+// the spans path preallocates its slice, so that distinction is an artifact of
+// the allocation rather than behavior worth pinning.
+func assertSpans(t *testing.T, want, got []fittedSpan) {
+	t.Helper()
+	if len(want) == 0 {
+		assert.Empty(t, got)
+		return
+	}
+	assert.Equal(t, want, got)
+}
+
 func TestFitBorderLabel(t *testing.T) {
 	style := xui.Style{Bold: true}
 
-	spans, width := fitBorderLabel(nil, 5, xui.WidthUnicode)
-	require.Nil(t, spans, "nil label")
-	require.Zero(t, width)
-
-	spans, width = fitBorderLabel(&BorderLabel{Text: "abc"}, 0, xui.WidthUnicode)
-	require.Nil(t, spans, "zero budget")
-	require.Zero(t, width)
-
-	spans, width = fitBorderLabel(&BorderLabel{}, 5, xui.WidthUnicode)
-	require.Nil(t, spans, "empty text")
-	require.Zero(t, width)
-
-	// Text labels keep their style and truncate to the budget.
-	spans, width = fitBorderLabel(&BorderLabel{Text: "abcdef", Style: style}, 3, xui.WidthUnicode)
-	require.Equal(t, []fittedSpan{{Text: "abc", Style: style}}, spans)
-	require.Equal(t, 3, width)
-
-	// Spans are laid out in order until the column budget is exhausted.
-	spans, width = fitBorderLabel(
-		&BorderLabel{Spans: []BorderSpan{{Text: "ab", Style: style}, {Text: "cdef"}}},
-		4, xui.WidthUnicode)
-	require.Equal(t, []fittedSpan{{Text: "ab", Style: style}, {Text: "cd"}}, spans)
-	require.Equal(t, 4, width)
-
-	// Wide glyphs inside spans count two columns and never straddle the budget.
-	spans, width = fitBorderLabel(&BorderLabel{Spans: []BorderSpan{{Text: "中文", Style: style}}}, 3, xui.WidthUnicode)
-	require.Equal(t, []fittedSpan{{Text: "中", Style: style}}, spans)
-	require.Equal(t, 2, width)
-
-	// A span that cannot fit a single grapheme stops the loop so later spans
-	// do not jump ahead of it.
-	spans, width = fitBorderLabel(
-		&BorderLabel{Spans: []BorderSpan{{Text: "中", Style: style}, {Text: "x"}}},
-		1, xui.WidthUnicode)
-	require.Empty(t, spans, "wide grapheme does not fit")
-	require.Zero(t, width)
+	tests := []struct {
+		name      string
+		label     *BorderLabel
+		budget    int
+		wantSpans []fittedSpan
+		wantWidth int
+	}{
+		{"nil label", nil, 5, nil, 0},
+		{"zero budget", &BorderLabel{Text: "abc"}, 0, nil, 0},
+		{"empty text", &BorderLabel{}, 5, nil, 0},
+		{
+			"text truncates to the budget and keeps its style",
+			&BorderLabel{Text: "abcdef", Style: style},
+			3,
+			[]fittedSpan{{Text: "abc", Style: style}},
+			3,
+		},
+		{
+			"spans are laid out in order until the budget is exhausted",
+			&BorderLabel{Spans: []BorderSpan{{Text: "ab", Style: style}, {Text: "cdef"}}},
+			4,
+			[]fittedSpan{{Text: "ab", Style: style}, {Text: "cd"}},
+			4,
+		},
+		{
+			"wide glyphs count two columns and never straddle the budget",
+			&BorderLabel{Spans: []BorderSpan{{Text: "中文", Style: style}}},
+			3,
+			[]fittedSpan{{Text: "中", Style: style}},
+			2,
+		},
+		{
+			// A span that cannot fit a single grapheme stops the loop so later
+			// spans do not jump ahead of it.
+			"span with an oversize grapheme stops the loop",
+			&BorderLabel{Spans: []BorderSpan{{Text: "中", Style: style}, {Text: "x"}}},
+			1,
+			nil,
+			0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spans, width := fitBorderLabel(tt.label, tt.budget, xui.WidthUnicode)
+			assertSpans(t, tt.wantSpans, spans)
+			assert.Equal(t, tt.wantWidth, width)
+		})
+	}
 }
 
 func TestDrawRoundedBorderEmbedsStyledSpans(t *testing.T) {
