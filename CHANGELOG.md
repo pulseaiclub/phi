@@ -17,6 +17,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- Cache Markdown parsing and text layout for assistant messages, agent summaries,
+  and expanded thinking bodies to reduce repeated rendering work.
+
 ### Deprecated
 
 ### Removed

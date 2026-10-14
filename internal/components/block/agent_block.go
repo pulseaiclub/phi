@@ -7,6 +7,7 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/chrome"
+	"github.com/pulseaiclub/phi/internal/components/rendercache"
 	"github.com/pulseaiclub/phi/internal/components/status"
 	"github.com/pulseaiclub/phi/internal/components/text"
 	"github.com/pulseaiclub/phi/internal/components/tree"
@@ -36,7 +37,13 @@ type AgentBlock struct {
 	Spinner  *status.Spinner
 	OnToggle func(expanded bool)
 
-	titleH int
+	titleH       int
+	summaryCache rendercache.Cache[agentSummaryRenderKey]
+}
+
+type agentSummaryRenderKey struct {
+	text  string
+	theme components.Theme
 }
 
 func (a *AgentBlock) theme() components.Theme {
@@ -170,8 +177,11 @@ func (a *AgentBlock) Draw(ctx components.DrawContext) components.Surface {
 			}, bodyW, ctx.Method)...)
 		}
 		if sum := strings.TrimSpace(a.Summary); sum != "" {
-			md := text.RenderMarkdown(sum, th)
-			footLines = append(footLines, components.WrapSpans(md, bodyW, ctx.Method)...)
+			key := agentSummaryRenderKey{text: sum, theme: th}
+			lines := a.summaryCache.Lines(key, bodyW, ctx.Method, func() []components.Span {
+				return text.RenderMarkdown(sum, th)
+			})
+			footLines = append(footLines, lines...)
 		}
 	}
 

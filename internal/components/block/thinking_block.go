@@ -7,6 +7,7 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/chrome"
+	"github.com/pulseaiclub/phi/internal/components/rendercache"
 	"github.com/pulseaiclub/phi/internal/components/status"
 )
 
@@ -21,7 +22,13 @@ type ThinkingBlock struct {
 	Spinner     *status.Spinner
 	OnToggle    func(expanded bool)
 
-	titleH int
+	titleH    int
+	bodyCache rendercache.Cache[thinkingBodyKey]
+}
+
+type thinkingBodyKey struct {
+	text  string
+	style xui.Style
 }
 
 func (t *ThinkingBlock) theme() components.Theme {
@@ -107,7 +114,9 @@ func (t *ThinkingBlock) Draw(ctx components.DrawContext) components.Surface {
 		if bodyW > 2 {
 			bodyW -= 2
 		}
-		bodyLines = components.WrapSpans([]components.Span{{Text: t.Text, Style: body}}, bodyW, ctx.Method)
+		bodyLines = t.bodyCache.Lines(thinkingBodyKey{t.Text, body}, bodyW, ctx.Method, func() []components.Span {
+			return []components.Span{{Text: t.Text, Style: body}}
+		})
 	}
 
 	h := len(titleLines) + len(bodyLines)
