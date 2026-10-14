@@ -159,7 +159,7 @@ models:
     api_key: ...
     think_level: high       # 可选：off | minimal | low | medium | high | …
 
-skill_path: ~/.phi/skills # SKILL.md 文件的加载目录
+skill_path: ~/.phi/skills # SKILL.md 文件的加载目录；`~/…` 会被展开
 max_rounds: 64            # 工具轮次预算；0 → 引擎默认值（64）
 
 agents:
@@ -348,6 +348,16 @@ phi run -p "fix the failing test in internal/tools"
 技能是包含 `SKILL.md` 文件的目录，文件带 YAML frontmatter 和 Markdown 正文。
 它们从 `~/.phi/skills/`（或 `skill_path` / `PHI_SKILL_PATH`）加载，注入到代理
 上下文中，让你能给模型提供可复用的流程：
+
+同时也会读取 Agent Skills 的 `~/.agents/skills/` 与 `.agents/skills/`，因此给
+其他 agent 装好的技能包无需配置即可使用。项目级 `.agents/skills/` 会从工作目录
+逐级向上查找，遇到 git 仓库根目录即停止。搜索顺序为 `skill_path` →
+`~/.agents/skills` → 各级项目目录，同名技能由靠前的目录胜出。`skill_path` 或
+`PHI_SKILL_PATH` 里的前导 `~` 会展开为 home 目录。
+
+> **安全：**技能文件属于工作区内容，不是可信输入——项目里的 `.agents/skills/`
+> 会被直接加载、无需确认。像审查 `AGENTS.md` 一样先审查技能文件再信任一个
+> checkout。
 
 ```markdown
 ---
