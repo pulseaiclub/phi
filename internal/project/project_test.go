@@ -171,6 +171,38 @@ skill_path: /from/file
 	assert.Equal(t, "/from/env", cfg.SkillPath)
 }
 
+// expandHome only rewrites a leading "~"; everything else passes through.
+func TestExpandHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	assert.Equal(t, home, expandHome("~"))
+	assert.Equal(t, filepath.Join(home, "a", "b"), expandHome("  ~/a/b  "))
+	assert.Equal(t, "/abs/path", expandHome("/abs/path"))
+	assert.Equal(t, "relative/path", expandHome("relative/path"))
+	// ~user (another account's home) is a real path form; leave it alone.
+	assert.Equal(t, "~other/skills", expandHome("~other/skills"))
+	assert.Empty(t, expandHome(""))
+}
+
+// A .git file (worktree or submodule checkout) marks the root just like a
+// .git directory.
+// PHI_SKILL_PATH takes the same expansion as the config file value.
+func TestLoadConfigEnvSkillPathExpandsHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("PHI_MODEL", "env-model")
+	t.Setenv("PHI_API_KEY", "env-key")
+	t.Setenv("PHI_SKILL_PATH", "~/env-skills")
+
+	p, err := Discover("")
+	require.NoError(t, err)
+	require.NoError(t, p.LoadConfig())
+	assert.Equal(t, filepath.Join(home, "env-skills"), p.Config().SkillPath)
+}
+
 func TestLoadConfigMissingAPIKey(t *testing.T) {
 	p := discoverInTempHome(t)
 	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte("models:\n  - name: x\n"), 0o644))

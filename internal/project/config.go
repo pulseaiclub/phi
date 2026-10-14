@@ -114,6 +114,11 @@ func loadConfig(global GlobalLayout) (*Config, error) {
 	if def.APIKey == "" {
 		return nil, fmt.Errorf("missing api_key (set PHI_API_KEY or models[].api_key in %s)", global.ConfigFile())
 	}
+	// A "~" in skill_path is expanded before anything stats the path: both the
+	// docs and the settings screen hand out ~-prefixed paths, and a literal
+	// "~/…" fails os.Stat silently, so it would load zero skills with no
+	// warning at all.
+	cfg.SkillPath = expandHome(cfg.SkillPath)
 	if cfg.SkillPath == "" {
 		cfg.SkillPath = global.SkillsDir()
 	}
