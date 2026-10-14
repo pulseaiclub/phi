@@ -170,7 +170,8 @@ skill_path: /from/file
 
 	require.NoError(t, p.LoadConfig())
 	cfg := p.Config()
-	assert.Equal(t, "/from/env", cfg.SkillPaths[0], "the env path is the highest-priority root")
+	// resolveSkillPaths cleans every root, so compare against the cleaned form.
+	assert.Equal(t, filepath.FromSlash("/from/env"), cfg.SkillPaths[0], "the env path is the highest-priority root")
 	assert.Equal(t, "env-model", cfg.Model().Name)
 	assert.Equal(t, "env-key", cfg.Model().APIKey)
 	assert.Equal(t, "https://env.example/v1", cfg.Model().BaseURL)
