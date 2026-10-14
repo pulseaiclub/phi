@@ -23,6 +23,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- `find` and `grep` tool rows no longer repeat the tool name in their details
+  (`find find ...` / `grep grep ...`); an empty pattern shows the search path.
+
 ### Security
 
 ## [0.28.6] - 2026-10-13
