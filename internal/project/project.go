@@ -102,7 +102,7 @@ func (p *Project) Config() *Config { return p.config }
 // LoadConfig reads, env-overrides and finalizes the global configuration.
 // The result is cached on the Project until the next LoadConfig call.
 func (p *Project) LoadConfig() error {
-	cfg, err := loadConfig(p.global)
+	cfg, err := loadConfig(p.global, p.root)
 	if err != nil {
 		return err
 	}

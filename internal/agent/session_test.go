@@ -79,13 +79,13 @@ func TestEngineSetModelKeepsSession(t *testing.T) {
 		APIKey:        "k",
 		BaseURL:       "http://example",
 		ContextWindow: 8192,
-		SkillPath:     dir,
+		SkillPaths:    []string{dir},
 	})
 	assert.Equal(t, id, eng.SessionID())
 	assert.Equal(t, file, eng.SessionFile())
 	assert.Equal(t, n, eng.session.Len())
 	assert.Equal(t, 8192, eng.modelCfg.ContextWindow)
-	assert.Equal(t, dir, eng.modelCfg.SkillPath)
+	assert.Equal(t, []string{dir}, eng.modelCfg.SkillPaths)
 }
 
 func TestSessionBuildContextLabelsCompactionSummary(t *testing.T) {

@@ -70,7 +70,8 @@ func NewEditor(
 	ctrl *controller.EngineController,
 	vx *xui.XUI,
 	theme components.Theme,
-	cwd, modelLabel, skillPath string,
+	cwd, modelLabel string,
+	skillPaths []string,
 	contextWindow int,
 	modelNames []string,
 ) *Editor {
@@ -148,7 +149,7 @@ func NewEditor(
 		e.transcript,
 		e.footer,
 		modelNames,
-		skillPath,
+		skillPaths,
 		e.openDiff,
 		e.openCode,
 	)

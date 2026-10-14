@@ -191,7 +191,7 @@ Do the work.
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(content), 0o644))
 
 	var got string
-	cmd := buildSkillsPalette(dir, func(name string) { got = name })
+	cmd := buildSkillsPalette([]string{dir}, func(name string) { got = name })
 	assert.Equal(t, "skills", cmd.Noun)
 	assert.Equal(t, "invoke", cmd.Verb)
 	require.Len(t, cmd.Submenu, 1)
@@ -202,7 +202,7 @@ Do the work.
 }
 
 func TestSkillsCommand_Empty(t *testing.T) {
-	cmd := buildSkillsPalette(t.TempDir(), nil)
+	cmd := buildSkillsPalette([]string{t.TempDir()}, nil)
 	require.Len(t, cmd.Submenu, 1)
 	assert.True(t, cmd.Submenu[0].Disabled)
 }
@@ -301,7 +301,7 @@ func TestCommandRegistry_BuildPalette(t *testing.T) {
 			}
 		},
 	})
-	(&SkillsCommands{SkillPath: t.TempDir()}).Register(r)
+	(&SkillsCommands{SkillPaths: []string{t.TempDir()}}).Register(r)
 
 	cmds := r.BuildPalette(ctx)
 	require.GreaterOrEqual(t, len(cmds), 3)

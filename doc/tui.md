@@ -78,7 +78,7 @@ vx, theme, cwd
 redraw := controller.NewRedrawRelay()
 bus    := controller.NewBus(redraw.Fire)
 ctrl   := controller.NewController(bus, proj, cwd)
-ui     := editor.NewEditor(app, bus, ctrl, vx, theme, cwd, model, skillPath, contextWindow, modelNames)
+ui     := editor.NewEditor(app, bus, ctrl, vx, theme, cwd, model, skillPaths, contextWindow, modelNames)
 redraw.Bind(ui.RequestRedraw)
 ui.StartUpdateCheck(...)
 ui.StartBranchWatch()

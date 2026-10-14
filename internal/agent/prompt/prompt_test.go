@@ -10,8 +10,8 @@ import (
 )
 
 func TestBuildAgentsEnabledToggle(t *testing.T) {
-	with := Build("", "", true, 4, nil)
-	without := Build("", "", false, 0, nil)
+	with := Build("", nil, true, 4, nil)
+	without := Build("", nil, false, 0, nil)
 
 	require.Contains(t, with, "agent_spawn")
 	require.Contains(t, with, "Sub-agents:")
@@ -22,7 +22,7 @@ func TestBuildAgentsEnabledToggle(t *testing.T) {
 }
 
 func TestBuildEditHashCopyIsUnambiguous(t *testing.T) {
-	got := Build("", "", false, 0, nil)
+	got := Build("", nil, false, 0, nil)
 	require.Contains(t, got, "*** SM:EDIT path")
 	require.Contains(t, got, "*** SM:FIND")
 	require.NotContains(t, got, "Known path or exact symbol")
@@ -36,7 +36,7 @@ func TestBuildEditHashCopyIsUnambiguous(t *testing.T) {
 // resolution ladder, keeps the user's instruction below the permission gate,
 // and points at the numbered entries in <project_context>.
 func TestBuildDeclaresInstructionPriority(t *testing.T) {
-	got := Build("", "", false, 0, nil)
+	got := Build("", nil, false, 0, nil)
 
 	require.Contains(t, got, "Instructions can conflict. Priority, highest first:")
 	require.Contains(t, got, "outranks file preferences but not the permission gate")
@@ -50,10 +50,10 @@ func TestBuildDeclaresInstructionPriority(t *testing.T) {
 }
 
 func TestBuildMCPCatalog(t *testing.T) {
-	none := Build("", "", false, 0, nil)
+	none := Build("", nil, false, 0, nil)
 	require.NotContains(t, none, "# MCP")
 	require.NotContains(t, none, "External docs/URLs")
-	got := Build("", "", false, 0, []string{"browsermcp", "github"})
+	got := Build("", nil, false, 0, []string{"browsermcp", "github"})
 	require.Contains(t, got, "# MCP")
 	require.Contains(t, got, "- browsermcp")
 	require.Contains(t, got, "- github")
@@ -74,7 +74,7 @@ func TestBuildUsesGivenCwd(t *testing.T) {
 	nested := filepath.Join(root, "pkg", "deep")
 	mustMkdir(t, nested)
 
-	got := Build(nested, "", false, 0, nil)
+	got := Build(nested, nil, false, 0, nil)
 	require.Contains(t, got, "- Current directory: "+nested)
 	require.Contains(t, got, "- Workspace: "+root)
 	require.Contains(t, got, "workspace-local rule")
@@ -84,7 +84,7 @@ func TestBuildIgnoresProcessCwdWhenGivenACwd(t *testing.T) {
 	processCwd, err := os.Getwd()
 	require.NoError(t, err)
 
-	got := Build(t.TempDir(), "", false, 0, nil)
+	got := Build(t.TempDir(), nil, false, 0, nil)
 	require.NotContains(t, got, "- Current directory: "+processCwd)
 	require.NotContains(t, got, "- Workspace: "+processCwd)
 }
@@ -93,7 +93,7 @@ func TestBuildEmptyCwdFallsBackToProcessCwd(t *testing.T) {
 	processCwd, err := os.Getwd()
 	require.NoError(t, err)
 
-	got := Build("", "", false, 0, nil)
+	got := Build("", nil, false, 0, nil)
 	require.Contains(t, got, "- Current directory: "+processCwd)
 }
 
@@ -108,4 +108,26 @@ func TestWorkspaceDir(t *testing.T) {
 
 	require.Equal(t, root, workspaceDir(nested))
 	require.Equal(t, root, workspaceDir(root))
+}
+
+// TestBuildSkillCatalogMergesRoots pins the priority order: every root
+// contributes skills, and the first root wins a duplicate name.
+func TestBuildSkillCatalogMergesRoots(t *testing.T) {
+	first, second := t.TempDir(), t.TempDir()
+	writeSkill(t, first, "alpha", "from the first root")
+	writeSkill(t, second, "alpha", "shadowed by the first root")
+	writeSkill(t, second, "beta", "from the second root")
+
+	got := Build("", []string{first, second}, false, 0, nil)
+
+	require.Contains(t, got, "from the first root")
+	require.Contains(t, got, "from the second root")
+	require.NotContains(t, got, "shadowed by the first root")
+}
+
+func writeSkill(t *testing.T, root, name, description string) {
+	t.Helper()
+	file := filepath.Join(root, name, "SKILL.md")
+	mustMkdir(t, filepath.Dir(file))
+	mustWrite(t, file, "---\nname: "+name+"\ndescription: "+description+"\n---\nbody\n")
 }
