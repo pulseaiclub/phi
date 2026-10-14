@@ -63,16 +63,18 @@ func FindTool() tooldef.Tool {
 	)
 }
 
+// findDetail is the row's detail only: the UI already paints the tool name, so
+// repeating it here renders as "find find ...".
 func findDetail(in findInput) string {
 	pat := strings.TrimSpace(in.Pattern)
 	p := strings.TrimSpace(in.Path)
 	if p == "" {
 		p = "."
 	}
-	if pat != "" {
-		return fmt.Sprintf("find %q in %s", pat, p)
+	if pat == "" {
+		return p
 	}
-	return "find"
+	return fmt.Sprintf("%q in %s", pat, p)
 }
 
 type findInput struct {

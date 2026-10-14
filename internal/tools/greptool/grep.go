@@ -107,16 +107,18 @@ func GrepTool() tooldef.Tool {
 	)
 }
 
+// grepDetail is the row's detail only: the UI already paints the tool name, so
+// repeating it here renders as "grep grep ...".
 func grepDetail(in grepInput) string {
 	pat := strings.TrimSpace(in.Pattern)
 	p := strings.TrimSpace(in.Path)
 	if p == "" {
 		p = "."
 	}
-	if pat != "" {
-		return fmt.Sprintf("grep %q in %s", pat, p)
+	if pat == "" {
+		return p
 	}
-	return "grep"
+	return fmt.Sprintf("%q in %s", pat, p)
 }
 
 type grepInput struct {

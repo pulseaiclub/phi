@@ -105,6 +105,13 @@ func TestRunGrep_LimitReachedStopsCleanly(t *testing.T) {
 	assert.Contains(t, out.Content, "2 matches limit reached")
 }
 
+// The row already paints the tool name; the detail must not repeat it.
+func TestGrepDetail(t *testing.T) {
+	assert.Equal(t, `"Hello" in src`, grepDetail(grepInput{Pattern: "Hello", Path: "src"}))
+	assert.Equal(t, `"Hello" in .`, grepDetail(grepInput{Pattern: " Hello "}))
+	assert.Equal(t, "src", grepDetail(grepInput{Path: "src"}))
+}
+
 // runGrepBounded fails the test instead of hanging the suite.
 func runGrepBounded(t *testing.T, in grepInput) (tooldef.Result, error) {
 	t.Helper()
