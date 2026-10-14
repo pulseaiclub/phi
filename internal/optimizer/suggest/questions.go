@@ -4,8 +4,10 @@ import (
 	_ "embed"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/pulseaiclub/phi/internal/llm/jev"
+	"github.com/pulseaiclub/phi/internal/util"
 )
 
 // Question prose lives in static files: it is model input, and the exact wording
@@ -67,11 +69,10 @@ func requestState(typed string, candidates []candidate) suggestState {
 // contract the question prose relies on.
 func displayCommand(command string) string {
 	flat := strings.ReplaceAll(command, "\n", `\n`)
-	runes := []rune(flat)
-	if len(runes) <= maxCommandChars {
+	if utf8.RuneCountInString(flat) <= maxCommandChars {
 		return flat
 	}
-	return string(runes[:maxCommandChars-1]) + "…"
+	return util.TruncateRunes(flat, maxCommandChars-1, "…")
 }
 
 // parseGateCriteria reads `true: description` and `false: description` lines.

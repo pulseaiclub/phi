@@ -17,6 +17,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/debuglog"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/util"
 )
 
 const maxContextBytes = 4 * 1024
@@ -441,10 +442,10 @@ func (r *Runner) PreTool(
 			contexts = append(contexts, res.Context)
 		}
 		if res.Block {
-			return ev.Input, true, res.Reason, capContext(strings.Join(contexts, "\n"))
+			return ev.Input, true, res.Reason, util.TruncateBytes(strings.Join(contexts, "\n"), maxContextBytes, "")
 		}
 	}
-	return ev.Input, false, "", capContext(strings.Join(contexts, "\n"))
+	return ev.Input, false, "", util.TruncateBytes(strings.Join(contexts, "\n"), maxContextBytes, "")
 }
 
 // PostTool runs tool_result handlers.
@@ -493,7 +494,7 @@ func (r *Runner) PostTool(
 			reason = res.Reason
 		}
 	}
-	return out, capContext(strings.Join(contexts, "\n")), stop, reason
+	return out, util.TruncateBytes(strings.Join(contexts, "\n"), maxContextBytes, ""), stop, reason
 }
 
 // EmitSessionStart notifies session_start handlers.
@@ -770,11 +771,4 @@ func callViaReflect[T any](h, payload any, ctx *ext.Context) *T {
 		return res
 	}
 	return nil
-}
-
-func capContext(s string) string {
-	if len(s) <= maxContextBytes {
-		return s
-	}
-	return s[:maxContextBytes]
 }

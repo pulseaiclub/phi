@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/pulseaiclub/phi/internal/util"
 )
 
 // Gate evaluates permission requests. It has no side effects; Ask is handled by the caller.
@@ -100,7 +102,7 @@ func (g *StaticGate) checkBash(req Request) (Decision, string) {
 	if def == Deny {
 		return Deny, "bash denied by default policy"
 	}
-	return Ask, "bash requires approval: " + truncate(cmd, 120)
+	return Ask, "bash requires approval: " + util.TruncateBytes(cmd, 120, "…")
 }
 
 func (g *StaticGate) checkWrite(req Request) (Decision, string) {
@@ -191,13 +193,6 @@ func askFoldReason(reason string, mode Mode) string {
 		return fmt.Sprintf("%s mode denies operations that would require approval", mode)
 	}
 	return fmt.Sprintf("%s mode: %s", mode, reason)
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
 }
 
 // AllowAll is a Gate that always allows (tests / nil-policy fallback).

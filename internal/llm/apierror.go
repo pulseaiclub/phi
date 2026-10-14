@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/pulseaiclub/phi/internal/util"
 )
 
 // maxAPIErrorBodyChars caps the raw-body fallback in FormatAPIError so a
@@ -25,10 +27,7 @@ func FormatAPIError(provider string, status int, body []byte) error {
 func APIErrorMessage(body []byte) string {
 	msg := apiErrorMessage(body)
 	if msg == "" {
-		msg = strings.TrimSpace(string(body))
-		if r := []rune(msg); len(r) > maxAPIErrorBodyChars {
-			msg = string(r[:maxAPIErrorBodyChars]) + "…"
-		}
+		msg = util.TruncateRunes(strings.TrimSpace(string(body)), maxAPIErrorBodyChars, "…")
 	}
 	if msg == "" {
 		msg = "empty error response"

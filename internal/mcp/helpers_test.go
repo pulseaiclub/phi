@@ -8,12 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestTruncate(t *testing.T) {
-	require.Equal(t, "hello", truncate("hello", 5))
-	require.Equal(t, "hello…", truncate("helloo", 5))
-	require.Equal(t, "hi", truncate("hi", 5))
-}
-
 func TestSanitizeName(t *testing.T) {
 	require.Equal(t, "a_b_c", sanitizeName("a/b c"))
 	require.Equal(t, "server", sanitizeName(""))

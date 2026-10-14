@@ -2,13 +2,6 @@ package mcp
 
 import "strings"
 
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
-}
-
 func sanitizeName(name string) string {
 	var b strings.Builder
 	for _, r := range name {

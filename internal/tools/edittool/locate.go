@@ -6,8 +6,10 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/pulseaiclub/phi/internal/tools/edittool/sloppy"
+	"github.com/pulseaiclub/phi/internal/util"
 )
 
 // locate anchors one operation's pattern in the file. It walks the matching
@@ -333,8 +335,8 @@ func displayFragment(text string) string {
 		return "\n" + text
 	}
 	compact := strings.Join(strings.Fields(text), " ")
-	if runes := []rune(compact); len(runes) > 80 {
-		compact = string(runes[:77]) + "…"
+	if utf8.RuneCountInString(compact) > 80 {
+		compact = util.TruncateRunes(compact, 77, "…")
 	}
 	quoted, err := json.Marshal(compact)
 	if err != nil {

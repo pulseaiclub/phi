@@ -79,10 +79,7 @@ func fetchModelIDs(ctx context.Context, baseURL, apiKey, api, model string) ([]s
 		return nil, errors.New("model list response is too large")
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		message := strings.TrimSpace(string(body))
-		if len(message) > 500 {
-			message = message[:500]
-		}
+		message := util.TruncateBytes(strings.TrimSpace(string(body)), 500, "")
 		if message == "" {
 			message = response.Status
 		}

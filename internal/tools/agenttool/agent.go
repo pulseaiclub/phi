@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
+	"github.com/pulseaiclub/phi/internal/util"
 
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
@@ -158,7 +158,7 @@ func jobLabel(description, prompt string) string {
 	if d := oneLine(description); d != "" {
 		return d
 	}
-	return truncateRunes(oneLine(prompt), 80)
+	return util.TruncateRunes(oneLine(prompt), 80, "…")
 }
 
 func oneLine(s string) string {
@@ -214,7 +214,7 @@ Use agent_cancel to stop a running job.`,
 			if err != nil {
 				return tooldef.Result{}, err
 			}
-			summary := truncateBytes(res.Summary, agentSummaryLimit)
+			summary := util.TruncateBytes(res.Summary, agentSummaryLimit, "\n…(truncated)")
 			label := roleDetail(string(res.Info.Role), jobLabel(res.Info.Description, res.Info.Prompt))
 			body := mustJSON(map[string]any{
 				"job_id":      res.Info.ID,
@@ -266,28 +266,4 @@ func mustJSON(v any) string {
 		return fmt.Sprintf("%v", v)
 	}
 	return string(b)
-}
-
-func truncateBytes(s string, n int) string {
-	if n <= 0 || len(s) <= n {
-		return s
-	}
-	return s[:n] + "\n…(truncated)"
-}
-
-func truncateRunes(s string, n int) string {
-	if n <= 0 || utf8.RuneCountInString(s) <= n {
-		return s
-	}
-	var b strings.Builder
-	i := 0
-	for _, r := range s {
-		if i >= n {
-			break
-		}
-		b.WriteRune(r)
-		i++
-	}
-	b.WriteString("…")
-	return b.String()
 }

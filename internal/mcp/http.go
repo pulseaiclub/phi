@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/pulseaiclub/phi/internal/util"
 )
 
 const (
@@ -81,7 +83,12 @@ func (t *httpTransport) call(ctx context.Context, method string, params map[stri
 		return nil, fmt.Errorf("mcp http %s read: %w", method, err)
 	}
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("mcp http %s: HTTP %d: %s", method, resp.StatusCode, truncate(string(body), 300))
+		return nil, fmt.Errorf(
+			"mcp http %s: HTTP %d: %s",
+			method,
+			resp.StatusCode,
+			util.TruncateBytes(string(body), 300, "…"),
+		)
 	}
 
 	rpc, err := parseHTTPOrSSEBody(body)

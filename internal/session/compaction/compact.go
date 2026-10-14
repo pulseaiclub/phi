@@ -9,6 +9,7 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/pulseaiclub/phi/internal/util"
 )
 
 // CompactionPreparation holds everything Compact needs: the entries to
@@ -275,15 +276,6 @@ func getMessageFromEntry(entry session.MessageEntry) *llm.Message {
 
 const toolResultMaxChars = 500
 
-// truncateForSummary truncates content to at most maxChars runes, appending "..." if truncated.
-func truncateForSummary(content string, maxChars int) string {
-	runes := []rune(content)
-	if len(runes) <= maxChars {
-		return content
-	}
-	return string(runes[:maxChars]) + "..."
-}
-
 // SerializeConversation formats messages as a single string for summary prompts:
 // [User]: ..., [Assistant]: ..., [Assistant tool calls]: ..., [Tool result]: ...
 func SerializeConversation(messages []llm.Message) string {
@@ -307,7 +299,7 @@ func SerializeConversation(messages []llm.Message) string {
 			}
 		case llm.RoleTool:
 			if msg.Content != "" {
-				parts = append(parts, "[Tool result]: "+truncateForSummary(msg.Content, toolResultMaxChars))
+				parts = append(parts, "[Tool result]: "+util.TruncateRunes(msg.Content, toolResultMaxChars, "..."))
 			}
 		}
 	}

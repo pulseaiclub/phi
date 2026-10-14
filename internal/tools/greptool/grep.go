@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 
@@ -471,11 +472,10 @@ func truncateLine(line string, maxChars int) (string, bool) {
 	if maxChars <= 0 {
 		maxChars = grepMaxLineRunes
 	}
-	runes := []rune(line)
-	if len(runes) <= maxChars {
+	if utf8.RuneCountInString(line) <= maxChars {
 		return line, false
 	}
-	return string(runes[:maxChars]) + grepTruncatedSuffix, true
+	return util.TruncateRunes(line, maxChars, grepTruncatedSuffix), true
 }
 
 type truncResult struct {

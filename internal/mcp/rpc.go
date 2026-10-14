@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"sync/atomic"
+
+	"github.com/pulseaiclub/phi/internal/util"
 )
 
 // jsonRPCError is the JSON-RPC 2.0 error object.
@@ -120,7 +122,7 @@ func parseHTTPOrSSEBody(body []byte) (jsonRPCResponse, error) {
 	}
 	var rpc jsonRPCResponse
 	if err := json.Unmarshal(body, &rpc); err != nil {
-		return jsonRPCResponse{}, fmt.Errorf("parse http body: %w; raw=%q", err, truncate(text, 200))
+		return jsonRPCResponse{}, fmt.Errorf("parse http body: %w; raw=%q", err, util.TruncateBytes(text, 200, "…"))
 	}
 	return rpc, nil
 }

@@ -14,6 +14,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
+
+	"github.com/pulseaiclub/phi/internal/util"
 )
 
 const (
@@ -336,9 +339,8 @@ func OneLine(s string) string {
 
 // Truncate cuts s to at most n runes, appending "…" when truncated.
 func Truncate(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
+	if utf8.RuneCountInString(s) <= n {
 		return s
 	}
-	return strings.TrimSpace(string(r[:n])) + "…"
+	return strings.TrimSpace(util.TruncateRunes(s, n, "")) + "…"
 }

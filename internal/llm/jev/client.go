@@ -315,7 +315,7 @@ type APIError struct {
 func (e *APIError) Error() string {
 	msg := errorMessage(e.Body)
 	if msg == "" {
-		msg = truncateBody(string(e.Body))
+		msg = util.TruncateRunes(strings.TrimSpace(string(e.Body)), maxErrorBodyChars, "…")
 		if msg == "" {
 			msg = "empty error response"
 		}
@@ -426,15 +426,6 @@ func locPath(loc []any) string {
 // maxErrorBodyChars caps the raw-body fallback so a non-JSON error page can
 // never flood an error message.
 const maxErrorBodyChars = 2000
-
-// truncateBody trims and caps a raw body for the Error fallback.
-func truncateBody(body string) string {
-	trimmed := strings.TrimSpace(body)
-	if r := []rune(trimmed); len(r) > maxErrorBodyChars {
-		return string(r[:maxErrorBodyChars]) + "…"
-	}
-	return trimmed
-}
 
 // call sends one request and returns the response body and the server's request
 // id. A non-2xx status becomes an *APIError; util.DoWithRetry handles retrying
