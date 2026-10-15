@@ -13,7 +13,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
-	"github.com/pulseaiclub/phi/internal/urls"
 	"github.com/pulseaiclub/phi/internal/util"
 )
 
@@ -33,8 +32,6 @@ type Executor struct {
 	ext       *extension.Runner // nil = disabled; methods are nil-safe no-ops
 	sessionID string
 	cwd       string
-	readURLs  *urls.Router
-
 	// askMu serializes approval prompts: a concurrent read-only batch can
 	// otherwise pop multiple dialogs / interleave stdin reads at once.
 	askMu sync.Mutex
@@ -50,7 +47,7 @@ func NewExecutor(
 	if gate == nil {
 		gate = permission.AllowAll{}
 	}
-	return &Executor{registry: registry, gate: gate, ask: ask, ext: extRunner, readURLs: urls.NewSkillRouter(nil)}
+	return &Executor{registry: registry, gate: gate, ask: ask, ext: extRunner}
 }
 
 // SetMeta attaches session identity used in extension Event payloads.
@@ -220,20 +217,6 @@ func (e *Executor) runOne(
 		}
 	}
 
-	// Resolve only after extensions have finalized the input. The gate and read
-	// handler must receive the same filesystem target, never resolve separately.
-	if call.Function.Name == "read" {
-		resolved, err := e.resolveReadURL(ctx, args)
-		if err != nil {
-			e.ext.EmitToolExecutionEnd(call.Function.Name, call.ID, true)
-			return e.rejectResult(call, detail, appendExtContext(err.Error(), preContext), emit), false, ""
-		}
-		args = resolved
-		if tool.DetailFromArgs != nil {
-			detail = tool.DetailFromArgs(args)
-		}
-	}
-
 	if msg, rejected := e.checkPermission(ctx, call, args, detail, emit); rejected {
 		e.ext.EmitToolExecutionEnd(call.Function.Name, call.ID, true)
 		return msg, false, ""
@@ -300,34 +283,6 @@ func (e *Executor) runOne(
 	run.Expanded = result.Expanded
 	_ = emit(session.ToolData{Run: run})
 	return e.toolMessage(call.ID, modelContent), postStop, postReason
-}
-
-func (e *Executor) resolveReadURL(ctx context.Context, args json.RawMessage) (json.RawMessage, error) {
-	var input map[string]json.RawMessage
-	if err := json.Unmarshal(args, &input); err != nil {
-		return nil, fmt.Errorf("read URL input: %w", err)
-	}
-	var path string
-	if err := json.Unmarshal(input["path"], &path); err != nil {
-		return nil, fmt.Errorf("read path must be a string: %w", err)
-	}
-	path = strings.TrimSpace(path)
-	_, rest, _ := strings.Cut(path, ":")
-	if !strings.HasPrefix(rest, "//") || urls.ExtractURIScheme(path) == "" {
-		return args, nil
-	}
-	resolved, err := e.readURLs.Locate(ctx, path)
-	if err != nil {
-		return nil, fmt.Errorf("resolve read URL: %w", err)
-	}
-	if strings.TrimSpace(resolved) != resolved {
-		return nil, fmt.Errorf(
-			"read URL resolves to path %q with leading or trailing whitespace; rename the target to remove that whitespace before reading",
-			resolved,
-		)
-	}
-	input["path"], _ = json.Marshal(resolved)
-	return json.Marshal(input)
 }
 
 func (e *Executor) checkPermission(

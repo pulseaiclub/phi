@@ -198,7 +198,6 @@ func TestToPromptMarkdown_Single(t *testing.T) {
 	assert.Contains(t, result, "### Test Skill")
 	assert.Contains(t, result, "A test skill description")
 	assert.Contains(t, result, "/home/user/.phi/skills/test-skill/SKILL.md")
-	assert.Contains(t, result, "**Read URL:** `skill://Test%20Skill`")
 }
 
 func TestToPromptMarkdown_Multiple(t *testing.T) {

@@ -22,7 +22,7 @@ const (
 
 var readDescription = fmt.Sprintf(`Read a file and return its contents with an @file path header.
 
-Pass a file path or skill://name[/relative/path]; use offset (1-based) and limit to paginate. Body lines are
+Pass the file path; use offset (1-based) and limit to paginate. Body lines are
 N|content — quote the content in edit payloads, not the N| prefix.
 Output body is capped at %d lines and %d KiB per call.`,
 	readDefaultMaxLines, readDefaultMaxBytes/1024)

@@ -2,7 +2,6 @@ package skills
 
 import (
 	"errors"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -171,9 +170,6 @@ func ToPromptMarkdown(skills []*Skill) string {
 		sb.WriteString("**Location:** `")
 		sb.WriteString(s.SkillFilePath)
 		sb.WriteString("`\n\n")
-		sb.WriteString("**Read URL:** `skill://")
-		sb.WriteString(url.PathEscape(s.Name))
-		sb.WriteString("` (read only; use Location for edits and relative assets).\n\n")
 	}
 	return sb.String()
 }
