@@ -45,6 +45,13 @@ func WorkspaceRoot() string {
 	return start
 }
 
+// IsInternalURL reports whether path is an internal URL (mcp://…) rather than
+// a filesystem path. Internal URLs must never be cwd-joined or workspace-
+// checked: they name remote resources, not files.
+func IsInternalURL(path string) bool {
+	return strings.HasPrefix(path, "mcp://")
+}
+
 // AbsCleanAt resolves path to an absolute cleaned path against cwd (no symlink resolve).
 // Empty cwd uses the process working directory.
 func AbsCleanAt(path, cwd string) (string, error) {

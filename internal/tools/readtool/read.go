@@ -7,9 +7,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/tools/tooldef"
-
 	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/mcp"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"github.com/pulseaiclub/phi/internal/util"
 )
 
@@ -24,11 +24,14 @@ var readDescription = fmt.Sprintf(`Read a file and return its contents with an @
 
 Pass the file path; use offset (1-based) and limit to paginate. Body lines are
 N|content — quote the content in edit payloads, not the N| prefix.
-Output body is capped at %d lines and %d KiB per call.`,
+Output body is capped at %d lines and %d KiB per call.
+Also reads MCP tool definitions: path mcp://<server>/tools/<tool> returns a
+compact parameter summary — read before calling a tool with write.`,
 	readDefaultMaxLines, readDefaultMaxBytes/1024)
 
-// ReadTool returns the read tool definition + handler.
-func ReadTool() tooldef.Tool {
+// ReadTool returns the read tool definition + handler. pool enables
+// mcp://<server>/tools/<tool> reads; nil keeps read file-only.
+func ReadTool(pool *mcp.Pool) tooldef.Tool {
 	return tooldef.NewTool(
 		tooldef.WithDefinition(llm.ToolDefinition{
 			Name:        "read",
@@ -38,7 +41,7 @@ func ReadTool() tooldef.Tool {
 				Properties: llm.Object{
 					"path": llm.Object{
 						"type":        "string",
-						"description": "Path to an existing file. Example: src/main.go",
+						"description": "Path to an existing file, or mcp://<server>/tools/<tool>. Example: src/main.go",
 					},
 					"offset": llm.Object{
 						"type":        "integer",
@@ -54,7 +57,9 @@ func ReadTool() tooldef.Tool {
 			Readable: true,
 		}),
 		tooldef.WithDetail(readDetail),
-		tooldef.WithHandler(runRead),
+		tooldef.WithHandler(func(ctx context.Context, in readInput) (tooldef.Result, error) {
+			return runRead(ctx, pool, in)
+		}),
 	)
 }
 
@@ -68,11 +73,22 @@ type readInput struct {
 	Offset int    `json:"offset,omitempty"`
 }
 
-func runRead(ctx context.Context, in readInput) (tooldef.Result, error) {
+func runRead(ctx context.Context, pool *mcp.Pool, in readInput) (tooldef.Result, error) {
 	path := strings.TrimSpace(in.Path)
 	if path == "" {
 		return tooldef.Result{}, errors.New("path is required")
 	}
+
+	if target, err := tooldef.ParseMCPTarget(path); err != nil {
+		return tooldef.Result{}, err
+	} else if target != nil {
+		body, err := tooldef.MCPRead(ctx, pool, target)
+		if err != nil {
+			return tooldef.Result{}, err
+		}
+		return tooldef.Result{Content: body, Detail: path, Output: body}, nil
+	}
+
 	path, err := tooldef.ResolveToCwd(ctx, path)
 	if err != nil {
 		return tooldef.Result{}, err

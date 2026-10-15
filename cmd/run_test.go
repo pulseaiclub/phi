@@ -46,7 +46,11 @@ func TestRunOptionsFromFlags(t *testing.T) {
 	assert.Equal(t, 10, opts.maxRounds)
 	assert.Equal(t, 10*time.Minute, opts.timeout)
 	assert.Equal(t, "abc123", opts.session)
-	assert.Equal(t, []string{"read", "grep"}, toolNames(opts.builtinTools))
+	assert.Equal(t, "grep, read,grep", opts.builtinTools)
+	// Selection is order-stable and deduplicated at selection time.
+	selected, err := selectBuiltinTools(opts.builtinTools, nil)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"read", "grep"}, toolNames(selected))
 	assert.False(t, opts.continueLast)
 }
 
@@ -67,7 +71,10 @@ func TestRunOptionsFromFlagsEqualsForms(t *testing.T) {
 	assert.Equal(t, 1500*time.Millisecond, opts.timeout)
 	assert.Equal(t, "/tmp/sess", opts.sessionDir)
 	assert.True(t, opts.continueLast)
-	assert.Equal(t, []string{"bash", "write"}, toolNames(opts.builtinTools))
+	assert.Equal(t, "write,bash", opts.builtinTools)
+	selected, err := selectBuiltinTools(opts.builtinTools, nil)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"bash", "write"}, toolNames(selected))
 }
 
 func TestRunCommandParseErrors(t *testing.T) {
@@ -114,7 +121,7 @@ func TestRunOptionsLeavesBuiltinToolsUnsetByDefault(t *testing.T) {
 	require.NoError(t, err)
 	opts, err := runOptionsFromFlags(f)
 	require.NoError(t, err)
-	assert.Nil(t, opts.builtinTools)
+	assert.Empty(t, opts.builtinTools)
 }
 
 func toolNames(list []tooldef.Tool) []string {
@@ -126,14 +133,14 @@ func toolNames(list []tooldef.Tool) []string {
 }
 
 func TestSelectBuiltinToolsErrorListsAvailableNames(t *testing.T) {
-	_, err := selectBuiltinTools("read,nope,missing")
+	_, err := selectBuiltinTools("read,nope,missing", nil)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, `unknown built-in tools "missing", "nope"`)
-	assert.ErrorContains(t, err, "available: "+strings.Join(toolNames(tools.DefaultTools()), ", "))
+	assert.ErrorContains(t, err, "available: "+strings.Join(toolNames(tools.DefaultTools(nil)), ", "))
 }
 
 func TestSelectedBuiltinToolsStillAppendExternalTools(t *testing.T) {
-	selected, err := selectBuiltinTools("read")
+	selected, err := selectBuiltinTools("read", nil)
 	require.NoError(t, err)
 	pool := mcp.NewPool(map[string]mcp.ServerConfig{
 		"echo": {Command: []string{"true"}},
@@ -160,9 +167,6 @@ func TestSelectedBuiltinToolsStillAppendExternalTools(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, engine.HasTool("read"))
 	assert.False(t, engine.HasTool("bash"))
-	for _, name := range []string{"mcp_list", "mcp_inspect", "mcp_call"} {
-		assert.True(t, engine.HasTool(name), "MCP tool %q should still be appended", name)
-	}
 	assert.True(t, engine.HasTool("agent_spawn"))
 }
 

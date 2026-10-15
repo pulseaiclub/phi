@@ -9,16 +9,18 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/tools/tooldef"
-
 	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/mcp"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
 const (
 	lsDescription = `List files and directories as an ASCII tree.
 
 Use limit and max_depth to control output size. Hidden files and common
-cache directories are skipped.`
+cache directories are skipped.
+Accepts mcp:// URLs: mcp:// lists configured MCP servers, mcp://<server>/tools/
+lists the tools on one server.`
 	truncatedMessage = "[Tree truncated after %d files. Use limit=<n> to see more.]\n\n"
 )
 
@@ -27,8 +29,9 @@ const (
 	defaultMaxDepth = 3
 )
 
-// LsTool returns the ls tool definition + handler.
-func LsTool() tooldef.Tool {
+// LsTool returns the ls tool definition + handler. pool enables mcp:// URLs;
+// nil keeps ls file-only.
+func LsTool(pool *mcp.Pool) tooldef.Tool {
 	return tooldef.NewTool(
 		tooldef.WithDefinition(llm.ToolDefinition{
 			Name:        "ls",
@@ -38,7 +41,7 @@ func LsTool() tooldef.Tool {
 				Properties: llm.Object{
 					"path": llm.Object{
 						"type":        "string",
-						"description": "Directory to list. Example: . or src",
+						"description": "Directory to list. Example: . or src, or mcp:// / mcp://<server>/tools/ for MCP",
 					},
 					"limit": llm.Object{
 						"type":        "integer",
@@ -54,7 +57,9 @@ func LsTool() tooldef.Tool {
 			Readable: true,
 		}),
 		tooldef.WithDetail(lsDetail),
-		tooldef.WithHandler(runLs),
+		tooldef.WithHandler(func(ctx context.Context, in lsInput) (tooldef.Result, error) {
+			return runLs(ctx, pool, in)
+		}),
 	)
 }
 
@@ -121,7 +126,17 @@ var skipDirs = map[string]bool{
 	".hg":            true,
 }
 
-func runLs(ctx context.Context, in lsInput) (tooldef.Result, error) {
+func runLs(ctx context.Context, pool *mcp.Pool, in lsInput) (tooldef.Result, error) {
+	if target, err := tooldef.ParseMCPTarget(in.Path); err != nil {
+		return tooldef.Result{}, err
+	} else if target != nil {
+		body, err := tooldef.MCPList(ctx, pool, target)
+		if err != nil {
+			return tooldef.Result{}, err
+		}
+		return tooldef.Result{Content: body, Detail: strings.TrimSpace(in.Path), Output: body}, nil
+	}
+
 	dir, err := tooldef.ResolveToCwd(ctx, in.Path)
 	if err != nil {
 		return tooldef.Result{}, err

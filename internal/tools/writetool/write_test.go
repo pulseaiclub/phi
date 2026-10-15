@@ -12,7 +12,7 @@ import (
 func TestRunWriteCreatesAndOverwrites(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "nested", "out.txt")
-	tool := WriteTool()
+	tool := WriteTool(nil)
 
 	created, err := tool.Run(t.Context(), mustWriteArgs(t, path, "first\n"))
 	require.NoError(t, err)
@@ -32,7 +32,7 @@ func TestRunWriteCreatesAndOverwrites(t *testing.T) {
 func TestRunWriteRelativePathInResult(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
-	tool := WriteTool()
+	tool := WriteTool(nil)
 
 	created, err := tool.Run(t.Context(), mustWriteArgs(t, "nested/out.txt", "first\n"))
 	require.NoError(t, err)
@@ -41,7 +41,7 @@ func TestRunWriteRelativePathInResult(t *testing.T) {
 }
 
 func TestRunWriteRequiresPath(t *testing.T) {
-	tool := WriteTool()
+	tool := WriteTool(nil)
 	_, err := tool.Run(t.Context(), []byte(`{"path":"","content":"x"}`))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "path is required")

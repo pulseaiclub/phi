@@ -7,15 +7,14 @@ import (
 	"time"
 
 	cli "github.com/pulseaiclub/pli"
-
-	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
-// toolsFlag is the parsed --tools value. set distinguishes "absent" from an
-// explicit empty list (both would otherwise look like a nil/empty slice).
+// toolsFlag is the parsed --tools value: the raw comma list. Names are
+// validated at parse time; selection happens in runHeadless once the MCP pool
+// is loaded, so the chosen tools are MCP-aware.
 type toolsFlag struct {
-	set  bool
-	list []tooldef.Tool
+	set bool
+	raw string
 }
 
 // String keeps pli help from dumping the zero value as "{false []}".
@@ -73,7 +72,7 @@ func runOptionsFromFlags(f cli.Flags) (runOptions, error) {
 		sessionDir:   f.String("session-dir"),
 	}
 	if tf, ok := f["tools"].(toolsFlag); ok && tf.set {
-		opts.builtinTools = tf.list
+		opts.builtinTools = tf.raw
 	}
 	if strings.TrimSpace(opts.prompt) == "" {
 		return opts, runCommand.Usagef("prompt is required (-p \"...\")")
@@ -101,9 +100,10 @@ func parsePositiveDuration(s string) (time.Duration, error) {
 }
 
 func parseToolsFlag(s string) (toolsFlag, error) {
-	list, err := selectBuiltinTools(s)
-	if err != nil {
+	// Validate names now (fail at parse time); runHeadless re-selects with the
+	// loaded MCP pool so the chosen tools can resolve mcp:// URLs.
+	if _, err := selectBuiltinTools(s, nil); err != nil {
 		return toolsFlag{}, err
 	}
-	return toolsFlag{set: true, list: list}, nil
+	return toolsFlag{set: true, raw: s}, nil
 }

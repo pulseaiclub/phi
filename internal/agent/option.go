@@ -40,7 +40,8 @@ func WithContinueAsk(fn ContinueFunc) EngineOption {
 	return func(c *engineConfig) { c.continueAsk = fn }
 }
 
-// WithTools sets the base tool list (nil = tools.DefaultTools(); sub-agents use ChildTools()).
+// WithTools sets the base tool list (nil = tools.DefaultTools(mcp) when an MCP
+// pool is attached; sub-agents use ChildTools()).
 func WithTools(list []tooldef.Tool) EngineOption {
 	return func(c *engineConfig) { c.tools = list }
 }
@@ -65,7 +66,8 @@ func WithOmitExtensionTools(omit bool) EngineOption {
 	return func(c *engineConfig) { c.omitExtTools = omit }
 }
 
-// WithMCP registers mcp_list/inspect/call meta-tools against the pool.
+// WithMCP attaches the MCP pool: server names enter the system prompt and the
+// executor resolves mcp:// URLs in ls/read/write against it.
 func WithMCP(pool *mcp.Pool) EngineOption {
 	return func(c *engineConfig) { c.mcp = pool }
 }

@@ -27,21 +27,21 @@ func SpecForRole(role job.Role) ChildSpec {
 	case job.RoleWorker:
 		return ChildSpec{
 			Role:  job.RoleWorker,
-			Tools: tools.DefaultTools(), // no agent_*; writable
+			Tools: tools.DefaultTools(nil), // no agent_*; writable
 			Mode:  permission.ModeHeadlessStrict,
 			Hint:  workerSummaryHint,
 		}
 	case job.RoleReview:
 		return ChildSpec{
 			Role:  job.RoleReview,
-			Tools: tools.ReadonlyTools(),
+			Tools: tools.ReadonlyTools(nil),
 			Mode:  permission.ModeReadonly,
 			Hint:  reviewSummaryHint,
 		}
 	default:
 		return ChildSpec{
 			Role:  job.RoleExplore,
-			Tools: tools.ReadonlyTools(),
+			Tools: tools.ReadonlyTools(nil),
 			Mode:  permission.ModeReadonly,
 			Hint:  exploreSummaryHint,
 		}

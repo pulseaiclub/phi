@@ -130,7 +130,14 @@ func ExtractAt(toolName string, args json.RawMessage, cwd string) (Request, erro
 }
 
 func withPath(req Request, path, cwd string) (Request, error) {
-	abs, err := AbsCleanAt(strings.TrimSpace(path), cwd)
+	path = strings.TrimSpace(path)
+	// Internal URLs name remote resources: keep them verbatim so the gate can
+	// apply URL rules instead of workspace path rules.
+	if IsInternalURL(path) {
+		req.Paths = []string{path}
+		return req, nil
+	}
+	abs, err := AbsCleanAt(path, cwd)
 	if err != nil {
 		return req, err
 	}

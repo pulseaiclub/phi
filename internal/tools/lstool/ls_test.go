@@ -18,7 +18,7 @@ func TestLs_RelativePath(t *testing.T) {
 
 	t.Chdir(root)
 
-	out, err := runLs(t.Context(), lsInput{Path: "pkg"})
+	out, err := runLs(t.Context(), nil, lsInput{Path: "pkg"})
 	require.NoError(t, err)
 	require.Contains(t, out.Content, "main.go")
 	require.True(
@@ -34,7 +34,7 @@ func TestLs_Errors(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "a.txt")
 	require.NoError(t, os.WriteFile(file, []byte("x"), 0o644))
 
-	_, err := runLs(t.Context(), lsInput{Path: file})
+	_, err := runLs(t.Context(), nil, lsInput{Path: file})
 	require.Error(t, err, "expected error for file path")
 	require.Contains(t, strings.ToLower(err.Error()), "not a directory")
 }
@@ -44,7 +44,7 @@ func TestLs_MaxDepthStopsExpansion(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "lvl1", "lvl2", "lvl3"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "lvl1", "lvl2", "lvl3", "deep.txt"), []byte("x"), 0o644))
 
-	out, err := runLs(t.Context(), lsInput{
+	out, err := runLs(t.Context(), nil, lsInput{
 		Path:     root,
 		MaxDepth: 3,
 		Limit:    100,
@@ -63,7 +63,7 @@ func TestLs_LimitTriggersTruncationMessage(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.txt"), []byte("a"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "b.txt"), []byte("b"), 0o644))
 
-	out, err := runLs(t.Context(), lsInput{
+	out, err := runLs(t.Context(), nil, lsInput{
 		Path:  root,
 		Limit: 1,
 	})
@@ -85,10 +85,10 @@ func TestLs_PlainStringPath(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(root, "x.txt"), []byte("x"), 0o644))
 
 	// Pass path as a plain JSON string, not an object. Only the wire path
-	// (LsTool().Run) exercises lsInput.UnmarshalJSON.
+	// (LsTool(nil).Run) exercises lsInput.UnmarshalJSON.
 	raw, err := json.Marshal(root)
 	require.NoError(t, err)
-	out, err := LsTool().Run(t.Context(), raw)
+	out, err := LsTool(nil).Run(t.Context(), raw)
 	require.NoError(t, err)
 	require.Contains(t, out.Content, "x.txt")
 }
@@ -97,7 +97,7 @@ func TestLs_ExactLimitIsNotTruncated(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "only.txt"), []byte("x"), 0o644))
 
-	out, err := runLs(t.Context(), lsInput{Path: root, Limit: 1})
+	out, err := runLs(t.Context(), nil, lsInput{Path: root, Limit: 1})
 	require.NoError(t, err)
 	require.Contains(t, out.Content, "only.txt")
 	require.NotContains(t, out.Content, "Tree truncated",
@@ -109,7 +109,7 @@ func TestLs_OverLimitStillTruncates(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.txt"), []byte("a"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "b.txt"), []byte("b"), 0o644))
 
-	out, err := runLs(t.Context(), lsInput{Path: root, Limit: 1})
+	out, err := runLs(t.Context(), nil, lsInput{Path: root, Limit: 1})
 	require.NoError(t, err)
 	require.Contains(t, out.Content, "Tree truncated after 1 files")
 }
@@ -196,7 +196,7 @@ func TestLs_RunAcceptsObjectForm(t *testing.T) {
 	raw, err := json.Marshal(lsInput{Path: root})
 	require.NoError(t, err)
 
-	out, err := LsTool().Run(t.Context(), raw)
+	out, err := LsTool(nil).Run(t.Context(), raw)
 	require.NoError(t, err)
 	require.Contains(t, out.Content, "y.txt")
 }

@@ -35,7 +35,7 @@ type runOptions struct {
 	session      string
 	continueLast bool
 	sessionDir   string
-	builtinTools []tooldef.Tool
+	builtinTools string // raw --tools value; empty means all default tools
 }
 
 // runHeadless runs one agent loop and returns an exitError (or nil) for main.
@@ -75,21 +75,34 @@ func runHeadless(opts runOptions) error {
 	if extRunner != nil {
 		defer extRunner.Close()
 	}
+	// Load the pool before tool selection so an explicit --tools list still
+	// gets MCP-aware ls/read/write.
+	var mcpPool *mcp.Pool
+	if pool, err := mcp.LoadPool(bs.Proj.MCPConfigFile()); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: mcp:", err)
+	} else if pool != nil {
+		mcpPool = pool
+		defer func() { _ = pool.Close() }()
+	}
 	engineOpts := []agent.EngineOption{
 		agent.WithGate(bs.Gate),
 		agent.WithExtensions(extRunner),
-		agent.WithTools(opts.builtinTools),
+	}
+	if opts.builtinTools != "" {
+		selected, err := selectBuiltinTools(opts.builtinTools, mcpPool)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "phi run:", err)
+			return exitCode(ExitUsage)
+		}
+		engineOpts = append(engineOpts, agent.WithTools(selected))
 	}
 	if opts.maxRounds > 0 {
 		engineOpts = append(engineOpts, agent.WithMaxRounds(opts.maxRounds))
 	}
 	primary := bs.Config.Model()
 	engineOpts = append(engineOpts, agent.WithHooks(model.HooksFor(primary.Name)))
-	if pool, err := mcp.LoadPool(bs.Proj.MCPConfigFile()); err != nil {
-		fmt.Fprintln(os.Stderr, "warning: mcp:", err)
-	} else if pool != nil {
-		engineOpts = append(engineOpts, agent.WithMCP(pool))
-		defer func() { _ = pool.Close() }()
+	if mcpPool != nil {
+		engineOpts = append(engineOpts, agent.WithMCP(mcpPool))
 	}
 	if bs.Config.Agents.Enabled {
 		parent := bs.Config.Model()
@@ -227,7 +240,7 @@ func runLoop(ctx context.Context, engine *agent.Engine, opts runOptions) int {
 	return exit
 }
 
-func selectBuiltinTools(raw string) ([]tooldef.Tool, error) {
+func selectBuiltinTools(raw string, mcpPool *mcp.Pool) ([]tooldef.Tool, error) {
 	if strings.TrimSpace(raw) == "" {
 		return nil, errors.New("--tools requires at least one built-in tool name")
 	}
@@ -241,7 +254,7 @@ func selectBuiltinTools(raw string) ([]tooldef.Tool, error) {
 		requested[name] = struct{}{}
 	}
 
-	defaults := tools.DefaultTools()
+	defaults := tools.DefaultTools(mcpPool)
 	available := make([]string, 0, len(defaults))
 	selected := make([]tooldef.Tool, 0, len(requested))
 	// Keep the default schema order stable regardless of flag order; the map

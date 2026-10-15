@@ -16,7 +16,7 @@ func TestRunRead_RelativeHeader(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(root, "src", "main.go"), []byte("package main\n"), 0o644))
 	t.Chdir(root)
 
-	out, err := runRead(t.Context(), readInput{Path: "src/main.go"})
+	out, err := runRead(t.Context(), nil, readInput{Path: "src/main.go"})
 	require.NoError(t, err)
 	assert.True(t, strings.HasPrefix(out.Content, "@file src/main.go\n"))
 	assert.Equal(t, "src/main.go", out.Detail)

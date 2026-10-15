@@ -110,6 +110,11 @@ func (g *StaticGate) checkWrite(req Request) (Decision, string) {
 		return Deny, "write/edit without path denied"
 	}
 	for _, p := range req.Paths {
+		// An internal URL (mcp://…) is an external call, not a file write:
+		// workspace-only policy must not hard-deny it, so it asks instead.
+		if IsInternalURL(p) {
+			return Ask, "external tool call requires approval: " + p
+		}
 		if IsSensitivePath(p, g.Policy.SensitivePathDeny) {
 			return Deny, "write to sensitive path denied: " + p
 		}
@@ -126,6 +131,14 @@ func (g *StaticGate) checkRead(req Request) (Decision, string) {
 		return Allow, ""
 	}
 	for _, p := range req.Paths {
+		// MCP browsing is a read-tier lookup; only a workspace-only policy
+		// escalates it, and then to Ask (never a silent deny).
+		if IsInternalURL(p) {
+			if g.Policy.WorkspaceOnlyReads {
+				return Ask, "external resource read requires approval: " + p
+			}
+			continue
+		}
 		if IsSensitivePath(p, g.Policy.SensitivePathDeny) {
 			return Deny, "read of sensitive path denied: " + p
 		}

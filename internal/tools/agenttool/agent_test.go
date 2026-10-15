@@ -33,7 +33,7 @@ func TestAgentToolsSpawnWaitForcesDepthAndParent(t *testing.T) {
 	}))
 	require.Contains(t, reg, "agent_spawn")
 	require.Contains(t, reg, "agent_wait")
-	require.NotContains(t, tooldef.NewRegistry(tools.DefaultTools()), "agent_spawn")
+	require.NotContains(t, tooldef.NewRegistry(tools.DefaultTools(nil)), "agent_spawn")
 
 	spawnArgs, _ := json.Marshal(map[string]any{
 		"prompt":      "do work",
@@ -149,7 +149,7 @@ func TestAgentToolsSpawnBadRole(t *testing.T) {
 }
 
 func TestChildToolsExcludeAgent(t *testing.T) {
-	for _, tool := range tools.DefaultTools() {
+	for _, tool := range tools.DefaultTools(nil) {
 		assert.NotContains(t, tool.Definition.Name, "agent_")
 	}
 }

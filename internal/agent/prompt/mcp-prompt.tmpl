@@ -1,12 +1,12 @@
 # MCP
 
-MCP servers are configured for this session. Tool schemas stay out of context — discover on demand.
+MCP servers are configured for this session. Tool schemas stay out of context — discover on demand through the regular tools.
 
 ## How to use MCP
-- When a task needs an external capability these servers might provide (including docs/URLs the repo cannot answer), use the mcp_* tools.
-- `mcp_list` with a server name → tool names on that server.
-- `mcp_inspect` → compact params for one tool, then `mcp_call` to invoke.
-- Do not guess tool names or arguments; list/inspect first.
+- `ls` on `mcp://` lists the configured servers; `ls` on `mcp://<server>/tools/` lists that server's tools.
+- `read` on `mcp://<server>/tools/<tool>` returns a compact parameter summary.
+- `write` to `mcp://<server>/tools/<tool>` invokes the tool — content is the JSON argument object.
+- Do not guess tool names or arguments; list and read first.
 
 ## Configured servers
 {{range .Servers}}- {{.}}

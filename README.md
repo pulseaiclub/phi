@@ -476,16 +476,16 @@ extension latency is dominated by process spawn and pipe RTT anyway. Re-probe:
 Most MCP hosts dump every `tools/list` schema into the model context before
 you ask a question — browser stacks alone can burn 50k+ tokens. phi does not.
 
-Instead the agent gets three meta-tools, and the system prompt lists configured **server names** (no schemas):
+Instead MCP is a **URL namespace** on the regular tools, and the system prompt lists configured **server names** (no schemas):
 
-| Tool | Role |
+| Action | Call |
 | --- | --- |
-| `mcp_list` | List tool **names** on one server (compact text) |
-| `mcp_inspect` | Fetch a slim parameter summary for one tool |
-| `mcp_call` | Run `server` + `tool` + `args` |
+| List tools on a server | `ls mcp://<server>/tools/` |
+| Fetch a slim parameter summary | `read mcp://<server>/tools/<tool>` |
+| Invoke | `write mcp://<server>/tools/<tool>` with content = JSON args |
 
-Flow: pick a server from the prompt → `mcp_list(server=…)` → `mcp_inspect` → `mcp_call`. Subprocesses start **lazily** on first use.
-Calls still go through PreHooks → Gate / Ask → Run → PostHooks.
+Flow: pick a server from the prompt → `ls` → `read` → `write`. Subprocesses start **lazily** on first use.
+Browsing is read-tier; invokes still go through PreHooks → write Gate / Ask → Run → PostHooks.
 
 ```sh
 phi mcp add browsermcp -- npx @browsermcp/mcp@latest

@@ -57,10 +57,9 @@ func TestBuildMCPCatalog(t *testing.T) {
 	require.Contains(t, got, "# MCP")
 	require.Contains(t, got, "- browsermcp")
 	require.Contains(t, got, "- github")
-	require.Contains(t, got, "mcp_list")
-	require.Contains(t, got, "mcp_inspect")
-	require.Contains(t, got, "mcp_call")
-	require.Contains(t, got, "docs/URLs")
+	require.Contains(t, got, "ls` on `mcp://")
+	require.Contains(t, got, "read` on `mcp://<server>/tools/<tool>`")
+	require.Contains(t, got, "write` to `mcp://<server>/tools/<tool>`")
 	require.NotContains(t, got, `"properties"`)
 	require.NotContains(t, got, "inputSchema")
 }

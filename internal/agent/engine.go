@@ -22,7 +22,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/session/compaction"
 	"github.com/pulseaiclub/phi/internal/tools"
 	"github.com/pulseaiclub/phi/internal/tools/agenttool"
-	"github.com/pulseaiclub/phi/internal/tools/mcptool"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
@@ -108,21 +107,13 @@ func (engine *Engine) buildToolList(base []tooldef.Tool) []tooldef.Tool {
 	return out
 }
 
-// buildCoreTools returns builtin (+ MCP + agent_*) tools without extension RegisterTool.
+// buildCoreTools returns builtin (+ agent_*) tools without extension RegisterTool.
+// MCP needs no extra tools: the pool rides the default ls/read/write tools.
 func (engine *Engine) buildCoreTools(base []tooldef.Tool) []tooldef.Tool {
 	if base == nil {
-		base = tools.DefaultTools()
+		base = tools.DefaultTools(engine.mcp)
 	}
 	out := base
-	if engine.mcp != nil {
-		mcpTools := mcptool.Tools(engine.mcp)
-		if len(mcpTools) > 0 {
-			merged := make([]tooldef.Tool, 0, len(out)+len(mcpTools))
-			merged = append(merged, out...)
-			merged = append(merged, mcpTools...)
-			out = merged
-		}
-	}
 	if engine.jobs == nil {
 		return out
 	}

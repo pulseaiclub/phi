@@ -10,7 +10,7 @@ Lean, high-performance Go terminal coding-agent harness. Layout: [doc/project-la
 
 ## Constraints
 
-- **Tool loop is ExtensionPre → Gate/Ask → Run → ExtensionPost.** Don't bypass the permission gate when changing the executor. Don't put MCP server tool schemas on the model — only `mcp_list` / `mcp_inspect` / `mcp_call`.
+- **Tool loop is ExtensionPre → Gate/Ask → Run → ExtensionPost.** Don't bypass the permission gate when changing the executor. Don't put MCP server tool schemas on the model — MCP rides `ls` / `read` / `write` via `mcp://` URLs.
 - **Extensions are PXB subprocesses** (`phi.yaml` + native binary under `~/.phi/extensions` / `.phi/extensions`). Wire: `ext/go/pxb`. Author SDK: Go `ext/go/phi` (module `github.com/pulseaiclub/phi/ext/go`). Host: `internal/extension`. See [doc/extensions.md](doc/extensions.md).
 - **PXB message payloads are generated.** Fields are declared once in `ext/go/pxb/schema.go` (`pxb:"<tag>[,opt]"`); `make generate` writes `msg_gen.go`. Never hand-edit `msg_gen.go` or add encode/decode switches — `make check` runs `generate-check` and fails on drift. The Rust side (`ext/rust/src/pxb/msg.rs`) mirrors the same tags by hand.
 - **Keep `edit` fail-closed.** Edits are anchored sloppy patches (`*** SM:EDIT` / `*** SM:FIND` / `*** SM:PUT`|`*** SM:AFTER`) applied atomically; a missing or ambiguous anchor must fail with actionable guidance, never fall back to whole-file rewrite.

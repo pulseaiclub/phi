@@ -441,15 +441,15 @@ codec 工作下 Rust / Go 在噪声内。扩展真实延迟仍由进程 spawn �
 多数 MCP Host 会在你提问前把全部 `tools/list` schema 塞进上下文——光浏览器类
 工具就能烧掉 5 万+ token。phi 不这么干。
 
-Agent 只拿到三个元工具；系统提示里会列出已配置的 **server 名**（不含 schema）：
+MCP 是挂在常规工具上的 **URL 命名空间**；系统提示里会列出已配置的 **server 名**（不含 schema）：
 
-| 工具 | 作用 |
+| 动作 | 调用 |
 | --- | --- |
-| `mcp_list` | 列某个 server 上的工具**名**（紧凑文本） |
-| `mcp_inspect` | 按需拉单个工具的精简参数说明 |
-| `mcp_call` | 执行 `server` + `tool` + `args` |
+| 列某个 server 上的工具 | `ls mcp://<server>/tools/` |
+| 看单个工具的精简参数说明 | `read mcp://<server>/tools/<tool>` |
+| 执行工具 | `write mcp://<server>/tools/<tool>`，content 为 JSON 参数 |
 
-流程：从提示词里的 server 名出发 → `mcp_list(server=…)` → `mcp_inspect` → `mcp_call`。子进程**懒启动**。调用仍走 PreHooks → Gate / Ask → Run → PostHooks。
+流程：从提示词里的 server 名出发 → `ls` → `read` → `write`。子进程**懒启动**。浏览是读级权限；执行仍走 PreHooks → write Gate / Ask → Run → PostHooks。
 
 ```sh
 phi mcp add browsermcp -- npx @browsermcp/mcp@latest

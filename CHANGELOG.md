@@ -10,11 +10,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- MCP is reachable through `mcp://` URLs on the regular tools: `ls mcp://`
+  lists servers, `ls mcp://<server>/tools/` lists tools, `read
+  mcp://<server>/tools/<tool>` shows a compact parameter summary, and `write
+  mcp://<server>/tools/<tool>` invokes the tool with the JSON argument object
+  as content. Invocations ask for approval through the write gate; browsing
+  stays read-tier.
+
 ### Changed
+
+- The system prompt's MCP section teaches the `ls` / `read` / `write` URL
+  rhythm instead of the removed meta-tools.
 
 ### Deprecated
 
 ### Removed
+
+- The `mcp_list`, `mcp_inspect`, and `mcp_call` meta-tools; MCP now rides
+  `ls` / `read` / `write` via `mcp://` URLs with no extra tools registered.
 
 ### Fixed
 
