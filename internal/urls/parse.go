@@ -23,28 +23,7 @@ type InternalURL struct {
 	Hash        string
 }
 
-var (
-	schemePattern   = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.-]*$`)
-	selectorPattern = regexp.MustCompile(
-		`(?i)^(raw|conflicts|-?\d+([-+]\d+)?(,\d+([-+]\d+)?)*)(:(raw|conflicts|-?\d+([-+]\d+)?(,\d+([-+]\d+)?)*))*$`,
-	)
-)
-
-// ExtractURIScheme recognizes hierarchical and opaque URIs, excluding drive
-// paths and filename/read-selector forms used by filesystem tools.
-func ExtractURIScheme(input string) string {
-	scheme, rest, ok := strings.Cut(input, ":")
-	if !ok || !schemePattern.MatchString(scheme) {
-		return ""
-	}
-	if strings.HasPrefix(rest, "//") {
-		return strings.ToLower(scheme)
-	}
-	if rest == "" || len(scheme) == 1 || strings.Contains(scheme, ".") || selectorPattern.MatchString(rest) {
-		return ""
-	}
-	return strings.ToLower(scheme)
-}
+var schemePattern = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.-]*$`)
 
 // ParseInternalURL accepts absolute hierarchical internal URLs. It leaves dot
 // segments and escapes intact so handlers can validate paths before cleaning.
