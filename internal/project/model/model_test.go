@@ -73,7 +73,7 @@ func TestLookupUnknownFallsThrough(t *testing.T) {
 	p, ok := Lookup("deepseek-flash")
 	require.True(t, ok)
 	assert.Empty(t, p.Config.APIKey)
-	assert.Empty(t, p.Config.SkillPath)
+	assert.Empty(t, p.Config.SkillPaths)
 	assert.Equal(t, llm.ModelConfig{
 		Name:          "deepseek-flash",
 		BaseURL:       "https://api.deepseek.com",

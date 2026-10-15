@@ -29,6 +29,13 @@ func TestRenderFindResult(t *testing.T) {
 	)
 }
 
+// The row already paints the tool name; the detail must not repeat it.
+func TestFindDetail(t *testing.T) {
+	assert.Equal(t, `"**/*.go" in src`, findDetail(findInput{Pattern: "**/*.go", Path: "src"}))
+	assert.Equal(t, `"**/*.go" in .`, findDetail(findInput{Pattern: " **/*.go "}))
+	assert.Equal(t, "src", findDetail(findInput{Path: "src"}))
+}
+
 func TestRunFD_MatchLimitAndGitignore(t *testing.T) {
 	requireFD(t)
 

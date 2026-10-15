@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 
@@ -106,16 +107,18 @@ func GrepTool() tooldef.Tool {
 	)
 }
 
+// grepDetail is the row's detail only: the UI already paints the tool name, so
+// repeating it here renders as "grep grep ...".
 func grepDetail(in grepInput) string {
 	pat := strings.TrimSpace(in.Pattern)
 	p := strings.TrimSpace(in.Path)
 	if p == "" {
 		p = "."
 	}
-	if pat != "" {
-		return fmt.Sprintf("grep %q in %s", pat, p)
+	if pat == "" {
+		return p
 	}
-	return "grep"
+	return fmt.Sprintf("%q in %s", pat, p)
 }
 
 type grepInput struct {
@@ -471,11 +474,10 @@ func truncateLine(line string, maxChars int) (string, bool) {
 	if maxChars <= 0 {
 		maxChars = grepMaxLineRunes
 	}
-	runes := []rune(line)
-	if len(runes) <= maxChars {
+	if utf8.RuneCountInString(line) <= maxChars {
 		return line, false
 	}
-	return string(runes[:maxChars]) + grepTruncatedSuffix, true
+	return util.TruncateRunes(line, maxChars, grepTruncatedSuffix), true
 }
 
 type truncResult struct {

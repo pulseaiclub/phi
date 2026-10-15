@@ -101,8 +101,11 @@ models:
 	assert.Equal(t, "sk-test", cfg.Model().APIKey)
 	assert.Equal(t, "https://api.openai.com/v1", cfg.Model().BaseURL)
 	assert.Equal(t, p.Global().SkillsDir(), cfg.SkillPath)
-	// Model() carries the skill path for agent.NewEngine.
-	assert.Equal(t, p.Global().SkillsDir(), cfg.Model().SkillPath)
+	// SkillPaths starts at the configured root; ~/.agents/skills follows.
+	require.NotEmpty(t, cfg.SkillPaths)
+	assert.Equal(t, p.Global().SkillsDir(), cfg.SkillPaths[0])
+	// Model() carries the roots for agent.NewEngine.
+	assert.Equal(t, cfg.SkillPaths, cfg.Model().SkillPaths)
 }
 
 func TestConfigModelRoundBudget(t *testing.T) {
@@ -127,7 +130,9 @@ max_rounds: 7
 			selected := cfg.Model()
 			assert.Equal(t, "selected", selected.Name)
 			assert.Equal(t, budget, selected.MaxRounds)
-			assert.Equal(t, "/skills", selected.SkillPath)
+			// parseConfigFile reads keys only; loadConfig resolves the roots.
+			assert.Equal(t, "/skills", cfg.SkillPath)
+			assert.Nil(t, selected.SkillPaths)
 			for _, m := range cfg.AllModels() {
 				assert.Equal(t, budget, m.MaxRounds)
 				found, ok := cfg.FindModel(m.Name)
@@ -143,7 +148,7 @@ max_rounds: 7
 			assert.Equal(t, budget, cfg.Model().MaxRounds)
 			for _, raw := range cfg.Models {
 				assert.Zero(t, raw.MaxRounds)
-				assert.Empty(t, raw.SkillPath)
+				assert.Empty(t, raw.SkillPaths)
 			}
 		})
 	}
@@ -165,10 +170,90 @@ skill_path: /from/file
 
 	require.NoError(t, p.LoadConfig())
 	cfg := p.Config()
+	// resolveSkillPaths cleans every root, so compare against the cleaned form.
+	assert.Equal(t, filepath.FromSlash("/from/env"), cfg.SkillPaths[0], "the env path is the highest-priority root")
 	assert.Equal(t, "env-model", cfg.Model().Name)
 	assert.Equal(t, "env-key", cfg.Model().APIKey)
 	assert.Equal(t, "https://env.example/v1", cfg.Model().BaseURL)
 	assert.Equal(t, "/from/env", cfg.SkillPath)
+}
+
+// TestSkillRootsOrder pins the root order and the ~ expansion: the configured
+// directory first, then ~/.agents/skills, then .agents/skills from cwd up to
+// the enclosing git root.
+func TestSkillRootsOrder(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	repo := filepath.Join(t.TempDir(), "repo")
+	require.NoError(t, os.MkdirAll(filepath.Join(repo, ".git"), 0o755))
+	nested := filepath.Join(repo, "pkg", "deep")
+	require.NoError(t, os.MkdirAll(nested, 0o755))
+
+	p, err := Discover(nested)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: m
+    api_key: k
+skill_path: ~/my-skills
+`), 0o644))
+	require.NoError(t, p.LoadConfig())
+
+	cfg := p.Config()
+	assert.Equal(t, filepath.Join(home, "my-skills"), cfg.SkillPath)
+	assert.Equal(t, []string{
+		filepath.Join(home, "my-skills"),
+		filepath.Join(home, ".agents", "skills"),
+		filepath.Join(nested, ".agents", "skills"),
+		filepath.Join(repo, "pkg", ".agents", "skills"),
+		filepath.Join(repo, ".agents", "skills"),
+	}, cfg.SkillPaths)
+}
+
+// expandHome only rewrites a leading "~"; everything else passes through.
+func TestExpandHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	assert.Equal(t, home, expandHome("~"))
+	assert.Equal(t, filepath.Join(home, "a", "b"), expandHome("  ~/a/b  "))
+	assert.Equal(t, "/abs/path", expandHome("/abs/path"))
+	assert.Equal(t, "relative/path", expandHome("relative/path"))
+	// ~user (another account's home) is a real path form; leave it alone.
+	assert.Equal(t, "~other/skills", expandHome("~other/skills"))
+	assert.Empty(t, expandHome(""))
+}
+
+// A .git file (worktree or submodule checkout) marks the root just like a
+// .git directory.
+func TestIsGitRoot(t *testing.T) {
+	dir := t.TempDir()
+	assert.False(t, isGitRoot(dir))
+
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".git"), 0o755))
+	assert.True(t, isGitRoot(dir))
+
+	require.NoError(t, os.Remove(filepath.Join(dir, ".git")))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".git"), []byte("gitdir: ../real\n"), 0o644))
+	assert.True(t, isGitRoot(dir))
+}
+
+// PHI_SKILL_PATH takes the same expansion as the config file value.
+func TestLoadConfigEnvSkillPathExpandsHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("PHI_MODEL", "env-model")
+	t.Setenv("PHI_API_KEY", "env-key")
+	t.Setenv("PHI_SKILL_PATH", "~/env-skills")
+
+	p, err := Discover("")
+	require.NoError(t, err)
+	require.NoError(t, p.LoadConfig())
+	assert.Equal(t, filepath.Join(home, "env-skills"), p.Config().SkillPath)
 }
 
 func TestLoadConfigMissingAPIKey(t *testing.T) {
@@ -362,16 +447,16 @@ models:
 	assert.Equal(t, 2000, cfg.Models[2].ContextWindow)
 	assert.Equal(t, "p", cfg.DefaultModel)
 
-	// Model() returns the entry marked default, with the skill path applied.
+	// Model() returns the entry marked default, with the skill roots applied.
 	m := cfg.Model()
 	assert.Equal(t, "p", m.Name)
-	assert.Equal(t, p.Global().SkillsDir(), m.SkillPath)
+	assert.Contains(t, m.SkillPaths, p.Global().SkillsDir())
 
-	// Models() lists every entry with the skill path applied.
+	// Models() lists every entry with the skill roots applied.
 	models := cfg.AllModels()
 	require.Len(t, models, 3)
 	for _, mm := range models {
-		assert.Equal(t, p.Global().SkillsDir(), mm.SkillPath)
+		assert.Contains(t, mm.SkillPaths, p.Global().SkillsDir())
 	}
 
 	// FindModel returns the full per-model connection config.

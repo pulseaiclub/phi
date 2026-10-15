@@ -198,7 +198,7 @@ func (engine *Engine) systemPrompt() string {
 	// its own workdir must load that workspace's instructions.
 	return prompt.Build(
 		engine.SessionCwd(),
-		engine.modelCfg.SkillPath,
+		engine.modelCfg.SkillPaths,
 		engine.jobs != nil,
 		maxConcurrent,
 		mcpServers,
@@ -311,7 +311,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 		if handled {
 			return
 		}
-		if instr := pendingSkillsInstruction(engine.modelCfg.SkillPath, opts.PendingSkills); instr != "" {
+		if instr := pendingSkillsInstruction(engine.modelCfg.SkillPaths, opts.PendingSkills); instr != "" {
 			if content == "" {
 				content = instr
 			} else {
@@ -642,22 +642,18 @@ func emitMessage(
 
 // pendingSkillsInstruction tells the model to read SKILL.md files for the
 // selected skills (reuse the read tool, no dedicated skill tool).
-func pendingSkillsInstruction(skillPath string, names []string) string {
+func pendingSkillsInstruction(skillPaths, names []string) string {
 	if len(names) == 0 {
 		return ""
 	}
-	list, err := skills.LoadSkills(skillPath)
+	list := skills.LoadAll(skillPaths)
 	targets := make([]string, 0, len(names))
-	if err == nil {
-		for _, name := range names {
-			if s := skills.Find(list, name); s != nil && s.SkillFilePath != "" {
-				targets = append(targets, s.SkillFilePath)
-				continue
-			}
-			targets = append(targets, name)
+	for _, name := range names {
+		if s := skills.Find(list, name); s != nil && s.SkillFilePath != "" {
+			targets = append(targets, s.SkillFilePath)
+			continue
 		}
-	} else {
-		targets = append(targets, names...)
+		targets = append(targets, name)
 	}
 	return fmt.Sprintf(
 		"You MUST read these skill files first with the read tool and follow them: %s. Do this immediately before responding.",

@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"time"
+
+	"github.com/pulseaiclub/phi/internal/util"
 )
 
 const defaultTimeout = 60 * time.Second
@@ -172,7 +174,11 @@ func (t *stdioTransport) readResponse() (jsonRPCResponse, error) {
 		}
 		var rpc jsonRPCResponse
 		if err := json.Unmarshal(line, &rpc); err != nil {
-			return jsonRPCResponse{}, fmt.Errorf("parse response: %w; raw=%q", err, truncate(string(line), 200))
+			return jsonRPCResponse{}, fmt.Errorf(
+				"parse response: %w; raw=%q",
+				err,
+				util.TruncateBytes(string(line), 200, "…"),
+			)
 		}
 		// Skip server notifications (method set, no id).
 		if rpc.Method != "" && rpc.ID == nil {

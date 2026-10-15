@@ -69,9 +69,9 @@ type ModelConfig struct {
 	Name    string
 	APIKey  string
 	BaseURL string
-	// SkillPath is the directory to scan for SKILL.md files.
-	// Defaults to ~/.phi/skills if empty.
-	SkillPath string
+	// SkillPaths lists the directories scanned for SKILL.md files, in priority
+	// order (earlier roots win on duplicate names). Empty disables skills.
+	SkillPaths []string
 	// ContextWindow is the model's context window in tokens.
 	// Zero disables session compaction (safe default).
 	ContextWindow int

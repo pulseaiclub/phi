@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/pulseaiclub/phi/internal/util"
 )
 
 // CompactServerList returns space-separated server names.
@@ -34,7 +36,7 @@ func SlimTool(t ToolDefinition) string {
 	b.WriteString(t.Name)
 	if t.Description != "" {
 		b.WriteString(" — ")
-		b.WriteString(truncate(t.Description, 120))
+		b.WriteString(util.TruncateBytes(t.Description, 120, "…"))
 	}
 	props, required := schemaProps(t.InputSchema)
 	if len(props) == 0 {
@@ -113,5 +115,5 @@ func FormatCallResult(s string, maxChars int) string {
 	if len(s) <= maxChars {
 		return s
 	}
-	return fmt.Sprintf("%s\n… truncated (%d chars total)", s[:maxChars], len(s))
+	return util.TruncateBytes(s, maxChars, fmt.Sprintf("\n… truncated (%d chars total)", len(s)))
 }

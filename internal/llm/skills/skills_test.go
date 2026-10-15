@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParse(t *testing.T) {
@@ -210,4 +211,71 @@ func TestToPromptMarkdown_Multiple(t *testing.T) {
 	assert.Contains(t, result, "### Skill Two")
 	assert.Contains(t, result, "First")
 	assert.Contains(t, result, "Second")
+
+	// A nameless skill renders under its directory name, matching the palette.
+	nameless := []*Skill{{Description: "No name", Path: "/x/from-dir", SkillFilePath: "/x/from-dir/SKILL.md"}}
+	assert.Contains(t, ToPromptMarkdown(nameless), "### from-dir")
+}
+
+func TestLoadAll_FirstRootWinsDuplicateNames(t *testing.T) {
+	first, second := t.TempDir(), t.TempDir()
+	writeSkillDir(t, first, "alpha", "from the first root")
+	writeSkillDir(t, second, "alpha", "shadowed")
+	writeSkillDir(t, second, "beta", "second root")
+
+	writeSkillDir(t, second, "Alpha", "shadowed by case")
+	list := LoadAll([]string{first, second})
+	require.Len(t, list, 2, "matching is case-insensitive, so Alpha also loses to alpha")
+	assert.Equal(t, "from the first root", skillDescription(t, list, "alpha"))
+	assert.Equal(t, "second root", skillDescription(t, list, "beta"))
+	assert.NotContains(t, descriptions(list), "shadowed")
+}
+
+func TestLoadAll_SkipsMissingAndBlankRoots(t *testing.T) {
+	dir := t.TempDir()
+	writeSkillDir(t, dir, "only", "the only one")
+
+	assert.Empty(t, LoadAll(nil))
+	assert.Empty(t, LoadAll([]string{""}))
+	assert.Empty(t, LoadAll([]string{"/does/not/exist"}))
+	assert.Len(t, LoadAll([]string{"", "/does/not/exist", dir}), 1)
+}
+
+func TestDisplayName_FallsBackToDirectoryName(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "from-dir", "SKILL.md")
+	require.NoError(t, os.MkdirAll(filepath.Dir(file), 0o755))
+	require.NoError(t, os.WriteFile(file, []byte("---\ndescription: no name here\n---\nbody\n"), 0o644))
+
+	list := LoadAll([]string{dir})
+	require.Len(t, list, 1)
+	assert.Equal(t, "from-dir", DisplayName(list[0]))
+	assert.Empty(t, DisplayName(nil))
+}
+
+func writeSkillDir(t *testing.T, root, name, description string) {
+	t.Helper()
+	dir := filepath.Join(root, name)
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	content := "---\nname: " + name + "\ndescription: " + description + "\n---\nbody\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, SkillFileName), []byte(content), 0o644))
+}
+
+func skillDescription(t *testing.T, list []*Skill, name string) string {
+	t.Helper()
+	for _, s := range list {
+		if DisplayName(s) == name {
+			return s.Description
+		}
+	}
+	require.FailNowf(t, "skill not loaded", "want a skill named %q", name)
+	return ""
+}
+
+func descriptions(list []*Skill) []string {
+	out := make([]string, 0, len(list))
+	for _, s := range list {
+		out = append(out, s.Description)
+	}
+	return out
 }

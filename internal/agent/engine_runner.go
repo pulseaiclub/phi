@@ -44,55 +44,8 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 		return "", errors.New("agent: EngineRunner requires job Dir")
 	}
 
-	cwd := env.Job.WorkDir
-	if cwd == "" {
-		cwd = "."
-	}
-
 	spec := SpecForRole(env.Job.Role)
-
-	gate := r.Gate
-	if gate == nil {
-		g, err := permission.NewGate(permission.ChildPolicy(spec.Mode), cwd)
-		if err != nil {
-			return "", err
-		}
-		gate = g
-	}
-
-	toolList := r.Tools
-	if toolList == nil {
-		toolList = spec.Tools
-	}
-
-	cfg := r.Model
-	if r.ModelFn != nil {
-		cfg = r.ModelFn(env.Job.Role)
-	}
-
-	extRunner := r.Extensions
-	if r.ExtensionsFn != nil {
-		extRunner = r.ExtensionsFn()
-	}
-
-	sessionDir := filepath.Join(env.Job.Dir, "session")
-	sess, err := NewSession(
-		WithCwd(cwd),
-		WithSessionDir(sessionDir),
-		WithPersist(true),
-		WithParentID(env.Job.ParentID),
-	)
-	if err != nil {
-		return "", err
-	}
-	engine, err := NewEngine(cfg, sess,
-		WithGate(gate),
-		WithTools(toolList),
-		WithMaxRounds(r.MaxRounds),
-		WithExtensions(extRunner),
-		WithOmitExtensionTools(true),
-		WithHooks(model.HooksFor(cfg.Name)),
-	)
+	engine, err := r.newEngine(env.Job, spec)
 	if err != nil {
 		return "", err
 	}
@@ -156,4 +109,53 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 		lastText = "sub-agent finished with no text reply"
 	}
 	return lastText, nil
+}
+
+func (r EngineRunner) newEngine(meta job.Meta, spec ChildSpec) (*Engine, error) {
+	cwd := meta.WorkDir
+	if cwd == "" {
+		cwd = "."
+	}
+
+	gate := r.Gate
+	if gate == nil {
+		g, err := permission.NewGate(permission.ChildPolicy(spec.Mode), cwd)
+		if err != nil {
+			return nil, err
+		}
+		gate = g
+	}
+
+	toolList := r.Tools
+	if toolList == nil {
+		toolList = spec.Tools
+	}
+
+	cfg := r.Model
+	if r.ModelFn != nil {
+		cfg = r.ModelFn(meta.Role)
+	}
+
+	extRunner := r.Extensions
+	if r.ExtensionsFn != nil {
+		extRunner = r.ExtensionsFn()
+	}
+
+	sess, err := NewSession(
+		WithCwd(cwd),
+		WithSessionDir(filepath.Join(meta.Dir, "session")),
+		WithPersist(true),
+		WithParentID(meta.ParentID),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return NewEngine(cfg, sess,
+		WithGate(gate),
+		WithTools(toolList),
+		WithMaxRounds(r.MaxRounds),
+		WithExtensions(extRunner),
+		WithOmitExtensionTools(true),
+		WithHooks(model.HooksFor(cfg.Name)),
+	)
 }

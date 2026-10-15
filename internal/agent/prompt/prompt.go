@@ -41,13 +41,13 @@ type mcpData struct {
 }
 
 // Build assembles the system prompt for a session rooted at cwd: its working
-// directory, the AGENTS.md chain above it, the skills catalog, and the MCP list.
+// directory, the AGENTS.md chain above it, the skills catalogs, and the MCP list.
 // Passing the session cwd (not the process cwd) keeps sub-agents with their own
 // workdir from reading the parent's project instructions.
 // Empty cwd falls back to the process working directory.
 // agentsEnabled must match whether agent_* tools are registered.
 // mcpServers are configured server names only (no tool schemas).
-func Build(cwd, skillPath string, agentsEnabled bool, maxConcurrent int, mcpServers []string) string {
+func Build(cwd string, skillPaths []string, agentsEnabled bool, maxConcurrent int, mcpServers []string) string {
 	cwd = resolveDir(cwd)
 	var buf strings.Builder
 	data := systemData{
@@ -63,7 +63,7 @@ func Build(cwd, skillPath string, agentsEnabled bool, maxConcurrent int, mcpServ
 	if ctx := formatProjectContext(loadProjectContextFiles(cwd, phiAgentDir())); ctx != "" {
 		parts = append(parts, ctx)
 	}
-	if skillBlock := skillsBlock(skillPath); skillBlock != "" {
+	if skillBlock := skillsBlock(skillPaths); skillBlock != "" {
 		parts = append(parts, skillBlock)
 	}
 	if mcpBlock := mcpBlock(mcpServers); mcpBlock != "" {
@@ -80,12 +80,9 @@ func execTmpl(t *template.Template, data any) string {
 	return strings.TrimSpace(buf.String())
 }
 
-func skillsBlock(skillDir string) string {
-	if skillDir == "" {
-		return ""
-	}
-	list, err := skills.LoadSkills(skillDir)
-	if err != nil || len(list) == 0 {
+func skillsBlock(skillPaths []string) string {
+	list := skills.LoadAll(skillPaths)
+	if len(list) == 0 {
 		return ""
 	}
 	catalog := strings.TrimSpace(skills.ToPromptMarkdown(list))

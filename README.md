@@ -161,7 +161,7 @@ models:
     api_key: ...
     think_level: high       # optional: off | minimal | low | medium | high | …
 
-skill_path: ~/.phi/skills # where SKILL.md files are loaded from
+skill_path: ~/.phi/skills # where SKILL.md files are loaded from; "~/…" is expanded
 max_rounds: 64            # tool round budget; 0 → engine default (64)
 
 agents:
@@ -371,6 +371,19 @@ Skills are directories containing a `SKILL.md` file with YAML frontmatter and
 a Markdown body. They are loaded from `~/.phi/skills/` (or `skill_path` /
 `PHI_SKILL_PATH`) and injected into the agent's context, letting you give the
 model reusable procedures:
+
+The Agent Skills locations `~/.agents/skills/` and `.agents/skills/` are read
+too, so a skill pack installed for another agent works here without
+configuration. Project `.agents/skills/` directories are discovered from the
+working directory upward, stopping at the repository root when there is one.
+Roots are searched in order — `skill_path` first, then `~/.agents/skills`, then
+the project directories — and the first root wins when two of them define the
+same skill name. A leading `~` in `skill_path` or `PHI_SKILL_PATH` expands to
+your home directory.
+
+> **Security:** skill files are workspace content, not trusted input — a
+> project `.agents/skills/` is picked up without confirmation. Review skills
+> the way you review `AGENTS.md` before trusting a checkout.
 
 ```markdown
 ---

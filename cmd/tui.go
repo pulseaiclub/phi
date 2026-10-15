@@ -94,7 +94,7 @@ func runTUI() error {
 		th,
 		cwd,
 		model,
-		cfg.SkillPath,
+		cfg.SkillPaths,
 		cfg.ContextWindow,
 		modelNames,
 	)

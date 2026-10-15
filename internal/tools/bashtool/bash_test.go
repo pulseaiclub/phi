@@ -142,14 +142,16 @@ func TestRunBash(t *testing.T) {
 func TestRunBashTimeout(t *testing.T) {
 	tool := BashTool()
 	start := time.Now()
-	res, err := tool.Run(t.Context(), []byte(`{"command":"sleep 2","timeout":1}`))
+	res, err := tool.Run(t.Context(), []byte(`{"command":"sleep 30","timeout":1}`))
 	elapsed := time.Since(start)
 
 	require.NoError(t, err)
 	assert.Equal(t, "(no output)\n(command canceled or timed out)", res.Content)
-	assert.Equal(t, "sleep 2", res.Detail)
+	assert.Equal(t, "sleep 30", res.Detail)
 	assert.Equal(t, "(no output)\n(command canceled or timed out)", res.Output)
-	assert.Less(t, elapsed, 2*time.Second)
+	// Allow for Windows taskkill and process cleanup on slow CI runners,
+	// while still requiring cancellation well before the command finishes.
+	assert.Less(t, elapsed, 10*time.Second)
 }
 
 func TestRunBashPreCanceledContext(t *testing.T) {

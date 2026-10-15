@@ -117,10 +117,7 @@ func readSessionMeta(path string, e os.DirEntry) (SessionMeta, error) {
 func truncatePreview(s string, n int) string {
 	s = util.ReplaceAll(s, "\n", " ")
 	s = strings.TrimSpace(s)
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
+	return util.TruncateBytes(s, n, "…")
 }
 
 // FindSessionFile resolves id to a unique jsonl path under dir.

@@ -34,7 +34,7 @@ func NewBuiltinRegistry(
 	tr *transcript.TranscriptPane,
 	ft *footer.FooterChrome,
 	modelNames []string,
-	skillPath string,
+	skillPaths []string,
 	openDiff func(args []string),
 	openCode func(args []string),
 ) *Builtin {
@@ -56,8 +56,8 @@ func NewBuiltinRegistry(
 		ModelNames: append([]string(nil), modelNames...),
 	}
 	skills := &SkillsCommands{
-		SkillPath: skillPath,
-		Add:       composer,
+		SkillPaths: skillPaths,
+		Add:        composer,
 	}
 	diff := &DiffCommands{Open: openDiff}
 	code := &CodeCommands{Open: openCode}

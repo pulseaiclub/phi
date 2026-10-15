@@ -18,10 +18,15 @@ import (
 type Config struct {
 	Models       []llm.ModelConfig
 	DefaultModel string // name of the default model; "" → first entry
-	SkillPath    string
-	MaxRounds    int // tool round budget; 0 → agent default (64)
-	Permissions  permission.Policy
-	Agents       AgentsConfig
+	// SkillPath is the configured skill_path with "~" expanded; empty falls
+	// back to ~/.phi/skills.
+	SkillPath string
+	// SkillPaths lists every root the agent reads skills from, in priority
+	// order: SkillPath, then the .agents/skills locations.
+	SkillPaths  []string
+	MaxRounds   int // tool round budget; 0 → agent default (64)
+	Permissions permission.Policy
+	Agents      AgentsConfig
 }
 
 // AgentsConfig controls whether the main agent may spawn sub-agents
@@ -41,27 +46,23 @@ type AgentsRoleModels struct {
 	Worker  string `yaml:"worker,omitempty"`
 }
 
-// Model returns the default model config with the skill path and budget applied, ready
+// Model returns the default model config with the skill roots and budget applied, ready
 // for agent.NewEngine.
 func (c *Config) Model() llm.ModelConfig {
 	m := *c.defaultEntry()
 	m.MaxRounds = c.MaxRounds
-	if m.SkillPath == "" {
-		m.SkillPath = c.SkillPath
-	}
+	m.SkillPaths = c.SkillPaths
 	return m
 }
 
-// AllModels returns every configured model with the skill path and budget applied — the
+// AllModels returns every configured model with the skill roots and budget applied — the
 // complete set of switchable models.
 func (c *Config) AllModels() []llm.ModelConfig {
 	all := make([]llm.ModelConfig, len(c.Models))
 	copy(all, c.Models)
 	for i := range all {
 		all[i].MaxRounds = c.MaxRounds
-		if all[i].SkillPath == "" {
-			all[i].SkillPath = c.SkillPath
-		}
+		all[i].SkillPaths = c.SkillPaths
 	}
 	return all
 }
@@ -97,7 +98,7 @@ func (c *Config) defaultEntry() *llm.ModelConfig {
 
 // loadConfig reads the config file, applies environment overrides, and fills
 // in defaults. A missing file yields a zero Config so env-only setups work.
-func loadConfig(global GlobalLayout) (*Config, error) {
+func loadConfig(global GlobalLayout, cwd string) (*Config, error) {
 	cfg, err := parseConfigFile(global.ConfigFile())
 	if err != nil {
 		return nil, err
@@ -114,9 +115,15 @@ func loadConfig(global GlobalLayout) (*Config, error) {
 	if def.APIKey == "" {
 		return nil, fmt.Errorf("missing api_key (set PHI_API_KEY or models[].api_key in %s)", global.ConfigFile())
 	}
+	// A "~" in skill_path is expanded before anything stats the path: both the
+	// docs and the settings screen hand out ~-prefixed paths, and a literal
+	// "~/…" fails os.Stat silently, so it would load zero skills with no
+	// warning at all.
+	cfg.SkillPath = expandHome(cfg.SkillPath)
 	if cfg.SkillPath == "" {
 		cfg.SkillPath = global.SkillsDir()
 	}
+	cfg.SkillPaths = resolveSkillPaths(cfg.SkillPath, global, cwd)
 	return cfg, nil
 }
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/pulseaiclub/phi/internal/tools/edittool/sloppy"
+	"github.com/pulseaiclub/phi/internal/util"
 )
 
 // Extract builds a permission Request from a tool name and raw JSON args.
@@ -141,7 +142,7 @@ func withPath(req Request, path, cwd string) (Request, error) {
 func Summarize(req Request) string {
 	switch {
 	case req.Command != "":
-		return truncate(req.Command, 200)
+		return util.TruncateBytes(req.Command, 200, "…")
 	case len(req.Paths) > 0:
 		return strings.Join(req.Paths, ", ")
 	default:

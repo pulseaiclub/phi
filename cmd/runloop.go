@@ -22,6 +22,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
+	"github.com/pulseaiclub/phi/internal/util"
 )
 
 // runOptions holds parsed `phi run` flags.
@@ -202,9 +203,9 @@ func runLoop(ctx context.Context, engine *agent.Engine, opts runOptions) int {
 				}
 			case session.ToolData:
 				r := e.Run
-				fmt.Fprintf(os.Stderr, "tool: %s [%s] %s\n", r.Name, r.Status, truncate(r.Detail, 100))
+				fmt.Fprintf(os.Stderr, "tool: %s [%s] %s\n", r.Name, r.Status, util.TruncateBytes(r.Detail, 100, "…"))
 				if r.Error != "" {
-					fmt.Fprintln(os.Stderr, "  ", truncate(r.Error, 200))
+					fmt.Fprintln(os.Stderr, "  ", util.TruncateBytes(r.Error, 200, "…"))
 				}
 			}
 		}
@@ -439,11 +440,4 @@ func classifyRunError(err error) int {
 		return ExitMaxRounds
 	}
 	return ExitError
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
 }
