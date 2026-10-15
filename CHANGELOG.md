@@ -10,6 +10,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `read` accepts `skill://name[/relative/path]` URLs from the configured skill
+  catalog. Extensions run before resolution; permissions and file reads use the
+  same canonical filesystem target. Skill prompts retain real edit paths.
+
 ### Changed
 
 ### Deprecated

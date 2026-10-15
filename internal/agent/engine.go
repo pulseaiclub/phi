@@ -24,6 +24,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/tools/agenttool"
 	"github.com/pulseaiclub/phi/internal/tools/mcptool"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
+	"github.com/pulseaiclub/phi/internal/urls"
 )
 
 // ErrMaxRounds is returned (wrapped) by Loop when the model exceeds the
@@ -207,6 +208,9 @@ func (engine *Engine) systemPrompt() string {
 
 func (engine *Engine) bindExecutor(registry tooldef.Registry) {
 	engine.executor = NewExecutor(registry, engine.gate, engine.ask, engine.extensions)
+	// Use the same skill catalog as the prompt, including for child engines.
+	list := skills.LoadAll(engine.modelCfg.SkillPaths)
+	engine.executor.readURLs = urls.NewSkillRouter(list)
 	engine.executor.SetMeta(engine.SessionID(), engine.SessionCwd())
 }
 
