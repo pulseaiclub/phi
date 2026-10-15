@@ -58,34 +58,15 @@ func (h *skillHandler) Locate(ctx context.Context, u InternalURL) (string, error
 	if location.root == "" || location.file == "" {
 		return "", fmt.Errorf("skill %q has no local path", name)
 	}
-	target := location.file
-	if u.Pathname != "" && u.Pathname != "/" {
-		relative, err := url.PathUnescape(strings.TrimPrefix(u.Pathname, "/"))
-		if err != nil {
-			return "", err
-		}
-		// Reject cross-platform separators and drive forms even on Unix hosts.
-		if !filepath.IsLocal(relative) || strings.ContainsAny(relative, "\\\x00:") {
-			return "", fmt.Errorf("invalid relative skill path %q", relative)
-		}
-		if slices.Contains(strings.Split(relative, "/"), "..") {
-			return "", fmt.Errorf("skill path traversal is not allowed: %q", relative)
-		}
-		target = filepath.Join(location.root, relative)
-	}
-	root, err := filepath.Abs(location.root)
+	target, err := skillTarget(location, u)
 	if err != nil {
 		return "", err
 	}
-	root, err = filepath.EvalSymlinks(root)
+	root, err := resolveRealPath(location.root)
 	if err != nil {
 		return "", fmt.Errorf("locate skill %q root: %w", name, err)
 	}
-	target, err = filepath.Abs(target)
-	if err != nil {
-		return "", err
-	}
-	target, err = filepath.EvalSymlinks(target)
+	target, err = resolveRealPath(target)
 	if err != nil {
 		return "", fmt.Errorf("locate skill %q target: %w", name, err)
 	}
@@ -97,4 +78,39 @@ func (h *skillHandler) Locate(ctx context.Context, u InternalURL) (string, error
 		return "", err
 	}
 	return target, nil
+}
+
+// skillTarget maps a skill URL path to the file it names: the SKILL.md itself
+// when the URL carries no path, otherwise a file inside the skill root. Guards
+// run before any filesystem access, so a rejected URL never depends on which
+// files happen to exist.
+func skillTarget(location skillLocation, u InternalURL) (string, error) {
+	if u.Pathname == "" || u.Pathname == "/" {
+		return location.file, nil
+	}
+	relative, err := url.PathUnescape(strings.TrimPrefix(u.Pathname, "/"))
+	if err != nil {
+		return "", err
+	}
+	// Reject cross-platform separators and drive forms even on Unix hosts.
+	if !filepath.IsLocal(relative) || strings.ContainsAny(relative, "\\\x00:") {
+		return "", fmt.Errorf("invalid relative skill path %q", relative)
+	}
+	// IsLocal rejects a ".." that escapes, such as "sub/../../outside", but it
+	// cleans interior ones away: "a/../b" would pass. Reject every segment.
+	if slices.Contains(strings.Split(relative, "/"), "..") {
+		return "", fmt.Errorf("skill path traversal is not allowed: %q", relative)
+	}
+	return filepath.Join(location.root, relative), nil
+}
+
+// resolveRealPath returns the absolute, symlink-resolved form of path. Root and
+// target both go through it because the containment check compares them with
+// filepath.Rel: a symlink left on either side makes that comparison meaningless.
+func resolveRealPath(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(abs)
 }
