@@ -43,6 +43,171 @@ func TestCheckWriteInsideWorkspace(t *testing.T) {
 	require.Equal(t, Allow, dec)
 }
 
+func TestCheckWriteSymlinkDirEscape(t *testing.T) {
+	ws := t.TempDir()
+	outside := t.TempDir()
+	require.NoError(t, os.Symlink(outside, filepath.Join(ws, "link")))
+	g, err := NewGate(DefaultPolicy(), ws)
+	require.NoError(t, err)
+
+	// CVE-2026-108599: the lexical path sits inside the workspace, but the OS
+	// would resolve it outside; the gate must follow the link.
+	dec, _ := g.Check(t.Context(), Request{
+		Action: ActionWrite,
+		Tool:   "write",
+		Paths:  []string{filepath.Join(ws, "link", "escape.txt")},
+	})
+	require.Equal(t, Deny, dec, "write through symlinked dir must be denied")
+
+	// A fresh file nested under a not-yet-created component of the symlink is
+	// still an escape.
+	dec, _ = g.Check(t.Context(), Request{
+		Action: ActionWrite,
+		Tool:   "write",
+		Paths:  []string{filepath.Join(ws, "link", "sub", "escape.txt")},
+	})
+	require.Equal(t, Deny, dec)
+}
+
+func TestCheckWriteSymlinkedFileEscape(t *testing.T) {
+	outside := t.TempDir()
+	target := filepath.Join(outside, "secrets.txt")
+	require.NoError(t, os.WriteFile(target, []byte("x"), 0o600))
+	ws := t.TempDir()
+	link := filepath.Join(ws, "secrets.txt")
+	require.NoError(t, os.Symlink(target, link))
+	g, err := NewGate(DefaultPolicy(), ws)
+	require.NoError(t, err)
+
+	dec, _ := g.Check(t.Context(), Request{
+		Action: ActionWrite,
+		Tool:   "edit",
+		Paths:  []string{link},
+	})
+	require.Equal(t, Deny, dec, "edit through a symlinked file must be denied")
+}
+
+func TestCheckWriteSymlinkToSensitivePath(t *testing.T) {
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+	ws := t.TempDir()
+	require.NoError(t, os.Symlink(filepath.Join(home, ".ssh"), filepath.Join(ws, "ssh")))
+	g, err := NewGate(DefaultPolicy(), ws)
+	require.NoError(t, err)
+
+	dec, _ := g.Check(t.Context(), Request{
+		Action: ActionWrite,
+		Tool:   "write",
+		Paths:  []string{filepath.Join(ws, "ssh", "authorized_keys")},
+	})
+	require.Equal(t, Deny, dec, "symlink must not launder a sensitive path")
+}
+
+func TestCheckReadSymlinkEscapeWithWorkspaceOnlyReads(t *testing.T) {
+	ws := t.TempDir()
+	outside := t.TempDir()
+	require.NoError(t, os.Symlink(outside, filepath.Join(ws, "link")))
+	p := DefaultPolicy()
+	p.WorkspaceOnlyReads = true
+	g, err := NewGate(p, ws)
+	require.NoError(t, err)
+
+	dec, _ := g.Check(t.Context(), Request{
+		Action: ActionRead,
+		Tool:   "read",
+		Paths:  []string{filepath.Join(ws, "link", "secret.txt")},
+	})
+	require.Equal(t, Deny, dec)
+}
+
+func TestCheckWriteInsideWorkspaceStillAllowed(t *testing.T) {
+	// Guard against the symlink checks breaking the happy path, including a
+	// workspace reached through a symlinked parent (macOS /tmp → /private/tmp).
+	ws := t.TempDir()
+	resolved, err := filepath.EvalSymlinks(ws)
+	require.NoError(t, err)
+	g, err := NewGate(DefaultPolicy(), ws)
+	require.NoError(t, err)
+
+	for _, root := range []string{ws, resolved} {
+		dec, _ := g.Check(t.Context(), Request{
+			Action: ActionWrite,
+			Tool:   "write",
+			Paths:  []string{filepath.Join(root, "out.txt")},
+		})
+		require.Equal(t, Allow, dec, "write inside %s should be allowed", root)
+	}
+}
+
+func TestCheckAgentSpawnWorkdir(t *testing.T) {
+	ws := t.TempDir()
+	outside := t.TempDir()
+	g, err := NewGate(DefaultPolicy(), ws)
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	// CVE-2026-108595: the workdir becomes the child's workspace root, so an
+	// out-of-workspace workdir must not silently pass.
+	req, err := Extract("agent_spawn", []byte(`{"prompt":"x","workdir":"`+outside+`"}`))
+	require.NoError(t, err)
+	dec, reason := g.Check(ctx, req)
+	require.Equal(t, Ask, dec, reason)
+
+	// In-workspace spawn stays allowed without prompting.
+	req, err = Extract("agent_spawn", []byte(`{"prompt":"x","workdir":"`+filepath.Join(ws, "pkg")+`"}`))
+	require.NoError(t, err)
+	dec, reason = g.Check(ctx, req)
+	require.Equal(t, Allow, dec, reason)
+
+	// The inherited cwd is subject to the same check as an explicit workdir.
+	req, err = ExtractAt("agent_spawn", []byte(`{"prompt":"x"}`), ws)
+	require.NoError(t, err)
+	dec, reason = g.Check(ctx, req)
+	require.Equal(t, Allow, dec, reason)
+}
+
+func TestCheckAgentSpawnWorkdirDeniedInHeadlessStrict(t *testing.T) {
+	ws := t.TempDir()
+	outside := t.TempDir()
+	p := DefaultPolicy()
+	p.Mode = ModeHeadlessStrict
+	g, err := NewGate(p, ws)
+	require.NoError(t, err)
+
+	req, err := Extract("agent_spawn", []byte(`{"prompt":"x","workdir":"`+outside+`"}`))
+	require.NoError(t, err)
+	dec, _ := g.Check(t.Context(), req)
+	require.Equal(t, Deny, dec, "headless-strict folds the outside-workspace Ask into Deny")
+}
+
+func TestCheckReadonlyDeniesAgentSpawn(t *testing.T) {
+	ws := t.TempDir()
+	p := DefaultPolicy()
+	p.Mode = ModeReadonly
+	g, err := NewGate(p, ws)
+	require.NoError(t, err)
+
+	// Even an in-workspace spawn delegates user permissions to a process that
+	// is not held to the readonly contract.
+	req, err := Extract("agent_spawn", []byte(`{"prompt":"x"}`))
+	require.NoError(t, err)
+	dec, reason := g.Check(t.Context(), req)
+	require.Equal(t, Deny, dec, reason)
+}
+
+func TestCheckAgentWaitAndCancelStayAllowed(t *testing.T) {
+	g, err := NewGate(DefaultPolicy(), t.TempDir())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	for _, tool := range []string{"agent_wait", "agent_cancel"} {
+		req, err := Extract(tool, []byte(`{"job_id":"j1"}`))
+		require.NoError(t, err)
+		dec, reason := g.Check(ctx, req)
+		require.Equal(t, Allow, dec, "%s: %s", tool, reason)
+	}
+}
+
 func TestCheckWriteSensitiveConfig(t *testing.T) {
 	ws := t.TempDir()
 	g, err := NewGate(DefaultPolicy(), ws)

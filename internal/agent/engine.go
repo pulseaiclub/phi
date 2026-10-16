@@ -121,6 +121,7 @@ func (engine *Engine) buildCoreTools(base []tooldef.Tool) []tooldef.Tool {
 		Manager:  engine.jobs,
 		ParentID: engine.SessionID,
 		WorkDir:  engine.SessionCwd,
+		Gate:     engine.gate,
 	})
 	merged := make([]tooldef.Tool, 0, len(out)+len(agentTools))
 	merged = append(merged, out...)
@@ -220,6 +221,8 @@ func (engine *Engine) SetPermission(gate permission.Gate, ask permission.AskFunc
 	if engine.executor != nil {
 		engine.executor.gate = gate
 		engine.executor.ask = ask
+		// Spawn handlers capture the gate for each parent configuration.
+		engine.executor.registry = tooldef.NewRegistry(engine.buildToolList(engine.baseTools))
 	}
 }
 

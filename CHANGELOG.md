@@ -32,6 +32,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Security
 
+- Permission gate: resolve symlinks in existing paths and ancestors when checking
+  workspace boundaries and sensitive paths; deny dangling links and other
+  unresolvable paths instead of falling back to lexical checks (CVE-2026-108599).
+  A dangling sensitive-path prefix blocks file access until repaired.
+  These checks do not provide an OS sandbox against concurrent filesystem changes.
+- Sub-agents: check inherited and explicit working directories against the
+  parent workspace and resolve relative directories consistently. Outside
+  directories require approval (denied in headless modes); readonly sessions
+  cannot spawn sub-agents. Child operations also obey the parent permission
+  gate, including sensitive paths, read boundaries and bash restrictions
+  (CVE-2026-108595).
+
 ## [0.28.9] - 2026-10-16
 
 ### Added

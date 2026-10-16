@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"github.com/pulseaiclub/phi/internal/util"
 
@@ -40,6 +41,7 @@ type AgentDeps struct {
 	Manager  *job.Manager
 	ParentID func() string
 	WorkDir  func() string
+	Gate     permission.Gate // trusted parent gate; never accepted from tool arguments
 }
 
 // AgentTools returns agent_spawn / list / wait / cancel.
@@ -104,9 +106,9 @@ Concurrency cap: at most %d sub-agents run concurrently; spawning more fails (jo
 			if err != nil {
 				return tooldef.Result{}, err
 			}
-			wd := strings.TrimSpace(in.WorkDir)
-			if wd == "" {
-				wd = deps.WorkDir()
+			wd, err := permission.AbsCleanAt(strings.TrimSpace(in.WorkDir), deps.WorkDir())
+			if err != nil {
+				return tooldef.Result{}, fmt.Errorf("agent_spawn workdir: %w", err)
 			}
 			req := job.SpawnRequest{
 				Prompt:          in.Prompt,
@@ -116,6 +118,7 @@ Concurrency cap: at most %d sub-agents run concurrently; spawning more fails (jo
 				Depth:           0,
 				Role:            role,
 				WorkDir:         wd,
+				Gate:            deps.Gate,
 			}
 			if in.TimeoutSec > 0 {
 				req.Timeout = time.Duration(in.TimeoutSec) * time.Second

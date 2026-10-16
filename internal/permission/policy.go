@@ -60,14 +60,17 @@ type Action string
 
 // Action values name the kinds of tool operations being gated.
 const (
-	ActionBash  Action = "bash"
-	ActionRead  Action = "read"
-	ActionWrite Action = "write"
-	ActionEdit  Action = "edit"
-	ActionGrep  Action = "grep"
-	ActionFind  Action = "find"
-	ActionLs    Action = "ls"
-	ActionAgent Action = "agent"
+	ActionUnknown Action = "unknown"
+	ActionBash    Action = "bash"
+	ActionRead    Action = "read"
+	ActionWrite   Action = "write"
+	ActionEdit    Action = "edit"
+	ActionGrep    Action = "grep"
+	ActionFind    Action = "find"
+	ActionLs      Action = "ls"
+
+	ActionAgentSpawn   Action = "agent_spawn"   // delegates execution in a workspace
+	ActionAgentControl Action = "agent_control" // waits for or cancels existing work
 )
 
 // Request describes a tool invocation for permission evaluation.

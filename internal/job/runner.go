@@ -1,8 +1,12 @@
 package job
 
-import "context"
+import (
+	"context"
 
-// RunEnv is what a [Runner] sees for one job.
+	"github.com/pulseaiclub/phi/internal/permission"
+)
+
+// RunEnv is the in-memory execution context a [Runner] sees for one job.
 //
 // Log lines are persisted to events.jsonl so [Manager.Log] can stream them.
 // If summary is non-empty when Run returns nil, the manager writes result.md.
@@ -12,6 +16,7 @@ import "context"
 // It must not block; the manager may drop events if subscribers are slow.
 type RunEnv struct {
 	Job         Meta
+	Gate        permission.Gate // parent constraint captured for this spawn
 	Log         func(message string)
 	WriteResult func(summary string) error
 	OnProgress  func(Progress)

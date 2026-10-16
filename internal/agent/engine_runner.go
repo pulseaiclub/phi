@@ -31,7 +31,7 @@ import (
 type EngineRunner struct {
 	Model        llm.ModelConfig
 	ModelFn      func(role job.Role) llm.ModelConfig // if set, preferred over Model
-	Gate         permission.Gate                     // nil → SpecForRole(job.Role).Mode on WorkDir
+	Gate         permission.Gate                     // additional constraint alongside role and parent gates
 	Tools        []tooldef.Tool                      // nil → SpecForRole(job.Role).Tools
 	MaxRounds    int                                 // <=0 → model budget or Engine default
 	Extensions   *extension.Runner
@@ -45,7 +45,7 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 	}
 
 	spec := SpecForRole(env.Job.Role)
-	engine, err := r.newEngine(env.Job, spec)
+	engine, err := r.newEngine(env.Job, spec, env.Gate)
 	if err != nil {
 		return "", err
 	}
@@ -111,20 +111,17 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 	return lastText, nil
 }
 
-func (r EngineRunner) newEngine(meta job.Meta, spec ChildSpec) (*Engine, error) {
+func (r EngineRunner) newEngine(meta job.Meta, spec ChildSpec, parentGate permission.Gate) (*Engine, error) {
 	cwd := meta.WorkDir
 	if cwd == "" {
 		cwd = "."
 	}
 
-	gate := r.Gate
-	if gate == nil {
-		g, err := permission.NewGate(permission.ChildPolicy(spec.Mode), cwd)
-		if err != nil {
-			return nil, err
-		}
-		gate = g
+	roleGate, err := permission.NewGate(permission.ChildPolicy(spec.Mode), cwd)
+	if err != nil {
+		return nil, err
 	}
+	gate := permission.Intersect(r.Gate, roleGate)
 
 	toolList := r.Tools
 	if toolList == nil {
@@ -151,7 +148,7 @@ func (r EngineRunner) newEngine(meta job.Meta, spec ChildSpec) (*Engine, error) 
 		return nil, err
 	}
 	return NewEngine(cfg, sess,
-		WithGate(gate),
+		WithGate(permission.Intersect(parentGate, gate)),
 		WithTools(toolList),
 		WithMaxRounds(r.MaxRounds),
 		WithExtensions(extRunner),

@@ -150,7 +150,9 @@ func TestEngineRunnerInheritsRoundBudget(t *testing.T) {
 				Log: func(string) {},
 			})
 			require.ErrorIs(t, err, ErrMaxRounds)
-			require.EqualValues(t, 2, runs.Load())
+			// Unknown tools are denied by the role gate even with an AllowAll
+			// runner constraint; rejected calls still consume the round budget.
+			require.Zero(t, runs.Load())
 			require.EqualValues(t, 3, requests.Load())
 		})
 	}

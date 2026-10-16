@@ -119,12 +119,29 @@ func ExtractAt(toolName string, args json.RawMessage, cwd string) (Request, erro
 		req.Action = ActionLs
 		return withPath(req, in.Path, cwd)
 
-	case "agent_spawn", "agent_wait", "agent_cancel":
-		req.Action = ActionAgent
+	case "agent_spawn":
+		// The workdir becomes the child's workspace root, so the gate must
+		// see it; wait/cancel carry no paths.
+		var in struct {
+			WorkDir string `json:"workdir"`
+		}
+		if err := json.Unmarshal(args, &in); err != nil {
+			return req, fmt.Errorf("agent_spawn args: %w", err)
+		}
+		req.Action = ActionAgentSpawn
+		abs, err := AbsCleanAt(strings.TrimSpace(in.WorkDir), cwd)
+		if err != nil {
+			return req, err
+		}
+		req.Paths = []string{abs}
+		return req, nil
+
+	case "agent_wait", "agent_cancel":
+		req.Action = ActionAgentControl
 		return req, nil
 
 	default:
-		req.Action = Action(toolName)
+		req.Action = ActionUnknown
 		return req, nil
 	}
 }
@@ -152,6 +169,8 @@ func Summarize(req Request) string {
 		return util.TruncateBytes(req.Command, 200, "…")
 	case len(req.Paths) > 0:
 		return strings.Join(req.Paths, ", ")
+	case req.Action == ActionUnknown:
+		return req.Tool
 	default:
 		return string(req.Action)
 	}

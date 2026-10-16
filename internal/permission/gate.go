@@ -21,6 +21,12 @@ type StaticGate struct {
 
 	bashAllow []*regexp.Regexp
 	bashDeny  []*regexp.Regexp
+
+	// workspaceReal is the symlink-resolved Workspace. Workspace checks run
+	// on the resolved spelling: the containment question is where the OS
+	// would actually touch the file, so a symlink inside the workspace
+	// pointing out of it cannot launder the target (CWE-59).
+	workspaceReal string
 }
 
 // NewGate compiles policy regexes and returns a Gate.
@@ -29,8 +35,11 @@ func NewGate(policy Policy, workspace string) (*StaticGate, error) {
 	if workspace == "" {
 		workspace = WorkspaceRoot()
 	}
-	g := &StaticGate{Policy: policy, Workspace: workspace}
-	var err error
+	resolved, err := realPath(workspace)
+	if err != nil {
+		return nil, fmt.Errorf("resolve workspace: %w", err)
+	}
+	g := &StaticGate{Policy: policy, Workspace: workspace, workspaceReal: resolved}
 	g.bashAllow, err = compilePatterns(policy.BashAllow)
 	if err != nil {
 		return nil, fmt.Errorf("bash allow: %w", err)
@@ -69,10 +78,16 @@ func (g *StaticGate) evaluate(req Request) (Decision, string) {
 		return g.checkWrite(req)
 	case ActionRead, ActionGrep, ActionFind, ActionLs:
 		return g.checkRead(req)
-	case ActionAgent:
+	case ActionAgentSpawn:
+		return g.checkAgentSpawn(req)
+	case ActionAgentControl:
 		return Allow, ""
 	default:
-		return Ask, fmt.Sprintf("unknown action %q requires approval", req.Action)
+		action := string(req.Action)
+		if req.Action == ActionUnknown {
+			action = req.Tool
+		}
+		return Ask, fmt.Sprintf("unknown action %q requires approval", action)
 	}
 }
 
@@ -115,10 +130,11 @@ func (g *StaticGate) checkWrite(req Request) (Decision, string) {
 		if IsInternalURL(p) {
 			return Ask, "external tool call requires approval: " + p
 		}
-		if IsSensitivePath(p, g.Policy.SensitivePathDeny) {
-			return Deny, "write to sensitive path denied: " + p
+		real, reason := g.resolveAllowedPath(p)
+		if reason != "" {
+			return Deny, reason
 		}
-		if g.Policy.WorkspaceOnlyWrites && !InWorkspace(p, g.Workspace) {
+		if g.Policy.WorkspaceOnlyWrites && !InWorkspace(real, g.workspaceReal) {
 			return Deny, "write outside workspace denied: " + p
 		}
 	}
@@ -139,12 +155,52 @@ func (g *StaticGate) checkRead(req Request) (Decision, string) {
 			}
 			continue
 		}
-		if IsSensitivePath(p, g.Policy.SensitivePathDeny) {
-			return Deny, "read of sensitive path denied: " + p
+		real, reason := g.resolveAllowedPath(p)
+		if reason != "" {
+			return Deny, reason
 		}
-		if g.Policy.WorkspaceOnlyReads && !InWorkspace(p, g.Workspace) {
+		if g.Policy.WorkspaceOnlyReads && !InWorkspace(real, g.workspaceReal) {
 			return Deny, "read outside workspace denied: " + p
 		}
+	}
+	return Allow, ""
+}
+
+// resolveAllowedPath checks both aliases and canonical sensitive prefixes.
+func (g *StaticGate) resolveAllowedPath(path string) (string, string) {
+	real, err := realPath(path)
+	if err != nil {
+		return "", fmt.Sprintf("cannot resolve path %q: %v", path, err)
+	}
+	if IsSensitivePath(path, g.Policy.SensitivePathDeny) || IsSensitivePath(real, g.Policy.SensitivePathDeny) {
+		return "", "access to sensitive path denied: " + path
+	}
+	for _, prefix := range g.Policy.SensitivePathDeny {
+		resolved, err := realPath(prefix)
+		if err != nil {
+			return "", fmt.Sprintf("cannot resolve sensitive path %q: %v", prefix, err)
+		}
+		if IsSensitivePath(real, []string{resolved}) {
+			return "", "access to sensitive path denied: " + path
+		}
+	}
+	return real, ""
+}
+
+// Readonly sessions cannot delegate execution.
+func (g *StaticGate) checkAgentSpawn(req Request) (Decision, string) {
+	if g.Policy.Mode == ModeReadonly {
+		return Deny, "readonly mode denies agent_spawn"
+	}
+	if len(req.Paths) != 1 || IsInternalURL(req.Paths[0]) {
+		return Deny, "agent_spawn requires one filesystem workdir"
+	}
+	real, reason := g.resolveAllowedPath(req.Paths[0])
+	if reason != "" {
+		return Deny, reason
+	}
+	if !InWorkspace(real, g.workspaceReal) {
+		return Ask, "agent_spawn workdir outside workspace requires approval: " + req.Paths[0]
 	}
 	return Allow, ""
 }

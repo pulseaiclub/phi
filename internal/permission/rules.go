@@ -1,8 +1,10 @@
 package permission
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -79,6 +81,69 @@ func AbsCleanAt(path, cwd string) (string, error) {
 	return filepath.Clean(filepath.Join(cwd, path)), nil
 }
 
+// realPath resolves existing ancestors before appending a not-yet-created suffix.
+// Dangling links and other resolution errors fail closed.
+// This is a policy check, not protection against concurrent symlink replacement.
+func realPath(path string) (string, error) {
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	var suffix string
+	for {
+		resolved, err := filepath.EvalSymlinks(path)
+		if err == nil {
+			if suffix != "" {
+				info, err := os.Stat(resolved)
+				if err != nil {
+					return "", err
+				}
+				if !info.IsDir() {
+					return "", fmt.Errorf("resolve %q: not a directory", resolved)
+				}
+			}
+			if runtime.GOOS == "windows" {
+				if err := rejectIrregularAncestors(resolved); err != nil {
+					return "", err
+				}
+			}
+			return filepath.Join(resolved, suffix), nil
+		}
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+		// ENOENT may come from a dangling link. Only peel off absent entries;
+		// an existing link must resolve successfully before it can be trusted.
+		if _, statErr := os.Lstat(path); !os.IsNotExist(statErr) {
+			return "", err
+		}
+		parent := filepath.Dir(path)
+		if parent == path {
+			return "", err
+		}
+		suffix = filepath.Join(filepath.Base(path), suffix)
+		path = parent
+	}
+}
+
+// EvalSymlinks can leave Windows junctions and other reparse points unresolved.
+func rejectIrregularAncestors(path string) error {
+	for {
+		info, err := os.Lstat(path)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeIrregular != 0 {
+			return fmt.Errorf("resolve %q: unsupported file type", path)
+		}
+		parent := filepath.Dir(path)
+		if parent == path {
+			return nil
+		}
+		path = parent
+	}
+}
+
 // InWorkspace reports whether absPath is inside workspace (or equal to it).
 func InWorkspace(absPath, workspace string) bool {
 	if workspace == "" || absPath == "" {
@@ -103,9 +168,9 @@ func SensitivePaths() []string { return defaultSensitivePaths() }
 
 // IsSensitivePath reports whether absPath matches a sensitive prefix.
 func IsSensitivePath(absPath string, prefixes []string) bool {
-	absPath = filepath.Clean(absPath)
+	absPath = sensitiveSpelling(absPath)
 	for _, p := range prefixes {
-		p = filepath.Clean(p)
+		p = sensitiveSpelling(p)
 		if absPath == p {
 			return true
 		}
@@ -114,6 +179,16 @@ func IsSensitivePath(absPath string, prefixes []string) bool {
 		}
 	}
 	return false
+}
+
+// Deny case aliases conservatively on platforms commonly using insensitive
+// volumes. This can also deny distinct case variants on case-sensitive volumes.
+func sensitiveSpelling(path string) string {
+	path = filepath.Clean(path)
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		return strings.ToLower(path)
+	}
+	return path
 }
 
 // bashEligibleForAllowlist reports whether cmd is a single simple command that

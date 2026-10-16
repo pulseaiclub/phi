@@ -2,12 +2,40 @@ package permission
 
 import (
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestUnknownToolCannotSelectPermissionAction(t *testing.T) {
+	root := t.TempDir()
+	for _, mode := range []Mode{ModeInteractive, ModeReadonly, ModeAutopilot, ModeHeadlessStrict} {
+		t.Run(string(mode), func(t *testing.T) {
+			policy := DefaultPolicy()
+			policy.Mode = mode
+			gate, err := NewGate(policy, root)
+			require.NoError(t, err)
+			for _, tool := range []string{"agent_control", "custom_tool"} {
+				req, err := ExtractAt(tool, json.RawMessage(`{}`), root)
+				require.NoError(t, err)
+				require.Equal(t, ActionUnknown, req.Action)
+				require.Equal(t, tool, Summarize(req))
+				want := Ask
+				wantReason := fmt.Sprintf("unknown action %q requires approval", tool)
+				if mode != ModeInteractive {
+					want = Deny
+					wantReason = string(mode) + " mode: " + wantReason
+				}
+				dec, reason := gate.Check(t.Context(), req)
+				require.Equal(t, want, dec)
+				require.Equal(t, wantReason, reason)
+			}
+		})
+	}
+}
 
 func TestExtractBash(t *testing.T) {
 	req, err := Extract("bash", json.RawMessage(`{"command":"git status"}`))

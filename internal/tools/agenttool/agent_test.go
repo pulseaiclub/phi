@@ -3,6 +3,7 @@ package agenttool_test
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/agent"
 	"github.com/pulseaiclub/phi/internal/job"
+	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/tools"
 	"github.com/pulseaiclub/phi/internal/tools/agenttool"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
@@ -113,6 +115,46 @@ func TestAgentSpawnDetailAlwaysIncludesRole(t *testing.T) {
 	// Multi-line prompts collapse: the label has to stay one TUI row.
 	assert.Equal(t, "explore: find the auth config",
 		detail([]byte(`{"prompt":"find the\n   auth config"}`)))
+}
+
+func TestAgentSpawnWorkdirMatchesPermissionRequest(t *testing.T) {
+	t.Chdir(t.TempDir())
+	sessionDir := filepath.Join(t.TempDir(), "session")
+	for _, args := range []string{
+		`{"prompt":"x"}`,
+		`{"prompt":"x","workdir":""}`,
+		`{"prompt":"x","workdir":" \t "}`,
+		`{"prompt":"x","workdir":".."}`,
+		`{"prompt":"x","workdir":"sub/../child"}`,
+	} {
+		t.Run(args, func(t *testing.T) {
+			seen := make(chan string, 1)
+			mgr, err := job.New(job.Options{
+				Root: t.TempDir(),
+				Runner: job.RunnerFunc(func(_ context.Context, env job.RunEnv) (string, error) {
+					seen <- env.Job.WorkDir
+					return "ok", nil
+				}),
+			})
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = mgr.Close(context.WithoutCancel(t.Context())) })
+			reg := tooldef.NewRegistry(agenttool.AgentTools(agenttool.AgentDeps{
+				Manager: mgr,
+				WorkDir: func() string { return sessionDir },
+			}))
+			req, err := permission.ExtractAt("agent_spawn", json.RawMessage(args), sessionDir)
+			require.NoError(t, err)
+			_, err = reg["agent_spawn"].Run(t.Context(), json.RawMessage(args))
+			require.NoError(t, err)
+			select {
+			case wd := <-seen:
+				assert.True(t, filepath.IsAbs(wd))
+				assert.Equal(t, []string{wd}, req.Paths)
+			case <-time.After(2 * time.Second):
+				require.Fail(t, "job did not start")
+			}
+		})
+	}
 }
 
 func TestAgentToolsSpawnBadRole(t *testing.T) {
