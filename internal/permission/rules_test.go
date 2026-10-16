@@ -1,12 +1,42 @@
 package permission
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestRealPathLongSymlinkChain(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	target := filepath.Join(root, "target")
+	require.NoError(t, os.Mkdir(target, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(target, "secret"), nil, 0o600))
+	link := target
+	for i := range 60 {
+		next := filepath.Join(root, fmt.Sprintf("link-%d", i))
+		require.NoError(t, os.Symlink(filepath.Base(link), next))
+		link = next
+	}
+	path := filepath.Join(link, "secret")
+	resolved, err := realPath(path)
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(target, "secret"), resolved)
+	policy := DefaultPolicy()
+	policy.SensitivePathDeny = []string{path}
+	gate, err := NewGate(policy, root)
+	require.NoError(t, err)
+	dec, reason := gate.Check(
+		t.Context(),
+		Request{Action: ActionWrite, Paths: []string{filepath.Join(root, "ordinary")}},
+	)
+	require.Equal(t, Allow, dec, reason)
+	dec, reason = gate.Check(t.Context(), Request{Action: ActionRead, Paths: []string{resolved}})
+	require.Equal(t, Deny, dec, reason)
+}
 
 func TestRealPath(t *testing.T) {
 	root, err := filepath.EvalSymlinks(t.TempDir())
@@ -30,6 +60,39 @@ func TestRealPath(t *testing.T) {
 			got, err := realPath(filepath.Join(ws, tc.path))
 			require.NoError(t, err)
 			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestRealPathRechecksMissingPaths(t *testing.T) {
+	for _, suffix := range []string{"", "nested/file"} {
+		t.Run(suffix, func(t *testing.T) {
+			root, err := filepath.EvalSymlinks(t.TempDir())
+			require.NoError(t, err)
+			ws := filepath.Join(root, "ws")
+			outside := filepath.Join(root, "outside")
+			require.NoError(t, os.Mkdir(ws, 0o700))
+			require.NoError(t, os.Mkdir(outside, 0o700))
+			policy := DefaultPolicy()
+			policy.SensitivePathDeny = nil
+			gate, err := NewGate(policy, ws)
+			require.NoError(t, err)
+			link := filepath.Join(ws, "new")
+			path := filepath.Join(link, suffix)
+			req := Request{Action: ActionWrite, Paths: []string{path}}
+
+			got, err := realPath(path)
+			require.NoError(t, err)
+			require.Equal(t, path, got)
+			dec, reason := gate.Check(t.Context(), req)
+			require.Equal(t, Allow, dec, reason)
+
+			require.NoError(t, os.Symlink(outside, link))
+			got, err = realPath(path)
+			require.NoError(t, err)
+			require.Equal(t, filepath.Join(outside, suffix), got)
+			dec, reason = gate.Check(t.Context(), req)
+			require.Equal(t, Deny, dec, reason)
 		})
 	}
 }

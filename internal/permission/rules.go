@@ -89,41 +89,43 @@ func realPath(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	resolved, err := filepath.EvalSymlinks(path)
 	var suffix string
-	for {
-		resolved, err := filepath.EvalSymlinks(path)
-		if err == nil {
-			if suffix != "" {
-				info, err := os.Stat(resolved)
-				if err != nil {
-					return "", err
-				}
-				if !info.IsDir() {
-					return "", fmt.Errorf("resolve %q: not a directory", resolved)
-				}
+	if os.IsNotExist(err) {
+		for {
+			// Peel only absent entries; an existing dangling link must fail.
+			_, statErr := os.Lstat(path)
+			if !os.IsNotExist(statErr) {
+				// Let EvalSymlinks handle chains beyond the kernel's lookup limit.
+				resolved, err = filepath.EvalSymlinks(path)
+				break
 			}
-			if runtime.GOOS == "windows" {
-				if err := rejectIrregularAncestors(resolved); err != nil {
-					return "", err
-				}
+			parent := filepath.Dir(path)
+			if parent == path {
+				return "", err
 			}
-			return filepath.Join(resolved, suffix), nil
+			suffix = filepath.Join(filepath.Base(path), suffix)
+			path = parent
 		}
-		if !os.IsNotExist(err) {
-			return "", err
-		}
-		// ENOENT may come from a dangling link. Only peel off absent entries;
-		// an existing link must resolve successfully before it can be trusted.
-		if _, statErr := os.Lstat(path); !os.IsNotExist(statErr) {
-			return "", err
-		}
-		parent := filepath.Dir(path)
-		if parent == path {
-			return "", err
-		}
-		suffix = filepath.Join(filepath.Base(path), suffix)
-		path = parent
 	}
+	if err != nil {
+		return "", err
+	}
+	if suffix != "" {
+		info, err := os.Stat(resolved)
+		if err != nil {
+			return "", err
+		}
+		if !info.IsDir() {
+			return "", fmt.Errorf("resolve %q: not a directory", resolved)
+		}
+	}
+	if runtime.GOOS == "windows" {
+		if err := rejectIrregularAncestors(resolved); err != nil {
+			return "", err
+		}
+	}
+	return filepath.Join(resolved, suffix), nil
 }
 
 // EvalSymlinks can leave Windows junctions and other reparse points unresolved.

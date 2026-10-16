@@ -124,13 +124,14 @@ func (g *StaticGate) checkWrite(req Request) (Decision, string) {
 	if len(req.Paths) == 0 {
 		return Deny, "write/edit without path denied"
 	}
+	resolve := requestPathResolver(len(req.Paths))
 	for _, p := range req.Paths {
 		// An internal URL (mcp://…) is an external call, not a file write:
 		// workspace-only policy must not hard-deny it, so it asks instead.
 		if IsInternalURL(p) {
 			return Ask, "external tool call requires approval: " + p
 		}
-		real, reason := g.resolveAllowedPath(p)
+		real, reason := g.resolveAllowedPath(p, resolve)
 		if reason != "" {
 			return Deny, reason
 		}
@@ -146,6 +147,7 @@ func (g *StaticGate) checkRead(req Request) (Decision, string) {
 		// grep/find with default "." is normalized by extract; empty = allow cwd
 		return Allow, ""
 	}
+	resolve := requestPathResolver(len(req.Paths))
 	for _, p := range req.Paths {
 		// MCP browsing is a read-tier lookup; only a workspace-only policy
 		// escalates it, and then to Ask (never a silent deny).
@@ -155,7 +157,7 @@ func (g *StaticGate) checkRead(req Request) (Decision, string) {
 			}
 			continue
 		}
-		real, reason := g.resolveAllowedPath(p)
+		real, reason := g.resolveAllowedPath(p, resolve)
 		if reason != "" {
 			return Deny, reason
 		}
@@ -166,9 +168,28 @@ func (g *StaticGate) checkRead(req Request) (Decision, string) {
 	return Allow, ""
 }
 
+// Multi-path calls reuse successful resolutions only until this Check returns.
+// A single-path call avoids allocating a cache; later calls always see fresh links.
+func requestPathResolver(pathCount int) func(string) (string, error) {
+	if pathCount <= 1 {
+		return realPath
+	}
+	resolved := make(map[string]string)
+	return func(path string) (string, error) {
+		if real, ok := resolved[path]; ok {
+			return real, nil
+		}
+		real, err := realPath(path)
+		if err == nil {
+			resolved[path] = real
+		}
+		return real, err
+	}
+}
+
 // resolveAllowedPath checks both aliases and canonical sensitive prefixes.
-func (g *StaticGate) resolveAllowedPath(path string) (string, string) {
-	real, err := realPath(path)
+func (g *StaticGate) resolveAllowedPath(path string, resolve func(string) (string, error)) (string, string) {
+	real, err := resolve(path)
 	if err != nil {
 		return "", fmt.Sprintf("cannot resolve path %q: %v", path, err)
 	}
@@ -176,7 +197,7 @@ func (g *StaticGate) resolveAllowedPath(path string) (string, string) {
 		return "", "access to sensitive path denied: " + path
 	}
 	for _, prefix := range g.Policy.SensitivePathDeny {
-		resolved, err := realPath(prefix)
+		resolved, err := resolve(prefix)
 		if err != nil {
 			return "", fmt.Sprintf("cannot resolve sensitive path %q: %v", prefix, err)
 		}
@@ -195,7 +216,7 @@ func (g *StaticGate) checkAgentSpawn(req Request) (Decision, string) {
 	if len(req.Paths) != 1 || IsInternalURL(req.Paths[0]) {
 		return Deny, "agent_spawn requires one filesystem workdir"
 	}
-	real, reason := g.resolveAllowedPath(req.Paths[0])
+	real, reason := g.resolveAllowedPath(req.Paths[0], realPath)
 	if reason != "" {
 		return Deny, reason
 	}
