@@ -10,6 +10,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Branch picker: `ctrl+x` then `y` deletes a local branch, refreshing the list in
+  place like `/sessions`. Unmerged branches are refused (`git branch -d`).
 - Models: gateway aliases and explicit `preset` bindings.
 - Models: per-model `request_parameters` overrides for all four APIs,
   including compaction.

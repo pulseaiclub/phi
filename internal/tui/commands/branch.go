@@ -17,8 +17,10 @@ type BranchCommands struct {
 	// Dir is the directory git runs in (the agent's working directory).
 	Dir func() string
 	// OpenOverlay opens the branch picker (wired by Builtin.Bind).
-	OpenOverlay func(branches []gitx.Branch, recent []string, onAccept func(name string))
-	// StreamActive reports whether a checkout must be refused.
+	OpenOverlay func(branches []gitx.Branch, recent []string, onAccept, onDelete func(name string))
+	// RefreshOverlay swaps rows into the open picker (wired by Builtin.Bind).
+	RefreshOverlay func(branches []gitx.Branch, recent []string)
+	// StreamActive reports whether a checkout or delete must be refused.
 	StreamActive func() bool
 
 	// CurrentBranch reports the checked-out branch name ("" when unavailable).
@@ -30,6 +32,7 @@ type BranchCommands struct {
 	Preflight func(ctx context.Context, dir string) (gitx.Status, error)
 	Switch    func(ctx context.Context, dir, ref string) error
 	Create    func(ctx context.Context, dir, name string) error
+	Remove    func(ctx context.Context, dir, name string) error
 }
 
 // NewBranchCommands builds the /branch handler over the real git.
@@ -42,6 +45,7 @@ func NewBranchCommands(bus *controller.Bus) *BranchCommands {
 		Preflight:     gitx.Preflight,
 		Switch:        gitx.Switch,
 		Create:        gitx.Create,
+		Remove:        gitx.Delete,
 	}
 }
 
@@ -79,7 +83,7 @@ func (b *BranchCommands) Show() {
 	if err != nil {
 		recent = nil
 	}
-	b.OpenOverlay(branches, recent, b.SwitchTo)
+	b.OpenOverlay(branches, recent, b.SwitchTo, b.Delete)
 }
 
 // Run handles /branch and /branch <name>. A name that is not a branch yet is
@@ -169,6 +173,76 @@ func (b *BranchCommands) CreateBranch(name string) {
 		}
 		b.done("Created "+name, dir)
 	}()
+}
+
+// Delete removes the branch chosen in the picker (Ctrl+X, then Y) and refreshes
+// the rows in place, so several branches can go without reopening. It only
+// rewrites a ref — no worktree checkout — so it runs inline like the session
+// delete it mirrors.
+func (b *BranchCommands) Delete(name string) {
+	if b.StreamActive != nil && b.StreamActive() {
+		b.toast("Cannot delete a branch while a reply or command is running", toast.ToastWarning)
+		return
+	}
+	dir := b.dir()
+	ctx := context.Background()
+	branches, err := b.Branches(ctx, dir)
+	if err != nil {
+		b.toast(err.Error(), toast.ToastError)
+		return
+	}
+	row, ok := findBranch(branches, name)
+	if !ok {
+		b.toast("No branch named "+name, toast.ToastWarning)
+		return
+	}
+	// Both cases would be git errors with a worse message: -d on a remote ref
+	// drops the remote-tracking branch, and the checked-out branch is an index
+	// git will not let us leave.
+	if row.Remote {
+		b.toast("Cannot delete remote-tracking "+name+" — delete it on the remote instead", toast.ToastWarning)
+		return
+	}
+	if row.Current {
+		b.toast("Cannot delete "+name+" — switch to another branch first", toast.ToastWarning)
+		return
+	}
+	if err := b.Remove(ctx, dir, name); err != nil {
+		b.toast(err.Error(), toast.ToastError)
+		return
+	}
+	b.toast("Deleted "+name, toast.ToastSuccess)
+	b.refreshOverlay()
+}
+
+// findBranch resolves a picker row to its branch by exact ref name, so
+// "origin/feat" never collapses onto the local "feat".
+func findBranch(branches []gitx.Branch, name string) (gitx.Branch, bool) {
+	for _, b := range branches {
+		if b.Name == name {
+			return b, true
+		}
+	}
+	return gitx.Branch{}, false
+}
+
+// refreshOverlay re-lists and pushes the rows into the open picker in place.
+// A failing listing keeps the rows already on screen: they were just valid.
+func (b *BranchCommands) refreshOverlay() {
+	if b.RefreshOverlay == nil {
+		return
+	}
+	dir := b.dir()
+	ctx := context.Background()
+	branches, err := b.Branches(ctx, dir)
+	if err != nil {
+		return
+	}
+	recent, err := b.Recent(ctx, dir)
+	if err != nil {
+		recent = nil
+	}
+	b.RefreshOverlay(branches, recent)
 }
 
 // refuse reports whether a git mutation has to wait: a running reply would be

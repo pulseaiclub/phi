@@ -243,12 +243,38 @@ func (c *ComposerPane) ShowBranchList(
 	branches []gitx.Branch,
 	recent []string,
 	onAccept func(name string),
+	onDelete func(name string),
 ) {
+	// Rows carry their own ref (origin/feat and feat are two branches), while
+	// accepting a remote row means checking out the local branch that tracks
+	// it: git switch refuses a remote-tracking ref outright.
+	targets := make(map[string]string, len(branches))
+	for _, b := range branches {
+		targets[b.Name] = b.LocalName()
+	}
+	// A nil delete stays nil so the picker keeps ctrl+x inert instead of arming
+	// a confirm nobody answers.
+	var onDeleteItem func(listpicker.Item)
+	if onDelete != nil {
+		onDeleteItem = func(item listpicker.Item) { onDelete(item.ID) }
+	}
 	c.ShowList(branchlist.Items(branches, recent), branchlist.Config(), func(item listpicker.Item) {
 		if onAccept != nil {
-			onAccept(item.ID)
+			onAccept(targets[item.ID])
 		}
-	}, nil)
+	}, onDeleteItem)
+}
+
+// RefreshBranchList swaps the rows of an open branch picker in place, keeping
+// the filter query — used after a delete instead of reopening.
+func (c *ComposerPane) RefreshBranchList(branches []gitx.Branch, recent []string) {
+	if !c.listPicker.Open {
+		return
+	}
+	c.listPicker.SetItems(branchlist.Items(branches, recent))
+	if c.onRedraw != nil {
+		c.onRedraw()
+	}
 }
 
 // ListOverlay returns the list picker surface when open.

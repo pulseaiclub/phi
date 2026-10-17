@@ -220,6 +220,7 @@ func TestShowBranchListDrawsRowsAndRoutesAccept(t *testing.T) {
 		},
 		[]string{"fix/x"},
 		func(name string) { accepted = append(accepted, name) },
+		nil,
 	)
 
 	// 80 columns is the narrow end worth guarding: the branch name column must
@@ -287,7 +288,7 @@ func TestListAcceptHandlerIsNotSharedBetweenDomains(t *testing.T) {
 	c.ShowList(nil, listpicker.ShowConfig{}, func(item listpicker.Item) { sessions = append(sessions, item.ID) }, nil)
 	c.ShowBranchList([]gitx.Branch{{Name: "main", Current: true}}, nil, func(name string) {
 		branches = append(branches, name)
-	})
+	}, nil)
 
 	c.listPicker.Items = []listpicker.Item{{ID: "main", Badge: "current"}}
 	c.listPicker.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyEnter})
@@ -298,17 +299,58 @@ func TestListAcceptHandlerIsNotSharedBetweenDomains(t *testing.T) {
 
 func TestListDeleteHandlerIsNotSharedBetweenDomains(t *testing.T) {
 	c := NewComposerPane(components.DefaultTheme(), "m", "/repo")
-	var deleted []string
-	c.ShowSessionList(nil, "", nil, func(id string) { deleted = append(deleted, id) })
-	c.ShowBranchList([]gitx.Branch{{Name: "main", Current: true}}, nil, nil)
+	var sessions, branches []string
+	c.ShowSessionList(nil, "", nil, func(id string) { sessions = append(sessions, id) })
+	c.ShowBranchList([]gitx.Branch{{Name: "main", Current: true}}, nil, nil, func(name string) {
+		branches = append(branches, name)
+	})
 
-	// ctrl+x must stay inert on the branch picker: the session delete path
-	// was cleared when the second domain took over the shared instance.
+	// The branch picker owns its own delete path: ctrl+x must land there, not
+	// on the session handler it replaced on the shared picker instance.
 	ctx := &components.EventContext{}
 	c.listPicker.Items = []listpicker.Item{{ID: "main"}}
 	c.listPicker.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'x', Mods: xui.ModCtrl})
 	c.listPicker.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'y'})
-	assert.Empty(t, deleted, "opening a branch picker must clear the session delete path")
+	assert.Equal(t, []string{"main"}, branches)
+	assert.Empty(t, sessions, "opening a branch picker must clear the session delete path")
+}
+
+// A remote row deletes as itself and still accepts as the local branch that
+// tracks it — the two refs are one row, two operations.
+func TestShowBranchListSplitsAcceptAndDeleteIdentities(t *testing.T) {
+	c := NewComposerPane(components.DefaultTheme(), "m", "/repo")
+	var accepted, deleted []string
+	c.ShowBranchList(
+		[]gitx.Branch{{Name: "feat"}, {Name: "origin/feat", Remote: true}},
+		nil,
+		func(name string) { accepted = append(accepted, name) },
+		func(name string) { deleted = append(deleted, name) },
+	)
+
+	ctx := &components.EventContext{}
+	c.listPicker.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyDown})
+	c.listPicker.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'x', Mods: xui.ModCtrl})
+	c.listPicker.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'y'})
+	assert.Equal(t, []string{"origin/feat"}, deleted, "origin/feat is not the local feat")
+
+	c.listPicker.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyEnter})
+	assert.Equal(t, []string{"feat"}, accepted, "accepting the remote row checks out its tracking branch")
+}
+
+func TestRefreshBranchListKeepsOpenPickerInPlace(t *testing.T) {
+	c := NewComposerPane(components.DefaultTheme(), "m", "/repo")
+	c.ShowBranchList([]gitx.Branch{{Name: "main"}, {Name: "fix/x"}}, nil, nil, nil)
+	c.listPicker.Query = "fix"
+
+	c.RefreshBranchList([]gitx.Branch{{Name: "main"}}, nil)
+	assert.True(t, c.listPicker.Open)
+	assert.Equal(t, "fix", c.listPicker.Query, "refresh keeps the filter")
+	require.Len(t, c.listPicker.Items, 1)
+	assert.Equal(t, "main", c.listPicker.Items[0].ID)
+
+	c.listPicker.Hide()
+	c.RefreshBranchList([]gitx.Branch{{Name: "fix/x"}}, nil)
+	assert.False(t, c.listPicker.Open, "a closed picker stays closed")
 }
 
 func TestShowSessionListRoutesDelete(t *testing.T) {
