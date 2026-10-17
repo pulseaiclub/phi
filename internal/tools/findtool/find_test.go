@@ -110,6 +110,83 @@ func TestFind_PathPatternUsesFullPath(t *testing.T) {
 	assert.Equal(t, "src/pkg/a.go", strings.TrimSpace(out.Content))
 }
 
+func TestFind_PathPatternLiteralFileName(t *testing.T) {
+	requireFD(t)
+
+	root := t.TempDir()
+	nested := filepath.Join(root, "src", "pkg")
+	require.NoError(t, os.MkdirAll(nested, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(nested, "a.go"), []byte("x"), 0o644))
+
+	t.Chdir(root)
+
+	out, err := runFind(t.Context(), findInput{Pattern: "src/pkg/a.go"})
+	require.NoError(t, err)
+	assert.Equal(t, "src/pkg/a.go", strings.TrimSpace(out.Content))
+
+	out, err = runFind(t.Context(), findInput{Pattern: `src\pkg\*.go`})
+	require.NoError(t, err)
+	assert.Equal(t, "src/pkg/a.go", strings.TrimSpace(out.Content))
+}
+
+// TestPatternArgs pins the exact fd argv for both platform paths. Every Windows
+// pattern must carry --full-path: its generated regex always contains a path
+// separator, and fd refuses to run (exit 1) when a separator appears without
+// --full-path — which runFD would otherwise report as "No files found".
+func TestPatternArgs(t *testing.T) {
+	t.Run("windows", func(t *testing.T) {
+		cases := map[string]string{
+			"*.go":          `^(?:.*[/\\])?[^/\\]*\.go$`,
+			"src/pkg/a.go":  `^(?:.*[/\\])?src[/\\]pkg[/\\]a\.go$`,
+			`src\pkg\*.go`:  `^(?:.*[/\\])?src[/\\]pkg[/\\][^/\\]*\.go$`,
+			"**/*.go":       `^(?:.*[/\\])?[^/\\]*\.go$`,
+			"/abs/a.go":     `^[/\\]abs[/\\]a\.go$`,
+			"[a-z][0-9].md": `^(?:.*[/\\])?[a-z][0-9]\.md$`,
+		}
+		for pattern, want := range cases {
+			args, err := appendWindowsPattern(nil, pattern)
+			require.NoError(t, err, pattern)
+			assert.Equal(t, []string{"--full-path", "--", want}, args, pattern)
+		}
+	})
+
+	t.Run("posix", func(t *testing.T) {
+		cases := map[string][]string{
+			"*.go":         {"--glob", "--", "*.go"},
+			"src/pkg/a.go": {"--glob", "--full-path", "--", "**/src/pkg/a.go"},
+			`src\pkg\*.go`: {"--glob", "--full-path", "--", "**/src/pkg/*.go"},
+			"**/*.go":      {"--glob", "--full-path", "--", "**/*.go"},
+			"/abs/a.go":    {"--glob", "--full-path", "--", "/abs/a.go"},
+		}
+		for pattern, want := range cases {
+			assert.Equal(t, want, appendGlobPattern(nil, pattern), pattern)
+		}
+	})
+}
+
+// TestFDRunError pins the rule that kept a broken pattern from being reported as
+// an absent file: any stderr text from fd is a failure, never "no matches".
+func TestFDRunError(t *testing.T) {
+	// fd rejects the pattern: the error must name the pattern, not report an
+	// empty result set.
+	err := fdRunError("*.go", "", "[fd error]: The search pattern 'x' contains a path-separation character")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid glob pattern")
+	assert.Contains(t, err.Error(), "*.go")
+
+	err = fdRunError("*.go", "", "error parsing glob: unclosed character class")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid glob pattern")
+
+	// Unreadable root: not the pattern's fault, but still not "no matches".
+	err = fdRunError("*.go", "", "[fd error]: Search path 'nope' is not a directory.")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "fd: ")
+
+	assert.NoError(t, fdRunError("*.go", "", ""))         // exit with empty stderr: no matches
+	assert.NoError(t, fdRunError("*.go", "a.go", "warn")) // partial output: keep it
+}
+
 func TestFind_Errors(t *testing.T) {
 	requireFD(t)
 
@@ -120,7 +197,6 @@ func TestFind_Errors(t *testing.T) {
 	_, err = runFind(t.Context(), findInput{Pattern: "["})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid glob pattern")
-
 	missing := filepath.Join(t.TempDir(), "missing")
 	_, err = runFind(t.Context(), findInput{Pattern: "*.go", Path: missing})
 	require.Error(t, err)

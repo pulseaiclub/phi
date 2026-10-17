@@ -34,7 +34,9 @@ func TestDiscoverFollowsSymlinkDir(t *testing.T) {
 
 	extRoot := filepath.Join(root, "extensions")
 	require.NoError(t, os.MkdirAll(extRoot, 0o755))
-	require.NoError(t, os.Symlink(real, filepath.Join(extRoot, "hello")))
+	if err := os.Symlink(real, filepath.Join(extRoot, "hello")); err != nil {
+		t.Skip("symlink not permitted:", err)
+	}
 
 	found, warns, err := loader.Discover(extRoot, "")
 	require.NoError(t, err)
