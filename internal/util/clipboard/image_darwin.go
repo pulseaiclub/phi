@@ -5,8 +5,14 @@ package clipboard
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 )
+
+func lookPath(name string) bool {
+	_, err := exec.LookPath(name)
+	return err == nil
+}
 
 func readClipboardImagePlatform() (Image, error) {
 	if lookPath("pngpaste") {
