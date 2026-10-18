@@ -12,6 +12,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - Branch picker: `ctrl+x` then `y` deletes a local branch, refreshing the list in
   place like `/sessions`. Unmerged branches are refused (`git branch -d`).
+- Skills: `disable-model-invocation: true` in a `SKILL.md` frontmatter keeps the
+  skill out of the system prompt catalog; it stays in the skills panel and is
+  still applied when picked there. See [README.md](README.md#skills).
 - Models: gateway aliases and explicit `preset` bindings.
 - Models: per-model `request_parameters` overrides for all four APIs,
   including compaction.

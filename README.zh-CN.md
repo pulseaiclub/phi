@@ -365,9 +365,15 @@ name: My Skill
  description: What this skill does
 license: MIT
 compatibility: claude, openai
+disable-model-invocation: false
 ---
 Instructions the agent should follow when this skill is relevant.
 ```
+
+`disable-model-invocation: true` 让技能不出现在 system prompt 的技能目录里，
+适合那些只想在需要时手动点名的技能。它仍留在技能面板里，从面板选中后照常生效。
+只有大小写不敏感的 `true` 判真，其它写法一律为 `false`。这只是目录过滤，不是
+权限控制：模型仍能用 `ls` / `find` 找到文件。
 
 在 TUI 中，可以从面板添加技能（技能 → 列表），然后在勾选所需技能后发送
 消息。

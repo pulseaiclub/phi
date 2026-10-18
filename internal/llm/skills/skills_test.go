@@ -180,6 +180,71 @@ func TestLoadSkills_SkipsInvalidSkill(t *testing.T) {
 	assert.Equal(t, "OK", list[0].Name)
 }
 
+func TestParse_DisableModelInvocation(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+		want bool
+	}{
+		{"true", "disable-model-invocation: true", true},
+		{"true uppercase", "disable-model-invocation: TRUE", true},
+		{"true quoted", `disable-model-invocation: "true"`, true},
+		{"false", "disable-model-invocation: false", false},
+		{"no", "disable-model-invocation: no", false},
+		{"yes", "disable-model-invocation: yes", false},
+		{"empty", `disable-model-invocation: ""`, false},
+		{"garbage", "disable-model-invocation: definitely", false},
+		{"absent", "", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fm := "---\nname: s\n"
+			if tc.line != "" {
+				fm += tc.line + "\n"
+			}
+			file := filepath.Join(t.TempDir(), SkillFileName)
+			require.NoError(t, os.WriteFile(file, []byte(fm+"---\nbody\n"), 0o644))
+
+			skill, err := Parse(file)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, skill.DisableModelInvocation)
+		})
+	}
+}
+
+func TestLoadSkills_KeepsDisabledSkillInTheList(t *testing.T) {
+	dir := t.TempDir()
+	hidden := filepath.Join(dir, "hidden")
+	require.NoError(t, os.MkdirAll(hidden, 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(hidden, SkillFileName),
+		[]byte("---\nname: hidden\ndisable-model-invocation: true\n---\nbody\n"),
+		0o644,
+	))
+
+	list, err := LoadSkills(dir)
+	require.NoError(t, err)
+	require.Len(t, list, 1, "filtering belongs to the catalog, not the loader")
+	assert.True(t, list[0].DisableModelInvocation)
+	assert.Same(t, list[0], Find(list, "hidden"), "an explicit pick must still resolve")
+}
+
+func TestToPromptMarkdown_SkipsDisableModelInvocation(t *testing.T) {
+	list := []*Skill{
+		{Name: "shown", Description: "visible", SkillFilePath: "/a/SKILL.md"},
+		{Name: "hidden", Description: "invisible", SkillFilePath: "/b/SKILL.md", DisableModelInvocation: true},
+	}
+
+	result := ToPromptMarkdown(list)
+	assert.Contains(t, result, "### shown")
+	assert.NotContains(t, result, "hidden")
+
+	all := []*Skill{
+		{Name: "hidden", Description: "invisible", SkillFilePath: "/b/SKILL.md", DisableModelInvocation: true},
+	}
+	assert.Empty(t, ToPromptMarkdown(all), "a fully filtered catalog is empty, so the prompt drops the section")
+}
+
 func TestToPromptMarkdown_Empty(t *testing.T) {
 	assert.Empty(t, ToPromptMarkdown(nil))
 	assert.Empty(t, ToPromptMarkdown([]*Skill{}))

@@ -396,9 +396,16 @@ name: My Skill
  description: What this skill does
 license: MIT
 compatibility: claude, openai
+disable-model-invocation: false
 ---
 Instructions the agent should follow when this skill is relevant.
 ```
+
+`disable-model-invocation: true` keeps a skill out of the system prompt catalog
+— good for the ones you only want on explicit request. It stays in the skills
+panel and is still applied when you pick it there. Only a case-insensitive
+`true` counts; any other value means `false`. This is a catalog filter, not
+access control: the model can still find the file with `ls` / `find`.
 
 In the TUI, add skills from the palette (skills → list), then submit the
 message with the selected skills applied.
