@@ -1,6 +1,8 @@
 package diffpane
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/pulseaiclub/xui"
@@ -108,4 +110,13 @@ func TestPaneDraw(t *testing.T) {
 	text := components.SurfaceText(surf)
 	assert.Contains(t, text, "diff")
 	assert.Contains(t, text, "main.go")
+}
+
+func TestPaneEmptyNoteNamesUntrackedPath(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "new.go"), []byte("package main\n"), 0o644))
+	p := New(components.DefaultTheme(), dir, nil, nil, nil)
+	p.OpenText("", []string{"@new.go"})
+	surf := p.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 24}, Method: xui.WidthUnicode})
+	assert.Contains(t, components.SurfaceText(surf), "new.go is untracked")
 }

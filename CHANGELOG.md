@@ -10,6 +10,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `/diff` takes file paths: `/diff @path` (the composer's file completion) and
+  bare paths scope the overlay to those files, via a `--` separator so a file
+  named like a branch still reaches git as a pathspec. Multiple paths and
+  `staged` / `HEAD` / `<range>` combine with them.
 - Branch picker: `ctrl+x` then `y` deletes a local branch, refreshing the list in
   place like `/sessions`. Unmerged branches are refused (`git branch -d`).
 - Skills: `disable-model-invocation: true` in a `SKILL.md` frontmatter keeps the
@@ -37,6 +41,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   decoded and re-encoded copy. The round trip reordered the keys and rounded
   integers through float64, so a large one reached the API as a different
   number.
+- `/diff HEAD <path>` shows that path against `HEAD` instead of ignoring the
+  path and printing the whole commit.
 - Responses: reject `background: true` before sending synchronous requests.
 - Models: prefer the actual model over routing prefixes when matching aliases.
 - Models: adapt GLM and DeepSeek thinking to API endpoints; configuration and

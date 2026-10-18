@@ -262,6 +262,13 @@ line notes, then hand them to the agent without leaving the terminal.
 | `/diff` | Working tree (`git diff`) |
 | `/diff staged` | Staged changes |
 | `/diff HEAD` | Last commit (`git show`) |
+| `/diff @path` | Only that file — `@` comes from file completion, the `--` separator is added for you |
+| `/diff staged @a.go @b.go` | Staged changes in two files |
+| `/diff HEAD @path` | That file against `HEAD` |
+| `/diff main..feat @path` | That file across a range |
+
+`/diff -- <argv>` runs the given git command instead of a diff —
+`/diff -- git show HEAD~1` for one.
 
 Slash-picker Enter inserts `/diff` plus a trailing space into the composer; submit to open. Inside the overlay:
 `s` side-by-side, `i` add/edit a note, `x` delete, `a` send notes to the agent,

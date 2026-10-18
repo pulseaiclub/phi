@@ -9,7 +9,7 @@ type DiffCommands struct {
 func (d *DiffCommands) Register(r *CommandRegistry) {
 	r.Register(Command{
 		Name:        "diff",
-		Description: "Review git diff — /diff, /diff staged, /diff HEAD",
+		Description: "Review git diff — /diff, /diff staged, /diff HEAD, /diff @file",
 		Slash:       true,
 		Insert:      "/diff ",
 		Run: func(_ Context, args []string) error {
