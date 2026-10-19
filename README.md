@@ -20,6 +20,7 @@
 
 ![phi diff review](assets/diff.png)
 
+- [Sponsors](#sponsors)
 - [Docs](https://pulseaiclub.github.io/docs/getting-started/)
 - [Quick start](#quick-start)
 - [Footprint](#footprint)
@@ -36,6 +37,32 @@
 - [MCP](#mcp)
 - [Tools](#tools)
 - [Project layout](doc/project-layout.md)
+
+## Sponsors
+
+<table>
+<tr>
+<td align="center" colspan="2"><a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link"><img src="assets/infistar-banner.png" alt="Infistar.cc" width="660" /></a></td>
+</tr>
+<tr>
+<td valign="top" width="50%"><strong>phi is sponsored by <a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link">Infistar.cc</a></strong> — one API key for every major model, priced for people who run agents all day.<br/><br/>⚙️ <strong>Plug and play</strong>: set the base URL, API key, and model name, then call it directly.<br/>🧩 <strong>One key, every model</strong>: switch between Claude, GPT, Gemini, DeepSeek, and other leading models without editing config again.<br/>💰 <strong>Cheap and simple</strong>: some models cost as little as 1% of official rates, with RMB billing and invoices.<br/>🎁 <strong>phi perk</strong>: <a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link">register through our link</a> and get <strong>$5 in trial credits</strong> 👉</td>
+<td valign="top" width="50%"><strong>Free <code>~/.phi/config.yaml</code></strong> — phi ships the whole model block; paste it, swap in your key, start.<br/><br/><pre>
+models:
+    - name: claude-opus-5-5
+      api_key: ""
+      base_url: https://infistar.cc
+      api: Anthropic
+    - name: gpt-6-astra
+      api_key: ""
+      base_url: https://infistar.cc/v1
+      api: OpenAIResponses
+    - name: gemini-3-pro
+      api_key: ""
+      base_url: https://infistar.cc
+      api: Gemini
+</pre></td>
+</tr>
+</table>
 
 ## Quick start
 
@@ -203,15 +230,6 @@ Environment overrides:
 **Security:** When `PHI_OPTIMIZER` is enabled, command history and context are sent to an external TypeSafe service for judging and ranking. Avoid using the optimizer in environments where shell history may contain sensitive information (API keys, tokens, credentials).
 Provider routing uses the explicit `api` field (`OpenAI` / `Anthropic` /
 `Gemini`). See [Supported models](doc/models.md).
-
-<table>
-<tr>
-<td align="center"><a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link"><img src="assets/infistar-banner.png" alt="Infistar.cc" width="660" /></a></td>
-</tr>
-<tr>
-<td>Thanks to <a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link">Infistar.cc</a> for sponsoring phi and giving developers stable, affordable multi-model API service.<br/><br/>⚙️ <strong>Plug and play</strong>: set the base URL, API key, and model name, and call it directly.<br/>🧩 <strong>Every major model</strong>: one key switches freely between Claude, GPT, Gemini, DeepSeek, and other leading models.<br/>💰 <strong>Cheap and simple</strong>: some models cost as little as 1% of official rates, with RMB billing and invoices.<br/>🎁 <strong>phi perk</strong>: <a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link">register through our link</a> and get $5 in trial credits 👉</td>
-</tr>
-</table>
 
 ### Workspace layout
 
