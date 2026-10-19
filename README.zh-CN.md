@@ -46,10 +46,26 @@
 
 <table>
 <tr>
-<td align="center"><a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link"><img src="assets/infistar-banner.png" alt="Infistar.cc 无限星河" width="660" /></a></td>
+<td align="center" colspan="2"><a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link"><img src="assets/infistar-banner.png" alt="Infistar.cc 无限星河" width="660" /></a></td>
 </tr>
 <tr>
-<td><strong>phi 由 <a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link">Infistar.cc 无限星河</a> 赞助</strong>：一个 Key 打通主流模型，重度跑 agent 也不用算账。<br/><br/>⚙️ <strong>即插即用</strong>：配置 Base URL、API Key 与模型名称即可直接调用。<br/>🧩 <strong>全模型支持</strong>：单 Key 自由切换 Claude、GPT、Gemini、DeepSeek 等主流模型，不用再改配置。<br/>💰 <strong>实惠省心</strong>：部分模型低至官方 0.1 折，支持人民币结算与开票。<br/>🎁 <strong>phi 专属福利</strong>：通过<a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link">专属链接</a>注册即领 <strong>$5 体验金</strong> 👉</td>
+<td valign="top" width="50%"><strong>phi 由 <a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link">Infistar.cc 无限星河</a> 赞助</strong>：一个 Key 打通主流模型，重度跑 agent 也不用算账。<br/><br/>⚙️ <strong>即插即用</strong>：配置 Base URL、API Key 与模型名称即可直接调用。<br/>🧩 <strong>全模型支持</strong>：单 Key 自由切换 Claude、GPT、Gemini、DeepSeek 等主流模型，不用再改配置。<br/>💰 <strong>实惠省心</strong>：部分模型低至官方 0.1 折，支持人民币结算与开票。<br/>🎁 <strong>phi 专属福利</strong>：通过<a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link">专属链接</a>注册即领 <strong>$5 体验金</strong> 👉</td>
+<td valign="top" width="50%"><strong>免费 <code>~/.phi/config.yaml</code></strong>：整块模型配置 phi 直接给好，粘贴、填上 Key 就能跑。<br/><br/><pre>
+models:
+  - name: claude-opus-5-5     # 模型广场里任意模型 id
+    api: Anthropic            # 无限星河走 Anthropic Messages
+    base_url: https://infistar.cc
+    api_key: sk-...           # 你的无限星河 Key（或用 PHI_API_KEY）
+  - name: gpt-6-astra
+    api: OpenAIResponses      # /v1/responses
+    base_url: https://infistar.cc/v1
+    api_key: sk-...
+  - name: gemini-3-pro
+    api: Gemini
+    base_url: https://infistar.cc
+    api_key: sk-...
+    default: true
+</pre></td>
 </tr>
 </table>
 
