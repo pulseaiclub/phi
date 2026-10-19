@@ -204,6 +204,15 @@ Environment overrides:
 Provider routing uses the explicit `api` field (`OpenAI` / `Anthropic` /
 `Gemini`). See [Supported models](doc/models.md).
 
+<table>
+<tr>
+<td align="center"><a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link"><img src="assets/infistar-banner.png" alt="Infistar.cc" width="660" /></a></td>
+</tr>
+<tr>
+<td>Thanks to <a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link">Infistar.cc</a> for sponsoring phi and giving developers stable, affordable multi-model API service.<br/><br/>⚙️ <strong>Plug and play</strong>: set the base URL, API key, and model name, and call it directly.<br/>🧩 <strong>Every major model</strong>: one key switches freely between Claude, GPT, Gemini, DeepSeek, and other leading models.<br/>💰 <strong>Cheap and simple</strong>: some models cost as little as 1% of official rates, with RMB billing and invoices.<br/>🎁 <strong>phi perk</strong>: <a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link">register through our link</a> and get $5 in trial credits 👉</td>
+</tr>
+</table>
+
 ### Workspace layout
 
 ```

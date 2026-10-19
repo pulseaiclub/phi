@@ -192,6 +192,15 @@ permissions:
 **安全提示：** 开启优化器后，命令历史与上下文会发送到外部 TypeSafe 服务进行评判和排序。避免在可能包含敏感信息（API 密钥、令牌、凭证）的环境中使用优化器。
 提供商路由看显式 `api` 字段（`OpenAI` / `Anthropic` / `Gemini`）。详见 [支持的模型](doc/models.md)。
 
+<table>
+<tr>
+<td align="center"><a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link"><img src="assets/infistar-banner.png" alt="Infistar.cc 无限星河" width="660" /></a></td>
+</tr>
+<tr>
+<td>感谢 <a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link">Infistar.cc 无限星河</a> 赞助 phi，为开发者提供稳定、实惠的多模型 API 服务。<br/><br/>⚙️ <strong>即插即用</strong>：配置 Base URL、API Key 与模型名称即可直接调用。<br/>🧩 <strong>全模型支持</strong>：单 Key 自由切换 Claude、GPT、Gemini、DeepSeek 等主流模型。<br/>💰 <strong>实惠省心</strong>：部分模型低至官方 0.1 折，支持人民币结算与开票。<br/>🎁 <strong>phi 专属福利</strong>：通过<a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link">专属链接</a>注册即领 $5 体验金 👉</td>
+</tr>
+</table>
+
 ### 工作区布局
 
 ```
