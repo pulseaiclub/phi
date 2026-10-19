@@ -15,6 +15,7 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/util/githubrelease"
+	platformutil "github.com/pulseaiclub/phi/internal/util/platform"
 )
 
 const compatibleReleaseLookback = 10
@@ -231,11 +232,7 @@ func DownloadTool(ctx context.Context, tool string) (string, error) {
 		return "", fmt.Errorf("create tools directory %q failed: %w", toolsDir, err)
 	}
 
-	binaryExt := ""
-	if platform == PlatformWin32 {
-		binaryExt = ".exe"
-	}
-	binaryFileName := config.BinaryName + binaryExt
+	binaryFileName := platformutil.ExecutableName(config.BinaryName)
 	binaryPath := filepath.Join(toolsDir, binaryFileName)
 	archivePath := filepath.Join(toolsDir, assetName)
 

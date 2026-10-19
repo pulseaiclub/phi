@@ -8,12 +8,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/util/archive"
 	"github.com/pulseaiclub/phi/internal/util/githubrelease"
+	"github.com/pulseaiclub/phi/internal/util/platform"
 )
 
 // InstallOptions configures Install.
@@ -207,10 +207,7 @@ func installReleaseTree(
 }
 
 func ensureExecMode(path string) error {
-	if runtime.GOOS == "windows" {
-		return nil
-	}
-	return os.Chmod(path, 0o755)
+	return platform.EnsureExecutable(path)
 }
 
 func defaultFetchRelease(ctx context.Context, ownerRepo, ref string) (githubrelease.Release, error) {

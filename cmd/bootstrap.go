@@ -5,9 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/permission"
@@ -127,15 +124,6 @@ func ensureSearchTools(ctx context.Context, proj *project.Project, download sear
 // shouldBootstrap is true when the tool binary is missing from the phi bin
 // dir and from PATH, i.e. it needs a download.
 func shouldBootstrap(proj *project.Project, name string) bool {
-	binName := name
-	if runtime.GOOS == "windows" {
-		binName += ".exe"
-	}
-	if _, err := os.Stat(filepath.Join(proj.Global().BinDir(), binName)); err == nil {
-		return false
-	}
-	if _, err := exec.LookPath(binName); err == nil {
-		return false
-	}
-	return true
+	_, err := proj.Global().LookBin(name)
+	return err != nil
 }

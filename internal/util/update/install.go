@@ -13,6 +13,7 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/util/archive"
 	"github.com/pulseaiclub/phi/internal/util/githubrelease"
+	"github.com/pulseaiclub/phi/internal/util/platform"
 )
 
 // InstallOptions configures Install.
@@ -135,10 +136,7 @@ func Install(ctx context.Context, opts InstallOptions) error {
 		return fmt.Errorf("extract archive: %w", err)
 	}
 
-	newBin := filepath.Join(extractDir, "phi")
-	if runtime.GOOS == "windows" {
-		newBin = filepath.Join(extractDir, "phi.exe")
-	}
+	newBin := filepath.Join(extractDir, platform.ExecutableName("phi"))
 	if st, err2 := os.Stat(newBin); err2 != nil || st.IsDir() {
 		return fmt.Errorf("extracted archive does not contain a phi binary at %s", newBin)
 	}

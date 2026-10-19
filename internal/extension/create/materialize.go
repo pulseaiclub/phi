@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+
+	"github.com/pulseaiclub/phi/internal/util/platform"
 )
 
 // Materialize writes a PXB extension module under dir and builds its binary.
@@ -48,10 +50,7 @@ func Materialize(ctx context.Context, dir, name, version, mainGo string) error {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("go mod tidy: %w\n%s", err, out)
 	}
-	bin := "extbin"
-	if runtime.GOOS == "windows" {
-		bin += ".exe"
-	}
+	bin := platform.ExecutableName("extbin")
 	cmd = exec.CommandContext(ctx, "go", "build", "-o", bin, ".")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")

@@ -5,7 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
+
+	"github.com/pulseaiclub/phi/internal/util/platform"
 )
 
 // GlobalLayout describes the global phi home directory (~/.phi).
@@ -41,10 +42,7 @@ func (g GlobalLayout) LookBin(name string) (string, error) {
 // misses an fd/rg that is sitting right there in ~/.phi/bin. exec.LookPath
 // appends PATHEXT on its own, so only the bin dir needs the extra variant.
 func binCandidates(path string) []string {
-	if runtime.GOOS == "windows" && filepath.Ext(path) == "" {
-		return []string{path + ".exe", path}
-	}
-	return []string{path}
+	return platform.ExecutableCandidates(path)
 }
 
 // SkillsDir returns the directory for SKILL.md files.
