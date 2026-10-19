@@ -17,13 +17,14 @@ const branchColumn = 30
 // Config returns chrome copy for the branch picker.
 func Config() listpicker.ShowConfig {
 	return listpicker.ShowConfig{
-		Title:        "Branches",
-		FilterHint:   "filter branches…",
-		Empty:        "No branches yet — commit something first",
-		EmptyFilter:  "No branches match %q",
-		Hint:         chrome.ListHint("switch"),
-		LeadingWidth: 2,
-		PrimaryWidth: branchColumn,
+		Title:          "Branches",
+		FilterHint:     "filter branches…",
+		Empty:          "No branches yet — commit something first",
+		EmptyFilter:    "No branches match %q",
+		Hint:           chrome.ListHintExtra("switch", "ctrl+x delete"),
+		ConfirmMessage: "Delete this branch?",
+		LeadingWidth:   2,
+		PrimaryWidth:   branchColumn,
 	}
 }
 
@@ -69,10 +70,9 @@ func Items(branches []gitx.Branch, recent []string) []listpicker.Item {
 
 func row(b gitx.Branch) listpicker.Item {
 	return listpicker.Item{
-		// Accepting a remote row means checking out the local branch that tracks
-		// it: git switch refuses a remote-tracking ref outright, and origin/feat
-		// is what `git switch feat` is for.
-		ID:       b.LocalName(),
+		// The row's own ref is its identity: origin/feat and feat are different
+		// branches, and a delete must never land on the local namesake.
+		ID:       b.Name,
 		Leading:  currentMarker(b),
 		Primary:  b.Name,
 		Detail:   b.Subject,

@@ -53,23 +53,23 @@ func BenchmarkGatePaths(b *testing.B) {
 			}{
 				{
 					name: "existing_file",
-					req:  Request{Action: ActionWrite, Tool: "write", Paths: editPaths[:1]},
+					req:  Request{Kind: KindWrite, Tool: "write", Paths: editPaths[:1]},
 				},
 				{
 					name: "new_leaf",
-					req: Request{Action: ActionWrite, Tool: "write", Paths: []string{
+					req: Request{Kind: KindWrite, Tool: "write", Paths: []string{
 						filepath.Join(requestDir, "new.txt"),
 					}},
 				},
 				{
 					name: "missing_dirs12",
-					req: Request{Action: ActionWrite, Tool: "write", Paths: []string{
+					req: Request{Kind: KindWrite, Tool: "write", Paths: []string{
 						filepath.Join(deepDir, "new.txt"),
 					}},
 				},
 				{
 					name: "edit10",
-					req:  Request{Action: ActionEdit, Tool: "edit", Paths: editPaths},
+					req:  Request{Kind: KindWrite, Tool: "edit", Paths: editPaths},
 				},
 			} {
 				b.Run(tc.name, func(b *testing.B) {

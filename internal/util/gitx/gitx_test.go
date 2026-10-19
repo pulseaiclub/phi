@@ -266,6 +266,42 @@ func TestCreateSurfacesGitRefusal(t *testing.T) {
 	assert.Contains(t, err.Error(), "git switch -c taken")
 }
 
+func TestDeleteRemovesTheBranch(t *testing.T) {
+	dir := newRepo(t)
+	gitRun(t, dir, "branch", "doomed")
+
+	require.NoError(t, Delete(t.Context(), dir, "doomed"))
+
+	branches, err := Branches(t.Context(), dir)
+	require.NoError(t, err)
+	assert.NotContains(t, branchNames(branches), "doomed")
+}
+
+// -d and not -D: unmerged commits must survive a mistyped delete.
+func TestDeleteRefusesUnmergedCommits(t *testing.T) {
+	dir := newRepo(t)
+	gitRun(t, dir, "checkout", "-b", "unmerged")
+	writeFile(t, dir, "extra.txt", "work\n")
+	gitRun(t, dir, "add", "extra.txt")
+	gitRun(t, dir, "commit", "-m", "unmerged work")
+	gitRun(t, dir, "checkout", "main")
+
+	err := Delete(t.Context(), dir, "unmerged")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not fully merged")
+	assert.Contains(t, err.Error(), "git branch -D", "the hint names the deliberate override")
+}
+
+func TestDeleteRejectsOptionLikeNames(t *testing.T) {
+	dir := newRepo(t)
+
+	err := Delete(t.Context(), dir, "-D")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid branch name")
+}
+
 func TestLocalName(t *testing.T) {
 	remotes := []struct{ name, want string }{
 		{"origin/main", "main"},

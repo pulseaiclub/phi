@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pulseaiclub/phi/internal/util/archive"
 	"github.com/pulseaiclub/phi/internal/util/githubrelease"
 )
 
@@ -139,11 +140,11 @@ func installReleaseTree(
 		if err := download(ctx, sumAsset.BrowserDownloadURL, sumsPath); err != nil {
 			return fmt.Errorf("download checksums: %w", err)
 		}
-		want, err := lookupChecksum(sumsPath, asset.Name)
+		want, err := githubrelease.LookupChecksum(sumsPath, asset.Name)
 		if err != nil {
 			return err
 		}
-		got, err := sha256File(archivePath)
+		got, err := githubrelease.SHA256File(archivePath)
 		if err != nil {
 			return fmt.Errorf("hash archive: %w", err)
 		}
@@ -157,7 +158,7 @@ func installReleaseTree(
 		return fmt.Errorf("mkdir extract: %w", err)
 	}
 	printf(opts.out(), "plugin: extracting...\n")
-	if err := extractArchive(ctx, archivePath, format, extractDir); err != nil {
+	if err := archive.Extract(ctx, archivePath, format, extractDir); err != nil {
 		return fmt.Errorf("extract archive: %w", err)
 	}
 	root, err := unwrapExtractRoot(extractDir)

@@ -10,6 +10,7 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/mcp"
+	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
@@ -41,6 +42,10 @@ func WriteTool(pool *mcp.Pool) tooldef.Tool {
 		tooldef.WithDetail(writeDetail),
 		tooldef.WithHandler(func(ctx context.Context, in writeInput) (tooldef.Result, error) {
 			return runWrite(ctx, pool, in)
+		}),
+		tooldef.WithPermission(tooldef.Declaration[writeInput]{
+			Kind:  permission.KindWrite,
+			Paths: func(in writeInput) ([]string, error) { return []string{in.Path}, nil },
 		}),
 	)
 }

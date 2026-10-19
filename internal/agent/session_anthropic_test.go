@@ -62,7 +62,7 @@ func TestSessionAnthropicContinuation(t *testing.T) {
 	require.NotNil(t, final)
 	require.NotNil(t, final.ProviderState)
 	require.Len(t, final.ProviderState.Data.Items, 4)
-	require.NoError(t, sess.AddFinalAssistant(final))
+	require.NoError(t, sess.Append(*final))
 	resumed, err := NewSession(WithResumePath(sess.File()))
 	require.NoError(t, err)
 	history := resumed.BuildContext()
@@ -107,13 +107,15 @@ func TestSessionNativeCompaction(t *testing.T) {
 	state := &llm.ProviderState{Provider: llm.Anthropic, Data: llm.ProviderData{Items: []json.RawMessage{
 		json.RawMessage(`{"type":"thinking","thinking":"","signature":"signed"}`),
 	}}}
-	require.NoError(t, sess.AddFinalAssistant(&llm.Message{ProviderState: state}))
+	require.NoError(t, sess.Append(llm.Message{Role: llm.RoleAssistant, ProviderState: state}))
 	keep := sess.LastID()
 	require.NoError(t, sess.AppendCompaction(session.Compaction{
 		Summary: "summary", FirstKeptEntryID: keep,
 	}))
-	require.NoError(t, sess.AddFinalAssistant(&llm.Message{ProviderState: state}))
-	for _, current := range []*Session{sess, mustResumeNativeSession(t, sess.File())} {
+	require.NoError(t, sess.Append(llm.Message{Role: llm.RoleAssistant, ProviderState: state}))
+	resumed, err := NewSession(WithResumePath(sess.File()))
+	require.NoError(t, err)
+	for _, current := range []*Session{sess, resumed} {
 		messages := current.BuildContext()
 		require.Len(t, messages, 3)
 		assert.Contains(t, messages[0].Content, "summary")
@@ -124,11 +126,4 @@ func TestSessionNativeCompaction(t *testing.T) {
 		assert.Equal(t, state, entries[1].(session.SessionMessageEntry).Message.ProviderState,
 			"projection must leave persisted history intact")
 	}
-}
-
-func mustResumeNativeSession(t *testing.T, file string) *Session {
-	t.Helper()
-	sess, err := NewSession(WithResumePath(file))
-	require.NoError(t, err)
-	return sess
 }

@@ -3,10 +3,15 @@ package anthropic
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"hash"
+	"slices"
 	"strings"
+	"unicode/utf8"
+
+	"github.com/pulseaiclub/phi/internal/llm"
 )
 
 type nativeBlock map[string]json.RawMessage
@@ -15,7 +20,6 @@ type nativeBlock map[string]json.RawMessage
 type nativeCapture struct {
 	items       []json.RawMessage
 	block       nativeBlock
-	index       int
 	kind        string
 	text        strings.Builder
 	signature   strings.Builder
@@ -24,20 +28,25 @@ type nativeCapture struct {
 }
 
 func (c *nativeCapture) start(index int, raw json.RawMessage) {
-	if c.block != nil || index != len(c.items) {
-		c.invalid = true
+	if c.invalid {
+		return
 	}
-	c.block = nil
-	c.index = index
+	if c.block != nil || index != len(c.items) {
+		c.discard()
+		return
+	}
 	c.text.Reset()
 	c.signature.Reset()
 	if json.Unmarshal(raw, &c.block) != nil || c.block == nil {
-		c.invalid = true
+		c.discard()
 		return
 	}
 	c.kind = ""
 	_ = json.Unmarshal(c.block["type"], &c.kind)
-	c.invalid = c.invalid || c.kind == ""
+	if c.kind == "" {
+		c.discard()
+		return
+	}
 	c.hasThinking = c.hasThinking || c.kind == "thinking" || c.kind == "redacted_thinking"
 	key := "text"
 	if c.kind == "thinking" {
@@ -51,9 +60,11 @@ func (c *nativeCapture) start(index int, raw json.RawMessage) {
 }
 
 func (c *nativeCapture) delta(index int, kind, value string) {
-	c.hasThinking = c.hasThinking || kind == "thinking_delta" || kind == "signature_delta"
-	if c.block == nil || index != c.index {
-		c.invalid = true
+	if c.invalid {
+		return
+	}
+	if c.block == nil || index != len(c.items) {
+		c.discard()
 		return
 	}
 	switch {
@@ -63,24 +74,33 @@ func (c *nativeCapture) delta(index int, kind, value string) {
 		c.signature.WriteString(value)
 	case kind == "input_json_delta" && c.kind == "tool_use":
 	default:
-		c.invalid = true
+		c.discard()
 	}
 }
 
 func (c *nativeCapture) stop(index int, args string) {
-	if c.block == nil || index != c.index {
-		c.invalid = true
+	if c.invalid {
+		return
+	}
+	if c.block == nil || index != len(c.items) {
+		c.discard()
 		return
 	}
 	switch c.kind {
 	case "thinking":
+		if c.signature.Len() == 0 {
+			c.discard()
+			return
+		}
 		c.block["thinking"], _ = json.Marshal(c.text.String())
 		c.block["signature"], _ = json.Marshal(c.signature.String())
-		c.invalid = c.invalid || c.signature.Len() == 0
 	case "redacted_thinking":
 		var data string
 		_ = json.Unmarshal(c.block["data"], &data)
-		c.invalid = c.invalid || data == ""
+		if data == "" {
+			c.discard()
+			return
+		}
 	case "text":
 		c.block["text"], _ = json.Marshal(c.text.String())
 	case "tool_use":
@@ -89,9 +109,87 @@ func (c *nativeCapture) stop(index int, args string) {
 		}
 	}
 	item, err := json.Marshal(c.block)
-	c.invalid = c.invalid || err != nil
+	if err != nil {
+		c.discard()
+		return
+	}
 	c.items = append(c.items, item)
 	c.block = nil
+}
+
+func (c *nativeCapture) discard() {
+	// No later block can repair an incomplete signed sequence.
+	*c = nativeCapture{invalid: true}
+}
+
+type nativePrefix struct {
+	hash    hash.Hash
+	count   int
+	invalid bool
+}
+
+// Advance only when a saved state needs checking; unsigned conversations skip hashing.
+func (p *nativePrefix) sum(req *AnthropicRequest) string {
+	if p.hash == nil {
+		p.hash = sha256.New()
+		p.invalid = !writePrefix(p.hash, struct {
+			System []sysBlock      `json:"system"`
+			Tools  []anthropicTool `json:"tools"`
+		}{req.System, req.Tools})
+	}
+	for !p.invalid && p.count < len(req.Messages) {
+		p.invalid = !writePrefix(p.hash, req.Messages[p.count])
+		p.count++
+	}
+	if p.invalid {
+		return ""
+	}
+	return hex.EncodeToString(p.hash.Sum(nil))
+}
+
+// Replay is selected before hooks, so retain that same input for deferred hashing.
+// Strings are immutable; only the mutable slices and image sources need copies.
+func snapshotNativeInput(req *AnthropicRequest) *AnthropicRequest {
+	input := &AnthropicRequest{
+		System:   slices.Clone(req.System),
+		Tools:    slices.Clone(req.Tools),
+		Messages: slices.Clone(req.Messages),
+	}
+	for i := range input.Tools {
+		input.Tools[i].InputSchema = bytes.Clone(input.Tools[i].InputSchema)
+	}
+	for i, msg := range input.Messages {
+		if content, ok := msg.Content.([]anthropicContentBlock); ok {
+			blocks := slices.Clone(content)
+			for j := range blocks {
+				blocks[j].Input = bytes.Clone(blocks[j].Input)
+				if blocks[j].Source != nil {
+					source := *blocks[j].Source
+					blocks[j].Source = &source
+				}
+			}
+			input.Messages[i].Content = blocks
+		}
+	}
+	return input
+}
+
+func nativeState(input *AnthropicRequest, cfg llm.ModelConfig) *llm.ProviderState {
+	if input == nil {
+		return nil
+	}
+	var prefix nativePrefix
+	sum := prefix.sum(input)
+	if sum == "" {
+		return nil
+	}
+	return &llm.ProviderState{
+		Provider: llm.Anthropic,
+		// Replay is selected before hooks, using the configured model identity.
+		Model:    cfg.Name,
+		Endpoint: endpointFingerprint(cfg.BaseURL),
+		Data:     llm.ProviderData{Prefix: sum},
+	}
 }
 
 func endpointFingerprint(baseURL string) string {
@@ -103,10 +201,10 @@ func endpointFingerprint(baseURL string) string {
 // object key order is irrelevant, and cache markers are not signature inputs.
 func writePrefix(h hash.Hash, value any) bool {
 	if msg, ok := value.(anthropicMessage); ok {
-		if text, ok := msg.Content.(string); ok {
-			msg.Content = []anthropicContentBlock{{Type: "text", Text: text}}
+		if text, ok := msg.Content.(string); ok && utf8.ValidString(text) {
+			// Invalid UTF-8 needs the JSON round trip to preserve saved fingerprints.
+			return writePrefixObject(h, map[string]any{"role": msg.Role, "content": msg.Content})
 		}
-		value = msg
 	}
 	raw, err := json.Marshal(value)
 	if err != nil {
@@ -117,6 +215,17 @@ func writePrefix(h hash.Hash, value any) bool {
 	var result map[string]any
 	if decoder.Decode(&result) != nil {
 		return false
+	}
+	return writePrefixObject(h, result)
+}
+
+func writePrefixObject(h hash.Hash, result map[string]any) bool {
+	if text, ok := result["content"].(string); ok {
+		block := map[string]any{"type": "text"}
+		if text != "" {
+			block["text"] = text
+		}
+		result["content"] = []any{block}
 	}
 	for _, key := range []string{"system", "tools", "content"} {
 		if blocks, ok := result[key].([]any); ok {

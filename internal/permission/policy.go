@@ -34,20 +34,16 @@ func (d Decision) String() string {
 	}
 }
 
-// ModeOf returns the permission Mode configured on g, if known.
-// BypassGate unwraps to its Inner. Unknown gate types return "".
+// ModeOf reports the permission Mode g enforces, if it exposes one. Gate
+// decorators that hide the mode (BypassGate) are unwrapped; a gate with no mode
+// of its own (AllowAll) reports "".
 func ModeOf(g Gate) Mode {
 	for g != nil {
 		switch x := g.(type) {
-		case *StaticGate:
-			if x.Policy.Mode != "" {
-				return x.Policy.Mode
-			}
-			return ModeInteractive
+		case interface{ Mode() Mode }:
+			return x.Mode()
 		case *BypassGate:
 			g = x.Inner
-		case AllowAll:
-			return ""
 		default:
 			return ""
 		}
@@ -55,29 +51,12 @@ func ModeOf(g Gate) Mode {
 	return ""
 }
 
-// Action names the kind of tool operation being gated.
-type Action string
-
-// Action values name the kinds of tool operations being gated.
-const (
-	ActionUnknown Action = "unknown"
-	ActionBash    Action = "bash"
-	ActionRead    Action = "read"
-	ActionWrite   Action = "write"
-	ActionEdit    Action = "edit"
-	ActionGrep    Action = "grep"
-	ActionFind    Action = "find"
-	ActionLs      Action = "ls"
-
-	ActionAgentSpawn   Action = "agent_spawn"   // delegates execution in a workspace
-	ActionAgentControl Action = "agent_control" // waits for or cancels existing work
-)
-
-// Request describes a tool invocation for permission evaluation.
+// Request describes a tool invocation for permission evaluation. Tools build
+// it (tooldef.WithPermission); the gate never inspects tool arguments itself.
 type Request struct {
-	Action  Action
+	Kind    Kind
 	Tool    string
-	Paths   []string // absolute, cleaned
+	Paths   []string // absolute and cleaned, or internal URLs verbatim
 	Command string
 }
 
@@ -92,6 +71,10 @@ type Policy struct {
 	SensitivePathDeny   []string // path prefixes
 	WorkspaceOnlyReads  bool     // if true, out-of-workspace reads deny
 	DangerouslyAllowAll bool     // skip all permission checks
+	// Rules are extra rules from config (see RuleSpec.Compile). They are filed
+	// by decision into the same tiers as the built-ins and run after them, so
+	// they can tighten a policy but never soften a built-in deny.
+	Rules []Rule
 }
 
 // DefaultPolicy returns the interactive defaults from task-002.

@@ -117,12 +117,12 @@ func (engine *Engine) buildCoreTools(base []tooldef.Tool) []tooldef.Tool {
 	if engine.jobs == nil {
 		return out
 	}
-	agentTools := agenttool.AgentTools(agenttool.AgentDeps{
-		Manager:  engine.jobs,
-		ParentID: engine.SessionID,
-		WorkDir:  engine.SessionCwd,
-		Gate:     engine.gate,
-	})
+	agentTools := agenttool.AgentTools(
+		agenttool.WithManager(engine.jobs),
+		agenttool.WithParentID(engine.SessionID),
+		agenttool.WithWorkDir(engine.SessionCwd),
+		agenttool.WithGate(engine.gate),
+	)
 	merged := make([]tooldef.Tool, 0, len(out)+len(agentTools))
 	merged = append(merged, out...)
 	merged = append(merged, agentTools...)

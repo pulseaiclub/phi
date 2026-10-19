@@ -166,7 +166,9 @@ func parseConfigFileWithEnv(path string, withEnv bool) (*Config, error) {
 		cfg.MaxRounds = *raw.MaxRounds
 	}
 	if raw.Permissions != nil {
-		applyPermissions(&cfg.Permissions, raw.Permissions)
+		if err := applyPermissions(&cfg.Permissions, raw.Permissions); err != nil {
+			return nil, fmt.Errorf("permissions: %w", err)
+		}
 	}
 	if raw.Agents != nil {
 		if raw.Agents.Enabled != nil {
@@ -235,8 +237,9 @@ func ResolveModelDoc(m ModelDoc) (llm.ModelConfig, error) {
 }
 
 // applyPermissions merges the file's permissions block over DefaultPolicy.
-// An explicitly set list (even an empty one) replaces the default list.
-func applyPermissions(p *permission.Policy, raw *PermDoc) {
+// An explicitly set list (even an empty one) replaces the default list. Rules
+// are compiled here, so a typo fails the load instead of gating nothing.
+func applyPermissions(p *permission.Policy, raw *PermDoc) error {
 	if raw.Mode != "" {
 		p.Mode = permission.Mode(raw.Mode)
 	}
@@ -260,6 +263,32 @@ func applyPermissions(p *permission.Policy, raw *PermDoc) {
 			p.BashDeny = *b.Deny
 		}
 	}
+	if len(raw.Rules) > 0 {
+		specs := make([]permission.RuleSpec, len(raw.Rules))
+		for i, rule := range raw.Rules {
+			rule.Path = expandAllHome(rule.Path)
+			specs[i] = rule
+		}
+		rules, err := permission.CompileRules(specs)
+		if err != nil {
+			return err
+		}
+		p.Rules = rules
+	}
+	return nil
+}
+
+// expandAllHome lets a rule be written as ~/.ssh while the gate compares
+// absolute prefixes; the doc keeps the shorthand until it is saved again.
+func expandAllHome(paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	out := make([]string, len(paths))
+	for i, path := range paths {
+		out[i] = expandHome(path)
+	}
+	return out
 }
 
 func countIndent(line string) int {

@@ -292,7 +292,7 @@ func (e *Executor) checkPermission(
 	detail string,
 	emit func(session.ToolData) bool,
 ) (llm.Message, bool) {
-	req, err := permission.ExtractAt(call.Function.Name, args, e.cwd)
+	req, err := e.registry.PermissionRequest(call.Function.Name, args, e.cwd)
 	if err != nil {
 		reason := fmt.Sprintf("permission check failed: %v", err)
 		return e.rejectResult(call, detail, reason, emit), true

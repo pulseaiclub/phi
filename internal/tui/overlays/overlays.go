@@ -561,24 +561,23 @@ type continueAskState struct {
 }
 
 func formatAskHeader(req permission.Request) (header, detail string) {
-	switch req.Action {
-	case permission.ActionBash:
+	switch req.Kind {
+	case permission.KindExec:
 		cmd := req.Command
 		lines := strings.Split(cmd, "\n")
 		if len(lines) > 3 {
 			cmd = strings.Join(lines[:3], "\n") + "\n..."
 		}
 		return "Run this command?", cmd
-	case permission.ActionEdit:
+	case permission.KindWrite:
 		path := ""
 		if len(req.Paths) > 0 {
 			path = req.Paths[0]
 		}
-		return "Allow editing file:", path
-	case permission.ActionWrite:
-		path := ""
-		if len(req.Paths) > 0 {
-			path = req.Paths[0]
+		// Kind collapses every writing tool; the tool name keeps the prompt
+		// honest about which one is asking.
+		if req.Tool == "edit" {
+			return "Allow editing file:", path
 		}
 		return "Allow creating file:", path
 	default:
@@ -652,12 +651,12 @@ func (st *permAskState) detailLines(th components.Theme, innerW int, method xui.
 	for i, line := range lines {
 		var spans []components.Span
 		switch {
-		case st.req.Action == permission.ActionBash && i == 0:
+		case st.req.Kind == permission.KindExec && i == 0:
 			spans = []components.Span{
 				{Text: chrome.BashPrompt, Style: xui.Style{Bold: true, Fg: id.Fg}},
 				{Text: line, Style: th.Foreground},
 			}
-		case st.req.Action == permission.ActionBash:
+		case st.req.Kind == permission.KindExec:
 			spans = []components.Span{{Text: "  " + line, Style: th.Foreground}}
 		default:
 			spans = []components.Span{{Text: line, Style: xui.Style{Bold: true, Fg: th.Foreground.Fg}}}

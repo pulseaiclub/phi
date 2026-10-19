@@ -12,6 +12,11 @@
 //	---
 //	name: My Skill
 //	description: What this skill does
+//	disable-model-invocation: true
 //	---
 //	Instructions for the agent to follow when this skill is relevant.
+//
+// disable-model-invocation keeps a skill out of the system prompt catalog while
+// leaving it selectable from the skills panel. It is a catalog filter, not
+// access control.
 package skills

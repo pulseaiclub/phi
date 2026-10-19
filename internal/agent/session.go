@@ -3,7 +3,6 @@ package agent
 import (
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/session"
@@ -241,27 +240,4 @@ func (s *Session) AddUser(text string) error {
 		Role:    llm.RoleUser,
 		Content: text,
 	})
-}
-
-// AddAssistant records an assistant message from an LLM response (including tool_calls).
-func (s *Session) AddAssistant(assistant llm.Message, usage llm.Usage) error {
-	return s.Append(llm.Message{
-		Role:             llm.RoleAssistant,
-		Content:          assistant.Content,
-		ReasoningContent: assistant.ReasoningContent,
-		ToolCalls:        assistant.ToolCalls,
-		ProviderState:    assistant.ProviderState,
-		Usage:            usage,
-	})
-}
-
-// AddFinalAssistant also keeps native-only messages needed for continuation.
-func (s *Session) AddFinalAssistant(final *llm.Message) error {
-	if final == nil {
-		return nil
-	}
-	if strings.TrimSpace(final.Content) == "" && len(final.ToolCalls) == 0 && final.ProviderState == nil {
-		return nil
-	}
-	return s.AddAssistant(*final, final.Usage)
 }

@@ -17,11 +17,6 @@ func TestExtensionForImageMimeType(t *testing.T) {
 	assert.Empty(t, ExtensionForImageMimeType("image/bmp"))
 }
 
-func TestCopyTextRejectsEmpty(t *testing.T) {
-	assert.ErrorIs(t, CopyText(""), ErrEmpty)
-	assert.ErrorIs(t, CopyText("   "), ErrEmpty)
-}
-
 func TestSplitLines(t *testing.T) {
 	assert.Equal(t, []string{"image/png", "text/plain"}, splitLines("image/png\r\ntext/plain\n"))
 }

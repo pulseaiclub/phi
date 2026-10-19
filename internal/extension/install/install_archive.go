@@ -1,14 +1,10 @@
 package install
 
 import (
-	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -103,62 +99,6 @@ func findChecksumAsset(rel githubrelease.Release) (githubrelease.Asset, bool) {
 		}
 	}
 	return githubrelease.Asset{}, false
-}
-
-func lookupChecksum(path, asset string) (string, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("read checksums: %w", err)
-	}
-	for line := range strings.SplitSeq(string(b), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		if fields[1] == asset {
-			return fields[0], nil
-		}
-	}
-	return "", fmt.Errorf("checksum for %s not listed in checksums file", asset)
-}
-
-func sha256File(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-func extractArchive(ctx context.Context, archive, format, dst string) error {
-	switch format {
-	case "tar.gz":
-		cmd := exec.CommandContext(ctx, "tar", "-xzf", archive, "-C", dst)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("tar: %w: %s", err, strings.TrimSpace(string(out)))
-		}
-		return nil
-	case "zip":
-		ps := fmt.Sprintf("Expand-Archive -LiteralPath %q -DestinationPath %q -Force", archive, dst)
-		cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-Command", ps)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("powershell Expand-Archive: %w: %s", err, strings.TrimSpace(string(out)))
-		}
-		return nil
-	default:
-		return fmt.Errorf("unknown archive format: %s", format)
-	}
 }
 
 // unwrapExtractRoot returns the directory that contains phi.yaml.

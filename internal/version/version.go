@@ -4,4 +4,4 @@ package version
 // `phi update`. Override at build time with:
 //
 //	go build -ldflags="-X github.com/pulseaiclub/phi/internal/version.Version=v0.2.0"
-var Version = "v0.28.9"
+var Version = "v0.29.0"

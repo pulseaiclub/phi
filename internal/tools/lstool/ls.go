@@ -11,6 +11,7 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/mcp"
+	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
@@ -59,6 +60,12 @@ func LsTool(pool *mcp.Pool) tooldef.Tool {
 		tooldef.WithDetail(lsDetail),
 		tooldef.WithHandler(func(ctx context.Context, in lsInput) (tooldef.Result, error) {
 			return runLs(ctx, pool, in)
+		}),
+		// lsInput decodes both {"path":…} and a bare string, so the gate sees
+		// the same target the handler will list.
+		tooldef.WithPermission(tooldef.Declaration[lsInput]{
+			Kind:  permission.KindRead,
+			Paths: func(in lsInput) ([]string, error) { return []string{in.Path}, nil },
 		}),
 	)
 }

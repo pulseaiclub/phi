@@ -2,18 +2,16 @@ package update
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
 
+	"github.com/pulseaiclub/phi/internal/util/archive"
 	"github.com/pulseaiclub/phi/internal/util/githubrelease"
 )
 
@@ -108,7 +106,7 @@ func Install(ctx context.Context, opts InstallOptions) error {
 	if err = githubrelease.DownloadFile(ctx, sumsURL, sumsPath); err != nil {
 		return fmt.Errorf("download checksums: %w", err)
 	}
-	wantSum, err := lookupChecksum(sumsPath, assetName)
+	wantSum, err := githubrelease.LookupChecksum(sumsPath, assetName)
 	if err != nil {
 		return err
 	}
@@ -120,7 +118,7 @@ func Install(ctx context.Context, opts InstallOptions) error {
 	}
 
 	printf(out, "phi update: verifying checksum...\n")
-	gotSum, err := sha256File(archivePath)
+	gotSum, err := githubrelease.SHA256File(archivePath)
 	if err != nil {
 		return fmt.Errorf("hash archive: %w", err)
 	}
@@ -133,7 +131,7 @@ func Install(ctx context.Context, opts InstallOptions) error {
 	if err = os.MkdirAll(extractDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir extract: %w", err)
 	}
-	if err = extractArchive(ctx, archivePath, archiveFmt, extractDir); err != nil {
+	if err = archive.Extract(ctx, archivePath, archiveFmt, extractDir); err != nil {
 		return fmt.Errorf("extract archive: %w", err)
 	}
 
@@ -206,62 +204,6 @@ func releaseAssetName(tag string) (name, format string, err error) {
 	}
 	ver := githubrelease.TagVersion(tag)
 	return fmt.Sprintf("phi_%s_%s_%s.%s", ver, goos, goarch, ext), ext, nil
-}
-
-func lookupChecksum(path, asset string) (string, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("read checksums: %w", err)
-	}
-	for line := range strings.SplitSeq(string(b), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		if fields[1] == asset {
-			return fields[0], nil
-		}
-	}
-	return "", fmt.Errorf("checksum for %s not listed in checksums file", asset)
-}
-
-func sha256File(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-func extractArchive(ctx context.Context, archive, format, dst string) error {
-	switch format {
-	case "tar.gz":
-		cmd := exec.CommandContext(ctx, "tar", "-xzf", archive, "-C", dst)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("tar: %w: %s", err, strings.TrimSpace(string(out)))
-		}
-		return nil
-	case "zip":
-		ps := fmt.Sprintf("Expand-Archive -LiteralPath %q -DestinationPath %q -Force", archive, dst)
-		cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-Command", ps)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("powershell Expand-Archive: %w: %s", err, strings.TrimSpace(string(out)))
-		}
-		return nil
-	default:
-		return fmt.Errorf("unknown archive format: %s", format)
-	}
 }
 
 func replaceBinary(cur, newBin string) error {

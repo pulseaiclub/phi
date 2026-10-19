@@ -9,6 +9,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/permission"
 )
 
 // ConfigDoc preserves absent keys when the config editor saves ~/.phi/config.yaml.
@@ -47,6 +48,9 @@ type PermDoc struct {
 	AskTimeoutSec       *int     `yaml:"ask_timeout_sec,omitempty"`
 	DangerouslyAllowAll *bool    `yaml:"dangerously_allow_all,omitempty"`
 	Bash                *BashDoc `yaml:"bash,omitempty"`
+	// Rules are evaluated in strictest-first tiers: a configured deny outranks
+	// every ask, and an ask outranks every allow. See doc/permissions.md.
+	Rules []permission.RuleSpec `yaml:"rules,omitempty"`
 }
 
 // BashDoc is the permissions.bash block.

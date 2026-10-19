@@ -15,10 +15,10 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"github.com/pulseaiclub/phi/internal/tools/tooldef"
-
 	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/project"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"github.com/pulseaiclub/phi/internal/util"
 )
 
@@ -104,6 +104,16 @@ func GrepTool() tooldef.Tool {
 		}),
 		tooldef.WithDetail(grepDetail),
 		tooldef.WithHandler(runGrep),
+		tooldef.WithPermission(tooldef.Declaration[grepInput]{
+			Kind: permission.KindRead,
+			// An omitted path searches cwd, which is the gate's business too.
+			Paths: func(in grepInput) ([]string, error) {
+				if strings.TrimSpace(in.Path) == "" {
+					return []string{"."}, nil
+				}
+				return []string{in.Path}, nil
+			},
+		}),
 	)
 }
 

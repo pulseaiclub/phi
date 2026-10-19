@@ -36,8 +36,12 @@ type inlineData struct {
 }
 
 type functionCall struct {
-	Name string         `json:"name"`
-	Args map[string]any `json:"args,omitempty"`
+	Name string `json:"name"`
+	// Args is the call's argument object, kept as raw JSON. Gemini wants an
+	// object here rather than the encoded string the other providers take, so
+	// decoding it into a map and re-encoding would reorder keys and round
+	// integers through float64 (a large one would not survive).
+	Args json.RawMessage `json:"args,omitempty"`
 }
 
 type functionResponse struct {
@@ -236,14 +240,30 @@ func toAssistantMessage(m llm.Message) content {
 		c.Parts = append(c.Parts, part{Text: m.Content})
 	}
 	for _, tc := range m.ToolCalls {
-		var args map[string]any
-		_ = json.Unmarshal([]byte(tc.Function.Arguments), &args)
-		c.Parts = append(c.Parts, part{FunctionCall: &functionCall{Name: tc.Function.Name, Args: args}})
+		c.Parts = append(c.Parts, part{
+			FunctionCall: &functionCall{
+				Name: tc.Function.Name,
+				Args: toolArgs(tc.Function.Arguments),
+			},
+		})
 	}
 	if len(c.Parts) == 0 {
 		c.Parts = []part{{Text: ""}}
 	}
 	return c
+}
+
+// toolArgs passes the tool call's arguments through as the object Gemini
+// requires. The validity check is not optional: an invalid raw message fails
+// the encode of the whole request, so a call whose arguments are empty,
+// truncated, or not an object gets no args field at all instead — which is
+// what decoding into a map used to do.
+func toolArgs(arguments string) json.RawMessage {
+	trimmed := strings.TrimSpace(arguments)
+	if trimmed == "" || trimmed[0] != '{' || !json.Valid([]byte(trimmed)) {
+		return nil
+	}
+	return json.RawMessage(trimmed)
 }
 
 func getURL(model, baseURL, apiKey string, stream bool) string {

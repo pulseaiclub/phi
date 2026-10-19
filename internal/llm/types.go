@@ -240,32 +240,19 @@ type Message struct {
 	Usage Usage `json:"-"`
 }
 
-// ProviderState carries opaque provider-specific data needed for continuation
-// (e.g., Anthropic's signed thinking blocks for extended context prompting).
-// The normalized fields (Content, ReasoningContent, ToolCalls) remain the
-// authoritative representation for rendering, other providers, and compaction.
+// ProviderState carries provider-specific continuation data. Normalized message
+// fields remain authoritative for rendering, other providers, and compaction.
 type ProviderState struct {
-	// Provider identifies which LLM API produced this state.
 	Provider RouterType `json:"provider"`
-	// Model is the model name that produced this state (e.g., "claude-3-5-sonnet").
-	Model string `json:"model"`
-	// Endpoint is a fingerprint of the base URL (hashed to avoid leaking credentials).
-	Endpoint string `json:"endpoint"`
-	// Data is the opaque provider-specific payload. For Anthropic, this holds
-	// the prefix hash and content blocks; other providers may use it differently
-	// or leave it nil.
-	Data ProviderData `json:"data,omitempty"`
+	Model    string     `json:"model"`
+	// Endpoint hashes the normalized base URL to keep credentials out of sessions.
+	Endpoint string       `json:"endpoint"`
+	Data     ProviderData `json:"data,omitempty"`
 }
 
-// ProviderData is the opaque payload inside ProviderState.
+// ProviderData holds Anthropic's prefix fingerprint and ordered content blocks.
 type ProviderData struct {
-	// Prefix is the SHA-256 hex digest of the request prefix (system + tools + messages)
-	// that the native blocks depend on. Used by Anthropic to validate cache coherence.
-	Prefix string `json:"prefix,omitempty"`
-	// Items holds the raw content blocks for providers that need them (e.g., Anthropic
-	// thinking blocks). Other providers leave this nil.
-	Items []RawJSON `json:"items,omitempty"`
+	// Prefix binds Items to the system, tools, and message history they depend on.
+	Prefix string            `json:"prefix,omitempty"`
+	Items  []json.RawMessage `json:"items,omitempty"`
 }
-
-// RawJSON is an alias for json.RawMessage to make the intent clearer.
-type RawJSON = json.RawMessage

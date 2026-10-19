@@ -17,7 +17,7 @@ import (
 func TestBranchCommandRegistersSlash(t *testing.T) {
 	r := NewCommandRegistry()
 	b := NewBranchCommands(controller.NewBus(nil))
-	b.OpenOverlay = func([]gitx.Branch, []string, func(string)) {}
+	b.OpenOverlay = func([]gitx.Branch, []string, func(string), func(string)) {}
 	b.Register(r)
 
 	assert.Equal(t, "/branch ", r.LookupInsert("branch"))
@@ -28,12 +28,13 @@ func TestBranchShowOpensOverlayWithRows(t *testing.T) {
 	branches := []gitx.Branch{{Name: "main", Current: true}, {Name: "fix/x"}}
 	b := stubBranchCommands(branches)
 	var got []string
-	b.OpenOverlay = func(list []gitx.Branch, recent []string, onAccept func(string)) {
+	b.OpenOverlay = func(list []gitx.Branch, recent []string, onAccept, onDelete func(string)) {
 		for _, item := range list {
 			got = append(got, item.Name)
 		}
 		assert.Equal(t, []string{"fix/x"}, recent, "reflog order reaches the picker")
 		require.NotNil(t, onAccept)
+		require.NotNil(t, onDelete, "the picker owns the branch delete path")
 	}
 
 	b.Show()
@@ -180,7 +181,7 @@ func TestBranchShowIgnoresMissingReflog(t *testing.T) {
 		return nil, errors.New("fatal: your current branch does not have any commits yet")
 	}
 	opened := false
-	b.OpenOverlay = func(_ []gitx.Branch, recent []string, _ func(string)) {
+	b.OpenOverlay = func(_ []gitx.Branch, recent []string, _, _ func(string)) {
 		opened = true
 		assert.Empty(t, recent)
 	}
@@ -248,6 +249,97 @@ func TestSwitchToRefusedWhileStreaming(t *testing.T) {
 	assert.Contains(t, drainToast(t, bus), "Cannot switch branches")
 }
 
+func TestDeleteRemovesTheChosenBranchAndRefreshesRows(t *testing.T) {
+	bus := controller.NewBus(nil)
+	b := stubBranchCommands([]gitx.Branch{{Name: "main", Current: true}, {Name: "fix/x"}})
+	b.Bus = bus
+	var removed []string
+	b.Remove = func(_ context.Context, _, name string) error {
+		removed = append(removed, name)
+		return nil
+	}
+	b.Branches = func(context.Context, string) ([]gitx.Branch, error) {
+		if len(removed) == 0 {
+			return []gitx.Branch{{Name: "main", Current: true}, {Name: "fix/x"}}, nil
+		}
+		return []gitx.Branch{{Name: "main", Current: true}}, nil
+	}
+	var refreshed []string
+	b.RefreshOverlay = func(branches []gitx.Branch, _ []string) {
+		for _, item := range branches {
+			refreshed = append(refreshed, item.Name)
+		}
+	}
+
+	b.Delete("fix/x")
+
+	assert.Equal(t, []string{"fix/x"}, removed)
+	assert.Equal(t, []string{"main"}, refreshed, "the row is gone without reopening the picker")
+	assert.Contains(t, drainToast(t, bus), "Deleted fix/x")
+}
+
+func TestDeleteRefusesTheCheckedOutBranch(t *testing.T) {
+	bus := controller.NewBus(nil)
+	b := stubBranchCommands([]gitx.Branch{{Name: "main", Current: true}})
+	b.Bus = bus
+	called := false
+	b.Remove = func(context.Context, string, string) error {
+		called = true
+		return nil
+	}
+
+	b.Delete("main")
+
+	assert.False(t, called, "git would refuse with a path-laden error")
+	assert.Contains(t, drainToast(t, bus), "switch to another branch first")
+}
+
+func TestDeleteRefusesRemoteTrackingBranches(t *testing.T) {
+	bus := controller.NewBus(nil)
+	b := stubBranchCommands([]gitx.Branch{{Name: "feat"}, {Name: "origin/feat", Remote: true}})
+	b.Bus = bus
+	called := false
+	b.Remove = func(context.Context, string, string) error {
+		called = true
+		return nil
+	}
+
+	b.Delete("origin/feat")
+
+	assert.False(t, called, "the local feat is a different branch")
+	assert.Contains(t, drainToast(t, bus), "Cannot delete remote-tracking origin/feat")
+}
+
+func TestDeleteReportsGitRefusal(t *testing.T) {
+	bus := controller.NewBus(nil)
+	b := stubBranchCommands([]gitx.Branch{{Name: "fix/x"}})
+	b.Bus = bus
+	b.Remove = func(context.Context, string, string) error {
+		return errors.New("git branch -d fix/x: the branch 'fix/x' is not fully merged — merge or rebase it first")
+	}
+
+	b.Delete("fix/x")
+
+	assert.Contains(t, drainToast(t, bus), "not fully merged")
+}
+
+func TestDeleteRefusedWhileStreaming(t *testing.T) {
+	bus := controller.NewBus(nil)
+	b := stubBranchCommands([]gitx.Branch{{Name: "fix/x"}})
+	b.Bus = bus
+	b.StreamActive = func() bool { return true }
+	called := false
+	b.Remove = func(context.Context, string, string) error {
+		called = true
+		return nil
+	}
+
+	b.Delete("fix/x")
+
+	assert.False(t, called)
+	assert.Contains(t, drainToast(t, bus), "Cannot delete a branch")
+}
+
 func stubBranchCommands(branches []gitx.Branch) *BranchCommands {
 	b := NewBranchCommands(nil)
 	b.Dir = func() string { return "/repo" }
@@ -257,6 +349,7 @@ func stubBranchCommands(branches []gitx.Branch) *BranchCommands {
 	b.Preflight = func(context.Context, string) (gitx.Status, error) { return gitx.Status{}, nil }
 	b.Switch = func(context.Context, string, string) error { return nil }
 	b.Create = func(context.Context, string, string) error { return nil }
+	b.Remove = func(context.Context, string, string) error { return nil }
 	return b
 }
 

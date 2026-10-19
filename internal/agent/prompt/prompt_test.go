@@ -124,6 +124,62 @@ func TestBuildSkillCatalogMergesRoots(t *testing.T) {
 	require.NotContains(t, got, "shadowed by the first root")
 }
 
+// TestBuildSkillCatalogSkipsDisabledSkills pins the disable-model-invocation
+// contract: the skill leaves the system prompt catalog but stays loadable, so
+// the skills panel can still hand it to the model on request.
+func TestBuildSkillCatalogSkipsDisabledSkills(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, "everyday", "always in the catalog")
+	writeSkillFile(
+		t,
+		root,
+		"manual-only",
+		"---\nname: manual-only\ndescription: user-initiated only\ndisable-model-invocation: true\n---\nbody\n",
+	)
+
+	got := Build("", []string{root}, false, 0, nil)
+	require.Contains(t, got, "always in the catalog")
+	require.NotContains(t, got, "user-initiated only")
+}
+
+// TestBuildSkillCatalogDropsSectionWhenAllDisabled keeps the section heading
+// from lingering with no entries under it.
+func TestBuildSkillCatalogDropsSectionWhenAllDisabled(t *testing.T) {
+	root := t.TempDir()
+	writeSkillFile(
+		t,
+		root,
+		"manual-only",
+		"---\nname: manual-only\ndescription: user-initiated only\ndisable-model-invocation: true\n---\nbody\n",
+	)
+
+	got := Build("", []string{root}, false, 0, nil)
+	require.NotContains(t, got, "# Skills")
+}
+
+// TestBuildSkillCatalogHonorsDisabledSkillsUnderAgentsRoot makes sure the key
+// works for skills picked up from .agents/skills, not just skill_path.
+func TestBuildSkillCatalogHonorsDisabledSkillsUnderAgentsRoot(t *testing.T) {
+	cwd := t.TempDir()
+	agentsRoot := filepath.Join(cwd, ".agents", "skills")
+	writeSkillFile(
+		t,
+		agentsRoot,
+		"manual-only",
+		"---\nname: manual-only\ndescription: user-initiated only\ndisable-model-invocation: true\n---\nbody\n",
+	)
+
+	got := Build(cwd, []string{agentsRoot}, false, 0, nil)
+	require.NotContains(t, got, "user-initiated only")
+}
+
+func writeSkillFile(t *testing.T, root, name, content string) {
+	t.Helper()
+	file := filepath.Join(root, name, "SKILL.md")
+	mustMkdir(t, filepath.Dir(file))
+	mustWrite(t, file, content)
+}
+
 func writeSkill(t *testing.T, root, name, description string) {
 	t.Helper()
 	file := filepath.Join(root, name, "SKILL.md")

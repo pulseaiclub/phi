@@ -503,8 +503,8 @@ func (p *Picker) handleKey(ctx *components.EventContext, e xui.KeyEvent) {
 				ctx.ConsumeAndRedraw()
 			case 'x', 'X':
 				// Arm delete-confirm only for callers that own a delete path;
-				// other picker domains (branches, …) keep Ctrl+X inert. Never
-				// while the line holds a command: the selected row is not theirs.
+				// picker domains without one keep Ctrl+X inert. Never while the
+				// line holds a command: the selected row is not theirs.
 				if p.OnDelete != nil && !p.commandMode {
 					p.confirming = true
 					ctx.ConsumeAndRedraw()

@@ -1,6 +1,6 @@
 // Package gitx runs git for TUI overlays that need repo state.
-// Every call shells out with a deadline. Only Switch mutates the repo, and it
-// takes a single ref name that ValidRef has already vetted.
+// Every call shells out with a deadline. Switch, Create, and Delete mutate the
+// repo, and each takes a single ref name that ValidRef has already vetted.
 package gitx
 
 import (
@@ -127,6 +127,16 @@ func Create(ctx context.Context, dir, name string) error {
 		return fmt.Errorf("invalid branch name %q", name)
 	}
 	_, err := run(ctx, dir, "switch", "-c", name)
+	return err
+}
+
+// Delete removes local branch name. -d and never -D: git refuses to drop
+// commits that are not merged, so a mistyped row cannot destroy work.
+func Delete(ctx context.Context, dir, name string) error {
+	if !ValidRef(name) {
+		return fmt.Errorf("invalid branch name %q", name)
+	}
+	_, err := run(ctx, dir, "branch", "-d", name)
 	return err
 }
 
@@ -321,6 +331,8 @@ func Hint(msg string) string {
 		return " — commit or stash first"
 	case strings.Contains(lower, "already used by worktree"):
 		return " — checked out in another worktree"
+	case strings.Contains(lower, "not fully merged"):
+		return " — merge or rebase it first, or force with git branch -D"
 	case strings.Contains(lower, "nothing to commit"):
 		return ""
 	case strings.Contains(lower, "no such branch"), strings.Contains(lower, "invalid reference"),

@@ -31,10 +31,10 @@ func TestRealPathLongSymlinkChain(t *testing.T) {
 	require.NoError(t, err)
 	dec, reason := gate.Check(
 		t.Context(),
-		Request{Action: ActionWrite, Paths: []string{filepath.Join(root, "ordinary")}},
+		Request{Kind: KindWrite, Paths: []string{filepath.Join(root, "ordinary")}},
 	)
 	require.Equal(t, Allow, dec, reason)
-	dec, reason = gate.Check(t.Context(), Request{Action: ActionRead, Paths: []string{resolved}})
+	dec, reason = gate.Check(t.Context(), Request{Kind: KindRead, Paths: []string{resolved}})
 	require.Equal(t, Deny, dec, reason)
 }
 
@@ -79,7 +79,7 @@ func TestRealPathRechecksMissingPaths(t *testing.T) {
 			require.NoError(t, err)
 			link := filepath.Join(ws, "new")
 			path := filepath.Join(link, suffix)
-			req := Request{Action: ActionWrite, Paths: []string{path}}
+			req := Request{Kind: KindWrite, Paths: []string{path}}
 
 			got, err := realPath(path)
 			require.NoError(t, err)
@@ -106,7 +106,7 @@ func TestRealPathRejectsDanglingLinks(t *testing.T) {
 	for _, path := range []string{"dangling", "dangling/child/file", "nested"} {
 		_, err := realPath(filepath.Join(ws, path))
 		require.Error(t, err)
-		dec, reason := gate.Check(t.Context(), Request{Action: ActionWrite, Paths: []string{filepath.Join(ws, path)}})
+		dec, reason := gate.Check(t.Context(), Request{Kind: KindWrite, Paths: []string{filepath.Join(ws, path)}})
 		require.Equal(t, Deny, dec, reason)
 	}
 }
@@ -125,9 +125,9 @@ func TestGateRejectsNestedSymlinkEscape(t *testing.T) {
 	g, err := NewGate(p, ws)
 	require.NoError(t, err)
 	for _, path := range []string{"file", "missing", "newdir/nested/file"} {
-		for _, action := range []Action{ActionWrite, ActionEdit, ActionRead} {
-			dec, reason := g.Check(t.Context(), Request{Action: action, Paths: []string{filepath.Join(ws, path)}})
-			require.Equal(t, Deny, dec, "%s %s: %s", action, path, reason)
+		for _, kind := range []Kind{KindWrite, KindRead} {
+			dec, reason := g.Check(t.Context(), Request{Kind: kind, Paths: []string{filepath.Join(ws, path)}})
+			require.Equal(t, Deny, dec, "%s %s: %s", kind, path, reason)
 		}
 	}
 	content, err := os.ReadFile(target)
@@ -146,7 +146,7 @@ func TestGateRejectsUnresolvablePaths(t *testing.T) {
 	for _, path := range []string{"loop", "loop/child", "file/child", "notdir", "notdir-dot"} {
 		_, err := realPath(filepath.Join(ws, path))
 		require.Error(t, err)
-		dec, reason := g.Check(t.Context(), Request{Action: ActionWrite, Paths: []string{filepath.Join(ws, path)}})
+		dec, reason := g.Check(t.Context(), Request{Kind: KindWrite, Paths: []string{filepath.Join(ws, path)}})
 		require.Equal(t, Deny, dec, reason)
 	}
 	_, err = NewGate(DefaultPolicy(), filepath.Join(ws, "loop"))
@@ -161,7 +161,7 @@ func TestGateRejectsDanglingSensitivePrefix(t *testing.T) {
 	policy.SensitivePathDeny = []string{secret}
 	gate, err := NewGate(policy, ws)
 	require.NoError(t, err)
-	dec, reason := gate.Check(t.Context(), Request{Action: ActionWrite, Paths: []string{filepath.Join(ws, "new")}})
+	dec, reason := gate.Check(t.Context(), Request{Kind: KindWrite, Paths: []string{filepath.Join(ws, "new")}})
 	require.Equal(t, Deny, dec)
 	require.Contains(t, reason, "cannot resolve sensitive path")
 }
@@ -177,10 +177,10 @@ func TestGateSensitiveAliases(t *testing.T) {
 	p.WorkspaceOnlyWrites = false
 	g, err := NewGate(p, ws)
 	require.NoError(t, err)
-	for _, action := range []Action{ActionRead, ActionWrite, ActionEdit, ActionAgentSpawn} {
+	for _, kind := range []Kind{KindRead, KindWrite, KindDelegate} {
 		dec, reason := g.Check(
 			t.Context(),
-			Request{Tool: "agent_spawn", Action: action, Paths: []string{filepath.Join(secret, "new")}},
+			Request{Tool: "agent_spawn", Kind: kind, Paths: []string{filepath.Join(secret, "new")}},
 		)
 		require.Equal(t, Deny, dec, reason)
 	}

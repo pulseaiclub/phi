@@ -28,6 +28,9 @@ type Tool struct {
 	Run        Handler
 	// DetailFromArgs extracts a one-line detail for the UI before execution.
 	DetailFromArgs func(input json.RawMessage) string
+	// Permission maps arguments to a permission Request. Nil means undeclared:
+	// the gate treats the call as unknown, which asks (never a silent allow).
+	Permission Permission
 }
 
 // ToolOption mutates a Tool during construction.

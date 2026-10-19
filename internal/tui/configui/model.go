@@ -25,12 +25,16 @@ const (
 	keyPermBashDefault = "perm.bash.default"
 	keyPermBashAllow   = "perm.bash.allow"
 	keyPermBashDeny    = "perm.bash.deny"
+	keyPermRules       = "perm.rules"
 
 	keyAgentsEnabled = "agents.enabled"
 	keyAgentsExplore = "agents.models.explore"
 	keyAgentsReview  = "agents.models.review"
 	keyAgentsWorker  = "agents.models.worker"
 )
+
+// keyPermRulePrefix keys one read-only row per configured rule.
+const keyPermRulePrefix = "perm.rules."
 
 // Model fields live under model.<index>.<field>.
 const (
@@ -107,6 +111,7 @@ const (
 	rowField
 	rowItem
 	rowAdd
+	rowNote
 )
 
 type fieldKind int
@@ -169,7 +174,14 @@ type row struct {
 	inherited bool   // list rows showing built-in rules rather than file rules
 }
 
-func (r row) selectable() bool { return r.kind != rowSection && r.kind != rowError }
+func (r row) selectable() bool {
+	switch r.kind {
+	case rowSection, rowError, rowNote:
+		return false
+	default:
+		return true
+	}
+}
 
 // fieldSpec declares one editable field; fieldRow renders it against the
 // document.
@@ -240,6 +252,20 @@ func (e *ConfigEditor) build() {
 	}))
 	e.addListField(keyPermBashAllow, "allow patterns")
 	e.addListField(keyPermBashDeny, "deny patterns")
+	e.addSection("Rules", "")
+	note := "none — set permissions.rules in config.yaml"
+	if n := len(e.permRules()); n == 1 {
+		note = "1 rule, read-only here — edit permissions.rules in config.yaml"
+	} else if n > 1 {
+		note = plural(n, "rule") + ", read-only here — edit permissions.rules in config.yaml"
+	}
+	e.addField(row{kind: rowNote, key: keyPermRules, label: note, style: styleMuted})
+	for i, rule := range e.permRules() {
+		e.addField(row{
+			kind: rowNote, key: keyPermRulePrefix + strconv.Itoa(i),
+			label: rule.Summary(), style: styleValue,
+		})
+	}
 	e.addSection("Sub-agents", "")
 	e.addField(e.fieldRow(fieldSpec{key: keyAgentsEnabled, label: "enabled", kind: kindBool, defaultOn: true}))
 	for _, role := range []struct{ key, label string }{
@@ -862,6 +888,15 @@ func perms(doc *project.ConfigDoc) *project.PermDoc {
 		doc.Permissions = &project.PermDoc{}
 	}
 	return doc.Permissions
+}
+
+// permRules returns the configured rules; the editor shows them without
+// editing them, since a rule is a struct rather than the scalar this form edits.
+func (e *ConfigEditor) permRules() []permission.RuleSpec {
+	if e.doc.Permissions == nil {
+		return nil
+	}
+	return e.doc.Permissions.Rules
 }
 
 func bash(doc *project.ConfigDoc) *project.BashDoc {

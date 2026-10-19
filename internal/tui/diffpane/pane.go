@@ -26,6 +26,7 @@ type Pane struct {
 	spec   []string
 	label  string
 	err    string
+	empty  string
 
 	rows        []diffreview.Row
 	drafts      []diffreview.CommentDraft
@@ -138,6 +139,7 @@ func (p *Pane) openParsed(input, loadErr string, keepNotes bool) {
 		p.drafts = nil
 	}
 
+	p.empty = ""
 	if loadErr != "" {
 		p.rows = nil
 		p.highlighted = nil
@@ -161,6 +163,9 @@ func (p *Pane) openParsed(input, loadErr string, keepNotes bool) {
 	p.clampCursor()
 	if len(p.rows) == 0 {
 		p.status = "empty diff"
+		// Once per open: the untracked hint shells out to git and Draw runs on
+		// every frame.
+		p.empty = diffreview.EmptyNote(p.cwd, p.spec)
 	} else {
 		p.status = fmt.Sprintf("%d files", countFiles(p.rows))
 	}
@@ -810,7 +815,7 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 		PromptKind:  kind,
 		CursorByte:  cur,
 		Highlighted: p.highlighted,
-		Empty:       emptyMessage(p.err, len(p.rows), p.spec),
+		Empty:       p.emptyText(),
 	})
 	if p.picker.Open {
 		if overlay, ok := p.pickerOverlay(ctx); ok {
@@ -875,12 +880,9 @@ func oneLine(s string) string {
 	return s
 }
 
-func emptyMessage(loadErr string, n int, spec []string) string {
-	if loadErr != "" {
-		return loadErr
+func (p *Pane) emptyText() string {
+	if p.err != "" {
+		return p.err
 	}
-	if n == 0 {
-		return diffreview.EmptyNote(spec)
-	}
-	return ""
+	return p.empty
 }

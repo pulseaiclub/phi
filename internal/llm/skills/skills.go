@@ -28,9 +28,13 @@ type Skill struct {
 	Description   string
 	License       string
 	Compatibility string
-	Body          string
-	Path          string
-	SkillFilePath string
+	// DisableModelInvocation keeps the skill out of the system prompt catalog
+	// while leaving it selectable from the skills panel. It is a catalog
+	// filter, not access control: the file is still readable from disk.
+	DisableModelInvocation bool
+	Body                   string
+	Path                   string
+	SkillFilePath          string
 }
 
 // Parse parses a single SKILL.md file, extracting YAML frontmatter and body.
@@ -105,9 +109,19 @@ func parseFrontmatter(fm string) (*Skill, error) {
 			skill.License = val
 		case "compatibility":
 			skill.Compatibility = val
+		case "disable-model-invocation":
+			skill.DisableModelInvocation = isTrue(val)
 		}
 	}
 	return skill, nil
+}
+
+// isTrue is deliberately forgiving: only a case-insensitive "true" counts.
+// A strict parser would reject the whole skill on a typo (LoadSkills drops any
+// file that fails to parse), whereas the worst case here is that a skill the
+// author meant to hide stays in the catalog — visible and easy to notice.
+func isTrue(val string) bool {
+	return strings.EqualFold(strings.TrimSpace(val), "true")
 }
 
 func isYAMLBlockScalar(val string) bool {
@@ -154,14 +168,15 @@ func unquote(val string) (string, error) {
 }
 
 // ToPromptMarkdown converts skills to a Markdown fragment for injection into
-// the system prompt. Returns an empty string if the list is empty.
+// the system prompt. Skills with DisableModelInvocation are skipped — they stay
+// in the loaders' list so the skills panel can still offer them. Returns an
+// empty string if nothing is left.
 func ToPromptMarkdown(skills []*Skill) string {
-	if len(skills) == 0 {
-		return ""
-	}
-
 	var sb strings.Builder
 	for _, s := range skills {
+		if s.DisableModelInvocation {
+			continue
+		}
 		sb.WriteString("### ")
 		sb.WriteString(DisplayName(s))
 		sb.WriteString("\n\n")

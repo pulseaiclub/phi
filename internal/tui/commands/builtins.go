@@ -79,7 +79,8 @@ func (b *Builtin) Bind(
 	commandCtx func() Context,
 	openPicker func(items []session.SessionMeta, currentID string),
 	refreshPicker func(items []session.SessionMeta, currentID string),
-	openBranchPicker func(branches []gitx.Branch, recent []string, onAccept func(name string)),
+	openBranchPicker func(branches []gitx.Branch, recent []string, onAccept, onDelete func(name string)),
+	refreshBranchPicker func(branches []gitx.Branch, recent []string),
 	cwd func() string,
 	streamActive func() bool,
 ) {
@@ -89,6 +90,7 @@ func (b *Builtin) Bind(
 	b.Sessions.RefreshPicker = refreshPicker
 	b.Sessions.StreamActive = streamActive
 	b.Branches.OpenOverlay = openBranchPicker
+	b.Branches.RefreshOverlay = refreshBranchPicker
 	b.Branches.Dir = cwd
 	b.Branches.StreamActive = streamActive
 }

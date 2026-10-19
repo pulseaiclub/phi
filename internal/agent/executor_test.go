@@ -258,6 +258,7 @@ func TestExecutorExtModifySeenByGateAndRun(t *testing.T) {
 	reg := tooldef.Registry{
 		"bash": {
 			Definition: llm.ToolDefinition{Name: "bash"},
+			Permission: fakePermission("bash"),
 			DetailFromArgs: func(input json.RawMessage) string {
 				var in struct {
 					Command string `json:"command"`

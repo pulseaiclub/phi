@@ -81,6 +81,17 @@ func AbsCleanAt(path, cwd string) (string, error) {
 	return filepath.Clean(filepath.Join(cwd, path)), nil
 }
 
+// NormalizePath prepares a tool-supplied path argument for gating: internal
+// URLs name remote resources, not files, so they stay verbatim; everything
+// else resolves absolute and cleaned against cwd.
+func NormalizePath(path, cwd string) (string, error) {
+	path = strings.TrimSpace(path)
+	if IsInternalURL(path) {
+		return path, nil
+	}
+	return AbsCleanAt(path, cwd)
+}
+
 // realPath resolves existing ancestors before appending a not-yet-created suffix.
 // Dangling links and other resolution errors fail closed.
 // This is a policy check, not protection against concurrent symlink replacement.
@@ -257,4 +268,23 @@ func isDevNullRedirect(cmd string, gt int) bool {
 	}
 	rest := strings.TrimSpace(cmd[j+1:])
 	return strings.HasPrefix(rest, "/dev/null")
+}
+
+// Multi-path calls reuse successful resolutions only until one Check returns.
+// A single-path call avoids allocating a cache; later calls always see fresh links.
+func requestPathResolver(pathCount int) func(string) (string, error) {
+	if pathCount <= 1 {
+		return realPath
+	}
+	resolved := make(map[string]string)
+	return func(path string) (string, error) {
+		if real, ok := resolved[path]; ok {
+			return real, nil
+		}
+		real, err := realPath(path)
+		if err == nil {
+			resolved[path] = real
+		}
+		return real, err
+	}
 }

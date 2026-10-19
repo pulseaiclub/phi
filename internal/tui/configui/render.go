@@ -179,6 +179,9 @@ func (e *ConfigEditor) paintRow(s *components.Surface, y int, r row, selected bo
 			e.caretX = x + xui.StringWidth(string(e.edit.buf[:e.edit.cur]), method)
 			e.caretY = y
 		}
+	case rowNote:
+		s.Print(xNested, y, layout.TruncateToWidth(r.label, s.Size.Width-2-xNested, method),
+			e.valStyle(r.style, bg, selected), method)
 	case rowAdd:
 		style := th.ToolName
 		if selected {

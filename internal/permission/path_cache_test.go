@@ -9,8 +9,8 @@ import (
 )
 
 func TestMultiPathCheckRefreshesRequestAliases(t *testing.T) {
-	for _, action := range []Action{ActionRead, ActionEdit} {
-		t.Run(string(action), func(t *testing.T) {
+	for _, kind := range []Kind{KindRead, KindWrite} {
+		t.Run(string(kind), func(t *testing.T) {
 			ws := t.TempDir()
 			inside := filepath.Join(ws, "inside")
 			require.NoError(t, os.Mkdir(inside, 0o700))
@@ -20,7 +20,7 @@ func TestMultiPathCheckRefreshesRequestAliases(t *testing.T) {
 			policy.WorkspaceOnlyReads = true
 			gate, err := NewGate(policy, ws)
 			require.NoError(t, err)
-			req := Request{Action: action, Paths: []string{filepath.Join(ws, "ordinary"), filepath.Join(alias, "file")}}
+			req := Request{Kind: kind, Paths: []string{filepath.Join(ws, "ordinary"), filepath.Join(alias, "file")}}
 			dec, reason := gate.Check(t.Context(), req)
 			require.Equal(t, Allow, dec, reason)
 			require.NoError(t, os.Remove(alias))
@@ -43,7 +43,7 @@ func TestMultiPathCheckRefreshesSensitiveAliases(t *testing.T) {
 	policy.SensitivePathDeny = []string{alias}
 	gate, err := NewGate(policy, ws)
 	require.NoError(t, err)
-	req := Request{Action: ActionEdit, Paths: []string{
+	req := Request{Kind: KindWrite, Paths: []string{
 		filepath.Join(ws, "ordinary"), filepath.Join(second, "new"),
 	}}
 	dec, reason := gate.Check(t.Context(), req)

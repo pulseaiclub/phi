@@ -182,6 +182,91 @@ func TestProcessStreamTextAndUsage(t *testing.T) {
 	require.Equal(t, 969, msg.Usage.ContextTokens(), "all buckets are the context")
 }
 
+func TestProcessStreamDeltaUsage(t *testing.T) {
+	initial := `{"input_tokens":12,"cache_read_input_tokens":900,"cache_creation_input_tokens":50,"output_tokens":7}`
+	for _, tc := range []struct {
+		name                           string
+		deltas                         []string
+		input, cached, written, output int
+	}{
+		{
+			name: "gateway final usage",
+			// From the saved DeepSeek Messages tool-result response.
+			deltas: []string{`{"input_tokens":75,"cache_read_input_tokens":9216,"cache_creation_input_tokens":0,"output_tokens":2}`},
+			input:  75, cached: 9216, output: 2,
+		},
+		{
+			name:   "partial update preserves omitted fields",
+			deltas: []string{initial, `{"cache_read_input_tokens":0}`},
+			input:  12, written: 50, output: 7,
+		},
+		{
+			name:   "explicit zeros replace earlier counts",
+			deltas: []string{initial, `{"input_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":0}`},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sse := "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":0,\"cache_read_input_tokens\":0,\"cache_creation_input_tokens\":0,\"output_tokens\":0}}}\n\n"
+			for _, delta := range tc.deltas {
+				sse += "data: {\"type\":\"message_delta\",\"usage\":" + delta + "}\n\n"
+			}
+			events := processForTest(sse + "data: {\"type\":\"message_stop\"}\n\n")
+			require.NotEmpty(t, events)
+			done := events[len(events)-1]
+			require.NotNil(t, done.Final)
+			u := done.Final.Usage
+			assert.Equal(t, tc.input, u.PromptTokens)
+			assert.Equal(t, tc.cached, u.CachedTokens())
+			assert.Equal(t, tc.written, u.CacheWriteTokens())
+			assert.Equal(t, tc.output, u.CompletionTokens)
+			assert.Equal(t, tc.input+tc.cached+tc.written+tc.output, u.TotalTokens)
+		})
+	}
+}
+
+func TestProcessStreamMalformedEventDropsNativeState(t *testing.T) {
+	// One signed thinking block, optionally with an unparseable payload spliced
+	// in. A bad payload is the signal that the captured blocks may not match
+	// what the model sent, so the native state must not be replayed.
+	thinkingStream := func(bad string) string {
+		lines := []string{
+			`data: {"type":"message_start","message":{"usage":{"input_tokens":1}}}`,
+			"",
+			`data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}`,
+			"",
+		}
+		if bad != "" {
+			lines = append(lines, bad, "")
+		}
+		return strings.Join(append(lines,
+			`data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"hmm"}}`,
+			"",
+			`data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig"}}`,
+			"",
+			`data: {"type":"content_block_stop","index":0}`,
+			"",
+			`data: {"type":"message_stop"}`,
+			"",
+		), "\n")
+	}
+
+	t.Run("clean stream keeps the state", func(t *testing.T) {
+		events := processForTest(thinkingStream(""))
+		done := events[len(events)-1]
+		require.Equal(t, llm.StreamEventTypeDone, done.Type)
+		require.NotNil(t, done.Final)
+		require.NotNil(t, done.Final.ProviderState, "a clean thinking turn is replayable")
+	})
+
+	t.Run("bad line drops it", func(t *testing.T) {
+		events := processForTest(thinkingStream("data: {not json}"))
+		done := events[len(events)-1]
+		require.Equal(t, llm.StreamEventTypeDone, done.Type)
+		require.NotNil(t, done.Final)
+		assert.Nil(t, done.Final.ProviderState)
+	})
+}
+
 func TestProcessStreamToolUseAndThinking(t *testing.T) {
 	sse := strings.Join([]string{
 		`data: {"type":"message_start","message":{"usage":{"input_tokens":5}}}`,

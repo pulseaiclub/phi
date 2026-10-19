@@ -21,7 +21,7 @@ func TestResolvePermissionSendsReply(t *testing.T) {
 	reply := make(chan controller.AskReply, 1)
 	o.beginPermissionAsk(controller.OverlayMsg{
 		Kind:      controller.OverlayPermissionAsk,
-		Request:   permission.Request{Action: permission.ActionBash, Tool: "bash", Command: "curl x"},
+		Request:   permission.Request{Kind: permission.KindExec, Tool: "bash", Command: "curl x"},
 		Reason:    "needs approval",
 		PermReply: reply,
 	})
@@ -43,7 +43,7 @@ func TestPermissionDenyWithFeedback(t *testing.T) {
 	reply := make(chan controller.AskReply, 1)
 	o.beginPermissionAsk(controller.OverlayMsg{
 		Kind:      controller.OverlayPermissionAsk,
-		Request:   permission.Request{Tool: "bash", Action: permission.ActionBash, Command: "curl https://x"},
+		Request:   permission.Request{Tool: "bash", Kind: permission.KindExec, Command: "curl https://x"},
 		PermReply: reply,
 	})
 	o.acceptPermissionOption(askOptDenyFeedback)
@@ -60,7 +60,7 @@ func TestPermissionDismissClearsOverlay(t *testing.T) {
 	reply := make(chan controller.AskReply, 1)
 	o.beginPermissionAsk(controller.OverlayMsg{
 		Kind:      controller.OverlayPermissionAsk,
-		Request:   permission.Request{Tool: "bash", Action: permission.ActionBash, Command: "curl https://x"},
+		Request:   permission.Request{Tool: "bash", Kind: permission.KindExec, Command: "curl https://x"},
 		PermReply: reply,
 	})
 	o.Apply(controller.OverlayMsg{Kind: controller.OverlayPermissionDismiss})
@@ -77,7 +77,7 @@ func TestDrawPermissionAskReplacesComposerSlot(t *testing.T) {
 	reply := make(chan controller.AskReply, 1)
 	o.beginPermissionAsk(controller.OverlayMsg{
 		Kind:      controller.OverlayPermissionAsk,
-		Request:   permission.Request{Action: permission.ActionBash, Tool: "bash", Command: "rm -f todo.list"},
+		Request:   permission.Request{Kind: permission.KindExec, Tool: "bash", Command: "rm -f todo.list"},
 		Reason:    "Matches built-in permissions rule",
 		PermReply: reply,
 	})
@@ -90,7 +90,7 @@ func TestDrawPermissionAskReplacesComposerSlot(t *testing.T) {
 }
 
 func TestFormatAskHeader(t *testing.T) {
-	h, d := formatAskHeader(permission.Request{Action: permission.ActionWrite, Paths: []string{"/tmp/a"}})
+	h, d := formatAskHeader(permission.Request{Kind: permission.KindWrite, Paths: []string{"/tmp/a"}})
 	require.Equal(t, "Allow creating file:", h)
 	require.Equal(t, "/tmp/a", d)
 }

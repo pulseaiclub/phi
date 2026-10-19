@@ -16,6 +16,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/chrome"
 	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/project"
 )
 
@@ -73,13 +74,39 @@ func TestBuildRowsCoverEverySection(t *testing.T) {
 			sections = append(sections, r.title)
 		}
 	}
-	assert.Equal(t, []string{"Models", "Skills", "Agent Loop", "Permissions", "Bash", "Sub-agents"}, sections)
+	assert.Equal(t, []string{
+		"Models", "Skills", "Agent Loop", "Permissions", "Bash", "Rules", "Sub-agents",
+	}, sections)
 
 	// Every row key must be addressable, and the first model's default badge
 	// must follow the document.
 	require.Equal(t, "default", e.rows[1].badge)
 	assert.Equal(t, "model-a", e.rows[1].name)
 	assert.Empty(t, e.rows[2].badge)
+}
+
+func TestPermissionRulesAreListedReadOnly(t *testing.T) {
+	doc := sampleDoc()
+	doc.Permissions = &project.PermDoc{Rules: []permission.RuleSpec{
+		{Kind: "read", Resource: "url", Decision: "ask"},
+		{Path: []string{"~/.ssh"}, Decision: "deny"},
+	}}
+	e := newTestEditor(t, doc)
+
+	var notes []string
+	for _, r := range e.rows {
+		if r.kind == rowNote {
+			notes = append(notes, r.label)
+			// A rule is a struct, not the scalar this form edits: the rows are
+			// shown so a configured rule is never invisible, and the cursor
+			// must not land on something it cannot edit.
+			assert.False(t, r.selectable())
+		}
+	}
+	require.Len(t, notes, 3)
+	assert.Contains(t, notes[0], "2 rules")
+	assert.Equal(t, "read url → ask", notes[1])
+	assert.Equal(t, "~/.ssh → deny", notes[2])
 }
 
 func TestThinkingChoicesFollowPresetAndEndpoint(t *testing.T) {

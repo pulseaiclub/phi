@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/pulseaiclub/phi/internal/permission"
 )
 
 func parseConfigFile(path string) (*Config, error) {
@@ -30,6 +32,14 @@ permissions:
     default: ask
     allow:
       - "^git "
+  rules:
+    - tool: "mcp__*"
+      kind: read
+      decision: ask
+      reason: external lookup needs approval
+    - path:
+        - "~/.ssh"
+      decision: deny
 agents:
   enabled: false
 `
@@ -49,6 +59,10 @@ func TestConfigDocRoundTripThroughLoader(t *testing.T) {
 	require.NotNil(t, doc.Permissions.Bash)
 	require.NotNil(t, doc.Permissions.Bash.Allow)
 	assert.Equal(t, StringList{"^git "}, *doc.Permissions.Bash.Allow)
+	require.Len(t, doc.Permissions.Rules, 2)
+	assert.Equal(t, "mcp__*", doc.Permissions.Rules[0].Tool)
+	// The document keeps "~" as written; expansion happens when it is loaded.
+	assert.Equal(t, []string{"~/.ssh"}, doc.Permissions.Rules[1].Path)
 	require.NotNil(t, doc.Agents)
 	require.NotNil(t, doc.Agents.Enabled)
 	assert.False(t, *doc.Agents.Enabled)
@@ -68,6 +82,14 @@ func TestConfigDocRoundTripThroughLoader(t *testing.T) {
 	assert.Equal(t, "readonly", string(loaded.Permissions.Mode))
 	assert.True(t, loaded.Permissions.DangerouslyAllowAll)
 	assert.Equal(t, []string{"^git "}, loaded.Permissions.BashAllow)
+	require.Len(t, loaded.Permissions.Rules, 2)
+	assert.Equal(t, "mcp__*", loaded.Permissions.Rules[0].Tool)
+	assert.Equal(t, permission.KindRead, loaded.Permissions.Rules[0].Kind)
+	assert.Equal(t, permission.Ask, loaded.Permissions.Rules[0].Decision)
+	assert.Equal(t, permission.Deny, loaded.Permissions.Rules[1].Decision)
+	require.Len(t, loaded.Permissions.Rules[1].Sensitive, 1)
+	assert.True(t, filepath.IsAbs(loaded.Permissions.Rules[1].Sensitive[0]))
+	assert.Equal(t, ".ssh", filepath.Base(loaded.Permissions.Rules[1].Sensitive[0]))
 	assert.False(t, loaded.Agents.Enabled)
 
 	// The previous file is kept as a backup.

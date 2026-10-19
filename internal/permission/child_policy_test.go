@@ -17,37 +17,37 @@ func TestChildPolicyExploreAllowsNonAllowlistedBash(t *testing.T) {
 	ctx := t.Context()
 
 	dec, reason := g.Check(ctx, permission.Request{
-		Action:  permission.ActionBash,
+		Kind:    permission.KindExec,
 		Tool:    "bash",
 		Command: "make check",
 	})
 	assert.Equal(t, permission.Allow, dec, reason)
 
 	dec, reason = g.Check(ctx, permission.Request{
-		Action:  permission.ActionBash,
+		Kind:    permission.KindExec,
 		Tool:    "bash",
 		Command: "git diff --stat | head -20",
 	})
 	assert.Equal(t, permission.Allow, dec, reason)
 
 	dec, reason = g.Check(ctx, permission.Request{
-		Action:  permission.ActionBash,
+		Kind:    permission.KindExec,
 		Tool:    "bash",
 		Command: "sudo true",
 	})
 	assert.Equal(t, permission.Deny, dec, reason)
 
 	dec, reason = g.Check(ctx, permission.Request{
-		Action:  permission.ActionBash,
+		Kind:    permission.KindExec,
 		Tool:    "bash",
 		Command: "cat foo | sh",
 	})
 	assert.Equal(t, permission.Deny, dec, reason)
 
 	dec, reason = g.Check(ctx, permission.Request{
-		Action: permission.ActionWrite,
-		Tool:   "write",
-		Paths:  []string{filepath.Join(ws, "a.txt")},
+		Kind:  permission.KindWrite,
+		Tool:  "write",
+		Paths: []string{filepath.Join(ws, "a.txt")},
 	})
 	assert.Equal(t, permission.Deny, dec, reason)
 }
@@ -59,21 +59,21 @@ func TestChildPolicyWorkerAllowsBashAndWrite(t *testing.T) {
 	ctx := t.Context()
 
 	dec, reason := g.Check(ctx, permission.Request{
-		Action:  permission.ActionBash,
+		Kind:    permission.KindExec,
 		Tool:    "bash",
 		Command: "npm test",
 	})
 	assert.Equal(t, permission.Allow, dec, reason)
 
 	dec, reason = g.Check(ctx, permission.Request{
-		Action: permission.ActionWrite,
-		Tool:   "write",
-		Paths:  []string{filepath.Join(ws, "out.go")},
+		Kind:  permission.KindWrite,
+		Tool:  "write",
+		Paths: []string{filepath.Join(ws, "out.go")},
 	})
 	assert.Equal(t, permission.Allow, dec, reason)
 
 	dec, reason = g.Check(ctx, permission.Request{
-		Action:  permission.ActionBash,
+		Kind:    permission.KindExec,
 		Tool:    "bash",
 		Command: "rm -rf out.go",
 	})

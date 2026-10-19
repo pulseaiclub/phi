@@ -79,6 +79,49 @@ func TestBuildRequestMergesToolResults(t *testing.T) {
 	assert.Equal(t, "b", last.Parts[1].FunctionResponse.Response.(map[string]any)["output"])
 }
 
+func TestBuildRequestToolCallArgsKeptVerbatim(t *testing.T) {
+	// 2^53+1 is the smallest integer a float64 round trip corrupts, and the key
+	// order has to survive too: the API compares the object it is given.
+	const args = `{"b":1,"a":9007199254740993}`
+	req := BuildRequest("", []llm.Message{
+		{Role: llm.RoleUser, Content: "hi"},
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
+			Index:    0,
+			ID:       "call_1",
+			Type:     "function",
+			Function: llm.Function{Name: "write", Arguments: args},
+		}}},
+	}, nil)
+
+	body, err := json.Marshal(req)
+	require.NoError(t, err)
+	assert.Contains(t, string(body), `"args":`+args)
+}
+
+func TestBuildRequestToolCallArgsDropped(t *testing.T) {
+	testcases := map[string]string{
+		"empty":         "",
+		"blank":         "   ",
+		"truncated":     `{"path":"a.go"`,
+		"not an object": `["a.go"]`,
+	}
+	for name, arguments := range testcases {
+		t.Run(name, func(t *testing.T) {
+			req := BuildRequest("", []llm.Message{
+				{Role: llm.RoleUser, Content: "hi"},
+				{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
+					ID:       "call_1",
+					Function: llm.Function{Name: "write", Arguments: arguments},
+				}}},
+			}, nil)
+
+			body, err := json.Marshal(req)
+			require.NoError(t, err)
+			assert.NotContains(t, string(body), `"args"`)
+		})
+	}
+}
+
 func TestBuildRequestUserContent(t *testing.T) {
 	req := BuildRequest("", []llm.Message{{
 		Role:    llm.RoleUser,

@@ -29,6 +29,7 @@ type AnthropicRequest struct {
 	Thinking       *thinkingConfig    `json:"thinking,omitempty"`
 	OutputConfig   *outputConfig      `json:"output_config,omitempty"`
 	native         *llm.ProviderState
+	nativeInput    *AnthropicRequest
 	vendorThinking bool
 }
 

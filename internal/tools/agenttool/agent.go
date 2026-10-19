@@ -35,35 +35,62 @@ How to use:
 4. Sub-agents cannot spawn further agents. Do not put secrets in the prompt.
 5. Verify before relying on a worker's edits in follow-up work.`
 
-// AgentDeps wires sub-agent tools to a process-level [job.Manager].
-// ParentID/WorkDir are read at call time (session may change via /resume).
-type AgentDeps struct {
-	Manager  *job.Manager
-	ParentID func() string
-	WorkDir  func() string
-	Gate     permission.Gate // trusted parent gate; never accepted from tool arguments
+// agentConfig is the resolved wiring of the agent_* tools. ParentID/WorkDir stay
+// callbacks because the session can change under us (/resume).
+type agentConfig struct {
+	manager  *job.Manager
+	parentID func() string
+	workDir  func() string
+	gate     permission.Gate
+}
+
+// AgentOption configures [AgentTools].
+type AgentOption func(*agentConfig)
+
+// WithManager wires the process-level job manager. AgentTools returns no tools
+// without one, so sub-agents stay unregistered.
+func WithManager(manager *job.Manager) AgentOption {
+	return func(cfg *agentConfig) { cfg.manager = manager }
+}
+
+// WithParentID sets the parent session attributed to spawned jobs.
+func WithParentID(parentID func() string) AgentOption {
+	return func(cfg *agentConfig) { cfg.parentID = parentID }
+}
+
+// WithWorkDir sets the session cwd that relative sub-agent workdirs resolve against.
+func WithWorkDir(workDir func() string) AgentOption {
+	return func(cfg *agentConfig) { cfg.workDir = workDir }
+}
+
+// WithGate sets the trusted parent gate; never accepted from tool arguments.
+func WithGate(gate permission.Gate) AgentOption {
+	return func(cfg *agentConfig) { cfg.gate = gate }
 }
 
 // AgentTools returns agent_spawn / list / wait / cancel.
-// Depth is forced to 0; ParentID comes from ParentID(), not model args.
-func AgentTools(deps AgentDeps) []tooldef.Tool {
-	if deps.Manager == nil {
+// Depth is forced to 0; the parent id comes from WithParentID, not model args.
+func AgentTools(opts ...AgentOption) []tooldef.Tool {
+	cfg := agentConfig{
+		parentID: func() string { return "" },
+		workDir:  func() string { return "" },
+	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&cfg)
+		}
+	}
+	if cfg.manager == nil {
 		return nil
 	}
-	if deps.ParentID == nil {
-		deps.ParentID = func() string { return "" }
-	}
-	if deps.WorkDir == nil {
-		deps.WorkDir = func() string { return "" }
-	}
 	return []tooldef.Tool{
-		agentSpawnTool(deps),
-		agentWaitTool(deps),
-		agentCancelTool(deps),
+		agentSpawnTool(cfg),
+		agentWaitTool(cfg),
+		agentCancelTool(cfg),
 	}
 }
 
-func agentSpawnTool(deps AgentDeps) tooldef.Tool {
+func agentSpawnTool(cfg agentConfig) tooldef.Tool {
 	return tooldef.NewTool(
 		tooldef.WithDefinition(llm.ToolDefinition{
 			Name: "agent_spawn",
@@ -71,7 +98,7 @@ func agentSpawnTool(deps AgentDeps) tooldef.Tool {
 
 Starts asynchronously and returns job_id immediately. Use agent_wait for the summary. Best for parallel jobs.
 
-Concurrency cap: at most %d sub-agents run concurrently; spawning more fails (jobs are not queued).`, deps.Manager.MaxConcurrent()),
+Concurrency cap: at most %d sub-agents run concurrently; spawning more fails (jobs are not queued).`, cfg.manager.MaxConcurrent()),
 			Params: &llm.FunctionParameters{
 				Type: "object",
 				Properties: llm.Object{
@@ -101,29 +128,35 @@ Concurrency cap: at most %d sub-agents run concurrently; spawning more fails (jo
 			},
 		}),
 		tooldef.WithDetail(spawnDetail),
+		tooldef.WithPermission(tooldef.Declaration[spawnInput]{
+			Kind: permission.KindDelegate,
+			// The workdir becomes the child's workspace root, so the gate must
+			// see it; an omitted workdir resolves to the session cwd.
+			Paths: func(in spawnInput) ([]string, error) { return []string{in.WorkDir}, nil },
+		}),
 		tooldef.WithHandler(func(ctx context.Context, in spawnInput) (tooldef.Result, error) {
 			role, err := job.ParseRole(in.Role)
 			if err != nil {
 				return tooldef.Result{}, err
 			}
-			wd, err := permission.AbsCleanAt(strings.TrimSpace(in.WorkDir), deps.WorkDir())
+			wd, err := permission.AbsCleanAt(strings.TrimSpace(in.WorkDir), cfg.workDir())
 			if err != nil {
 				return tooldef.Result{}, fmt.Errorf("agent_spawn workdir: %w", err)
 			}
 			req := job.SpawnRequest{
 				Prompt:          in.Prompt,
 				Description:     in.Description,
-				ParentID:        deps.ParentID(),
+				ParentID:        cfg.parentID(),
 				ParentToolUseID: tooldef.ToolCallID(ctx),
 				Depth:           0,
 				Role:            role,
 				WorkDir:         wd,
-				Gate:            deps.Gate,
+				Gate:            cfg.gate,
 			}
 			if in.TimeoutSec > 0 {
 				req.Timeout = time.Duration(in.TimeoutSec) * time.Second
 			}
-			info, err := deps.Manager.Spawn(ctx, req)
+			info, err := cfg.manager.Spawn(ctx, req)
 			if err != nil {
 				return tooldef.Result{}, err
 			}
@@ -188,7 +221,7 @@ func roleDetail(role, rest string) string {
 	return r + ": " + rest
 }
 
-func agentWaitTool(deps AgentDeps) tooldef.Tool {
+func agentWaitTool(cfg agentConfig) tooldef.Tool {
 	return tooldef.NewTool(
 		tooldef.WithDefinition(llm.ToolDefinition{
 			Name: "agent_wait",
@@ -212,8 +245,13 @@ Use agent_cancel to stop a running job.`,
 			},
 		}),
 		tooldef.WithDetail(jobIDDetail),
+		// wait/cancel touch no path: controlling existing work is not a new
+		// permission surface.
+		tooldef.WithPermission(tooldef.Declaration[jobIDInput]{
+			Kind: permission.KindControl,
+		}),
 		tooldef.WithRun(func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
-			res, err := deps.Manager.HandleWait(ctx, input)
+			res, err := cfg.manager.HandleWait(ctx, input)
 			if err != nil {
 				return tooldef.Result{}, err
 			}
@@ -237,7 +275,7 @@ Use agent_cancel to stop a running job.`,
 	)
 }
 
-func agentCancelTool(deps AgentDeps) tooldef.Tool {
+func agentCancelTool(cfg agentConfig) tooldef.Tool {
 	return tooldef.NewTool(
 		tooldef.WithDefinition(llm.ToolDefinition{
 			Name:        "agent_cancel",
@@ -253,8 +291,11 @@ func agentCancelTool(deps AgentDeps) tooldef.Tool {
 			},
 		}),
 		tooldef.WithDetail(jobIDDetail),
+		tooldef.WithPermission(tooldef.Declaration[jobIDInput]{
+			Kind: permission.KindControl,
+		}),
 		tooldef.WithRun(func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
-			if err := deps.Manager.HandleCancel(ctx, input); err != nil {
+			if err := cfg.manager.HandleCancel(ctx, input); err != nil {
 				return tooldef.Result{}, err
 			}
 			body := mustJSON(map[string]any{"ok": true})

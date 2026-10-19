@@ -24,8 +24,8 @@ func TestSensitiveCaseAlias(t *testing.T) {
 	p.WorkspaceOnlyWrites = false
 	g, err := NewGate(p, ws)
 	require.NoError(t, err)
-	for _, action := range []Action{ActionRead, ActionWrite, ActionEdit} {
-		dec, reason := g.Check(t.Context(), Request{Action: action, Paths: []string{filepath.Join(alias, "new")}})
+	for _, kind := range []Kind{KindRead, KindWrite} {
+		dec, reason := g.Check(t.Context(), Request{Kind: kind, Paths: []string{filepath.Join(alias, "new")}})
 		require.Equal(t, Deny, dec, reason)
 	}
 }
@@ -44,8 +44,8 @@ func TestWindowsJunctionDenied(t *testing.T) {
 	g, err := NewGate(p, ws)
 	require.NoError(t, err)
 	for _, path := range []string{link, filepath.Join(link, "file")} {
-		for _, action := range []Action{ActionRead, ActionWrite, ActionEdit, ActionAgentSpawn} {
-			dec, reason := g.Check(t.Context(), Request{Action: action, Paths: []string{path}})
+		for _, kind := range []Kind{KindRead, KindWrite, KindDelegate} {
+			dec, reason := g.Check(t.Context(), Request{Kind: kind, Paths: []string{path}})
 			require.Equal(t, Deny, dec, reason)
 		}
 	}

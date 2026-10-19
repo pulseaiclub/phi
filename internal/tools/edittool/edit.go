@@ -7,10 +7,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/tools/tooldef"
-
 	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/tools/edittool/sloppy"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"github.com/pulseaiclub/phi/internal/util"
 )
 
@@ -118,6 +118,16 @@ func EditTool() tooldef.Tool {
 		}),
 		tooldef.WithDetail(editDetail),
 		tooldef.WithHandler(runEdit),
+		tooldef.WithPermission(tooldef.Declaration[editInput]{
+			Kind: permission.KindWrite,
+			Paths: func(in editInput) ([]string, error) {
+				targets := sloppy.TargetPaths(in.text())
+				if len(targets) == 0 {
+					return nil, errors.New("edit payload has no *** SM:EDIT file target")
+				}
+				return targets, nil
+			},
+		}),
 	)
 }
 

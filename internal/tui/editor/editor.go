@@ -27,6 +27,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/pathutil"
 	"github.com/pulseaiclub/phi/internal/tui/submit"
 	"github.com/pulseaiclub/phi/internal/tui/transcript"
+	"github.com/pulseaiclub/phi/internal/util/gitx"
 	"github.com/pulseaiclub/phi/internal/util/update"
 	"github.com/pulseaiclub/phi/internal/version"
 )
@@ -183,7 +184,10 @@ func NewEditor(
 			e.composer.ShowSessionList(items, currentID, e.sessions.Accept, e.sessions.Delete)
 		},
 		e.composer.RefreshSessionList,
-		e.composer.ShowBranchList,
+		func(branches []gitx.Branch, recent []string, onAccept, onDelete func(name string)) {
+			e.composer.ShowBranchList(branches, recent, onAccept, onDelete)
+		},
+		e.composer.RefreshBranchList,
 		func() string { return e.cwd },
 		e.submitter.StreamActive,
 	)

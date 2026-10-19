@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/pulseaiclub/phi/internal/permission"
 )
 
 // discoverInTempHome runs Discover("") with HOME redirected to a temp dir so
@@ -302,6 +304,52 @@ permissions:
 	assert.Equal(t, []string{`^echo\b`}, perm.BashAllow)
 	assert.Equal(t, []string{`\bsudo\b`}, perm.BashDeny)
 	assert.True(t, p.Config().Agents.Enabled) // default on when agents: absent
+}
+
+func TestLoadConfigPermissionRules(t *testing.T) {
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: m
+    api_key: k
+permissions:
+  rules:
+    - kind: read
+      resource: url
+      decision: ask
+      reason: external lookup needs approval
+    - path:
+        - "~/vault"
+      decision: deny
+`), 0o644))
+
+	require.NoError(t, p.LoadConfig())
+	rules := p.Config().Permissions.Rules
+	require.Len(t, rules, 2)
+	assert.Equal(t, permission.KindRead, rules[0].Kind)
+	assert.Equal(t, permission.ResourceURL, rules[0].Resource)
+	assert.Equal(t, permission.Ask, rules[0].Decision)
+	assert.Equal(t, "external lookup needs approval", rules[0].Reason)
+	assert.Equal(t, permission.Deny, rules[1].Decision)
+	require.Len(t, rules[1].Sensitive, 1)
+	assert.Equal(t, filepath.Join(os.Getenv("HOME"), "vault"), rules[1].Sensitive[0])
+}
+
+func TestLoadConfigRejectsBadRule(t *testing.T) {
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: m
+    api_key: k
+permissions:
+  rules:
+    - kind: readonly
+      decision: deny
+`), 0o644))
+
+	err := p.LoadConfig()
+	require.ErrorContains(t, err, "permissions: rule 1")
+	require.ErrorContains(t, err, `kind: unknown "readonly"`)
 }
 
 func TestLoadConfigAgentsEnabled(t *testing.T) {

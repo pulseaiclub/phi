@@ -9,6 +9,7 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/mcp"
+	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"github.com/pulseaiclub/phi/internal/util"
 )
@@ -59,6 +60,10 @@ func ReadTool(pool *mcp.Pool) tooldef.Tool {
 		tooldef.WithDetail(readDetail),
 		tooldef.WithHandler(func(ctx context.Context, in readInput) (tooldef.Result, error) {
 			return runRead(ctx, pool, in)
+		}),
+		tooldef.WithPermission(tooldef.Declaration[readInput]{
+			Kind:  permission.KindRead,
+			Paths: func(in readInput) ([]string, error) { return []string{in.Path}, nil },
 		}),
 	)
 }

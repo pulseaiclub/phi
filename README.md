@@ -179,6 +179,11 @@ permissions:
       - "go test ./..."
     deny:
       - "rm -rf *"
+  rules:                  # extra rules; deny > ask > allow, always
+    - kind: read
+      resource: url
+      decision: ask
+      reason: external lookup needs approval
 ```
 
 Built-in presets and thinking wire formats: [doc/models.md](doc/models.md).
@@ -257,6 +262,13 @@ line notes, then hand them to the agent without leaving the terminal.
 | `/diff` | Working tree (`git diff`) |
 | `/diff staged` | Staged changes |
 | `/diff HEAD` | Last commit (`git show`) |
+| `/diff @path` | Only that file — `@` comes from file completion, the `--` separator is added for you |
+| `/diff staged @a.go @b.go` | Staged changes in two files |
+| `/diff HEAD @path` | That file against `HEAD` |
+| `/diff main..feat @path` | That file across a range |
+
+`/diff -- <argv>` runs the given git command instead of a diff —
+`/diff -- git show HEAD~1` for one.
 
 Slash-picker Enter inserts `/diff` plus a trailing space into the composer; submit to open. Inside the overlay:
 `s` side-by-side, `i` add/edit a note, `x` delete, `a` send notes to the agent,
@@ -391,9 +403,16 @@ name: My Skill
  description: What this skill does
 license: MIT
 compatibility: claude, openai
+disable-model-invocation: false
 ---
 Instructions the agent should follow when this skill is relevant.
 ```
+
+`disable-model-invocation: true` keeps a skill out of the system prompt catalog
+— good for the ones you only want on explicit request. It stays in the skills
+panel and is still applied when you pick it there. Only a case-insensitive
+`true` counts; any other value means `false`. This is a catalog filter, not
+access control: the model can still find the file with `ls` / `find`.
 
 In the TUI, add skills from the palette (skills → list), then submit the
 message with the selected skills applied.
@@ -413,10 +432,13 @@ Modes:
 | `autopilot`        | Fold `ask` → allow, run unattended.                 |
 | `headless-strict`  | Fold `ask` → deny (used by `phi run`).              |
 
-Per-tool rules: `bash.default` / `bash.allow` / `bash.deny` (exact command
-prefix matching). Global keys:
+Per-tool rules: `bash.default` / `bash.allow` / `bash.deny` (regexes against
+the command). `permissions.rules` adds your own rules by tool, kind, command,
+path, or workspace scope; they are evaluated strictest-first (`deny` > `ask` >
+`allow`), so a rule can tighten a policy but never loosen one. Global keys:
 `workspace_only_writes` (default true), `ask_timeout_sec`, and
-`dangerously_allow_all` (default false).
+`dangerously_allow_all` (default false). Full semantics and examples:
+[doc/permissions.md](doc/permissions.md).
 
 In the TUI, an approval dialog replaces the editor with options to approve,
 deny with feedback, or allow all for the session / for every session. The

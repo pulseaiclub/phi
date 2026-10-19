@@ -105,7 +105,7 @@ func TestHeadlessGateDefaultsToStrict(t *testing.T) {
 	require.NoError(t, err)
 
 	dec, reason := gate.Check(t.Context(), permission.Request{
-		Action:  permission.ActionBash,
+		Kind:    permission.KindExec,
 		Command: "pip install numpy",
 	})
 	assert.Equal(t, permission.Deny, dec)
@@ -113,7 +113,7 @@ func TestHeadlessGateDefaultsToStrict(t *testing.T) {
 
 	// Allowlisted simple command still allowed.
 	dec, _ = gate.Check(t.Context(), permission.Request{
-		Action:  permission.ActionBash,
+		Kind:    permission.KindExec,
 		Command: "pwd",
 	})
 	assert.Equal(t, permission.Allow, dec)
@@ -126,7 +126,7 @@ func TestHeadlessGateDangerouslyAllowAll(t *testing.T) {
 	require.NoError(t, err)
 
 	dec, _ := gate.Check(t.Context(), permission.Request{
-		Action:  permission.ActionBash,
+		Kind:    permission.KindExec,
 		Command: "rm -rf /",
 	})
 	assert.Equal(t, permission.Allow, dec)
@@ -156,7 +156,7 @@ permissions:
 	require.NotNil(t, bs.Gate)
 
 	dec, _ := bs.Gate.Check(t.Context(), permission.Request{
-		Action:  permission.ActionBash,
+		Kind:    permission.KindExec,
 		Command: "pip install numpy",
 	})
 	assert.Equal(t, permission.Allow, dec)

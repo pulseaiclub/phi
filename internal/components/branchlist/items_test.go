@@ -75,8 +75,8 @@ func TestRowsAreNameAndLastCommitOnly(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			item := Items([]gitx.Branch{tc.branch}, nil)[0]
-			assert.Equal(t, tc.branch.LocalName(), item.ID,
-				"accepting a remote row checks out its local branch")
+			assert.Equal(t, tc.branch.Name, item.ID,
+				"the row's own ref is its identity, so a delete cannot hit another branch")
 			assert.Equal(t, tc.branch.Name, item.Primary)
 			assert.Equal(t, tc.leading, item.Leading)
 			assert.Equal(t, tc.detail, item.Detail)
@@ -86,10 +86,12 @@ func TestRowsAreNameAndLastCommitOnly(t *testing.T) {
 	}
 }
 
-func TestRemoteRowAcceptsTheTrackingBranch(t *testing.T) {
+// A remote row keeps its own ref as ID: accepting maps it to the tracking
+// branch downstream, while deleting it must never land on the local namesake.
+func TestRemoteRowKeepsItsOwnIdentity(t *testing.T) {
 	item := Items([]gitx.Branch{{Name: "origin/fix/one", Remote: true, Subject: "wip"}}, nil)[0]
 
-	assert.Equal(t, "fix/one", item.ID)
+	assert.Equal(t, "origin/fix/one", item.ID)
 	assert.Equal(t, "origin/fix/one", item.Primary, "the row still says where it lives")
 }
 
@@ -124,10 +126,11 @@ func TestConfigKeepsBranchNamesReadable(t *testing.T) {
 	assert.Equal(t, "Branches", cfg.Title)
 	assert.GreaterOrEqual(t, cfg.PrimaryWidth, len("fix/agent-wait-timeout"))
 	assert.Contains(t, cfg.Hint, "switch")
+	assert.Contains(t, cfg.Hint, "ctrl+x delete", "the picker advertises the delete path /sessions has")
+	assert.NotEmpty(t, cfg.ConfirmMessage)
 }
 
-// primaries is the display order; IDs collapse a remote row onto its local
-// tracking branch, so they are asserted separately.
+// primaries is the display order; IDs are the branch refs, asserted separately.
 func primaries(items []listpicker.Item) []string {
 	out := make([]string, 0, len(items))
 	for _, item := range items {
