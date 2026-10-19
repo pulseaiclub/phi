@@ -20,6 +20,7 @@
 
 ![phi diff review](assets/diff.png)
 
+- [Sponsors](#sponsors)
 - [Docs](https://pulseaiclub.github.io/docs/getting-started/)
 - [Quick start](#quick-start)
 - [Footprint](#footprint)
@@ -36,6 +37,8 @@
 - [MCP](#mcp)
 - [Tools](#tools)
 - [Project layout](doc/project-layout.md)
+
+## Sponsors
 
 <table>
 <tr>

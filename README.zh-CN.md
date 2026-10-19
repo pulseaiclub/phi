@@ -23,6 +23,7 @@
 你可以通过 [Skills（技能）](#skills技能)、[Extensions（扩展）](#extensions扩展)
 和 [MCP](#mcp) 扩展它——不必做成插件框架。
 
+- [赞助商](#赞助商)
 - [文档](https://pulseaiclub.github.io/docs/getting-started/)
 - [快速开始](#快速开始)
 - [资源占用](#资源占用)
@@ -40,6 +41,8 @@
 - [子代理](#子代理)
 - [工具](#工具)
 - [项目结构](doc/project-layout.md)
+
+## 赞助商
 
 <table>
 <tr>
