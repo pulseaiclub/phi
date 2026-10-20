@@ -25,7 +25,7 @@ func historyRunner(t *testing.T, dir string) *BashRunner {
 	t.Helper()
 	th := components.DefaultTheme()
 	pane := transcript.NewTranscriptPane(th, status.NewSpinner(th.ToolName), "Phi test")
-	b := newBashRunner(pane, &stubComposer{}, controller.NewBus(nil), shellhist.New(dir))
+	b := newBashRunner(pane, &stubComposer{}, controller.NewBus(nil), shellhist.New(dir), nil)
 	t.Cleanup(func() {
 		b.Cancel()
 		require.Eventually(t, func() bool { return !b.Running() }, 5*time.Second, time.Millisecond)
@@ -145,7 +145,7 @@ func TestBashHistoryLaunchFailure(t *testing.T) {
 	b.running.Store(true)
 	b.run(ctx, "failed-launch", shellhist.Entry{
 		Version: 1, At: time.Now().UnixMilli(), Cwd: cwd, Command: "printf never",
-	}, nil)
+	}, nil, false, "")
 	result := waitForShell(t, b)
 	assert.Equal(t, session.ToolError, result.Status)
 	assert.NotEmpty(t, result.Error)

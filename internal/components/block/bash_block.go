@@ -22,12 +22,13 @@ import (
 // Long output is truncated by the bash tool with a /tmp dump — this widget
 // does not invent a useless "Show more" chrome.
 type BashBlock struct {
-	Command  string
-	Output   string
-	Status   status.ToolStatus
-	ExitCode int
-	Expanded bool
-	Theme    components.Theme
+	Command   string
+	Output    string
+	Status    status.ToolStatus
+	ExitCode  int
+	Expanded  bool
+	InContext bool // user "!!cmd": output was added to the model context
+	Theme     components.Theme
 
 	// OnToggle is called when the user expands/collapses (click title / Enter).
 	OnToggle func(expanded bool)
@@ -138,6 +139,9 @@ func (bashBlock *BashBlock) titleSpans(th components.Theme) []components.Span {
 	title := []components.Span{
 		{Text: chrome.BashPrompt, Style: prefixStyle},
 		{Text: bashBlock.Command, Style: cmdStyle},
+	}
+	if bashBlock.InContext {
+		title = append(title, components.Span{Text: " · ctx", Style: th.Muted})
 	}
 	if suf := chrome.StatusSuffix(bashBlock.Status); suf != "" {
 		title = append(title, components.Span{Text: suf, Style: th.Muted})

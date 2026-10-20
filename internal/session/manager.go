@@ -178,6 +178,37 @@ func (sm *Manager) Append(msg llm.Message) (string, error) {
 	return entry.ID, nil
 }
 
+// AppendBash records a user "!!cmd" run as an in-context user message. The
+// message is what the model reads; Bash lets replay draw the row as a bash
+// block, so a resumed session does not turn the run into a user bubble.
+func (sm *Manager) AppendBash(command, output string, exitCode int, cancelled bool) (string, error) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	entry := SessionMessageEntry{
+		SessionBaseEntry: SessionBaseEntry{
+			Type:      EntryMessage,
+			ID:        sm.generateID(),
+			ParentID:  sm.leafID,
+			Timestamp: time.Now(),
+		},
+		Message: llm.Message{
+			Role:    llm.RoleUser,
+			Content: BashContextText(command, output, exitCode, cancelled),
+		},
+		Bash: &BashExecution{
+			Command:   command,
+			Output:    output,
+			ExitCode:  exitCode,
+			Cancelled: cancelled,
+		},
+	}
+	if err := sm.appendEntry(entry); err != nil {
+		return "", err
+	}
+	return entry.ID, nil
+}
+
 // Fork creates a new Manager that shares the same session entries
 // but starts from the current leaf, allowing independent conversation branches.
 func (sm *Manager) Fork() (*Manager, error) {

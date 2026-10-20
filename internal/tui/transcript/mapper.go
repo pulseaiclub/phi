@@ -162,11 +162,13 @@ func (m *Mapper) patchTool(w components.Widget, it session.Item) (ok, dirty bool
 		}
 		st := uiToolStatus(run.Status)
 		prevExp := b.Expanded
-		dirty = b.Command != run.Detail || b.Output != run.Output || b.Status != st || b.ExitCode != run.ExitCode
+		dirty = b.Command != run.Detail || b.Output != run.Output || b.Status != st ||
+			b.ExitCode != run.ExitCode || b.InContext != run.InContext
 		b.Command = run.Detail
 		b.Output = run.Output
 		b.Status = st
 		b.ExitCode = run.ExitCode
+		b.InContext = run.InContext
 		b.Theme = m.theme
 		if exp, ok := m.expanded[it.ID]; ok {
 			b.Expanded = exp
@@ -295,12 +297,13 @@ func (m *Mapper) toolWidget(it session.Item, exp bool) components.Widget {
 	id := it.ID
 	if strings.EqualFold(run.Name, "bash") {
 		return &block.BashBlock{
-			Command:  run.Detail,
-			Output:   run.Output,
-			Status:   uiToolStatus(run.Status),
-			ExitCode: run.ExitCode,
-			Expanded: autoExp,
-			Theme:    m.theme,
+			Command:   run.Detail,
+			Output:    run.Output,
+			Status:    uiToolStatus(run.Status),
+			ExitCode:  run.ExitCode,
+			Expanded:  autoExp,
+			InContext: run.InContext,
+			Theme:     m.theme,
 			OnToggle: func(expanded bool) {
 				m.expanded[id] = expanded
 				if m.onInvalidate != nil {

@@ -64,6 +64,18 @@ type SessionMessageEntry struct {
 	SessionBaseEntry
 	Message llm.Message `json:"message"`
 	Usage   llm.Usage   `json:"usage,omitempty"`
+	// Bash is set for a user "!!cmd" run whose output belongs in the model
+	// context. Message carries the model-facing text; Bash tells replay to draw
+	// the row as a bash block instead of a user bubble.
+	Bash *BashExecution `json:"bash,omitempty"`
+}
+
+// BashExecution records a user-run shell command that entered the LLM context.
+type BashExecution struct {
+	Command   string `json:"command"`
+	Output    string `json:"output"`
+	ExitCode  int    `json:"exitCode"`
+	Cancelled bool   `json:"cancelled,omitempty"`
 }
 
 // GetType implements MessageEntry.

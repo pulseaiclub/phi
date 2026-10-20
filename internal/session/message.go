@@ -142,6 +142,7 @@ type ToolRun struct {
 	Detail    string // optional one-line detail (path, cmd summary)
 	ExitCode  int    // set when a local bash run finishes (Status Done/Error)
 	Local     bool   // user "!cmd" bash; ignored by agent streaming/busy checks
+	InContext bool   // user "!!cmd" bash whose output entered the LLM context
 	Expanded  bool   // TUI starts the tool row open (user toggle still wins)
 }
 
@@ -236,8 +237,9 @@ func (UserAppend) isSessionEvent() {}
 
 // LocalBashStart appends a user-initiated "!cmd" bash row.
 type LocalBashStart struct {
-	ID      string
-	Command string
+	ID        string
+	Command   string
+	InContext bool // "!!cmd": the finished output enters the LLM context
 }
 
 func (LocalBashStart) isSessionEvent() {}

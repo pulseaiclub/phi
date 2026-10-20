@@ -3,6 +3,7 @@ package agent
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/session"
@@ -12,6 +13,10 @@ import (
 // session.Manager and projects entries (including compaction summaries)
 // into LLM context. Compaction policy lives on Engine, not here.
 type Session struct {
+	// mu guards lastID and the context cache. The engine loop is the usual
+	// writer, but a user "!!cmd" appends from the bash goroutine, so the cache
+	// needs to be safe to read and invalidate across goroutines.
+	mu                sync.Mutex
 	lastID            string
 	manager           *session.Manager
 	contextCache      []llm.Message
@@ -141,13 +146,11 @@ func (s *Session) Cwd() string {
 	return s.manager.Cwd()
 }
 
-func (s *Session) invalidateContextCache() {
-	s.contextCacheValid = false
-}
-
 // Append records one or more messages.
 func (s *Session) Append(message ...llm.Message) error {
-	s.invalidateContextCache()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.contextCacheValid = false
 	for _, msg := range message {
 		id, err := s.manager.Append(msg)
 		if err != nil {
@@ -158,9 +161,25 @@ func (s *Session) Append(message ...llm.Message) error {
 	return nil
 }
 
+// AppendBash records a user "!!cmd" run as an in-context user message and
+// invalidates the context cache so the next turn sees it.
+func (s *Session) AppendBash(command, output string, exitCode int, cancelled bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.contextCacheValid = false
+	id, err := s.manager.AppendBash(command, output, exitCode, cancelled)
+	if err != nil {
+		return err
+	}
+	s.lastID = id
+	return nil
+}
+
 // AppendCompaction records a compaction entry and invalidates the context cache.
 func (s *Session) AppendCompaction(c session.Compaction) error {
-	s.invalidateContextCache()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.contextCacheValid = false
 	id, err := s.manager.AppendCompaction(c)
 	if err != nil {
 		return err
@@ -191,6 +210,8 @@ func compactionSummaryContent(summary string) string {
 // Compaction entries are projected as user messages carrying the summary in a
 // labeled block.
 func (s *Session) BuildContext() []llm.Message {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.contextCacheValid {
 		return s.contextCache
 	}
@@ -231,6 +252,8 @@ func (s *Session) Len() int {
 
 // LastID returns the ID of the most recently appended entry.
 func (s *Session) LastID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.lastID
 }
 

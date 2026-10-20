@@ -545,6 +545,21 @@ func (c *EngineController) SessionID() string {
 	return c.engine.SessionID()
 }
 
+// AppendUserBash records a user "!!cmd" run in the current session so the next
+// turn includes its output. sessionID guards a session switch that happened
+// while the command was running: the output belongs to the old session, not
+// whichever one is open now.
+func (c *EngineController) AppendUserBash(sessionID, command, output string, exitCode int, cancelled bool) error {
+	engine := c.engine
+	if engine == nil || engine.Session() == nil {
+		return nil
+	}
+	if sessionID != "" && engine.SessionID() != sessionID {
+		return nil
+	}
+	return engine.Session().AppendBash(command, output, exitCode, cancelled)
+}
+
 func (c *EngineController) SessionDir() string {
 	return c.sessionDir
 }

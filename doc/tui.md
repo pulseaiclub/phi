@@ -157,12 +157,21 @@ User Enter in composer
   → ComposerPane publishes SubmitMsg{text}
   → drainBus → Submitter.Submit
        ├─ "!cmd" prefix  → BashRunner (local shell, SessionEventMsg for output)
+       │                    "!!cmd" also records the result in the model context
        ├─ "/slash"       → CommandRegistry / SessionCommands / ExtCommands
        └─ plain text     → Controller.Submit → agent.Engine.Loop (background)
                               └─ SessionEventMsg, FooterMsg, OverlayMsg, …
 ```
 
 `Submitter` clears composer input after slash/bash; agent submit passes pending skills from composer.
+
+A `!` line runs a local shell that the model never sees. A `!!` line runs the
+same way but, once it finishes, also appends the command and output to the
+session as a user message so the next turn sees it. The transcript row is marked
+`· ctx`, and a resumed session replays it as a shell row rather than a user
+bubble. The append is skipped if the agent is streaming (appending mid-turn
+would break tool_use/tool_result ordering) or if the session changed while the
+command ran.
 
 User `!` commands are also appended to `history.jsonl` in the project's existing
 session directory (`~/.phi/session/<encoded-cwd>/`). All sessions for that workspace
