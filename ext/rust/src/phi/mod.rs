@@ -34,10 +34,13 @@ use std::pin::Pin;
 
 pub use crate::pxb::Error;
 
+// Everything reachable through a public field must be nameable here: `model`
+// stays private, so this list is the whole surface (e.g. `Usage` carries
+// `Option<PromptTokensDetails>`).
 mod model;
 pub use model::{
-    ChatMessage, FunctionSpec, MessageImage, Model, ModelEvent, ModelRequest, ModelTool, StreamFn,
-    StreamResult, ToolCallSpec, Usage,
+    ChatMessage, FunctionSpec, MessageImage, Model, ModelEvent, ModelRequest, ModelTool,
+    PromptTokensDetails, StreamFn, StreamResult, ToolCallSpec, Usage,
 };
 
 mod schema;
