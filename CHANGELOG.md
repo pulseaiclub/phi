@@ -18,6 +18,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Windows: starting phi from a shell whose working directory is set through
+  the Win32 extended-path prefix (`\\?\C:\...`) no longer crashes at startup.
+  The per-directory session storage strips the prefix instead of building a
+  file name containing `?`, which Windows rejects; sessions for the same
+  directory keep connecting to their existing files.
 - Rust SDK: re-export `phi::PromptTokensDetails`, so extension authors can name
   the type of `Usage::prompt_tokens_details` and report cache traffic from
   served models.

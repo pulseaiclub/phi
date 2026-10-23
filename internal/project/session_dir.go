@@ -5,12 +5,25 @@ import (
 	"strings"
 )
 
-// ProjectDirName returns a filesystem-safe directory name derived from cwd,
+// stripWin32Namespace removes the extended-path prefix Windows APIs hand back
+// when the working directory was set through one (\\?\C:\... or
+// \\?\UNC\server\share\...). Left in place, the literal '?' survives the
+// slugifier below and Windows refuses to mkdir a name containing it.
+func stripWin32Namespace(s string) string {
+	if !strings.HasPrefix(s, `\\?\`) {
+		return s
+	}
+	s = s[len(`\\?\`):]
+	// \\?\UNC\server\share -> server\share: re-adding a leading \\ would only
+	// survive the slugifier as one more dash.
+	return strings.TrimPrefix(s, `UNC\`)
+}
+
 // ProjectDirName returns a filesystem-safe directory name derived from cwd:
 //
 //	--<cwd with leading path sep stripped and / \ : replaced by ->--
 func ProjectDirName(cwd string) string {
-	s := filepath.Clean(cwd)
+	s := stripWin32Namespace(filepath.Clean(cwd))
 	if s == "." {
 		return "--unknown--"
 	}
