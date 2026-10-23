@@ -16,6 +16,11 @@ func TestProjectDirName(t *testing.T) {
 		{"/Users/foo/bar", "--Users-foo-bar--"},
 		{"relative/proj", "--relative-proj--"},
 		{".", "--unknown--"},
+		// Extended-length paths come back from Getwd when the shell was
+		// started in a \\?\-prefixed directory; the '?' must not leak into
+		// the name or mkdir fails on Windows.
+		{`\\?\C:\Users\me\proj`, "--C--Users-me-proj--"},
+		{`\\?\UNC\server\share\proj`, "--server-share-proj--"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.cwd, func(t *testing.T) {
