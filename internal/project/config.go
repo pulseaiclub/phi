@@ -30,7 +30,7 @@ type Config struct {
 }
 
 // AgentsConfig controls whether the main agent may spawn sub-agents
-// (agent_spawn / agent_wait / …). Default is enabled; set enabled: false
+// (agent_spawn / agent_control). Default is enabled; set enabled: false
 // to keep ordinary sessions lean and avoid loading the extra tool schemas.
 type AgentsConfig struct {
 	Enabled bool // true when absent from config

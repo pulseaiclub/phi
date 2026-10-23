@@ -77,7 +77,48 @@ func TestMapperAgentBlockSummaryAndChildren(t *testing.T) {
 	assert.NotContains(t, txt, "agent_spawn", "tool name is noise next to the label")
 }
 
-func TestMapperAgentWaitSummaryOnly(t *testing.T) {
+func TestMapperAgentControlCancelAndLegacyRows(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		input  string
+		output string
+		agent  bool
+	}{
+		{"agent_control", `{"job_id":"job_w","action":"cancel"}`, `{"ok":true}`, true},
+		{"agent_wait", `{"job_id":"job_w"}`, `{"job_id":"job_w","summary":"done"}`, true},
+		{"agent_cancel", `{"job_id":"job_w"}`, `{"ok":true}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := transcript.NewMapper(components.DefaultTheme(), nil, nil)
+			m.Children = func(string) []block.ChildTool {
+				assert.Fail(t, "control rows must not request a child tree")
+				return nil
+			}
+			snap := session.Snapshot{
+				Messages: []session.Message{{
+					ID: "m1", Role: session.RoleAssistant, State: session.StateComplete,
+					Content: []session.ContentBlock{{
+						Type: session.BlockToolUse, ID: "call", Name: tc.name, Input: tc.input, Complete: true,
+					}},
+				}},
+				Tools: map[string]session.ToolRun{"call": {
+					ToolUseID: "call", Name: tc.name, Status: session.ToolDone, Detail: "stopped", Output: tc.output,
+				}},
+			}
+			entries, _, _ := m.Sync(nil, nil, snap)
+			require.Len(t, entries, 1)
+			ab, ok := entries[0].(*block.AgentBlock)
+			require.Equal(t, tc.agent, ok)
+			if ok {
+				assert.Empty(t, ab.Children)
+				assert.Equal(t, "stopped", ab.Detail)
+				assert.NotContains(t, ab.Summary, `"ok"`)
+			}
+		})
+	}
+}
+
+func TestMapperAgentControlWaitSummaryOnly(t *testing.T) {
 	store := transcript.NewSubagentStore()
 	store.Bind("job_w", "call_spawn")
 	store.ApplyProgress(job.Progress{
@@ -102,15 +143,15 @@ func TestMapperAgentWaitSummaryOnly(t *testing.T) {
 			Content: []session.ContentBlock{{
 				Type:     session.BlockToolUse,
 				ID:       "call_wait",
-				Name:     "agent_wait",
-				Input:    `{"job_id":"job_w"}`,
+				Name:     "agent_control",
+				Input:    `{"job_id":"job_w","action":"wait"}`,
 				Complete: true,
 			}},
 		}},
 		Tools: map[string]session.ToolRun{
 			"call_wait": {
 				ToolUseID: "call_wait",
-				Name:      "agent_wait",
+				Name:      "agent_control",
 				Status:    session.ToolInProgress,
 				Detail:    "job_w",
 			},
@@ -125,7 +166,7 @@ func TestMapperAgentWaitSummaryOnly(t *testing.T) {
 	// Done wait: markdown summary only.
 	snap.Tools["call_wait"] = session.ToolRun{
 		ToolUseID: "call_wait",
-		Name:      "agent_wait",
+		Name:      "agent_control",
 		Status:    session.ToolDone,
 		Detail:    "completed",
 		Output: `{
@@ -145,7 +186,7 @@ func TestMapperAgentWaitSummaryOnly(t *testing.T) {
 
 // A wait row carries only a job id in its args: the title has to show the job's
 // label, not the id, while the wait is still blocking.
-func TestMapperAgentWaitRowShowsJobLabel(t *testing.T) {
+func TestMapperAgentControlRowShowsJobLabel(t *testing.T) {
 	store := transcript.NewSubagentStore()
 	store.ApplyResult("call_spawn", agenttool.ParseAgentResult(`{
 		"job_id":"job_w","status":"running","label":"explore: find auth"
@@ -164,15 +205,15 @@ func TestMapperAgentWaitRowShowsJobLabel(t *testing.T) {
 			Content: []session.ContentBlock{{
 				Type:     session.BlockToolUse,
 				ID:       "call_wait",
-				Name:     "agent_wait",
-				Input:    `{"job_id":"job_w"}`,
+				Name:     "agent_control",
+				Input:    `{"job_id":"job_w","action":"wait"}`,
 				Complete: true,
 			}},
 		}},
 		Tools: map[string]session.ToolRun{
 			"call_wait": {
 				ToolUseID: "call_wait",
-				Name:      "agent_wait",
+				Name:      "agent_control",
 				Status:    session.ToolInProgress,
 				Detail:    "job_w",
 			},
@@ -188,7 +229,7 @@ func TestMapperAgentWaitRowShowsJobLabel(t *testing.T) {
 	// Unknown job: the raw detail survives instead of rendering an empty title.
 	snap.Tools["call_wait"] = session.ToolRun{
 		ToolUseID: "call_wait",
-		Name:      "agent_wait",
+		Name:      "agent_control",
 		Status:    session.ToolInProgress,
 		Detail:    "job_unknown",
 	}

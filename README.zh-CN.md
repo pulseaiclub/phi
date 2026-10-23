@@ -499,7 +499,7 @@ phi mcp doctor
 
 ## 子代理
 
-子代理工具（`agent_spawn`、`agent_wait` 等）**默认开启**。如果想保持工具精简，可在 `~/.phi/config.yaml` 中禁用：
+子代理工具（`agent_spawn`、`agent_control`）**默认开启**。如果想保持工具精简，可在 `~/.phi/config.yaml` 中禁用：
 
 ```yaml
 agents:
@@ -532,10 +532,11 @@ agents:
 | `find` | 文件模式匹配（fd） |
 | `ls` | 目录列表 |
 | `agent_spawn` | 启动一个隔离的子代理任务（异步） |
-| `agent_wait` | 等待任务；只返回简短总结 |
-| `agent_cancel` | 取消运行中的任务 |
+| `agent_control` | 等待总结或取消任务（`action: wait / cancel`） |
 
-子代理的完整记录存放在 `~/.phi/jobs/<id>/`，子代理的上下文**不会**注入父代理上下文——只有 wait/task 的总结会注入。
+`agent_control` 必须提供 `job_id` 和 `action`。可选的 `timeout_sec` 仅用于 `wait`，等待超时后任务继续运行；`cancel` 会等待任务停止。
+
+子代理的完整记录存放在 `~/.phi/jobs/<id>/`，子代理的上下文**不会**注入父代理上下文——只有等待返回的总结会注入。
 
 快速搜索工具（`fd`、`ripgrep`）在首次启动缺失时，会下载到 `~/.phi/bin`。
 

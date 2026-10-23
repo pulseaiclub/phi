@@ -127,7 +127,7 @@ func (s *SubagentStore) ApplyResult(parentToolUseID string, r agenttool.AgentRes
 }
 
 // Label returns the human label bound to a job id, or "" when unknown.
-// agent_wait / agent_cancel rows carry only a job id in their args; this is
+// agent_control rows identify jobs by id in their args; this is
 // what lets the transcript show the job's name instead.
 func (s *SubagentStore) Label(jobID string) string {
 	if s == nil || jobID == "" {

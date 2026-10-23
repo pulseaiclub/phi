@@ -46,6 +46,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- Merge `agent_wait` and `agent_cancel` into `agent_control` with an explicit
+  `action` (`wait` or `cancel`). Wait timeouts leave jobs running; cancel waits
+  for the job to stop.
+
 ### Deprecated
 
 ### Removed

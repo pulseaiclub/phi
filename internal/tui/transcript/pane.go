@@ -415,7 +415,7 @@ func (t *TranscriptPane) HandleMouse(ctx *components.EventContext, e xui.MouseEv
 func (t *TranscriptPane) applyAgentToolData(td session.ToolData) {
 	name := strings.ToLower(td.Run.Name)
 	switch name {
-	case "agent_spawn", "agent_wait":
+	case "agent_spawn", "agent_control", "agent_wait":
 	default:
 		return
 	}

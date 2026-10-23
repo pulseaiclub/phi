@@ -550,7 +550,7 @@ Full guide: [doc/mcp.md](doc/mcp.md).
 
 ## Sub-agents
 
-Sub-agent tools (`agent_spawn`, `agent_wait`, …) are **on by default**. To
+Sub-agent tools (`agent_spawn`, `agent_control`) are **on by default**. To
 keep a session lean, disable them in `~/.phi/config.yaml`:
 
 ```yaml
@@ -591,8 +591,11 @@ Built-in tools the model can call (see `internal/tools/`):
 | `find`         | File patterns (fd)                           |
 | `ls`           | Directory listing                            |
 | `agent_spawn`  | Start an isolated sub-agent job (async)      |
-| `agent_wait`   | Wait for a job; returns short summary only   |
-| `agent_cancel` | Cancel a running job                         |
+| `agent_control` | Wait for a summary or cancel a job (`action: wait / cancel`) |
+
+`agent_control` requires `job_id` and `action`. Optional `timeout_sec` applies
+only to `wait` and leaves the job running when it expires. `cancel` waits until
+the job stops.
 
 Sub-agent transcripts live under `~/.phi/jobs/<id>/` and are **not** injected
 into the parent context — only the wait/task summary is.

@@ -161,8 +161,8 @@ func TestDecisionTable(t *testing.T) {
 			"access to sensitive path denied: " + filepath.Join(home, ".ssh"),
 		},
 
-		{"control", defaults, control("agent_wait"), Allow, ""},
-		{"control readonly", readonly, control("agent_cancel"), Allow, ""},
+		{"control", defaults, control("agent_control"), Allow, ""},
+		{"control readonly", readonly, control("agent_control"), Allow, ""},
 
 		{"unknown", defaults, unknown("custom_tool"), Ask, `unknown action "custom_tool" requires approval`},
 		{

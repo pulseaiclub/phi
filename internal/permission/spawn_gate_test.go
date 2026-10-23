@@ -29,10 +29,8 @@ func TestSpawnChecksInheritedDirectory(t *testing.T) {
 			}
 			require.Equal(t, expected, dec, reason)
 
-			for _, tool := range []string{"agent_wait", "agent_cancel"} {
-				dec, reason := gate.Check(t.Context(), Request{Tool: tool, Kind: KindControl})
-				require.Equal(t, Allow, dec, reason)
-			}
+			dec, reason = gate.Check(t.Context(), Request{Tool: "agent_control", Kind: KindControl})
+			require.Equal(t, Allow, dec, reason)
 		})
 	}
 }

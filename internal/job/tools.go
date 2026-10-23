@@ -8,8 +8,7 @@ import (
 	"time"
 )
 
-// Tool-facing argument shapes. These mirror future agent_* tools but are
-// not registered with phi's tool registry yet.
+// Tool-facing argument shapes for job operations.
 
 // SpawnArgs is the JSON argument shape for agent_spawn.
 type SpawnArgs struct {
@@ -22,13 +21,13 @@ type SpawnArgs struct {
 	Role        string `json:"role,omitempty"`
 }
 
-// WaitArgs is the JSON argument shape for agent_wait.
+// WaitArgs is the JSON argument shape for the wait operation.
 type WaitArgs struct {
 	JobID      string `json:"job_id"`
 	TimeoutSec int    `json:"timeout_sec,omitempty"`
 }
 
-// CancelArgs is the JSON argument shape for agent_cancel.
+// CancelArgs is the JSON argument shape for the cancel operation.
 type CancelArgs struct {
 	JobID string `json:"job_id"`
 }
@@ -53,7 +52,7 @@ func (m *Manager) HandleSpawn(ctx context.Context, raw json.RawMessage) (Info, e
 	return m.Spawn(ctx, req)
 }
 
-// HandleWait is a JSON-tool style entry for agent_wait.
+// HandleWait handles the wait operation for agent_control.
 //
 // TimeoutSec limits how long Wait blocks. It does not cancel the job; the
 // runner keeps going until Cancel, the job's own TimeoutSec (spawn), or exit.
@@ -83,7 +82,7 @@ func (m *Manager) HandleWait(ctx context.Context, raw json.RawMessage) (WaitResu
 	return result, err
 }
 
-// HandleCancel is a JSON-tool style entry for agent_cancel.
+// HandleCancel handles the cancel operation for agent_control.
 func (m *Manager) HandleCancel(ctx context.Context, raw json.RawMessage) error {
 	var args CancelArgs
 	if err := json.Unmarshal(raw, &args); err != nil {

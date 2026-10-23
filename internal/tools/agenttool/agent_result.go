@@ -7,7 +7,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/job"
 )
 
-// AgentResult is the UI-facing parse of agent_spawn / agent_wait JSON output.
+// AgentResult is the UI-facing parse of agent_spawn and agent_control wait output.
 type AgentResult struct {
 	JobID   string
 	Status  string

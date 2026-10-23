@@ -343,7 +343,7 @@ func (m *Mapper) toolWidget(it session.Item, exp bool) components.Widget {
 
 func isAgentTreeTool(name string) bool {
 	switch strings.ToLower(name) {
-	case "agent_spawn", "agent_wait":
+	case "agent_spawn", "agent_control", "agent_wait":
 		return true
 	default:
 		return false
@@ -367,10 +367,9 @@ func (m *Mapper) fillAgentBlock(a *block.AgentBlock, it session.Item) {
 		a.Summary = ""
 	}
 
-	// agent_wait: summary only — the live tree already lives on agent_spawn.
-	// agent_spawn: nested child tools from SubagentStore.
+	// Only spawn owns the live tree; control and legacy wait rows show summaries.
 	a.Children = nil
-	if !strings.EqualFold(run.Name, "agent_wait") && m.Children != nil {
+	if strings.EqualFold(run.Name, "agent_spawn") && m.Children != nil {
 		a.Children = m.Children(run.ToolUseID)
 		if len(a.Children) == 0 && parsed.JobID != "" && m.ChildrenByJob != nil {
 			a.Children = m.ChildrenByJob(parsed.JobID)
@@ -384,8 +383,8 @@ func (m *Mapper) fillAgentBlock(a *block.AgentBlock, it session.Item) {
 	}
 }
 
-// agentRowDetail upgrades a bare job id into the job's human label: agent_wait
-// and agent_cancel take only a job id in their args, so without the lookup
+// agentRowDetail upgrades a bare job id into the job's human label: control
+// calls identify the job by id, so without the lookup
 // their rows would read "explore: job_20261013T015507_bd2745fd354abd4b".
 // Unknown details (a label already, or a job the store never saw) pass through.
 func (m *Mapper) agentRowDetail(detail string) string {

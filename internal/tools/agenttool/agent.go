@@ -29,7 +29,7 @@ When NOT to use any sub-agent:
 - Tiny local edit — edit/write yourself
 
 How to use:
-1. Use agent_spawn to launch a job, then agent_wait for its summary. For parallel jobs, spawn all first, then wait each.
+1. Use agent_spawn to launch a job, then agent_control (action="wait") for its summary. For parallel jobs, spawn all first, then wait each.
 2. Stateless: put a highly detailed, self-contained prompt and say what the final summary must include.
 3. You only receive the final summary. Summarize for the user if needed.
 4. Sub-agents cannot spawn further agents. Do not put secrets in the prompt.
@@ -68,7 +68,7 @@ func WithGate(gate permission.Gate) AgentOption {
 	return func(cfg *agentConfig) { cfg.gate = gate }
 }
 
-// AgentTools returns agent_spawn / list / wait / cancel.
+// AgentTools returns agent_spawn and agent_control.
 // Depth is forced to 0; the parent id comes from WithParentID, not model args.
 func AgentTools(opts ...AgentOption) []tooldef.Tool {
 	cfg := agentConfig{
@@ -85,8 +85,7 @@ func AgentTools(opts ...AgentOption) []tooldef.Tool {
 	}
 	return []tooldef.Tool{
 		agentSpawnTool(cfg),
-		agentWaitTool(cfg),
-		agentCancelTool(cfg),
+		agentControlTool(cfg),
 	}
 }
 
@@ -96,7 +95,7 @@ func agentSpawnTool(cfg agentConfig) tooldef.Tool {
 			Name: "agent_spawn",
 			Description: fmt.Sprintf(agentLaunchGuidance+`
 
-Starts asynchronously and returns job_id immediately. Use agent_wait for the summary. Best for parallel jobs.
+Starts asynchronously and returns job_id immediately. Use agent_control (action="wait") for the summary. Best for parallel jobs.
 
 Concurrency cap: at most %d sub-agents run concurrently; spawning more fails (jobs are not queued).`, cfg.manager.MaxConcurrent()),
 			Params: &llm.FunctionParameters{
@@ -201,12 +200,12 @@ func oneLine(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-// jobIDInput is the shared {job_id} payload of agent_wait and agent_cancel.
-type jobIDInput struct {
-	JobID string `json:"job_id"`
+type controlInput struct {
+	JobID  string `json:"job_id"`
+	Action string `json:"action"`
 }
 
-func jobIDDetail(in jobIDInput) string {
+func controlDetail(in controlInput) string {
 	return in.JobID
 }
 
@@ -221,14 +220,16 @@ func roleDetail(role, rest string) string {
 	return r + ": " + rest
 }
 
-func agentWaitTool(cfg agentConfig) tooldef.Tool {
+func agentControlTool(cfg agentConfig) tooldef.Tool {
 	return tooldef.NewTool(
 		tooldef.WithDefinition(llm.ToolDefinition{
-			Name: "agent_wait",
-			Description: `Block until a sub-agent job reaches a terminal status and return its result.md summary.
+			Name: "agent_control",
+			Description: `Control an existing sub-agent job.
 
-timeout_sec only limits how long this wait blocks — it does NOT cancel the job.
-Use agent_cancel to stop a running job.`,
+- wait: block until the job reaches a terminal status and return its result.md summary.
+- cancel: cancel a running or starting job and wait until it stops.
+
+timeout_sec applies only to wait: it limits how long the call blocks and does NOT cancel the job.`,
 			Params: &llm.FunctionParameters{
 				Type: "object",
 				Properties: llm.Object{
@@ -236,21 +237,42 @@ Use agent_cancel to stop a running job.`,
 						"type":        "string",
 						"description": "Job id from agent_spawn.",
 					},
+					"action": llm.Object{
+						"type":        "string",
+						"description": "wait for a summary or cancel the job.",
+						"enum":        []string{"wait", "cancel"},
+					},
 					"timeout_sec": llm.Object{
 						"type":        "integer",
-						"description": "Max seconds to wait (does not cancel the job).",
+						"description": "For wait only: max seconds to block (does not cancel the job).",
 					},
 				},
-				Required: []string{"job_id"},
+				Required: []string{"job_id", "action"},
 			},
 		}),
-		tooldef.WithDetail(jobIDDetail),
+		tooldef.WithDetail(controlDetail),
 		// wait/cancel touch no path: controlling existing work is not a new
 		// permission surface.
-		tooldef.WithPermission(tooldef.Declaration[jobIDInput]{
+		tooldef.WithPermission(tooldef.Declaration[controlInput]{
 			Kind: permission.KindControl,
 		}),
 		tooldef.WithRun(func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
+			var in controlInput
+			if err := json.Unmarshal(input, &in); err != nil {
+				return tooldef.Result{}, fmt.Errorf("%w: %w", job.ErrInvalid, err)
+			}
+			switch in.Action {
+			case "cancel":
+				if err := cfg.manager.HandleCancel(ctx, input); err != nil {
+					return tooldef.Result{}, err
+				}
+				body := mustJSON(map[string]any{"ok": true})
+				return tooldef.Result{Content: body, Detail: "stopped", Output: body}, nil
+			case "wait":
+				// HandleWait preserves polling timeouts without canceling the job.
+			default:
+				return tooldef.Result{}, fmt.Errorf("%w: action must be wait or cancel", job.ErrInvalid)
+			}
 			res, err := cfg.manager.HandleWait(ctx, input)
 			if err != nil {
 				return tooldef.Result{}, err
@@ -271,35 +293,6 @@ Use agent_cancel to stop a running job.`,
 				Detail:  label,
 				Output:  body,
 			}, nil
-		}),
-	)
-}
-
-func agentCancelTool(cfg agentConfig) tooldef.Tool {
-	return tooldef.NewTool(
-		tooldef.WithDefinition(llm.ToolDefinition{
-			Name:        "agent_cancel",
-			Description: `Cancel a running or starting sub-agent job and wait until it stops.`,
-			Params: &llm.FunctionParameters{
-				Type: "object",
-				Properties: llm.Object{
-					"job_id": llm.Object{
-						"type": "string",
-					},
-				},
-				Required: []string{"job_id"},
-			},
-		}),
-		tooldef.WithDetail(jobIDDetail),
-		tooldef.WithPermission(tooldef.Declaration[jobIDInput]{
-			Kind: permission.KindControl,
-		}),
-		tooldef.WithRun(func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
-			if err := cfg.manager.HandleCancel(ctx, input); err != nil {
-				return tooldef.Result{}, err
-			}
-			body := mustJSON(map[string]any{"ok": true})
-			return tooldef.Result{Content: body, Detail: "stopped", Output: body}, nil
 		}),
 	)
 }

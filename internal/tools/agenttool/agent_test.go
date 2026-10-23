@@ -40,7 +40,8 @@ func TestAgentToolsSpawnWaitForcesDepthAndParent(t *testing.T) {
 		return "summary-ok", nil
 	})
 	require.Contains(t, reg, "agent_spawn")
-	require.Contains(t, reg, "agent_wait")
+	require.Contains(t, reg, "agent_control")
+	require.Len(t, reg, 2)
 	require.NotContains(t, tooldef.NewRegistry(tools.DefaultTools(nil)), "agent_spawn")
 
 	spawnArgs, _ := json.Marshal(map[string]any{
@@ -59,8 +60,8 @@ func TestAgentToolsSpawnWaitForcesDepthAndParent(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(spawnRes.Content), &spawned))
 	assert.Equal(t, "explore: d", spawnRes.Detail)
 
-	waitArgs, _ := json.Marshal(map[string]any{"job_id": spawned.JobID})
-	waitRes, err := reg["agent_wait"].Run(t.Context(), waitArgs)
+	waitArgs, _ := json.Marshal(map[string]any{"job_id": spawned.JobID, "action": "wait"})
+	waitRes, err := reg["agent_control"].Run(t.Context(), waitArgs)
 	require.NoError(t, err)
 	assert.Contains(t, waitRes.Content, "summary-ok")
 	assert.Contains(t, waitRes.Content, `"status": "completed"`)
@@ -94,8 +95,8 @@ func TestAgentToolsSpawnRoleWorker(t *testing.T) {
 	assert.Equal(t, "worker: implement x", spawned.Label)
 	assert.NotContains(t, res.Detail, spawned.JobID)
 
-	waitArgs, _ := json.Marshal(map[string]any{"job_id": spawned.JobID})
-	waitRes, err := reg["agent_wait"].Run(t.Context(), waitArgs)
+	waitArgs, _ := json.Marshal(map[string]any{"job_id": spawned.JobID, "action": "wait"})
+	waitRes, err := reg["agent_control"].Run(t.Context(), waitArgs)
 	require.NoError(t, err)
 	assert.Contains(t, waitRes.Content, `"status": "completed"`)
 	assert.Equal(t, "worker: implement x", waitRes.Detail)
@@ -198,8 +199,8 @@ func TestAgentToolsDualSpawnWaitKeepsTranscriptsInJobLog(t *testing.T) {
 	require.NotEqual(t, idA, idB)
 
 	wait := func(id string) string {
-		raw, _ := json.Marshal(map[string]any{"job_id": id})
-		res, err := reg["agent_wait"].Run(t.Context(), raw)
+		raw, _ := json.Marshal(map[string]any{"job_id": id, "action": "wait"})
+		res, err := reg["agent_control"].Run(t.Context(), raw)
 		require.NoError(t, err)
 		var out struct {
 			Status  string `json:"status"`
@@ -252,12 +253,12 @@ func TestAgentToolsCancelRunningJob(t *testing.T) {
 		require.Fail(t, "job did not start")
 	}
 
-	cancelRaw, _ := json.Marshal(map[string]any{"job_id": spawned.JobID})
-	_, err = reg["agent_cancel"].Run(t.Context(), cancelRaw)
+	cancelRaw, _ := json.Marshal(map[string]any{"job_id": spawned.JobID, "action": "cancel"})
+	_, err = reg["agent_control"].Run(t.Context(), cancelRaw)
 	require.NoError(t, err)
 
-	waitRaw, _ := json.Marshal(map[string]any{"job_id": spawned.JobID})
-	waitRes, err := reg["agent_wait"].Run(t.Context(), waitRaw)
+	waitRaw, _ := json.Marshal(map[string]any{"job_id": spawned.JobID, "action": "wait"})
+	waitRes, err := reg["agent_control"].Run(t.Context(), waitRaw)
 	require.NoError(t, err)
 	assert.Contains(t, waitRes.Content, `"status": "cancelled"`)
 }
