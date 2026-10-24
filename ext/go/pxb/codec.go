@@ -3,7 +3,6 @@ package pxb
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 	"sync"
 )
@@ -25,7 +24,7 @@ type Header struct {
 
 // EncodeHeader writes a 16-byte header into dst (must be ≥ HeaderSize).
 func EncodeHeader(dst []byte, h Header) {
-	copy(dst[0:4], Magic[:])
+	copy(dst[0:4], magic[:])
 	binary.LittleEndian.PutUint16(dst[4:6], h.Type)
 	binary.LittleEndian.PutUint16(dst[6:8], h.Flags)
 	binary.LittleEndian.PutUint32(dst[8:12], h.ID)
@@ -37,7 +36,7 @@ func DecodeHeader(src []byte) (Header, error) {
 	if len(src) < HeaderSize {
 		return Header{}, ErrShortBuffer
 	}
-	if src[0] != Magic[0] || src[1] != Magic[1] || src[2] != Magic[2] || src[3] != Magic[3] {
+	if src[0] != magic[0] || src[1] != magic[1] || src[2] != magic[2] || src[3] != magic[3] {
 		return Header{}, ErrBadMagic
 	}
 	h := Header{
@@ -97,10 +96,10 @@ func ReadFrame(r io.Reader) (Frame, error) {
 	return Frame{Header: h, Body: body}, nil
 }
 
-// ReadFrameBuf reads one frame, reusing buf for the body when large enough.
-// Returned body must not be used after the next ReadFrameBuf on the same buf
+// readFrameBuf reads one frame, reusing buf for the body when large enough.
+// Returned body must not be used after the next readFrameBuf on the same buf
 // unless the caller copies it.
-func ReadFrameBuf(r io.Reader, buf *[]byte) (Frame, error) {
+func readFrameBuf(r io.Reader, buf *[]byte) (Frame, error) {
 	var hdr [HeaderSize]byte
 	if _, err := io.ReadFull(r, hdr[:]); err != nil {
 		return Frame{}, err
@@ -172,7 +171,7 @@ func NewReader(r io.Reader) *Reader {
 
 // Read returns the next frame. Body is valid until the next Read.
 func (rd *Reader) Read() (Frame, error) {
-	return ReadFrameBuf(rd.r, &rd.buf)
+	return readFrameBuf(rd.r, &rd.buf)
 }
 
 // CloneBody copies f.Body so it survives the next Read.
@@ -183,195 +182,4 @@ func CloneBody(f Frame) []byte {
 	out := make([]byte, len(f.Body))
 	copy(out, f.Body)
 	return out
-}
-
-// ByteWriter builds payloads without fmt/json.
-type ByteWriter struct {
-	b []byte
-}
-
-// Reset clears the buffer keeping capacity.
-func (bw *ByteWriter) Reset() { bw.b = bw.b[:0] }
-
-// Bytes returns the current payload.
-func (bw *ByteWriter) Bytes() []byte { return bw.b }
-
-// Grow ensures capacity for n more bytes.
-func (bw *ByteWriter) Grow(n int) {
-	if cap(bw.b)-len(bw.b) < n {
-		nb := make([]byte, len(bw.b), len(bw.b)+n+256)
-		copy(nb, bw.b)
-		bw.b = nb
-	}
-}
-
-func (bw *ByteWriter) U8(v uint8) {
-	bw.b = append(bw.b, v)
-}
-
-func (bw *ByteWriter) U16(v uint16) {
-	var tmp [2]byte
-	binary.LittleEndian.PutUint16(tmp[:], v)
-	bw.b = append(bw.b, tmp[:]...)
-}
-
-func (bw *ByteWriter) U32(v uint32) {
-	var tmp [4]byte
-	binary.LittleEndian.PutUint32(tmp[:], v)
-	bw.b = append(bw.b, tmp[:]...)
-}
-
-func (bw *ByteWriter) U64(v uint64) {
-	var tmp [8]byte
-	binary.LittleEndian.PutUint64(tmp[:], v)
-	bw.b = append(bw.b, tmp[:]...)
-}
-
-func (bw *ByteWriter) Bool(v bool) {
-	if v {
-		bw.b = append(bw.b, 1)
-	} else {
-		bw.b = append(bw.b, 0)
-	}
-}
-
-func (bw *ByteWriter) Blob(p []byte) {
-	bw.U32(uint32(len(p))) //nolint:gosec // G115: payload bounded by MaxPayload on the frame path
-	bw.b = append(bw.b, p...)
-}
-
-func (bw *ByteWriter) String(s string) {
-	bw.U32(uint32(len(s))) //nolint:gosec // G115: payload bounded by MaxPayload on the frame path
-	bw.b = append(bw.b, s...)
-}
-
-func (bw *ByteWriter) Strings(ss []string) {
-	bw.U16(uint16(len(ss))) //nolint:gosec // G115: element count bounded by MaxPayload
-	for _, s := range ss {
-		bw.String(s)
-	}
-}
-
-func (bw *ByteWriter) U16s(vs []uint16) {
-	bw.U16(uint16(len(vs))) //nolint:gosec // G115: element count bounded by MaxPayload
-	for _, v := range vs {
-		bw.U16(v)
-	}
-}
-
-// ByteReader parses payloads.
-type ByteReader struct {
-	b []byte
-	i int
-}
-
-// NewByteReader wraps b.
-func NewByteReader(b []byte) *ByteReader { return &ByteReader{b: b} }
-
-func (br *ByteReader) remaining() int { return len(br.b) - br.i }
-
-func (br *ByteReader) need(n int) error {
-	if br.remaining() < n {
-		return ErrTruncated
-	}
-	return nil
-}
-
-func (br *ByteReader) U8() (uint8, error) {
-	if err := br.need(1); err != nil {
-		return 0, err
-	}
-	v := br.b[br.i]
-	br.i++
-	return v, nil
-}
-
-func (br *ByteReader) U16() (uint16, error) {
-	if err := br.need(2); err != nil {
-		return 0, err
-	}
-	v := binary.LittleEndian.Uint16(br.b[br.i:])
-	br.i += 2
-	return v, nil
-}
-
-func (br *ByteReader) U32() (uint32, error) {
-	if err := br.need(4); err != nil {
-		return 0, err
-	}
-	v := binary.LittleEndian.Uint32(br.b[br.i:])
-	br.i += 4
-	return v, nil
-}
-
-func (br *ByteReader) U64() (uint64, error) {
-	if err := br.need(8); err != nil {
-		return 0, err
-	}
-	v := binary.LittleEndian.Uint64(br.b[br.i:])
-	br.i += 8
-	return v, nil
-}
-
-func (br *ByteReader) Bool() (bool, error) {
-	v, err := br.U8()
-	return v != 0, err
-}
-
-func (br *ByteReader) Blob() ([]byte, error) {
-	n, err := br.U32()
-	if err != nil {
-		return nil, err
-	}
-	if err := br.need(int(n)); err != nil {
-		return nil, err
-	}
-	out := br.b[br.i : br.i+int(n)]
-	br.i += int(n)
-	return out, nil
-}
-
-func (br *ByteReader) String() (string, error) {
-	b, err := br.Blob()
-	if err != nil {
-		return "", err
-	}
-	return string(b), nil
-}
-
-func (br *ByteReader) Strings() ([]string, error) {
-	n, err := br.U16()
-	if err != nil {
-		return nil, err
-	}
-	out := make([]string, 0, n)
-	for i := 0; i < int(n); i++ {
-		s, err := br.String()
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, s)
-	}
-	return out, nil
-}
-
-func (br *ByteReader) U16s() ([]uint16, error) {
-	n, err := br.U16()
-	if err != nil {
-		return nil, err
-	}
-	out := make([]uint16, 0, n)
-	for i := 0; i < int(n); i++ {
-		v, err := br.U16()
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, v)
-	}
-	return out, nil
-}
-
-// DumpType is a debug helper.
-func DumpType(typ uint16) string {
-	return fmt.Sprintf("0x%04x", typ)
 }

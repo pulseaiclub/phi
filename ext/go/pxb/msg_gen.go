@@ -26,16 +26,16 @@ func EncodeHello(msg Hello) []byte {
 		return nil
 	}
 	fw := sizedWriter(n)
-	fw.PutString(fHelloName, msg.Name)
-	fw.PutString(fHelloVersion, msg.Version)
-	fw.PutU32(fHelloCaps, msg.Caps)
-	fw.PutU16(fHelloProtocol, msg.Protocol)
-	return fw.Bytes()
+	fw.putString(fHelloName, msg.Name)
+	fw.putString(fHelloVersion, msg.Version)
+	fw.putU32(fHelloCaps, msg.Caps)
+	fw.putU16(fHelloProtocol, msg.Protocol)
+	return fw.bytes()
 }
 
 func DecodeHello(b []byte) (Hello, error) {
 	var msg Hello
-	err := Walk(b, func(tag uint16, kind uint8, fr *FieldReader) error {
+	err := walk(b, func(tag uint16, kind uint8, fr *fieldReader) error {
 		switch tag {
 		case fHelloName:
 			s, err := takeString(kind, fr)
@@ -54,7 +54,7 @@ func DecodeHello(b []byte) (Hello, error) {
 			msg.Protocol = uint16(v) //nolint:gosec // G115: u16 by protocol
 			return err
 		default:
-			return fr.Skip(kind)
+			return fr.skip(kind)
 		}
 	})
 	return msg, err
@@ -86,17 +86,17 @@ func EncodeHelloAck(msg HelloAck) []byte {
 		return nil
 	}
 	fw := sizedWriter(n)
-	fw.PutU16(fHelloAckProtocol, msg.Protocol)
-	fw.PutString(fHelloAckPhiVersion, msg.PhiVersion)
-	fw.PutString(fHelloAckCwd, msg.Cwd)
-	fw.PutString(fHelloAckSessionID, msg.SessionID)
-	fw.PutString(fHelloAckExtensionDir, msg.ExtensionDir)
-	return fw.Bytes()
+	fw.putU16(fHelloAckProtocol, msg.Protocol)
+	fw.putString(fHelloAckPhiVersion, msg.PhiVersion)
+	fw.putString(fHelloAckCwd, msg.Cwd)
+	fw.putString(fHelloAckSessionID, msg.SessionID)
+	fw.putString(fHelloAckExtensionDir, msg.ExtensionDir)
+	return fw.bytes()
 }
 
 func DecodeHelloAck(b []byte) (HelloAck, error) {
 	var msg HelloAck
-	err := Walk(b, func(tag uint16, kind uint8, fr *FieldReader) error {
+	err := walk(b, func(tag uint16, kind uint8, fr *fieldReader) error {
 		switch tag {
 		case fHelloAckProtocol:
 			v, err := takeU64(kind, fr)
@@ -119,7 +119,7 @@ func DecodeHelloAck(b []byte) (HelloAck, error) {
 			msg.ExtensionDir = s
 			return err
 		default:
-			return fr.Skip(kind)
+			return fr.skip(kind)
 		}
 	})
 	return msg, err
@@ -149,17 +149,17 @@ func EncodeRegisterCommand(msg RegisterCommand) []byte {
 		return nil
 	}
 	fw := sizedWriter(n)
-	fw.PutString(fRegisterCommandName, msg.Name)
-	fw.PutString(fRegisterCommandDescription, msg.Description)
+	fw.putString(fRegisterCommandName, msg.Name)
+	fw.putString(fRegisterCommandDescription, msg.Description)
 	if msg.NeedsArgs {
-		fw.PutBool(fRegisterCommandNeedsArgs, msg.NeedsArgs)
+		fw.putBool(fRegisterCommandNeedsArgs, msg.NeedsArgs)
 	}
-	return fw.Bytes()
+	return fw.bytes()
 }
 
 func DecodeRegisterCommand(b []byte) (RegisterCommand, error) {
 	var msg RegisterCommand
-	err := Walk(b, func(tag uint16, kind uint8, fr *FieldReader) error {
+	err := walk(b, func(tag uint16, kind uint8, fr *fieldReader) error {
 		switch tag {
 		case fRegisterCommandName:
 			s, err := takeString(kind, fr)
@@ -174,7 +174,7 @@ func DecodeRegisterCommand(b []byte) (RegisterCommand, error) {
 			msg.NeedsArgs = v != 0
 			return err
 		default:
-			return fr.Skip(kind)
+			return fr.skip(kind)
 		}
 	})
 	return msg, err
@@ -214,24 +214,24 @@ func EncodeRegisterTool(msg RegisterTool) []byte {
 		return nil
 	}
 	fw := sizedWriter(n)
-	fw.PutString(fRegisterToolName, msg.Name)
-	fw.PutString(fRegisterToolDescription, msg.Description)
-	fw.PutBytes(fRegisterToolSchemaJSON, msg.SchemaJSON)
+	fw.putString(fRegisterToolName, msg.Name)
+	fw.putString(fRegisterToolDescription, msg.Description)
+	fw.putBytes(fRegisterToolSchemaJSON, msg.SchemaJSON)
 	if msg.TimeoutSec > 0 {
-		fw.PutU32(fRegisterToolTimeoutSec, msg.TimeoutSec)
+		fw.putU32(fRegisterToolTimeoutSec, msg.TimeoutSec)
 	}
 	if msg.HasDetail {
-		fw.PutBool(fRegisterToolHasDetail, msg.HasDetail)
+		fw.putBool(fRegisterToolHasDetail, msg.HasDetail)
 	}
 	if msg.Readable {
-		fw.PutBool(fRegisterToolReadable, msg.Readable)
+		fw.putBool(fRegisterToolReadable, msg.Readable)
 	}
-	return fw.Bytes()
+	return fw.bytes()
 }
 
 func DecodeRegisterTool(b []byte) (RegisterTool, error) {
 	var msg RegisterTool
-	err := Walk(b, func(tag uint16, kind uint8, fr *FieldReader) error {
+	err := walk(b, func(tag uint16, kind uint8, fr *fieldReader) error {
 		switch tag {
 		case fRegisterToolName:
 			s, err := takeString(kind, fr)
@@ -258,7 +258,7 @@ func DecodeRegisterTool(b []byte) (RegisterTool, error) {
 			msg.Readable = v != 0
 			return err
 		default:
-			return fr.Skip(kind)
+			return fr.skip(kind)
 		}
 	})
 	return msg, err
@@ -306,28 +306,28 @@ func EncodeRegisterModel(msg RegisterModel) []byte {
 		return nil
 	}
 	fw := sizedWriter(n)
-	fw.PutString(fRegisterModelName, msg.Name)
-	fw.PutString(fRegisterModelAPI, msg.API)
-	fw.PutString(fRegisterModelBaseURL, msg.BaseURL)
-	fw.PutString(fRegisterModelAPIKey, msg.APIKey)
-	fw.PutString(fRegisterModelPreset, msg.Preset)
+	fw.putString(fRegisterModelName, msg.Name)
+	fw.putString(fRegisterModelAPI, msg.API)
+	fw.putString(fRegisterModelBaseURL, msg.BaseURL)
+	fw.putString(fRegisterModelAPIKey, msg.APIKey)
+	fw.putString(fRegisterModelPreset, msg.Preset)
 	if msg.ContextWindow > 0 {
-		fw.PutU32(fRegisterModelContextWindow, msg.ContextWindow)
+		fw.putU32(fRegisterModelContextWindow, msg.ContextWindow)
 	}
 	if msg.ImageEnabled {
-		fw.PutBool(fRegisterModelImageEnabled, msg.ImageEnabled)
+		fw.putBool(fRegisterModelImageEnabled, msg.ImageEnabled)
 	}
 	if msg.ThinkEnabled {
-		fw.PutBool(fRegisterModelThinkEnabled, msg.ThinkEnabled)
+		fw.putBool(fRegisterModelThinkEnabled, msg.ThinkEnabled)
 	}
-	fw.PutString(fRegisterModelThinkLevel, msg.ThinkLevel)
-	fw.PutString(fRegisterModelConn, msg.Conn)
-	return fw.Bytes()
+	fw.putString(fRegisterModelThinkLevel, msg.ThinkLevel)
+	fw.putString(fRegisterModelConn, msg.Conn)
+	return fw.bytes()
 }
 
 func DecodeRegisterModel(b []byte) (RegisterModel, error) {
 	var msg RegisterModel
-	err := Walk(b, func(tag uint16, kind uint8, fr *FieldReader) error {
+	err := walk(b, func(tag uint16, kind uint8, fr *fieldReader) error {
 		switch tag {
 		case fRegisterModelName:
 			s, err := takeString(kind, fr)
@@ -370,7 +370,7 @@ func DecodeRegisterModel(b []byte) (RegisterModel, error) {
 			msg.Conn = s
 			return err
 		default:
-			return fr.Skip(kind)
+			return fr.skip(kind)
 		}
 	})
 	return msg, err
@@ -402,17 +402,17 @@ func EncodeModelInvoke(msg ModelInvoke) []byte {
 		return nil
 	}
 	fw := sizedWriter(n)
-	fw.PutString(fModelInvokeModel, msg.Model)
-	fw.PutBytes(fModelInvokeMessagesJSON, msg.MessagesJSON)
-	fw.PutBytes(fModelInvokeToolsJSON, msg.ToolsJSON)
-	fw.PutString(fModelInvokeSystemPrompt, msg.SystemPrompt)
-	fw.PutString(fModelInvokeThink, msg.Think)
-	return fw.Bytes()
+	fw.putString(fModelInvokeModel, msg.Model)
+	fw.putBytes(fModelInvokeMessagesJSON, msg.MessagesJSON)
+	fw.putBytes(fModelInvokeToolsJSON, msg.ToolsJSON)
+	fw.putString(fModelInvokeSystemPrompt, msg.SystemPrompt)
+	fw.putString(fModelInvokeThink, msg.Think)
+	return fw.bytes()
 }
 
 func DecodeModelInvoke(b []byte) (ModelInvoke, error) {
 	var msg ModelInvoke
-	err := Walk(b, func(tag uint16, kind uint8, fr *FieldReader) error {
+	err := walk(b, func(tag uint16, kind uint8, fr *fieldReader) error {
 		switch tag {
 		case fModelInvokeModel:
 			s, err := takeString(kind, fr)
@@ -435,7 +435,7 @@ func DecodeModelInvoke(b []byte) (ModelInvoke, error) {
 			msg.Think = s
 			return err
 		default:
-			return fr.Skip(kind)
+			return fr.skip(kind)
 		}
 	})
 	return msg, err
@@ -469,18 +469,18 @@ func EncodeModelStreamEvent(msg ModelStreamEvent) []byte {
 		return nil
 	}
 	fw := sizedWriter(n)
-	fw.PutString(fModelStreamEventType, msg.Type)
-	fw.PutString(fModelStreamEventContent, msg.Content)
-	fw.PutString(fModelStreamEventReasoning, msg.Reasoning)
-	fw.PutBytes(fModelStreamEventToolCalls, msg.ToolCalls)
-	fw.PutBytes(fModelStreamEventUsageJSON, msg.UsageJSON)
-	fw.PutString(fModelStreamEventError, msg.Error)
-	return fw.Bytes()
+	fw.putString(fModelStreamEventType, msg.Type)
+	fw.putString(fModelStreamEventContent, msg.Content)
+	fw.putString(fModelStreamEventReasoning, msg.Reasoning)
+	fw.putBytes(fModelStreamEventToolCalls, msg.ToolCalls)
+	fw.putBytes(fModelStreamEventUsageJSON, msg.UsageJSON)
+	fw.putString(fModelStreamEventError, msg.Error)
+	return fw.bytes()
 }
 
 func DecodeModelStreamEvent(b []byte) (ModelStreamEvent, error) {
 	var msg ModelStreamEvent
-	err := Walk(b, func(tag uint16, kind uint8, fr *FieldReader) error {
+	err := walk(b, func(tag uint16, kind uint8, fr *fieldReader) error {
 		switch tag {
 		case fModelStreamEventType:
 			s, err := takeString(kind, fr)
@@ -507,7 +507,7 @@ func DecodeModelStreamEvent(b []byte) (ModelStreamEvent, error) {
 			msg.Error = s
 			return err
 		default:
-			return fr.Skip(kind)
+			return fr.skip(kind)
 		}
 	})
 	return msg, err
@@ -531,20 +531,20 @@ func EncodeToolDetailResult(msg ToolDetailResult) []byte {
 		return nil
 	}
 	fw := sizedWriter(n)
-	fw.PutString(fToolDetailResultDetail, msg.Detail)
-	return fw.Bytes()
+	fw.putString(fToolDetailResultDetail, msg.Detail)
+	return fw.bytes()
 }
 
 func DecodeToolDetailResult(b []byte) (ToolDetailResult, error) {
 	var msg ToolDetailResult
-	err := Walk(b, func(tag uint16, kind uint8, fr *FieldReader) error {
+	err := walk(b, func(tag uint16, kind uint8, fr *fieldReader) error {
 		switch tag {
 		case fToolDetailResultDetail:
 			s, err := takeString(kind, fr)
 			msg.Detail = s
 			return err
 		default:
-			return fr.Skip(kind)
+			return fr.skip(kind)
 		}
 	})
 	return msg, err
@@ -570,14 +570,14 @@ func EncodeSubscribe(msg Subscribe) []byte {
 		return nil
 	}
 	fw := sizedWriter(n)
-	fw.PutU16s(fSubscribeEvents, msg.Events)
-	fw.PutU16s(fSubscribeIntercept, msg.Intercept)
-	return fw.Bytes()
+	fw.putU16s(fSubscribeEvents, msg.Events)
+	fw.putU16s(fSubscribeIntercept, msg.Intercept)
+	return fw.bytes()
 }
 
 func DecodeSubscribe(b []byte) (Subscribe, error) {
 	var msg Subscribe
-	err := Walk(b, func(tag uint16, kind uint8, fr *FieldReader) error {
+	err := walk(b, func(tag uint16, kind uint8, fr *fieldReader) error {
 		switch tag {
 		case fSubscribeEvents:
 			p, err := takeBytes(kind, fr)
@@ -594,7 +594,7 @@ func DecodeSubscribe(b []byte) (Subscribe, error) {
 			msg.Intercept, err = decodeU16s(p)
 			return err
 		default:
-			return fr.Skip(kind)
+			return fr.skip(kind)
 		}
 	})
 	return msg, err
@@ -620,14 +620,14 @@ func EncodeCommandInvoked(msg CommandInvoked) []byte {
 		return nil
 	}
 	fw := sizedWriter(n)
-	fw.PutString(fCommandInvokedName, msg.Name)
-	fw.PutString(fCommandInvokedArgs, msg.Args)
-	return fw.Bytes()
+	fw.putString(fCommandInvokedName, msg.Name)
+	fw.putString(fCommandInvokedArgs, msg.Args)
+	return fw.bytes()
 }
 
 func DecodeCommandInvoked(b []byte) (CommandInvoked, error) {
 	var msg CommandInvoked
-	err := Walk(b, func(tag uint16, kind uint8, fr *FieldReader) error {
+	err := walk(b, func(tag uint16, kind uint8, fr *fieldReader) error {
 		switch tag {
 		case fCommandInvokedName:
 			s, err := takeString(kind, fr)
@@ -638,7 +638,7 @@ func DecodeCommandInvoked(b []byte) (CommandInvoked, error) {
 			msg.Args = s
 			return err
 		default:
-			return fr.Skip(kind)
+			return fr.skip(kind)
 		}
 	})
 	return msg, err
@@ -668,16 +668,16 @@ func EncodeCommandResponse(msg CommandResponse) []byte {
 		return nil
 	}
 	fw := sizedWriter(n)
-	fw.PutBool(fCommandResponseOK, msg.OK)
-	fw.PutString(fCommandResponseError, msg.Error)
-	fw.PutString(fCommandResponseNotify, msg.Notify)
-	fw.PutString(fCommandResponseSubmit, msg.Submit)
-	return fw.Bytes()
+	fw.putBool(fCommandResponseOK, msg.OK)
+	fw.putString(fCommandResponseError, msg.Error)
+	fw.putString(fCommandResponseNotify, msg.Notify)
+	fw.putString(fCommandResponseSubmit, msg.Submit)
+	return fw.bytes()
 }
 
 func DecodeCommandResponse(b []byte) (CommandResponse, error) {
 	var msg CommandResponse
-	err := Walk(b, func(tag uint16, kind uint8, fr *FieldReader) error {
+	err := walk(b, func(tag uint16, kind uint8, fr *fieldReader) error {
 		switch tag {
 		case fCommandResponseOK:
 			v, err := takeU64(kind, fr)
@@ -696,7 +696,7 @@ func DecodeCommandResponse(b []byte) (CommandResponse, error) {
 			msg.Submit = s
 			return err
 		default:
-			return fr.Skip(kind)
+			return fr.skip(kind)
 		}
 	})
 	return msg, err
@@ -722,14 +722,14 @@ func EncodeToolInvoke(msg ToolInvoke) []byte {
 		return nil
 	}
 	fw := sizedWriter(n)
-	fw.PutString(fToolInvokeName, msg.Name)
-	fw.PutBytes(fToolInvokeArgs, msg.Args)
-	return fw.Bytes()
+	fw.putString(fToolInvokeName, msg.Name)
+	fw.putBytes(fToolInvokeArgs, msg.Args)
+	return fw.bytes()
 }
 
 func DecodeToolInvoke(b []byte) (ToolInvoke, error) {
 	var msg ToolInvoke
-	err := Walk(b, func(tag uint16, kind uint8, fr *FieldReader) error {
+	err := walk(b, func(tag uint16, kind uint8, fr *fieldReader) error {
 		switch tag {
 		case fToolInvokeName:
 			s, err := takeString(kind, fr)
@@ -740,7 +740,7 @@ func DecodeToolInvoke(b []byte) (ToolInvoke, error) {
 			msg.Args = append([]byte(nil), p...)
 			return err
 		default:
-			return fr.Skip(kind)
+			return fr.skip(kind)
 		}
 	})
 	return msg, err
@@ -776,20 +776,20 @@ func EncodeToolResult(msg ToolResultMsg) []byte {
 		return nil
 	}
 	fw := sizedWriter(n)
-	fw.PutString(fToolResultContent, msg.Content)
-	fw.PutString(fToolResultDetail, msg.Detail)
-	fw.PutString(fToolResultOutput, msg.Output)
-	fw.PutBool(fToolResultIsError, msg.IsError)
-	fw.PutString(fToolResultError, msg.Error)
+	fw.putString(fToolResultContent, msg.Content)
+	fw.putString(fToolResultDetail, msg.Detail)
+	fw.putString(fToolResultOutput, msg.Output)
+	fw.putBool(fToolResultIsError, msg.IsError)
+	fw.putString(fToolResultError, msg.Error)
 	if msg.Expanded {
-		fw.PutBool(fToolResultExpanded, msg.Expanded)
+		fw.putBool(fToolResultExpanded, msg.Expanded)
 	}
-	return fw.Bytes()
+	return fw.bytes()
 }
 
 func DecodeToolResult(b []byte) (ToolResultMsg, error) {
 	var msg ToolResultMsg
-	err := Walk(b, func(tag uint16, kind uint8, fr *FieldReader) error {
+	err := walk(b, func(tag uint16, kind uint8, fr *fieldReader) error {
 		switch tag {
 		case fToolResultContent:
 			s, err := takeString(kind, fr)
@@ -816,7 +816,7 @@ func DecodeToolResult(b []byte) (ToolResultMsg, error) {
 			msg.Expanded = v != 0
 			return err
 		default:
-			return fr.Skip(kind)
+			return fr.skip(kind)
 		}
 	})
 	return msg, err
@@ -860,23 +860,23 @@ func EncodeInterceptReq(msg InterceptReq) []byte {
 		return nil
 	}
 	fw := sizedWriter(n)
-	fw.PutU16(fInterceptReqEvent, msg.Event)
-	fw.PutString(fInterceptReqToolName, msg.ToolName)
-	fw.PutString(fInterceptReqToolCallID, msg.ToolCallID)
-	fw.PutBytes(fInterceptReqInput, msg.Input)
-	fw.PutString(fInterceptReqContent, msg.Content)
-	fw.PutBool(fInterceptReqIsError, msg.IsError)
-	fw.PutString(fInterceptReqErrText, msg.ErrText)
-	fw.PutString(fInterceptReqPrompt, msg.Prompt)
-	fw.PutString(fInterceptReqReason, msg.Reason)
-	fw.PutString(fInterceptReqTargetID, msg.TargetID)
-	fw.PutU32(fInterceptReqTurnIndex, msg.TurnIndex)
-	return fw.Bytes()
+	fw.putU16(fInterceptReqEvent, msg.Event)
+	fw.putString(fInterceptReqToolName, msg.ToolName)
+	fw.putString(fInterceptReqToolCallID, msg.ToolCallID)
+	fw.putBytes(fInterceptReqInput, msg.Input)
+	fw.putString(fInterceptReqContent, msg.Content)
+	fw.putBool(fInterceptReqIsError, msg.IsError)
+	fw.putString(fInterceptReqErrText, msg.ErrText)
+	fw.putString(fInterceptReqPrompt, msg.Prompt)
+	fw.putString(fInterceptReqReason, msg.Reason)
+	fw.putString(fInterceptReqTargetID, msg.TargetID)
+	fw.putU32(fInterceptReqTurnIndex, msg.TurnIndex)
+	return fw.bytes()
 }
 
 func DecodeInterceptReq(b []byte) (InterceptReq, error) {
 	var msg InterceptReq
-	err := Walk(b, func(tag uint16, kind uint8, fr *FieldReader) error {
+	err := walk(b, func(tag uint16, kind uint8, fr *fieldReader) error {
 		switch tag {
 		case fInterceptReqEvent:
 			v, err := takeU64(kind, fr)
@@ -923,7 +923,7 @@ func DecodeInterceptReq(b []byte) (InterceptReq, error) {
 			msg.TurnIndex = uint32(v) //nolint:gosec // G115: u32 by protocol
 			return err
 		default:
-			return fr.Skip(kind)
+			return fr.skip(kind)
 		}
 	})
 	return msg, err
@@ -969,24 +969,24 @@ func EncodeInterceptResp(msg InterceptResp) []byte {
 		return nil
 	}
 	fw := sizedWriter(n)
-	fw.PutBool(fInterceptRespBlock, msg.Block)
-	fw.PutBool(fInterceptRespStop, msg.Stop)
-	fw.PutBool(fInterceptRespCancel, msg.Cancel)
-	fw.PutString(fInterceptRespReason, msg.Reason)
-	fw.PutBytes(fInterceptRespInput, msg.Input)
-	fw.PutString(fInterceptRespContent, msg.Content)
-	fw.PutString(fInterceptRespContext, msg.Context)
-	fw.PutString(fInterceptRespSystemPromptAppend, msg.SystemPromptAppend)
-	fw.PutString(fInterceptRespToast, msg.Toast)
-	fw.PutBool(fInterceptRespHandled, msg.Handled)
-	fw.PutString(fInterceptRespPrompt, msg.Prompt)
-	fw.PutBool(fInterceptRespContinue, msg.Continue)
-	return fw.Bytes()
+	fw.putBool(fInterceptRespBlock, msg.Block)
+	fw.putBool(fInterceptRespStop, msg.Stop)
+	fw.putBool(fInterceptRespCancel, msg.Cancel)
+	fw.putString(fInterceptRespReason, msg.Reason)
+	fw.putBytes(fInterceptRespInput, msg.Input)
+	fw.putString(fInterceptRespContent, msg.Content)
+	fw.putString(fInterceptRespContext, msg.Context)
+	fw.putString(fInterceptRespSystemPromptAppend, msg.SystemPromptAppend)
+	fw.putString(fInterceptRespToast, msg.Toast)
+	fw.putBool(fInterceptRespHandled, msg.Handled)
+	fw.putString(fInterceptRespPrompt, msg.Prompt)
+	fw.putBool(fInterceptRespContinue, msg.Continue)
+	return fw.bytes()
 }
 
 func DecodeInterceptResp(b []byte) (InterceptResp, error) {
 	var msg InterceptResp
-	err := Walk(b, func(tag uint16, kind uint8, fr *FieldReader) error {
+	err := walk(b, func(tag uint16, kind uint8, fr *fieldReader) error {
 		switch tag {
 		case fInterceptRespBlock:
 			v, err := takeU64(kind, fr)
@@ -1037,7 +1037,7 @@ func DecodeInterceptResp(b []byte) (InterceptResp, error) {
 			msg.Continue = v != 0
 			return err
 		default:
-			return fr.Skip(kind)
+			return fr.skip(kind)
 		}
 	})
 	return msg, err
@@ -1081,23 +1081,23 @@ func EncodeEventNotify(msg EventNotify) []byte {
 		return nil
 	}
 	fw := sizedWriter(n)
-	fw.PutU16(fEventNotifyEvent, msg.Event)
-	fw.PutString(fEventNotifyToolName, msg.ToolName)
-	fw.PutString(fEventNotifyToolCallID, msg.ToolCallID)
-	fw.PutBytes(fEventNotifyInput, msg.Input)
-	fw.PutBool(fEventNotifyIsError, msg.IsError)
-	fw.PutString(fEventNotifyPrompt, msg.Prompt)
-	fw.PutString(fEventNotifyReason, msg.Reason)
-	fw.PutU32(fEventNotifyTurnIndex, msg.TurnIndex)
-	fw.PutString(fEventNotifySessionID, msg.SessionID)
-	fw.PutString(fEventNotifyPreviousSessionID, msg.PreviousSessionID)
-	fw.PutString(fEventNotifyTargetSessionID, msg.TargetSessionID)
-	return fw.Bytes()
+	fw.putU16(fEventNotifyEvent, msg.Event)
+	fw.putString(fEventNotifyToolName, msg.ToolName)
+	fw.putString(fEventNotifyToolCallID, msg.ToolCallID)
+	fw.putBytes(fEventNotifyInput, msg.Input)
+	fw.putBool(fEventNotifyIsError, msg.IsError)
+	fw.putString(fEventNotifyPrompt, msg.Prompt)
+	fw.putString(fEventNotifyReason, msg.Reason)
+	fw.putU32(fEventNotifyTurnIndex, msg.TurnIndex)
+	fw.putString(fEventNotifySessionID, msg.SessionID)
+	fw.putString(fEventNotifyPreviousSessionID, msg.PreviousSessionID)
+	fw.putString(fEventNotifyTargetSessionID, msg.TargetSessionID)
+	return fw.bytes()
 }
 
 func DecodeEventNotify(b []byte) (EventNotify, error) {
 	var msg EventNotify
-	err := Walk(b, func(tag uint16, kind uint8, fr *FieldReader) error {
+	err := walk(b, func(tag uint16, kind uint8, fr *fieldReader) error {
 		switch tag {
 		case fEventNotifyEvent:
 			v, err := takeU64(kind, fr)
@@ -1144,7 +1144,7 @@ func DecodeEventNotify(b []byte) (EventNotify, error) {
 			msg.TargetSessionID = s
 			return err
 		default:
-			return fr.Skip(kind)
+			return fr.skip(kind)
 		}
 	})
 	return msg, err
@@ -1174,16 +1174,16 @@ func EncodeNotify(msg NotifyMsg) []byte {
 		return nil
 	}
 	fw := sizedWriter(n)
-	fw.PutString(fNotifyLevel, msg.Level)
-	fw.PutString(fNotifyMessage, msg.Message)
-	fw.PutString(fNotifyStatus, msg.Status)
-	fw.PutBool(fNotifyStatusSet, msg.StatusSet)
-	return fw.Bytes()
+	fw.putString(fNotifyLevel, msg.Level)
+	fw.putString(fNotifyMessage, msg.Message)
+	fw.putString(fNotifyStatus, msg.Status)
+	fw.putBool(fNotifyStatusSet, msg.StatusSet)
+	return fw.bytes()
 }
 
 func DecodeNotify(b []byte) (NotifyMsg, error) {
 	var msg NotifyMsg
-	err := Walk(b, func(tag uint16, kind uint8, fr *FieldReader) error {
+	err := walk(b, func(tag uint16, kind uint8, fr *fieldReader) error {
 		switch tag {
 		case fNotifyLevel:
 			s, err := takeString(kind, fr)
@@ -1202,7 +1202,7 @@ func DecodeNotify(b []byte) (NotifyMsg, error) {
 			msg.StatusSet = v != 0
 			return err
 		default:
-			return fr.Skip(kind)
+			return fr.skip(kind)
 		}
 	})
 	return msg, err
@@ -1228,14 +1228,14 @@ func EncodeHostRequest(msg HostRequest) []byte {
 		return nil
 	}
 	fw := sizedWriter(n)
-	fw.PutString(fHostRequestMethod, msg.Method)
-	fw.PutString(fHostRequestArg, msg.Arg)
-	return fw.Bytes()
+	fw.putString(fHostRequestMethod, msg.Method)
+	fw.putString(fHostRequestArg, msg.Arg)
+	return fw.bytes()
 }
 
 func DecodeHostRequest(b []byte) (HostRequest, error) {
 	var msg HostRequest
-	err := Walk(b, func(tag uint16, kind uint8, fr *FieldReader) error {
+	err := walk(b, func(tag uint16, kind uint8, fr *fieldReader) error {
 		switch tag {
 		case fHostRequestMethod:
 			s, err := takeString(kind, fr)
@@ -1246,7 +1246,7 @@ func DecodeHostRequest(b []byte) (HostRequest, error) {
 			msg.Arg = s
 			return err
 		default:
-			return fr.Skip(kind)
+			return fr.skip(kind)
 		}
 	})
 	return msg, err
@@ -1274,15 +1274,15 @@ func EncodeHostResult(msg HostResult) []byte {
 		return nil
 	}
 	fw := sizedWriter(n)
-	fw.PutBool(fHostResultOK, msg.OK)
-	fw.PutString(fHostResultError, msg.Error)
-	fw.PutString(fHostResultBody, msg.Body)
-	return fw.Bytes()
+	fw.putBool(fHostResultOK, msg.OK)
+	fw.putString(fHostResultError, msg.Error)
+	fw.putString(fHostResultBody, msg.Body)
+	return fw.bytes()
 }
 
 func DecodeHostResult(b []byte) (HostResult, error) {
 	var msg HostResult
-	err := Walk(b, func(tag uint16, kind uint8, fr *FieldReader) error {
+	err := walk(b, func(tag uint16, kind uint8, fr *fieldReader) error {
 		switch tag {
 		case fHostResultOK:
 			v, err := takeU64(kind, fr)
@@ -1297,7 +1297,7 @@ func DecodeHostResult(b []byte) (HostResult, error) {
 			msg.Body = s
 			return err
 		default:
-			return fr.Skip(kind)
+			return fr.skip(kind)
 		}
 	})
 	return msg, err
@@ -1323,14 +1323,14 @@ func EncodeSessionMeta(msg SessionMeta) []byte {
 		return nil
 	}
 	fw := sizedWriter(n)
-	fw.PutString(fSessionMetaSessionID, msg.SessionID)
-	fw.PutString(fSessionMetaCwd, msg.Cwd)
-	return fw.Bytes()
+	fw.putString(fSessionMetaSessionID, msg.SessionID)
+	fw.putString(fSessionMetaCwd, msg.Cwd)
+	return fw.bytes()
 }
 
 func DecodeSessionMeta(b []byte) (SessionMeta, error) {
 	var msg SessionMeta
-	err := Walk(b, func(tag uint16, kind uint8, fr *FieldReader) error {
+	err := walk(b, func(tag uint16, kind uint8, fr *fieldReader) error {
 		switch tag {
 		case fSessionMetaSessionID:
 			s, err := takeString(kind, fr)
@@ -1341,7 +1341,7 @@ func DecodeSessionMeta(b []byte) (SessionMeta, error) {
 			msg.Cwd = s
 			return err
 		default:
-			return fr.Skip(kind)
+			return fr.skip(kind)
 		}
 	})
 	return msg, err

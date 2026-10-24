@@ -39,6 +39,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- Go SDK: `pxb` no longer exports tagged-field plumbing (`FieldWriter`,
+  `FieldReader`, `Walk`, `ByteWriter`, `ByteReader`, `DumpType`,
+  `ReadFrameBuf`, `Magic`, the `Wire*` kind constants). None of it was usable
+  from outside the package — encoders and decoders are generated — and the
+  surviving surface now matches the Rust and TS SDKs: transport
+  (`Reader`/`Writer`/`Frame`/`WriteFrame`/`ReadFrame`/`CloneBody`), generated
+  messages, and wire constants. `ByteWriter`, `ByteReader`, and `DumpType`
+  were unreachable and are deleted outright.
 - `!` shell completion now ranks by recency only: it lists project-history
   commands that literally start with the typed text, newest first. The TypeSafe
   Jev judge is gone, so completion works offline and never sends shell history
