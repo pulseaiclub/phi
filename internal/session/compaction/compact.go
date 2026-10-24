@@ -206,7 +206,7 @@ func summarizeMidTurnCut(
 			ctx,
 			llm,
 			preparation.TurnPrefixMessages,
-			summarizationCap(preparation.ReserveTokens, turnPrefixSummaryRatio),
+			summarizationCap(preparation.ReserveTokens, turnPrefixSummaryRatio, maxTurnPrefixSummaryTokens),
 		)
 	}()
 
@@ -245,7 +245,7 @@ func summarizeHistory(
 		llm,
 		preparation.MessagesToSummarize,
 		preparation.PreviousSummary,
-		summarizationCap(preparation.ReserveTokens, historySummaryRatio),
+		summarizationCap(preparation.ReserveTokens, historySummaryRatio, maxHistorySummaryTokens),
 	)
 }
 

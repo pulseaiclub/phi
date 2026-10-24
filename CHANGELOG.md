@@ -74,6 +74,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Auto-compact no longer fails when the model stops the summary at its output
+  cap. The capped answer is rewritten once from its own draft, so a long
+  session still produces a checkpoint instead of an unusable full context.
+- Summaries are capped at 4096 tokens (2048 for a turn prefix) instead of
+  `0.8 × reserveTokens`: a checkpoint should stay a handoff note, and asking
+  for 13k output tokens only invites providers with smaller limits to truncate.
+
 ### Security
 
 ## [0.29.0] - 2026-10-18

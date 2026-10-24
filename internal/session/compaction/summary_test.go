@@ -22,6 +22,9 @@ type captureCompactor struct {
 	maxTokens []int
 	text      string
 	truncated bool
+	// truncatedOnce caps only the first answer so tests can drive the rewrite
+	// retry that follows a capped summary.
+	truncatedOnce bool
 	// textFor picks the canned answer per prompt, so tests can hand a blank
 	// answer to one mid-turn bucket and a valid one to the other. The two
 	// buckets run in parallel with no fixed order, so a single fixed text
@@ -42,7 +45,8 @@ func (c *captureCompactor) Compact(_ context.Context, req llm.CompactRequest) (l
 	if c.textFor != nil {
 		text = c.textFor(req.Prompt)
 	}
-	return llm.CompactResult{Text: text, Truncated: c.truncated}, nil
+	truncated := c.truncated || (c.truncatedOnce && len(c.prompts) == 1)
+	return llm.CompactResult{Text: text, Truncated: truncated}, nil
 }
 
 func TestGenerateTurnPrefixSummary_IncludesPrompt(t *testing.T) {
@@ -83,9 +87,33 @@ func TestGenerateSummary_IncludesPrompt(t *testing.T) {
 	assert.Equal(t, []int{2048}, c.maxTokens)
 }
 
-// A summary that stopped at the token cap is a prefix of what the model meant
-// to write. Persisting it as the session summary would drop the history it
-// replaced, so both summary paths must fail instead.
+// A capped answer is retried once as a rewrite of its own draft, so a model
+// that rambled past the cap still produces a complete checkpoint.
+func TestGenerateSummary_Truncated_RetriesRewrite(t *testing.T) {
+	c := &captureCompactor{
+		truncatedOnce: true,
+		textFor: func(prompt string) string {
+			if strings.Contains(prompt, "<draft-summary>") {
+				return "## Goal\ncomplete"
+			}
+			return "## Goal\ncut off"
+		},
+	}
+
+	got, err := generateSummary(t.Context(), c, []llm.Message{{Role: llm.RoleUser, Content: "hi"}}, "", 4096)
+
+	require.NoError(t, err)
+	assert.Equal(t, "## Goal\ncomplete", got)
+	require.Len(t, c.prompts, 2)
+	assert.Contains(t, c.prompts[1], "<draft-summary>\n## Goal\ncut off\n</draft-summary>",
+		"the rewrite must carry the capped draft")
+	assert.Contains(t, c.prompts[1], compactionRewriteDraftPrompt)
+	assert.Equal(t, []int{4096, 4096}, c.maxTokens, "the rewrite gets the same cap")
+}
+
+// A summary that stops at the token cap every time is a prefix of what the
+// model meant to write. Persisting it as the session summary would drop the
+// history it replaced, so both summary paths must still fail after the retry.
 func TestGenerateSummary_Truncated_ReturnsError(t *testing.T) {
 	c := &captureCompactor{truncated: true}
 
@@ -93,6 +121,7 @@ func TestGenerateSummary_Truncated_ReturnsError(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Equal(t, "Summarization failed: generation hit the token cap, summary incomplete", err.Error())
+	assert.Len(t, c.prompts, 2, "a capped answer is retried exactly once")
 }
 
 func TestGenerateTurnPrefixSummary_Truncated_ReturnsError(t *testing.T) {
@@ -141,10 +170,22 @@ func TestGenerateTurnPrefixSummary_BlankText_ReturnsError(t *testing.T) {
 }
 
 func TestSummarizationCap(t *testing.T) {
-	// Default reserveTokens is 16384: 0.8 for history, 0.5 for the turn prefix.
-	assert.Equal(t, 13107, summarizationCap(16384, historySummaryRatio))
-	assert.Equal(t, 8192, summarizationCap(16384, turnPrefixSummaryRatio))
-	assert.Equal(t, 0, summarizationCap(0, historySummaryRatio), "no budget means the provider default")
+	// Default reserveTokens is 16384: 0.8 for history, 0.5 for the turn prefix,
+	// both clamped to the ceiling a checkpoint is worth.
+	assert.Equal(
+		t,
+		maxHistorySummaryTokens,
+		summarizationCap(16384, historySummaryRatio, maxHistorySummaryTokens),
+	)
+	assert.Equal(
+		t,
+		maxTurnPrefixSummaryTokens,
+		summarizationCap(16384, turnPrefixSummaryRatio, maxTurnPrefixSummaryTokens),
+	)
+	assert.Equal(t, 800, summarizationCap(1000, historySummaryRatio, maxHistorySummaryTokens),
+		"a small headroom still binds below the ceiling")
+	assert.Equal(t, 0, summarizationCap(0, historySummaryRatio, maxHistorySummaryTokens),
+		"no budget means the provider default")
 }
 
 // A mid-turn cut summarizes two buckets at once, each with its own cap.
@@ -160,7 +201,7 @@ func TestSummarizeMidTurnCut_CapsEachSummary(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, summary, "SUMMARY")
 	assert.Contains(t, summary, "Turn Context (mid-turn cut)")
-	assert.ElementsMatch(t, []int{13107, 8192}, c.maxTokens)
+	assert.ElementsMatch(t, []int{maxHistorySummaryTokens, maxTurnPrefixSummaryTokens}, c.maxTokens)
 }
 
 // A blank answer from either mid-turn bucket must fail the whole cut. The file

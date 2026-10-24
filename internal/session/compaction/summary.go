@@ -16,29 +16,38 @@ var (
 	compactionUpdateSummaryPrompt string
 	//go:embed compaction-turn-prefix.tmpl
 	compactionTurnPrefixPrompt string
+	//go:embed compaction-rewrite-draft.tmpl
+	compactionRewriteDraftPrompt string
 )
 
 // Summaries are capped at a fraction of the headroom compaction frees
 // (reserveTokens). A summary larger than the headroom it creates does not pay
 // for itself, and the turn-prefix budget is smaller because it only recovers
 // the tail of one turn.
+//
+// The ceilings keep a checkpoint a handoff note rather than a transcript: past
+// a few thousand tokens it costs the next request more context than it saves,
+// and a cap above the provider's own output limit only buys a truncated answer.
 const (
 	historySummaryRatio    = 0.8
 	turnPrefixSummaryRatio = 0.5
+
+	maxHistorySummaryTokens    = 4096
+	maxTurnPrefixSummaryTokens = 2048
 )
 
 // summarizationCap returns the output cap for one summary. Zero means the
 // provider default (no budget to derive a cap from).
-func summarizationCap(reserveTokens int, ratio float64) int {
+func summarizationCap(reserveTokens int, ratio float64, ceiling int) int {
 	if reserveTokens <= 0 {
 		return 0
 	}
-	return int(float64(reserveTokens) * ratio)
+	return min(int(float64(reserveTokens)*ratio), ceiling)
 }
 
-// errTruncatedSummary reports a summary that hit the output cap: its text is a
-// prefix of the summary the model meant to write, so persisting it would drop
-// the history it replaced.
+// errTruncatedSummary reports a summary that hit the output cap again after its
+// rewrite: the text is a prefix of the summary the model meant to write, so
+// persisting it would drop the history it replaced.
 func errTruncatedSummary(label string) error {
 	return fmt.Errorf("%s failed: generation hit the token cap, summary incomplete", label)
 }
@@ -90,9 +99,34 @@ func generateTurnPrefixSummary(
 	return compact(ctx, compactor, promptText, maxTokens, "Turn prefix summarization")
 }
 
-// compact runs one summarization call and rejects a capped or blank answer:
-// either way there is no usable summary, and persisting what came back would
-// silently drop the history it is meant to stand in for.
+// rewriteDraft asks the model to turn its own capped answer into a complete
+// summary. A second call with the original prompt only truncates at the same
+// place, but the draft already holds most of the content, so a tighter rewrite
+// either fits the cap or the answer is not summarizable at all.
+func rewriteDraft(
+	ctx context.Context,
+	compactor llm.Compactor,
+	draft string,
+	maxTokens int,
+	label string,
+) (string, error) {
+	promptText := fmt.Sprintf("<draft-summary>\n%s\n</draft-summary>\n\n%s", draft, compactionRewriteDraftPrompt)
+	res, err := compactor.Compact(ctx, llm.CompactRequest{Prompt: promptText, MaxTokens: maxTokens})
+	if err != nil {
+		return "", err
+	}
+	if res.Truncated {
+		return "", errTruncatedSummary(label)
+	}
+	return res.Text, nil
+}
+
+// compact runs one summarization call. A capped answer gets one rewrite before
+// it counts as a failure: persisting a prefix of the summary would silently
+// drop the history it is meant to stand in for, but failing the whole
+// compaction leaves a full context with no way forward, so the cap is retried
+// once on its own text. A blank answer has nothing to rewrite from and fails
+// immediately.
 func compact(
 	ctx context.Context,
 	compactor llm.Compactor,
@@ -104,11 +138,15 @@ func compact(
 	if err != nil {
 		return "", err
 	}
+	text := res.Text
 	if res.Truncated {
-		return "", errTruncatedSummary(label)
+		text, err = rewriteDraft(ctx, compactor, res.Text, maxTokens, label)
+		if err != nil {
+			return "", err
+		}
 	}
-	if strings.TrimSpace(res.Text) == "" {
+	if strings.TrimSpace(text) == "" {
 		return "", errEmptySummary(label)
 	}
-	return res.Text, nil
+	return text, nil
 }

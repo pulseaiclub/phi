@@ -408,11 +408,105 @@ func TestLoopOverflowRejectsCappedSummary(t *testing.T) {
 	require.Error(t, lastErr)
 	require.True(t, llm.IsContextOverflow(lastErr), "the original overflow surfaces unchanged")
 	require.Equal(t, int32(1), streamHits.Load(), "no retry on a failed compact")
-	// Default reserveTokens is 16384, so the history summary is capped at 0.8x.
-	require.InDelta(t, 13107, compactMaxTokens, 0.5)
+	// A history summary is capped at a checkpoint-sized ceiling, below the
+	// 0.8x of the default 16384 reserveTokens.
+	require.InDelta(t, 4096, compactMaxTokens, 0.5)
 	for _, entry := range sess.PathEntries() {
 		require.NotEqual(t, session.EntryCompaction, entry.GetType(), "no checkpoint was persisted")
 	}
+}
+
+// A summary that runs into the output cap is rewritten from its own draft
+// instead of failing the compaction: an overflowing session must recover, not
+// leave the user with a full context and no way forward.
+func TestLoopOverflowRewritesCappedSummary(t *testing.T) {
+	var streamHits atomic.Int32
+	var compactHits atomic.Int32
+	var rewrote atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if stream, _ := body["stream"].(bool); stream {
+			n := streamHits.Add(1)
+			if n == 1 {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"error":{"message":"prompt is too long: 210000 > 200000 tokens"}}`))
+				return
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = fmt.Fprint(w, sseTextChunk("recovered"))
+			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+			return
+		}
+		// The first summary stops at the cap; the rewrite of its draft fits.
+		compactHits.Add(1)
+		finishReason := "length"
+		content := "prior work cut off"
+		if prompts, _ := body["messages"].([]any); prompts != nil {
+			last, _ := prompts[len(prompts)-1].(map[string]any)
+			if text, _ := last["content"].(string); strings.Contains(text, "<draft-summary>") {
+				rewrote.Store(true)
+				finishReason = "stop"
+				content = "prior work summarized"
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []any{map[string]any{
+				"message":       map[string]any{"role": "assistant", "content": content},
+				"finish_reason": finishReason,
+			}},
+		})
+	}))
+	defer server.Close()
+
+	sess, err := NewSession(WithCwd(t.TempDir()))
+	require.NoError(t, err)
+	require.NoError(t, sess.Append(
+		llm.Message{Role: llm.RoleUser, Content: compactionSeed, Usage: llm.Usage{TotalTokens: 12000}},
+		llm.Message{Role: llm.RoleAssistant, Content: compactionSeed, Usage: llm.Usage{TotalTokens: 24000}},
+		llm.Message{Role: llm.RoleUser, Content: compactionSeed, Usage: llm.Usage{TotalTokens: 36000}},
+		llm.Message{Role: llm.RoleAssistant, Content: compactionSeed, Usage: llm.Usage{TotalTokens: 50000}},
+	))
+
+	engine, err := NewEngine(
+		llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 200_000},
+		sess,
+		WithGate(permission.AllowAll{}),
+		WithTools([]tooldef.Tool{}),
+	)
+	require.NoError(t, err)
+
+	var lastErr error
+	var finalText string
+	var checkpoint string
+	for ev, err := range engine.Loop(t.Context(), "continue", LoopOpts{}) {
+		if err != nil {
+			lastErr = err
+			break
+		}
+		switch e := ev.(type) {
+		case session.CompactionComplete:
+			require.False(t, e.Failed, "the rewrite must not fail the compaction")
+		case session.AssistantMessageUpdate:
+			if e.Message.State == session.StateComplete {
+				finalText = e.Message.FlatText()
+			}
+		}
+	}
+	require.NoError(t, lastErr)
+	require.Equal(t, int32(2), compactHits.Load(), "one capped summary plus one rewrite")
+	require.True(t, rewrote.Load(), "the retry must carry the capped draft")
+	require.Equal(t, int32(2), streamHits.Load(), "overflow then one retry stream")
+	require.Equal(t, "recovered", finalText)
+	for _, entry := range sess.PathEntries() {
+		if entry.GetType() == session.EntryCompaction {
+			checkpoint = entry.(session.CompactionEntry).Compaction.Summary
+		}
+	}
+	require.Contains(t, checkpoint, "prior work summarized", "the rewrite becomes the checkpoint")
+	require.NotContains(t, checkpoint, "cut off")
 }
 
 // A blank summary is as useless as a capped one. It must not become the
@@ -475,7 +569,7 @@ func TestLoopOverflowRejectsBlankSummary(t *testing.T) {
 	require.Error(t, lastErr)
 	require.True(t, llm.IsContextOverflow(lastErr), "the original overflow surfaces unchanged")
 	require.Equal(t, int32(1), streamHits.Load(), "no retry on a failed compact")
-	require.InDelta(t, 13107, compactMaxTokens, 0.5)
+	require.InDelta(t, 4096, compactMaxTokens, 0.5)
 	for _, entry := range sess.PathEntries() {
 		require.NotEqual(t, session.EntryCompaction, entry.GetType(), "no checkpoint was persisted")
 	}
