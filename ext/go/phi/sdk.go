@@ -420,12 +420,14 @@ func (extension *ExtensionAPI) run(r io.Reader, w io.Writer) (err error) {
 		}
 	}
 
+	// Bodies are consumed synchronously within each case and never outlive
+	// the iteration, so fr.Body (which aliases the reader buffer) is used
+	// directly — no per-frame copy. ModelInvoke decodes before its goroutine.
 	for !extension.stopped() {
 		fr, err := extension.nextFrame()
 		if err != nil {
 			return err
 		}
-		body := pxb.CloneBody(fr)
 		switch fr.Type {
 		case pxb.TypeShutdown:
 			extension.write(pxb.TypeShutdownAck, 0, 0, nil)
@@ -433,7 +435,7 @@ func (extension *ExtensionAPI) run(r io.Reader, w io.Writer) (err error) {
 			extension.shutdown = true
 			extension.mu.Unlock()
 		case pxb.TypeCommandInvoked:
-			inv, err := pxb.DecodeCommandInvoked(body)
+			inv, err := pxb.DecodeCommandInvoked(fr.Body)
 			if err != nil {
 				return err
 			}
@@ -458,7 +460,7 @@ func (extension *ExtensionAPI) run(r io.Reader, w io.Writer) (err error) {
 			extension.mu.Unlock()
 			extension.write(pxb.TypeCommandResponse, fr.Flags, fr.ID, pxb.EncodeCommandResponse(resp))
 		case pxb.TypeToolInvoke:
-			inv, err := pxb.DecodeToolInvoke(body)
+			inv, err := pxb.DecodeToolInvoke(fr.Body)
 			if err != nil {
 				return err
 			}
@@ -478,7 +480,7 @@ func (extension *ExtensionAPI) run(r io.Reader, w io.Writer) (err error) {
 			}
 			extension.write(pxb.TypeToolResult, fr.Flags, fr.ID, pxb.EncodeToolResult(tr))
 		case pxb.TypeToolDetailInvoke:
-			inv, err := pxb.DecodeToolInvoke(body)
+			inv, err := pxb.DecodeToolInvoke(fr.Body)
 			if err != nil {
 				return err
 			}
@@ -493,7 +495,7 @@ func (extension *ExtensionAPI) run(r io.Reader, w io.Writer) (err error) {
 				pxb.EncodeToolDetailResult(pxb.ToolDetailResult{Detail: detail}),
 			)
 		case pxb.TypeModelInvoke:
-			inv, err := pxb.DecodeModelInvoke(body)
+			inv, err := pxb.DecodeModelInvoke(fr.Body)
 			if err != nil {
 				return err
 			}
@@ -516,9 +518,11 @@ func (extension *ExtensionAPI) run(r io.Reader, w io.Writer) (err error) {
 			}
 			// Stream handlers run off the read loop: the host may invoke while
 			// other RPCs queue, and ModelCancel frames must stay readable.
+			// Only the header fields cross over — fr.Body is stale once the
+			// loop reads again.
 			go func() {
 				defer cancel()
-				extension.runModelStream(ctx, fr, m, inv)
+				extension.runModelStream(ctx, fr.Flags, fr.ID, m, inv)
 			}()
 		case pxb.TypeModelCancel:
 			extension.mu.Lock()
@@ -528,14 +532,14 @@ func (extension *ExtensionAPI) run(r io.Reader, w io.Writer) (err error) {
 			}
 			extension.mu.Unlock()
 		case pxb.TypeIntercept:
-			req, err := pxb.DecodeInterceptReq(body)
+			req, err := pxb.DecodeInterceptReq(fr.Body)
 			if err != nil {
 				return err
 			}
 			resp := extension.handleIntercept(req)
 			extension.write(pxb.TypeInterceptResponse, fr.Flags, fr.ID, pxb.EncodeInterceptResp(resp))
 		case pxb.TypeEvent:
-			ev, err := pxb.DecodeEventNotify(body)
+			ev, err := pxb.DecodeEventNotify(fr.Body)
 			if err != nil {
 				return err
 			}
@@ -546,7 +550,7 @@ func (extension *ExtensionAPI) run(r io.Reader, w io.Writer) (err error) {
 				fn(ev)
 			}
 		case pxb.TypeSessionMeta:
-			meta, err := pxb.DecodeSessionMeta(body)
+			meta, err := pxb.DecodeSessionMeta(fr.Body)
 			if err != nil {
 				return err
 			}
@@ -567,21 +571,24 @@ func (extension *ExtensionAPI) run(r io.Reader, w io.Writer) (err error) {
 
 // runModelStream drives one Model.Stream call on its own goroutine: emits map
 // to ModelStreamEvent frames echoing the invoke ID, and the return value picks
-// the terminal done/error frame.
+// the terminal done/error frame. It takes the frame header fields, not the
+// Frame: the body aliases the reader buffer and is stale by the time the
+// goroutine runs.
 func (extension *ExtensionAPI) runModelStream(
 	ctx context.Context,
-	fr pxb.Frame,
+	flags uint16,
+	id uint32,
 	m ext.Model,
 	inv pxb.ModelInvoke,
 ) {
 	defer func() {
 		extension.mu.Lock()
-		delete(extension.activeModels, fr.ID)
+		delete(extension.activeModels, id)
 		extension.mu.Unlock()
 	}()
 	req, err := buildModelRequest(inv)
 	if err != nil {
-		extension.write(pxb.TypeModelStream, fr.Flags, fr.ID,
+		extension.write(pxb.TypeModelStream, flags, id,
 			pxb.EncodeModelStreamEvent(pxb.ModelStreamEvent{Type: "error", Error: err.Error()}))
 		return
 	}
@@ -601,18 +608,18 @@ func (extension *ExtensionAPI) runModelStream(
 			}
 			frame.UsageJSON = b
 		}
-		extension.write(pxb.TypeModelStream, fr.Flags, fr.ID, pxb.EncodeModelStreamEvent(frame))
+		extension.write(pxb.TypeModelStream, flags, id, pxb.EncodeModelStreamEvent(frame))
 		if extension.stopped() {
 			return errors.New("phi: host connection closed")
 		}
 		return nil
 	}
 	if serr := m.Stream(ctx, req, emit); serr != nil {
-		extension.write(pxb.TypeModelStream, fr.Flags, fr.ID,
+		extension.write(pxb.TypeModelStream, flags, id,
 			pxb.EncodeModelStreamEvent(pxb.ModelStreamEvent{Type: "error", Error: serr.Error()}))
 		return
 	}
-	extension.write(pxb.TypeModelStream, fr.Flags, fr.ID,
+	extension.write(pxb.TypeModelStream, flags, id,
 		pxb.EncodeModelStreamEvent(pxb.ModelStreamEvent{Type: "done"}))
 }
 
