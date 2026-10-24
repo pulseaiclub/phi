@@ -4,7 +4,7 @@ package pxb
 const ProtocolVersion uint16 = 1
 
 // Frame magic: P X B + version byte.
-var Magic = [4]byte{'P', 'X', 'B', 0x01}
+var magic = [4]byte{'P', 'X', 'B', 0x01}
 
 // HeaderSize is the fixed frame header length.
 const HeaderSize = 16
