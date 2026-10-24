@@ -198,7 +198,10 @@ fn full_extension_confirm_tool_and_submit() {
 
     let hello = h.handshake();
     assert_eq!(hello.name, "full");
-    assert_eq!(hello.caps, pxb::CAP_COMMANDS | pxb::CAP_TOOLS | pxb::CAP_LARGE_FRAMES);
+    assert_eq!(
+        hello.caps,
+        pxb::CAP_COMMANDS | pxb::CAP_TOOLS | pxb::CAP_LARGE_FRAMES
+    );
 
     // Command "ask" issues a confirm HostRequest (id 1), waits for the
     // HostResult, then notifies and replies with the queued submit.
