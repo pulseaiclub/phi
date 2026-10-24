@@ -46,7 +46,7 @@ func DecodeHeader(src []byte) (Header, error) {
 		ID:      binary.LittleEndian.Uint32(src[8:12]),
 		Payload: binary.LittleEndian.Uint32(src[12:16]),
 	}
-	if h.Payload > MaxPayload {
+	if h.Payload > MaxStreamPayload {
 		return Header{}, ErrPayloadLarge
 	}
 	return h, nil
@@ -58,9 +58,10 @@ type Frame struct {
 	Body []byte // payload only; may alias a pooled buffer
 }
 
-// WriteFrame writes header + body to w.
+// WriteFrame writes header + body to w. The size check here is the transport
+// ceiling; connection-level policy (negotiated caps) lives in Writer.Write.
 func WriteFrame(w io.Writer, typ, flags uint16, id uint32, body []byte) error {
-	if len(body) > MaxPayload {
+	if len(body) > MaxStreamPayload {
 		return ErrPayloadLarge
 	}
 	var hdr [HeaderSize]byte
@@ -127,11 +128,24 @@ type Writer struct {
 	w   io.Writer
 	mu  sync.Mutex
 	buf []byte
+	// max is this connection's send cap: MaxPayload until the peer negotiates
+	// CapLargeFrames, then MaxStreamPayload. Set before traffic starts.
+	max uint32
 }
 
 // NewWriter wraps w.
 func NewWriter(w io.Writer) *Writer {
-	return &Writer{w: w, buf: make([]byte, 0, 256)}
+	return &Writer{w: w, buf: make([]byte, 0, 256), max: MaxPayload}
+}
+
+// SetMaxPayload raises the send cap after the handshake advertised support.
+func (wr *Writer) SetMaxPayload(n uint32) {
+	wr.mu.Lock()
+	defer wr.mu.Unlock()
+	if n > MaxStreamPayload {
+		n = MaxStreamPayload
+	}
+	wr.max = n
 }
 
 // Write sends one frame. body is copied into an internal buffer only when
@@ -139,6 +153,9 @@ func NewWriter(w io.Writer) *Writer {
 func (wr *Writer) Write(typ, flags uint16, id uint32, body []byte) error {
 	wr.mu.Lock()
 	defer wr.mu.Unlock()
+	if uint64(len(body)) > uint64(wr.max) {
+		return ErrPayloadLarge
+	}
 	return WriteFrame(wr.w, typ, flags, id, body)
 }
 

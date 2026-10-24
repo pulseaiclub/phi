@@ -10,6 +10,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Extensions can receive `ModelInvoke` frames past the 16 MiB default payload
+  cap. The Go, Rust, and TS SDKs advertise `CapLargeFrames` in the hello
+  handshake; the host then raises its send cap to `MaxStreamPayload`
+  (256 MiB), so long sessions no longer fail an ext-served model request once
+  the serialized conversation history outgrows the old limit. Extensions that
+  predate the capability keep the 16 MiB cap and fail exactly as before.
 - `/diff` opens the same searchable picker as `/branch`, showing each changed
   file once with its modification type. Select a file to review its complete
   changes relative to HEAD; new files are shown as additions. Escape returns

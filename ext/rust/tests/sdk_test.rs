@@ -120,7 +120,7 @@ fn hello_extension_lifecycle() {
     assert_eq!(hello.protocol, pxb::PROTOCOL_VERSION);
     assert_eq!(
         hello.caps,
-        pxb::CAP_COMMANDS | pxb::CAP_INTERCEPT | pxb::CAP_EVENTS
+        pxb::CAP_COMMANDS | pxb::CAP_INTERCEPT | pxb::CAP_EVENTS | pxb::CAP_LARGE_FRAMES
     );
 
     // Command invoke → Notify frame, then CommandResponse echoing id.
@@ -198,7 +198,7 @@ fn full_extension_confirm_tool_and_submit() {
 
     let hello = h.handshake();
     assert_eq!(hello.name, "full");
-    assert_eq!(hello.caps, pxb::CAP_COMMANDS | pxb::CAP_TOOLS);
+    assert_eq!(hello.caps, pxb::CAP_COMMANDS | pxb::CAP_TOOLS | pxb::CAP_LARGE_FRAMES);
 
     // Command "ask" issues a confirm HostRequest (id 1), waits for the
     // HostResult, then notifies and replies with the queued submit.
@@ -318,7 +318,7 @@ fn models_extension_registration_and_stream() {
     let mut h = Host::spawn("models");
     let hello = h.handshake();
     assert_eq!(hello.name, "models");
-    assert_eq!(hello.caps, pxb::CAP_MODELS);
+    assert_eq!(hello.caps, pxb::CAP_MODELS | pxb::CAP_LARGE_FRAMES);
 
     let regs: Vec<pxb::RegisterModel> = h
         .registrations

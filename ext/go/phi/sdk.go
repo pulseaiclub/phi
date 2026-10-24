@@ -308,7 +308,10 @@ func (extension *ExtensionAPI) run(r io.Reader, w io.Writer) (err error) {
 	extension.wr = pxb.NewWriter(w)
 	extension.rd = pxb.NewReader(r)
 
-	caps := uint32(0)
+	// CapLargeFrames is unconditional: this SDK's reader accepts frames up to
+	// MaxStreamPayload, letting the host send full ModelInvoke histories past
+	// the 16 MiB default. Hosts that predate the bit keep the old cap.
+	caps := pxb.CapLargeFrames
 	extension.mu.Lock()
 	if len(extension.commands) > 0 {
 		caps |= pxb.CapCommands

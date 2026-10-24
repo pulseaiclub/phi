@@ -245,6 +245,12 @@ func (p *Proc) handshake(ctx context.Context, cwd, sessionID string) error {
 		)
 	}
 	p.hello = hello
+	// Extensions advertising CapLargeFrames accept ModelInvoke frames past the
+	// 16 MiB default — full conversation histories get big. Older extensions
+	// keep the default cap and fail exactly as before.
+	if hello.Caps&pxb.CapLargeFrames != 0 {
+		p.wr.SetMaxPayload(pxb.MaxStreamPayload)
+	}
 
 	ack := pxb.EncodeHelloAck(pxb.HelloAck{
 		Protocol:     pxb.ProtocolVersion,

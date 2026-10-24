@@ -12,7 +12,7 @@ import {
   readFrame,
   writeFrame,
 } from "../src/pxb/codec.ts";
-import { HEADER_SIZE, MAX_PAYLOAD } from "../src/pxb/types.ts";
+import { HEADER_SIZE, MAX_PAYLOAD, MAX_STREAM_PAYLOAD } from "../src/pxb/types.ts";
 
 describe("header", () => {
   it("roundtrips", () => {
@@ -24,9 +24,12 @@ describe("header", () => {
     assert.throws(() => decodeHeader(Buffer.alloc(4)), (e: PxbError) => e.code === "shortBuffer");
     assert.throws(() => decodeHeader(Buffer.alloc(HEADER_SIZE)), (e: PxbError) => e.code === "badMagic");
 
-    const b = encodeHeader({ type: 1, flags: 0, id: 0, payload: 1 << 30 });
-    b.writeUInt32LE(MAX_PAYLOAD + 1, 12);
+    const b = encodeHeader({ type: 1, flags: 0, id: 0, payload: 0 });
+    b.writeUInt32LE(MAX_STREAM_PAYLOAD + 1, 12);
     assert.throws(() => decodeHeader(b), (e: PxbError) => e.code === "payloadTooLarge");
+    // exactly the ceiling is receivable
+    b.writeUInt32LE(MAX_STREAM_PAYLOAD, 12);
+    decodeHeader(b);
   });
 });
 

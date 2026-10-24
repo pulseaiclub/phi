@@ -9,8 +9,26 @@ var Magic = [4]byte{'P', 'X', 'B', 0x01}
 // HeaderSize is the fixed frame header length.
 const HeaderSize = 16
 
-// Maximum payload accepted from a peer (16 MiB).
+// MaxPayload is the default payload cap for both directions (16 MiB). Peers
+// that negotiate CapLargeFrames may send up to MaxStreamPayload.
 const MaxPayload = 16 << 20
+
+// MaxStreamPayload is the transport ceiling for a single frame payload once
+// large payloads are negotiated (256 MiB). It bounds allocation on the receive
+// side; a history that big is already far past compaction.
+const MaxStreamPayload = 256 << 20
+
+// Capability bits advertised in Hello.
+const (
+	CapCommands uint32 = 1 << 0
+	CapTools    uint32 = 1 << 1
+	CapEvents   uint32 = 1 << 2
+	// CapLargeFrames: the advertiser accepts single frames up to
+	// MaxStreamPayload, so the peer may raise its send cap above MaxPayload.
+	CapLargeFrames uint32 = 1 << 5
+	CapIntercept   uint32 = 1 << 3
+	CapModels      uint32 = 1 << 4
+)
 
 // Message types. Ext→Host are 1–99; Host→Ext are 100–199.
 const (
@@ -51,15 +69,6 @@ const (
 // Flag bits in the header.
 const (
 	FlagHasID uint16 = 1 << 0 // id field is meaningful (RPC correlation)
-)
-
-// Capability bits advertised in Hello.
-const (
-	CapCommands  uint32 = 1 << 0
-	CapTools     uint32 = 1 << 1
-	CapEvents    uint32 = 1 << 2
-	CapIntercept uint32 = 1 << 3
-	CapModels    uint32 = 1 << 4
 )
 
 // Event name codes (compact on the wire; strings only at SDK edges).
