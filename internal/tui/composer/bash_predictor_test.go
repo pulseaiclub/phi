@@ -61,11 +61,19 @@ func TestPredictCompletesArgumentsFromHistory(t *testing.T) {
 	items, err := predictor.Predict(t.Context(), "git sta")
 
 	require.NoError(t, err)
+	// The declared subcommands lead the history words and fold them away: one
+	// row per word, with the description the picker shows.
 	assert.Equal(t, []controller.BashSuggestion{
 		{Command: "git status", Source: "history", Score: 1.0},
 		{Command: "git stash", Source: "history", Score: 0.5},
-		{Command: "status", Insert: "status ", Source: "argument", Score: 1.0},
-		{Command: "stash", Insert: "stash ", Source: "argument", Score: 0.5},
+		{
+			Command: "status", Insert: "status", Source: "spec", Score: 1.0,
+			Description: "show the work tree status",
+		},
+		{
+			Command: "stash", Insert: "stash", Source: "spec", Score: 1.0,
+			Description: "stash changes in a dirty work tree",
+		},
 	}, items)
 }
 

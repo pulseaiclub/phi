@@ -198,6 +198,23 @@ Enter keeps its usual meaning of running the command whenever the list is empty.
 Completion is prefix-only — like a shell — so it needs no API key and never sends
 history off the machine.
 
+Past the command word the sources are positional. The word right after the
+command name completes its subcommand from the embedded command specs first
+(`internal/bashcomplete/spec/specs/*.json`, go:embed), then from every word
+history used after that command. A dash word completes flags: the command's
+declared ones with their descriptions first, then the ones this project ran it
+with. A bare word also offers matching entries of the project directory, and a
+path-looking word completes against the directory it names. Launchers
+(`sudo`, `env`, `xargs`, …) and leading `VAR=value` assignments are skipped when
+the command name is located, so `sudo git sta` completes git's subcommands. On
+Windows the prefix compare is case-insensitive, matching the shell there.
+
+The spec rows carry one-line descriptions, and the picker shows them beside the
+word instead of the source label when one exists. The specs are a trimmed
+hand-written copy of the community command specs for git, go, docker, npm, and
+cargo; a command outside them keeps completing from history alone, and a stale
+spec entry only costs a stale row.
+
 ### 2. Stream and transcript
 
 ```text

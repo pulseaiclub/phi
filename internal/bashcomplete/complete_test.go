@@ -9,6 +9,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// commands returns the row words, in order.
+func commands(rows []Suggestion) []string {
+	words := make([]string, 0, len(rows))
+	for _, row := range rows {
+		words = append(words, row.Command)
+	}
+	return words
+}
+
 // newCompleter wires a completer over fixed sources, so ranking is asserted
 // without touching PATH or the real home directory.
 func newCompleter(history, commands []string, cwd string) *Completer {
@@ -60,32 +69,35 @@ func TestCompleteDedupesAcrossSources(t *testing.T) {
 	}, c.Complete("gi"))
 }
 
+// make has no spec, so the ranking here is history's alone: frequency first,
+// most recent use breaking ties.
 func TestCompleteArgumentRanksFrequencyThenRecency(t *testing.T) {
 	c := newCompleter(
-		[]string{"git status", "git stash", "git status", "docker ps", "git add"},
+		[]string{"make bar", "make baz", "make bar", "docker ps", "make all"},
 		nil,
 		t.TempDir(),
 	)
 
 	assert.Equal(t, []Suggestion{
-		{Command: "git status", Source: SourceHistory, Score: 1.0},
-		{Command: "git stash", Source: SourceHistory, Score: 0.5},
-		{Command: "status", Insert: "status ", Source: SourceArgument, Score: 1.0},
-		{Command: "stash", Insert: "stash ", Source: SourceArgument, Score: 0.5},
-	}, c.Complete("git sta"))
+		{Command: "make bar", Source: SourceHistory, Score: 1.0},
+		{Command: "make baz", Source: SourceHistory, Score: 0.5},
+		{Command: "bar", Insert: "bar ", Source: SourceArgument, Score: 1.0},
+		{Command: "baz", Insert: "baz ", Source: SourceArgument, Score: 0.5},
+	}, c.Complete("make ba"))
 }
 
 // A word after a space is a fresh argument: every word seen in that position is
-// offered, with no prefix to narrow it.
+// offered, with no prefix to narrow it. make has no spec, so the word rows are
+// history's alone.
 func TestCompleteArgumentAfterASpaceListsEveryWord(t *testing.T) {
-	c := newCompleter([]string{"git status", "git push", "git status"}, nil, t.TempDir())
+	c := newCompleter([]string{"make bar", "make baz", "make bar"}, nil, t.TempDir())
 
 	assert.Equal(t, []Suggestion{
-		{Command: "git status", Source: SourceHistory, Score: 1.0},
-		{Command: "git push", Source: SourceHistory, Score: 0.5},
-		{Command: "status", Insert: "status ", Source: SourceArgument, Score: 1.0},
-		{Command: "push", Insert: "push ", Source: SourceArgument, Score: 0.5},
-	}, c.Complete("git "))
+		{Command: "make bar", Source: SourceHistory, Score: 1.0},
+		{Command: "make baz", Source: SourceHistory, Score: 0.5},
+		{Command: "bar", Insert: "bar ", Source: SourceArgument, Score: 1.0},
+		{Command: "baz", Insert: "baz ", Source: SourceArgument, Score: 0.5},
+	}, c.Complete("make "))
 }
 
 // Arguments are matched per command: git's subcommands do not complete make's,

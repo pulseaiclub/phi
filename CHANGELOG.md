@@ -29,6 +29,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   candidate list is complete rather than capped at ten rows: it scrolls inside
   a ten-row window, with ▲/▼ marks on the edge while more rows sit above or
   below.
+- `!` completion reads command lines the way the shell does: `sudo`, `env`,
+  `xargs`, `time`, and friends are stepped over, and a leading `VAR=value` is
+  treated as configuration, so `sudo git sta` completes git's subcommands. A
+  dash word completes flags — the command's declared ones first, then the ones
+  the project already ran it with — a bare word also offers matching files in
+  the project, and the PATH candidate list keeps the strongest 50 rows instead
+  of the first 50 alphabetically. On Windows the prefix compare ignores case,
+  like the shell there.
+- `!` completion now has embedded command specs for git, go, docker, npm, and
+  cargo: subcommands and flags complete before the project history knows them,
+  each row showing a one-line description (what a flag does and the value it
+  takes) instead of the source name when one is declared. A bare `-` lists the
+  flags of the subcommand the cursor is inside, and commands without a spec
+  keep completing from history exactly as before.
 
 ### Fixed
 

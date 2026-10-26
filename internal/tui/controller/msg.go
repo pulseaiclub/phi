@@ -91,12 +91,14 @@ func (MentionResultsMsg) isMsg() {}
 // row the picker draws — the whole line for history rows, the completed word
 // otherwise — and Insert is the text that replaces the word being typed (empty
 // on history rows, which replace the whole line). Source names where the row
-// came from, and Score orders rows of one source.
+// came from, Score orders rows of one source, and Description is the row's
+// hint text when its source declares one (the spec table does).
 type BashSuggestion struct {
-	Command string
-	Insert  string
-	Source  string
-	Score   float64
+	Command     string
+	Insert      string
+	Source      string
+	Score       float64
+	Description string
 }
 
 // BashSuggestionsMsg delivers async "!" completions to the UI goroutine. Gen

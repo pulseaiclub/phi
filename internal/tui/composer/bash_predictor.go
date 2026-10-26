@@ -61,10 +61,11 @@ func (p *LocalBashPredictor) Predict(_ context.Context, typed string) ([]control
 	items := make([]controller.BashSuggestion, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, controller.BashSuggestion{
-			Command: row.Command,
-			Insert:  row.Insert,
-			Source:  string(row.Source),
-			Score:   row.Score,
+			Command:     row.Command,
+			Insert:      row.Insert,
+			Source:      string(row.Source),
+			Score:       row.Score,
+			Description: row.Description,
 		})
 	}
 	return items, nil

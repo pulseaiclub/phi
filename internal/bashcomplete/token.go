@@ -1,5 +1,7 @@
 package bashcomplete
 
+import "strings"
+
 // Token is one shell word of a command line: its text as typed and its byte
 // offset from the start of the line.
 type Token struct {
@@ -25,6 +27,74 @@ func Tokenize(line string) []Token {
 		tokens = append(tokens, Token{Text: "", Start: len(line)})
 	}
 	return tokens
+}
+
+// wrapperCommands are words that run the command after them: completing
+// `sudo git sta` has to read git's arguments, not sudo's. The list is the
+// small set of launchers a one-liner realistically starts with, not every
+// command that can take a command name.
+var wrapperCommands = map[string]struct{}{
+	"sudo":    {},
+	"doas":    {},
+	"env":     {},
+	"time":    {},
+	"nohup":   {},
+	"command": {},
+	"builtin": {},
+	"exec":    {},
+	"xargs":   {},
+	"nice":    {},
+}
+
+// assignment reports whether word is a leading environment assignment such as
+// `GOOS=linux`; those configure the command that follows rather than name it.
+func assignment(word string) bool {
+	name, _, ok := strings.Cut(word, "=")
+	if !ok || name == "" {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		b := name[i]
+		if b == '_' || b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// option reports whether word is a flag rather than a word argument.
+func option(word string) bool {
+	return strings.HasPrefix(word, "-") && word != "-"
+}
+
+// CommandWord locates the word that names the command a line runs, skipping
+// the launchers and `VAR=value` prefixes in front of it. It returns that
+// token's index and true; a line holding only launchers and assignments, or
+// nothing at all, has no command word yet.
+func CommandWord(tokens []Token) (int, bool) {
+	for i, token := range tokens {
+		if token.Text == "" {
+			return i, false
+		}
+		if assignment(token.Text) {
+			continue
+		}
+		if _, launcher := wrapperCommands[token.Text]; launcher {
+			// The launcher's own flags belong to the launcher: `sudo -u root
+			// git` names git, not -u.
+			i++
+			for i < len(tokens) && option(tokens[i].Text) {
+				i++
+			}
+			if i < len(tokens) && tokens[i].Text != "" {
+				return i, true
+			}
+			return i, false
+		}
+		return i, true
+	}
+	return 0, false
 }
 
 // splitWords is Tokenize without the trailing-empty-word rule.

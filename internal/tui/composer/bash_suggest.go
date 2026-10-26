@@ -340,7 +340,7 @@ func (b *bashSuggest) apply(msg controller.BashSuggestionsMsg) {
 	for _, item := range msg.Items {
 		items = append(items, mention.Item{
 			Path:        item.Command,
-			Description: bashSuggestionLabel(item),
+			Description: bashSuggestionHint(item),
 		})
 	}
 	b.picker.SetResults(items, "")
@@ -352,15 +352,25 @@ func (b *bashSuggest) apply(msg controller.BashSuggestionsMsg) {
 	b.pane.Chat.GhostText = b.ghostRemainder()
 }
 
-// bashSuggestionLabel names where the row came from, so a literal history
-// match reads differently from a word nobody typed yet. A history row between
+// bashSuggestionHint is the text beside a row: what the word does when its
+// source declares that, otherwise where the row came from, so a literal
+// history match reads differently from a word nobody typed yet.
+func bashSuggestionHint(item controller.BashSuggestion) string {
+	if item.Description != "" {
+		return item.Description
+	}
+	return bashSuggestionLabel(item)
+}
+
+// bashSuggestionLabel names where the row came from. A history row between
 // matches also shows its recency weight.
 func bashSuggestionLabel(item controller.BashSuggestion) string {
 	switch item.Source {
 	case string(bashcomplete.SourceCommand),
 		string(bashcomplete.SourceArgument),
-		string(bashcomplete.SourceCommon),
-		string(bashcomplete.SourcePath):
+		string(bashcomplete.SourcePath),
+		string(bashcomplete.SourceFlag),
+		string(bashcomplete.SourceSpec):
 		return item.Source
 	}
 	if item.Score > 0 && item.Score < 1 {
