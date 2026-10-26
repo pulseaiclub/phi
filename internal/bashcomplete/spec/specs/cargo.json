@@ -1,0 +1,89 @@
+{
+  "name": "cargo",
+  "description": "the Rust package manager",
+  "subcommands": [
+    { "name": "add", "description": "add dependencies to Cargo.toml",
+      "options": [
+        { "names": ["--dev", "-D"], "description": "add as a development dependency" },
+        { "names": ["--build", "-B"], "description": "add as a build dependency" },
+        { "names": ["--features", "-F"], "description": "enable these features", "args": [{ "name": "features" }] },
+        { "names": ["--no-default-features"], "description": "disable the default features" },
+        { "names": ["--optional"], "description": "mark the dependency optional" },
+        { "names": ["--path"], "description": "add a local crate by path", "args": [{ "name": "path" }] }
+      ],
+      "noOptionAfterArgument": true },
+    { "name": "bench", "description": "run the benchmarks", "options": [{ "names": ["--no-run"], "description": "compile without running" }, { "names": ["--features", "-F"], "description": "enable these features", "args": [{ "name": "features" }] }] },
+    { "name": "build", "description": "compile the package",
+      "options": [
+        { "names": ["--release", "-r"], "description": "build with optimizations" },
+        { "names": ["--target"], "description": "build for this target triple", "args": [{ "name": "triple" }] },
+        { "names": ["--features", "-F"], "description": "enable these features", "args": [{ "name": "features" }] },
+        { "names": ["--all-features"], "description": "enable every feature" },
+        { "names": ["--no-default-features"], "description": "disable the default features" },
+        { "names": ["--package", "-p"], "description": "act on this package", "args": [{ "name": "spec" }] },
+        { "names": ["--workspace"], "description": "act on every workspace member" },
+        { "names": ["--jobs", "-j"], "description": "run this many jobs in parallel", "args": [{ "name": "n" }] }
+      ],
+      "noOptionAfterArgument": true },
+    { "name": "check", "description": "check the package without building it",
+      "options": [
+        { "names": ["--all-targets"], "description": "check every target" },
+        { "names": ["--features", "-F"], "description": "enable these features", "args": [{ "name": "features" }] },
+        { "names": ["--release", "-r"], "description": "check with optimizations" }
+      ] },
+    { "name": "clippy", "description": "run the lint collection",
+      "options": [
+        { "names": ["--fix"], "description": "apply suggested fixes" },
+        { "names": ["--all-targets"], "description": "lint every target" },
+        { "names": ["--deny"], "description": "deny this lint", "args": [{ "name": "lint" }] }
+      ] },
+    { "name": "clean", "description": "remove build artifacts", "options": [{ "names": ["--release", "-r"], "description": "clean the release artifacts" }, { "names": ["--package", "-p"], "description": "clean this package", "args": [{ "name": "spec" }] }] },
+    { "name": "doc", "description": "build the documentation", "options": [{ "names": ["--open"], "description": "open the docs afterwards" }, { "names": ["--no-deps"], "description": "do not document dependencies" }, { "names": ["--document-private-items"], "description": "document private items too" }] },
+    { "name": "fmt", "description": "format the source files", "options": [{ "names": ["--check"], "description": "report differences without writing" }, { "names": ["--all"], "description": "format every package" }] },
+    { "name": "install", "description": "install a Rust binary",
+      "options": [
+        { "names": ["--path"], "description": "install from this local crate", "args": [{ "name": "path" }] },
+        { "names": ["--git"], "description": "install from this git repository", "args": [{ "name": "url" }] },
+        { "names": ["--branch"], "description": "use this branch of the git repository", "args": [{ "name": "branch" }] },
+        { "names": ["--tag"], "description": "use this tag of the git repository", "args": [{ "name": "tag" }] },
+        { "names": ["--locked"], "description": "use the versions in Cargo.lock" },
+        { "names": ["--force"], "description": "overwrite the existing binary" },
+        { "names": ["--root"], "description": "install under this directory", "args": [{ "name": "path" }] }
+      ],
+      "noOptionAfterArgument": true },
+    { "name": "new", "description": "create a new package", "options": [{ "names": ["--lib"], "description": "create a library instead of a binary" }, { "names": ["--bin"], "description": "create a binary" }, { "names": ["--vcs"], "description": "use this version control", "args": [{ "name": "vcs" }] }, { "names": ["--name"], "description": "set the package name", "args": [{ "name": "name" }] }] },
+    { "name": "publish", "description": "upload the package to the registry", "options": [{ "names": ["--dry-run"], "description": "do everything but the upload" }, { "names": ["--allow-dirty"], "description": "publish with uncommitted changes" }, { "names": ["--token"], "description": "use this API token", "args": [{ "name": "token" }] }] },
+    { "name": "remove", "description": "remove a dependency from Cargo.toml", "options": [{ "names": ["--dev", "-D"], "description": "remove from development dependencies" }, { "names": ["--build", "-B"], "description": "remove from build dependencies" }], "noOptionAfterArgument": true },
+    { "name": "run", "description": "run the current package",
+      "options": [
+        { "names": ["--release", "-r"], "description": "run an optimized build" },
+        { "names": ["--bin"], "description": "run this binary target", "args": [{ "name": "name" }] },
+        { "names": ["--example"], "description": "run this example", "args": [{ "name": "name" }] },
+        { "names": ["--features", "-F"], "description": "enable these features", "args": [{ "name": "features" }] },
+        { "names": ["--package", "-p"], "description": "act on this package", "args": [{ "name": "spec" }] }
+      ],
+      "noOptionAfterArgument": true },
+    { "name": "test", "description": "run the tests",
+      "options": [
+        { "names": ["--release", "-r"], "description": "test an optimized build" },
+        { "names": ["--no-run"], "description": "compile without running" },
+        { "names": ["--all-targets"], "description": "test every target" },
+        { "names": ["--test"], "description": "test only this integration test", "args": [{ "name": "name" }] },
+        { "names": ["--features", "-F"], "description": "enable these features", "args": [{ "name": "features" }] },
+        { "names": ["--lib"], "description": "test only the library" },
+        { "names": ["--doc"], "description": "test only the documentation" }
+      ],
+      "noOptionAfterArgument": true },
+    { "name": "update", "description": "update Cargo.lock", "options": [{ "names": ["--workspace"], "description": "update every workspace member" }, { "names": ["--precise"], "description": "update to this exact version", "args": [{ "name": "version" }] }], "noOptionAfterArgument": true },
+    { "name": "watch", "description": "run a command when the source changes", "options": [{ "names": ["--clear"], "description": "clear the screen before each run" }, { "names": ["--ignore"], "description": "skip this path", "args": [{ "name": "pattern" }] }] }
+  ],
+  "options": [
+    { "names": ["--version", "-V"], "description": "print the cargo version" },
+    { "names": ["--help", "-h"], "description": "show help" },
+    { "names": ["--verbose", "-v"], "description": "print more detail" },
+    { "names": ["--quiet", "-q"], "description": "print less" },
+    { "names": ["--color"], "description": "control color output", "args": [{ "name": "when" }] },
+    { "names": ["--offline"], "description": "do not access the network" },
+    { "names": ["--locked"], "description": "require Cargo.lock to be up to date" }
+  ]
+}

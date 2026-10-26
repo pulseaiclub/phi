@@ -1,0 +1,371 @@
+{
+  "name": "npm",
+  "description": "the Node package manager",
+  "subcommands": [
+    {
+      "name": "ci",
+      "description": "install exactly what the lockfile records",
+      "options": [
+        {
+          "names": [
+            "--omit"
+          ],
+          "description": "omit a dependency type",
+          "args": [
+            {
+              "name": "dev|optional|peer"
+            }
+          ]
+        },
+        {
+          "names": [
+            "--audit"
+          ],
+          "description": "run an audit after installing",
+          "args": [
+            {
+              "name": "bool",
+              "optional": true
+            }
+          ]
+        },
+        {
+          "names": [
+            "--ignore-scripts"
+          ],
+          "description": "do not run lifecycle scripts"
+        }
+      ]
+    },
+    {
+      "name": "install",
+      "description": "install the project's dependencies",
+      "options": [
+        {
+          "names": [
+            "--save-dev",
+            "-D"
+          ],
+          "description": "save as a development dependency"
+        },
+        {
+          "names": [
+            "--save-exact",
+            "-E"
+          ],
+          "description": "save an exact version"
+        },
+        {
+          "names": [
+            "--global",
+            "-g"
+          ],
+          "description": "install globally"
+        },
+        {
+          "names": [
+            "--omit"
+          ],
+          "description": "omit a dependency type",
+          "args": [
+            {
+              "name": "dev|optional|peer"
+            }
+          ]
+        },
+        {
+          "names": [
+            "--ignore-scripts"
+          ],
+          "description": "do not run lifecycle scripts"
+        },
+        {
+          "names": [
+            "--force"
+          ],
+          "description": "refetch and reinstall everything"
+        },
+        {
+          "names": [
+            "--legacy-peer-deps"
+          ],
+          "description": "ignore peer dependency conflicts"
+        },
+        {
+          "names": [
+            "--workspace",
+            "-w"
+          ],
+          "description": "act on this workspace",
+          "args": [
+            {
+              "name": "name"
+            }
+          ]
+        }
+      ],
+      "noOptionAfterArgument": true
+    },
+    {
+      "name": "link",
+      "description": "symlink a package folder"
+    },
+    {
+      "name": "ls",
+      "description": "list the installed packages",
+      "options": [
+        {
+          "names": [
+            "--depth"
+          ],
+          "description": "how deep to recurse",
+          "args": [
+            {
+              "name": "n"
+            }
+          ]
+        },
+        {
+          "names": [
+            "--json"
+          ],
+          "description": "print the tree as JSON"
+        }
+      ]
+    },
+    {
+      "name": "outdated",
+      "description": "list packages that are out of date",
+      "options": [
+        {
+          "names": [
+            "--json"
+          ],
+          "description": "print the result as JSON"
+        }
+      ]
+    },
+    {
+      "name": "publish",
+      "description": "publish the package to the registry",
+      "options": [
+        {
+          "names": [
+            "--tag"
+          ],
+          "description": "publish under this dist-tag",
+          "args": [
+            {
+              "name": "tag"
+            }
+          ]
+        },
+        {
+          "names": [
+            "--access"
+          ],
+          "description": "set the access level of a scoped package",
+          "args": [
+            {
+              "name": "public|restricted"
+            }
+          ]
+        },
+        {
+          "names": [
+            "--dry-run"
+          ],
+          "description": "report what would be published"
+        },
+        {
+          "names": [
+            "--otp"
+          ],
+          "description": "one-time password for this publish",
+          "args": [
+            {
+              "name": "code"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "run",
+      "description": "run a script from package.json",
+      "options": [
+        {
+          "names": [
+            "--workspace",
+            "-w"
+          ],
+          "description": "run the script in this workspace",
+          "args": [
+            {
+              "name": "name"
+            }
+          ]
+        },
+        {
+          "names": [
+            "--if-present"
+          ],
+          "description": "do nothing when the script is missing"
+        },
+        {
+          "names": [
+            "--silent"
+          ],
+          "description": "silence npm's own output"
+        }
+      ]
+    },
+    {
+      "name": "test",
+      "description": "run the test script",
+      "options": [
+        {
+          "names": [
+            "--workspace",
+            "-w"
+          ],
+          "description": "run in this workspace",
+          "args": [
+            {
+              "name": "name"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "uninstall",
+      "description": "remove a package",
+      "options": [
+        {
+          "names": [
+            "--save-dev",
+            "-D"
+          ],
+          "description": "remove it from development dependencies"
+        },
+        {
+          "names": [
+            "--global",
+            "-g"
+          ],
+          "description": "remove a global package"
+        }
+      ],
+      "noOptionAfterArgument": true
+    },
+    {
+      "name": "update",
+      "description": "update packages to their latest allowed versions",
+      "options": [
+        {
+          "names": [
+            "--save"
+          ],
+          "description": "update package.json too"
+        }
+      ]
+    },
+    {
+      "name": "version",
+      "description": "bump the package version",
+      "options": [
+        {
+          "names": [
+            "--message",
+            "-m"
+          ],
+          "description": "commit with this message instead of a tag message",
+          "args": [
+            {
+              "name": "message"
+            }
+          ]
+        },
+        {
+          "names": [
+            "--no-git-tag-version"
+          ],
+          "description": "do not commit or tag"
+        },
+        {
+          "names": [
+            "--preid"
+          ],
+          "description": "prerelease identifier",
+          "args": [
+            {
+              "name": "id"
+            }
+          ]
+        },
+        {
+          "names": [
+            "--workspace",
+            "-w"
+          ],
+          "description": "act on this workspace",
+          "args": [
+            {
+              "name": "name"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "options": [
+    {
+      "names": [
+        "--version",
+        "-v"
+      ],
+      "description": "print the npm version"
+    },
+    {
+      "names": [
+        "--help",
+        "-h"
+      ],
+      "description": "show help"
+    },
+    {
+      "names": [
+        "--prefix"
+      ],
+      "description": "run in this directory",
+      "args": [
+        {
+          "name": "path"
+        }
+      ]
+    },
+    {
+      "names": [
+        "--registry"
+      ],
+      "description": "use this registry",
+      "args": [
+        {
+          "name": "url"
+        }
+      ]
+    },
+    {
+      "names": [
+        "--loglevel"
+      ],
+      "description": "set the log level",
+      "args": [
+        {
+          "name": "level"
+        }
+      ]
+    }
+  ]
+}

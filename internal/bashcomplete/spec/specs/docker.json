@@ -1,0 +1,181 @@
+{
+  "name": "docker",
+  "description": "run and manage containers",
+  "subcommands": [
+    { "name": "build", "description": "build an image from a Dockerfile",
+      "options": [
+        { "names": ["--tag", "-t"], "description": "name and optionally tag the image", "args": [{ "name": "name:tag" }] },
+        { "names": ["--file", "-f"], "description": "use this Dockerfile", "args": [{ "name": "path" }] },
+        { "names": ["--no-cache"], "description": "do not use the build cache" },
+        { "names": ["--pull"], "description": "always try to pull a newer base image" },
+        { "names": ["--build-arg"], "description": "set a build-time variable", "args": [{ "name": "name=value" }] },
+        { "names": ["--target"], "description": "build up to this stage", "args": [{ "name": "stage" }] },
+        { "names": ["--platform"], "description": "build for this platform", "args": [{ "name": "os/arch" }] },
+        { "names": ["--progress"], "description": "set the output format", "args": [{ "name": "mode" }] },
+        { "names": ["--quiet", "-q"], "description": "suppress the build output" }
+      ],
+      "noOptionAfterArgument": true },
+    { "name": "compose", "description": "run multi-container applications",
+      "subcommands": [
+        { "name": "build", "description": "build or rebuild services" },
+        { "name": "config", "description": "validate and show the resolved file" },
+        { "name": "down", "description": "stop and remove containers and networks", "options": [
+          { "names": ["--volumes", "-v"], "description": "remove named volumes too" },
+          { "names": ["--rmi"], "description": "remove the images too", "args": [{ "name": "type" }] },
+          { "names": ["--remove-orphans"], "description": "remove containers for services not in the file" }
+        ] },
+        { "name": "exec", "description": "run a command in a running service" },
+        { "name": "logs", "description": "show service output", "options": [
+          { "names": ["--follow", "-f"], "description": "keep following the output" },
+          { "names": ["--tail"], "description": "show this many lines from the end", "args": [{ "name": "lines" }] },
+          { "names": ["--timestamps", "-t"], "description": "show timestamps" }
+        ] },
+        { "name": "ps", "description": "list the project's containers", "options": [
+          { "names": ["--all", "-a"], "description": "show stopped containers too" },
+          { "names": ["--quiet", "-q"], "description": "only print container IDs" }
+        ] },
+        { "name": "pull", "description": "pull the services' images" },
+        { "name": "restart", "description": "restart services" },
+        { "name": "run", "description": "run a one-off command in a service", "options": [
+          { "names": ["--rm"], "description": "remove the container afterwards" },
+          { "names": ["--no-deps"], "description": "do not start linked services" },
+          { "names": ["--detach", "-d"], "description": "run in the background" }
+        ] },
+        { "name": "up", "description": "create and start the services", "options": [
+          { "names": ["--detach", "-d"], "description": "run in the background" },
+          { "names": ["--build"], "description": "build the images before starting" },
+          { "names": ["--force-recreate"], "description": "recreate containers even if unchanged" },
+          { "names": ["--remove-orphans"], "description": "remove containers for services not in the file" },
+          { "names": ["--no-deps"], "description": "do not start linked services" },
+          { "names": ["--wait"], "description": "wait for the services to be healthy" }
+        ] }
+      ],
+      "options": [
+        { "names": ["--file", "-f"], "description": "use this compose file", "args": [{ "name": "path" }] },
+        { "names": ["--project-name", "-p"], "description": "set the project name", "args": [{ "name": "name" }] },
+        { "names": ["--profile"], "description": "enable a profile", "args": [{ "name": "name" }] }
+      ] },
+    { "name": "cp", "description": "copy files between a container and the host",
+      "options": [
+        { "names": ["--archive", "-a"], "description": "archive mode, copy as-is" },
+        { "names": ["--follow-link", "-L"], "description": "follow symbolic links in the source" },
+        { "names": ["--quiet", "-q"], "description": "suppress progress output" }
+      ],
+      "noOptionAfterArgument": true },
+    { "name": "exec", "description": "run a command in a running container",
+      "options": [
+        { "names": ["--interactive", "-i"], "description": "keep stdin open" },
+        { "names": ["--tty", "-t"], "description": "allocate a terminal" },
+        { "names": ["--user", "-u"], "description": "run as this user", "args": [{ "name": "user" }] },
+        { "names": ["--workdir", "-w"], "description": "run in this directory", "args": [{ "name": "path" }] },
+        { "names": ["--env", "-e"], "description": "set an environment variable", "args": [{ "name": "name=value" }] },
+        { "names": ["--detach", "-d"], "description": "run in the background" },
+        { "names": ["--privileged"], "description": "give extended privileges" }
+      ],
+      "noOptionAfterArgument": true },
+    { "name": "images", "description": "list images",
+      "options": [
+        { "names": ["--all", "-a"], "description": "show intermediate images too" },
+        { "names": ["--quiet", "-q"], "description": "only print image IDs" },
+        { "names": ["--filter", "-f"], "description": "filter the output", "args": [{ "name": "filter" }] },
+        { "names": ["--digests"], "description": "show digests" }
+      ] },
+    { "name": "inspect", "description": "show detailed information on an object",
+      "options": [
+        { "names": ["--format", "-f"], "description": "print using this template", "args": [{ "name": "template" }] },
+        { "names": ["--type"], "description": "inspect this kind of object", "args": [{ "name": "type" }] },
+        { "names": ["--size", "-s"], "description": "show total file sizes" }
+      ],
+      "noOptionAfterArgument": true },
+    { "name": "logs", "description": "show a container's output",
+      "options": [
+        { "names": ["--follow", "-f"], "description": "keep following the output" },
+        { "names": ["--tail"], "description": "show this many lines from the end", "args": [{ "name": "lines" }] },
+        { "names": ["--timestamps", "-t"], "description": "show timestamps" },
+        { "names": ["--since"], "description": "only output newer than this time", "args": [{ "name": "time" }] }
+      ],
+      "noOptionAfterArgument": true },
+    { "name": "network", "description": "manage networks",
+      "subcommands": [
+        { "name": "create", "description": "create a network" },
+        { "name": "inspect", "description": "show detailed network information" },
+        { "name": "ls", "description": "list networks" },
+        { "name": "prune", "description": "remove unused networks" },
+        { "name": "rm", "description": "remove a network" }
+      ] },
+    { "name": "ps", "description": "list containers",
+      "options": [
+        { "names": ["--all", "-a"], "description": "show stopped containers too" },
+        { "names": ["--quiet", "-q"], "description": "only print container IDs" },
+        { "names": ["--filter", "-f"], "description": "filter the output", "args": [{ "name": "filter" }] },
+        { "names": ["--last", "-n"], "description": "show the last n containers", "args": [{ "name": "count" }] },
+        { "names": ["--size", "-s"], "description": "show total file sizes" },
+        { "names": ["--format"], "description": "print using this template", "args": [{ "name": "template" }] }
+      ] },
+    { "name": "pull", "description": "download an image from a registry",
+      "options": [
+        { "names": ["--platform"], "description": "pull for this platform", "args": [{ "name": "os/arch" }] },
+        { "names": ["--quiet", "-q"], "description": "suppress the progress output" },
+        { "names": ["--all-tags", "-a"], "description": "pull every tag" }
+      ],
+      "noOptionAfterArgument": true },
+    { "name": "push", "description": "upload an image to a registry",
+      "options": [
+        { "names": ["--quiet", "-q"], "description": "suppress the progress output" },
+        { "names": ["--all-tags", "-a"], "description": "push every tag" }
+      ],
+      "noOptionAfterArgument": true },
+    { "name": "rm", "description": "remove containers",
+      "options": [
+        { "names": ["--force", "-f"], "description": "remove running containers too" },
+        { "names": ["--volumes", "-v"], "description": "remove anonymous volumes too" }
+      ],
+      "noOptionAfterArgument": true },
+    { "name": "rmi", "description": "remove images",
+      "options": [
+        { "names": ["--force", "-f"], "description": "remove images in use too" },
+        { "names": ["--no-prune"], "description": "keep untagged parents" }
+      ],
+      "noOptionAfterArgument": true },
+    { "name": "run", "description": "run a command in a new container",
+      "options": [
+        { "names": ["--detach", "-d"], "description": "run in the background" },
+        { "names": ["--interactive", "-i"], "description": "keep stdin open" },
+        { "names": ["--tty", "-t"], "description": "allocate a terminal" },
+        { "names": ["--rm"], "description": "remove the container on exit" },
+        { "names": ["--name"], "description": "name the container", "args": [{ "name": "name" }] },
+        { "names": ["--publish", "-p"], "description": "publish a port", "args": [{ "name": "host:container" }] },
+        { "names": ["--volume", "-v"], "description": "mount a volume", "args": [{ "name": "src:dst" }] },
+        { "names": ["--env", "-e"], "description": "set an environment variable", "args": [{ "name": "name=value" }] },
+        { "names": ["--workdir", "-w"], "description": "run in this directory", "args": [{ "name": "path" }] },
+        { "names": ["--user", "-u"], "description": "run as this user", "args": [{ "name": "user" }] },
+        { "names": ["--network"], "description": "join this network", "args": [{ "name": "network" }] },
+        { "names": ["--entrypoint"], "description": "override the entrypoint", "args": [{ "name": "cmd" }] },
+        { "names": ["--platform"], "description": "run for this platform", "args": [{ "name": "os/arch" }] }
+      ],
+      "noOptionAfterArgument": true },
+    { "name": "start", "description": "start stopped containers", "options": [{ "names": ["--attach", "-a"], "description": "attach the output" }] },
+    { "name": "stop", "description": "stop running containers", "options": [{ "names": ["--time", "-t"], "description": "seconds to wait before killing", "args": [{ "name": "seconds" }] }] },
+    { "name": "system", "description": "manage docker itself",
+      "subcommands": [
+        { "name": "df", "description": "show disk usage", "options": [{ "names": ["--verbose", "-v"], "description": "show more detail" }] },
+        { "name": "info", "description": "show system-wide information" },
+        { "name": "prune", "description": "remove unused data", "options": [{ "names": ["--all", "-a"], "description": "remove every unused image, not just dangling ones" }, { "names": ["--volumes"], "description": "remove unused volumes too" }, { "names": ["--force", "-f"], "description": "do not ask for confirmation" }] }
+      ] },
+    { "name": "version", "description": "show the docker version", "options": [{ "names": ["--format", "-f"], "description": "print using this template", "args": [{ "name": "template" }] }] },
+    { "name": "volume", "description": "manage volumes",
+      "subcommands": [
+        { "name": "create", "description": "create a volume" },
+        { "name": "inspect", "description": "show detailed volume information" },
+        { "name": "ls", "description": "list volumes" },
+        { "name": "prune", "description": "remove unused volumes" },
+        { "name": "rm", "description": "remove a volume" }
+      ] }
+  ],
+  "options": [
+    { "names": ["--help", "-h"], "description": "show help" },
+    { "names": ["--context", "-c"], "description": "use this docker context", "args": [{ "name": "name" }] },
+    { "names": ["--host", "-H"], "description": "connect to this daemon socket", "args": [{ "name": "socket" }] },
+    { "names": ["--log-level", "-l"], "description": "set the log level", "args": [{ "name": "level" }] }
+  ]
+}
