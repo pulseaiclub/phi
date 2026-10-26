@@ -15,10 +15,10 @@ import (
 )
 
 const (
-	// bashSuggestDebounce waits for a pause in typing. A history read is I/O, so
-	// firing one per keystroke would re-read on prefixes the user never meant to
-	// ask about.
-	bashSuggestDebounce = 200 * time.Millisecond
+	// bashSuggestDebounce waits for a pause in typing. Every source is a local
+	// read with a cache behind it, so the pause only needs to coalesce a burst
+	// of keystrokes — completion should feel like it tracks the typing.
+	bashSuggestDebounce = 50 * time.Millisecond
 	// bashSuggestTimeout bounds one read end to end, so a wedged request
 	// cannot hold the picker open forever.
 	bashSuggestTimeout = 10 * time.Second
@@ -310,6 +310,7 @@ func bashSuggestionLabel(item controller.BashSuggestion) string {
 	switch item.Source {
 	case string(bashcomplete.SourceCommand),
 		string(bashcomplete.SourceArgument),
+		string(bashcomplete.SourceCommon),
 		string(bashcomplete.SourcePath):
 		return item.Source
 	}
