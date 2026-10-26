@@ -14,7 +14,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   history: the command word completes from executables on PATH, arguments from
   words the project's history used in the same position, and path-looking words
   from the project directory. Accepting a word row replaces only the word being
-  typed; each row shows where it came from (history, command, argument, path).
+  typed; each row shows where it came from (history, command, argument, common,
+  path). Popular commands (git, docker, npm, go) seed argument completion before
+  the project history knows them, and completions answer after a 50 ms typing
+  pause instead of 200 ms.
 
 ### Fixed
 

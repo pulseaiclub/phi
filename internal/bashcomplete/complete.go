@@ -20,6 +20,9 @@ const (
 	// SourceArgument completes an argument with words seen in the same position
 	// of the same command in the project shell history.
 	SourceArgument Source = "argument"
+	// SourceCommon completes an argument with words commonly typed after a
+	// popular command, for a project whose history has not used it yet.
+	SourceCommon Source = "common"
 	// SourcePath completes a file or directory under the project directory.
 	SourcePath Source = "path"
 )
@@ -79,7 +82,14 @@ func (c *Completer) Complete(typed string) []Suggestion {
 	case len(tokens) == 1:
 		suggestions = append(suggestions, c.commandWords(word.Text)...)
 	default:
-		suggestions = append(suggestions, c.argumentWords(tokens)...)
+		words := c.argumentWords(tokens)
+		if len(words) == 0 {
+			// The history has nothing to say about this command yet, so the
+			// common-subcommand table seeds the first uses; once the project
+			// runs the command, history stays the only argument source.
+			words = commonWords(tokens[0].Text, word.Text)
+		}
+		suggestions = append(suggestions, words...)
 	}
 	return dedupeSuggestions(suggestions)
 }

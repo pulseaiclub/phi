@@ -88,11 +88,12 @@ func TestCompleteArgumentAfterASpaceListsEveryWord(t *testing.T) {
 	}, c.Complete("git "))
 }
 
-// Arguments are matched per command: npm's subcommands do not complete git's.
+// Arguments are matched per command: git's subcommands do not complete make's,
+// and the common table has nothing to say about make either.
 func TestCompleteArgumentMatchesTheCommandWord(t *testing.T) {
 	c := newCompleter([]string{"git status"}, nil, t.TempDir())
 
-	assert.Empty(t, c.Complete("npm sta"))
+	assert.Empty(t, c.Complete("make sta"))
 }
 
 func TestCompletePathEntries(t *testing.T) {
@@ -150,7 +151,9 @@ func TestCompleteBlankTextIsEmpty(t *testing.T) {
 
 func TestCompleteWithoutSourcesIsEmpty(t *testing.T) {
 	c := New(nil, nil, t.TempDir())
-	assert.Empty(t, c.Complete("git "))
+	// git would seed from the common table, so a command outside it shows the
+	// sources themselves are what is empty.
+	assert.Empty(t, c.Complete("make "))
 }
 
 // A nil completer is not a panic: callers install one unconditionally.
