@@ -16,7 +16,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the Win32 extended-path prefix (`\\?\C:\...`) no longer crashes at startup.
   The per-directory session storage strips the prefix instead of building a
   file name containing `?`, which Windows rejects; sessions for the same
-  directory keep connecting to their existing files.
+  directory keep connecting to their existing files. Extended UNC paths
+  (`\\?\UNC\server\share`) also retain the ordinary UNC session directory name,
+  including when the `UNC` marker uses lowercase or mixed case.
 - `grep` prints each file path once with compact line references, merges
   overlapping context without repeating lines, and only reports a match-limit
   truncation when additional matches exist.

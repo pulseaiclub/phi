@@ -14,9 +14,11 @@ func stripWin32Namespace(s string) string {
 		return s
 	}
 	s = s[len(`\\?\`):]
-	// \\?\UNC\server\share -> server\share: re-adding a leading \\ would only
-	// survive the slugifier as one more dash.
-	return strings.TrimPrefix(s, `UNC\`)
+	// Preserve the plain UNC prefix so both spellings use the historical session directory.
+	if len(s) >= len(`UNC\`) && strings.EqualFold(s[:len(`UNC\`)], `UNC\`) {
+		return `\\` + s[len(`UNC\`):]
+	}
+	return s
 }
 
 // ProjectDirName returns a filesystem-safe directory name derived from cwd:
