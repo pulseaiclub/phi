@@ -1,12 +1,3 @@
-// Package spec holds the declared command trees "!" completion completes from
-// before the project history knows a command.
-//
-// The data is a trimmed copy of the widely published community command specs:
-// names, subcommands, flags, and one-line descriptions, written as JSON and
-// embedded in the binary. It is a cold-start seed, not an authority on what a
-// command accepts, so an entry that is stale only costs a stale row; history
-// still outranks nothing here and a command with no spec keeps completing from
-// history exactly as before.
 package spec
 
 import (
@@ -15,7 +6,6 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
-	"strings"
 	"sync"
 )
 
@@ -33,7 +23,7 @@ type Arg struct {
 // Option is one flag of a command.
 type Option struct {
 	// Names are the spellings the user can type, longest first by convention:
-	// "-m", "--message".
+	// "--message", "-m".
 	Names       []string `json:"names"`
 	Description string   `json:"description,omitempty"`
 	Args        []Arg    `json:"args,omitempty"`
@@ -49,11 +39,23 @@ type Command struct {
 	// NoOptionAfterArgument keeps completing options only before the first
 	// positional argument, for commands where the argument list is open-ended.
 	NoOptionAfterArgument bool `json:"noOptionAfterArgument,omitempty"`
+	// Source records where the tree came from: empty for the embedded specs,
+	// "help" for one read out of the command's own output.
+	Source string `json:"source,omitempty"`
 }
 
-// Table is the parsed spec set, keyed by command name.
+// Table is a set of command trees, keyed by command name.
+//
+// A table is immutable once built, so the completion path reads it without a
+// lock while discovery appends to the shared one.
 type Table struct {
-	commands map[string]Command
+	names map[string]string
+	nodes map[string]Command
+}
+
+// NewTable returns an empty table.
+func NewTable() *Table {
+	return &Table{names: make(map[string]string), nodes: make(map[string]Command)}
 }
 
 var (
@@ -71,7 +73,7 @@ func Builtin() *Table {
 			// A broken embedded file is a build-time defect, and a completion
 			// must not be the thing that reports it: an empty table degrades
 			// to the history sources.
-			loaded = &Table{commands: map[string]Command{}}
+			loaded = NewTable()
 			return
 		}
 		loaded = table
@@ -85,7 +87,7 @@ func load() (*Table, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list command specs: %w", err)
 	}
-	table := &Table{commands: make(map[string]Command, len(paths))}
+	table := NewTable()
 	for _, file := range paths {
 		data, err := specFiles.ReadFile(file)
 		if err != nil {
@@ -98,25 +100,33 @@ func load() (*Table, error) {
 		name := command.Name
 		if name == "" {
 			// The file name carries the command when the body omits it.
-			name = strings.TrimSuffix(path.Base(file), ".json")
+			name = trimSuffix(path.Base(file), ".json")
 		}
 		if name == "" {
 			return nil, fmt.Errorf("command spec %s names no command", file)
 		}
-		table.commands[name] = command
+		command.Name = name
+		table.set(command)
 	}
 	return table, nil
 }
 
-// Lookup returns the command node a line is typing inside. tokens are the
-// words after the command name, so a line past `git commit` resolves to the
-// commit subcommand and a line past `git switch` to the switch subcommand.
-// ok is false when the command has no spec, which is the common case.
+// set stores one command tree under its name, folding case the way lookups do.
+func (t *Table) set(command Command) {
+	key := foldName(command.Name)
+	t.names[key] = command.Name
+	t.nodes[key] = command
+}
+
+// Lookup returns the command node a line is typing inside. args are the words
+// after the command name, so a line past `git commit` resolves to the commit
+// subcommand. ok is false when the command has no spec, which is the common
+// case.
 func (t *Table) Lookup(name string, args []string) (node Command, ok bool) {
 	if t == nil || name == "" {
 		return Command{}, false
 	}
-	root, known := t.commands[strings.Map(lowerRune, name)]
+	root, known := t.nodes[foldName(name)]
 	if !known {
 		return Command{}, false
 	}
@@ -134,6 +144,18 @@ func (t *Table) Lookup(name string, args []string) (node Command, ok bool) {
 	return node, true
 }
 
+// Names lists the commands the table knows, as they are spelled.
+func (t *Table) Names() []string {
+	if t == nil {
+		return nil
+	}
+	out := make([]string, 0, len(t.names))
+	for _, name := range t.names {
+		out = append(out, name)
+	}
+	return out
+}
+
 // subcommand resolves one word to a child of the node, matching the word as
 // the shell would name it.
 func (c Command) subcommand(word string) (Command, bool) {
@@ -145,17 +167,22 @@ func (c Command) subcommand(word string) (Command, bool) {
 	return Command{}, false
 }
 
-// lowerRune folds ASCII letters to lower case and leaves every other rune
-// alone, so a command name looks up the same way on every platform.
-func lowerRune(r rune) rune {
-	if r >= 'A' && r <= 'Z' {
-		return r + ('a' - 'A')
+// trimSuffix drops one trailing suffix, or returns s unchanged.
+func trimSuffix(s, suffix string) string {
+	if len(s) <= len(suffix) {
+		return s
 	}
-	return r
+	if s[len(s)-len(suffix):] == suffix {
+		return s[:len(s)-len(suffix)]
+	}
+	return s
 }
 
 // option reports whether word is a flag: a word to skip when walking a command
-// tree, since options never name subcommands.
+// tree, since options never name subcommands. A bare dash is not one.
 func option(word string) bool {
-	return strings.HasPrefix(word, "-") && word != "-"
+	if len(word) < 2 || word[0] != '-' {
+		return false
+	}
+	return true
 }

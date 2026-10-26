@@ -148,6 +148,37 @@ func foldEqual(a, b string) bool {
 	return true
 }
 
+// foldName is the lookup key for a command name: ASCII lower case, so `Git`
+// and `git` name the same tree on every platform.
+func foldName(name string) string {
+	buf := make([]byte, len(name))
+	for i := 0; i < len(name); i++ {
+		buf[i] = lowerASCII(name[i])
+	}
+	return string(buf)
+}
+
+// Merge returns a table holding every command of the embedded specs and then
+// every command of extra, which wins on a collision: a tree read out of the
+// command's own output describes the installed version, not a hand-written
+// approximation of it.
+func Merge(base, extra *Table) *Table {
+	merged := NewTable()
+	for _, table := range []*Table{base, extra} {
+		if table == nil {
+			continue
+		}
+		for _, name := range table.Names() {
+			node, ok := table.Lookup(name, nil)
+			if !ok {
+				continue
+			}
+			merged.set(node)
+		}
+	}
+	return merged
+}
+
 // lowerASCII folds one ASCII byte, leaving everything else alone.
 func lowerASCII(b byte) byte {
 	if b >= 'A' && b <= 'Z' {
