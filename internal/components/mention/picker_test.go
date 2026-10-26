@@ -1,6 +1,7 @@
 package mention
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -161,4 +162,64 @@ func panelRow(s components.Surface, y int) string {
 		b.WriteString(s.Buffer[y*s.Size.Width+x].Char)
 	}
 	return b.String()
+}
+
+// A list longer than the window says so on the edge: ▼ while there are rows
+// below, ▲ once the window has scrolled, neither when the list fits.
+func TestPickerMarksAListLongerThanTheWindow(t *testing.T) {
+	items := make([]Item, 30)
+	for i := range items {
+		items[i] = Item{Path: fmt.Sprintf("item-%02d", i)}
+	}
+	p := &Picker{
+		Theme:         components.DefaultTheme(),
+		Items:         items,
+		MaxItems:      5,
+		AnchorBottomY: 20,
+		AnchorWidth:   60,
+		AnchorX:       0,
+	}
+	p.Show()
+
+	edge := func(surf components.Surface) (top, bottom string) {
+		panel := surf.Children[0].Surface
+		w := panel.Size.Width
+		top = panel.Buffer[1*w+w-2].Char
+		bottom = panel.Buffer[5*w+w-2].Char
+		return top, bottom
+	}
+
+	surf := p.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 24}, Method: xui.WidthUnicode})
+	top, bottom := edge(surf)
+	assert.Equal(t, "▼", bottom, "rows below the window are marked")
+	assert.Equal(t, " ", top, "the top of the list has nothing above it")
+
+	p.Selected = 15
+	surf = p.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 24}, Method: xui.WidthUnicode})
+	top, bottom = edge(surf)
+	assert.Equal(t, "▲", top, "a scrolled window marks rows above")
+	assert.Equal(t, "▼", bottom, "and still rows below")
+
+	p.Selected = len(items) - 1
+	surf = p.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 24}, Method: xui.WidthUnicode})
+	top, bottom = edge(surf)
+	assert.Equal(t, "▲", top, "the bottom of the list still marks rows above")
+	assert.Equal(t, " ", bottom, "but nothing below")
+}
+
+// A list that fits the window carries no scroll marks.
+func TestPickerMarksNothingWhenTheListFits(t *testing.T) {
+	p := &Picker{
+		Theme:         components.DefaultTheme(),
+		Items:         []Item{{Path: "a"}, {Path: "b"}},
+		AnchorBottomY: 20,
+		AnchorWidth:   60,
+		AnchorX:       0,
+	}
+	p.Show()
+	surf := p.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 24}, Method: xui.WidthUnicode})
+	panel := surf.Children[0].Surface
+	w := panel.Size.Width
+	assert.Equal(t, " ", panel.Buffer[1*w+w-2].Char)
+	assert.Equal(t, " ", panel.Buffer[2*w+w-2].Char)
 }

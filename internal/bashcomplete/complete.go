@@ -29,10 +29,12 @@ const (
 
 const (
 	// historyLineLimit caps whole-line rows: they are the strongest rows, and
-	// the word-level sources behind them still need room in the picker.
-	historyLineLimit = 5
-	// wordLimit caps the rows any word-level source contributes.
-	wordLimit = 10
+	// an endless tail of them would bury the word-level sources below.
+	historyLineLimit = 20
+	// wordLimit caps the rows any word-level source contributes. The picker
+	// shows a scrolling window, not the whole list, so the cap only bounds the
+	// request — not what the user can reach.
+	wordLimit = 50
 )
 
 // Suggestion is one completion row. Command is the row the picker draws — the

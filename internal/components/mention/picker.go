@@ -350,6 +350,17 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 				ctx.Method,
 			)
 		}
+		// More rows than the window gets a cue on the edge, so the list reads
+		// as a window onto more, not as everything there is.
+		if nItems > visible {
+			edgeX := boxW - 2
+			if scroll > 0 {
+				panel.SetCell(edgeX, listY, xui.Cell{Char: "▲", Width: 1, Style: th.Muted})
+			}
+			if scroll+visible < nItems {
+				panel.SetCell(edgeX, listY+visible-1, xui.Cell{Char: "▼", Width: 1, Style: th.Muted})
+			}
+		}
 	}
 
 	ox := p.AnchorX

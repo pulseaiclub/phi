@@ -55,10 +55,9 @@ func (p *LocalBashPredictor) Predict(_ context.Context, typed string) ([]control
 	if p == nil || p.completer == nil {
 		return nil, nil
 	}
+	// Every row goes to the picker: it shows a scrolling window, and cutting
+	// the list here would decide for the user which candidates exist.
 	rows := p.completer.Complete(typed)
-	if len(rows) > bashSuggestVisible {
-		rows = rows[:bashSuggestVisible]
-	}
 	items := make([]controller.BashSuggestion, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, controller.BashSuggestion{

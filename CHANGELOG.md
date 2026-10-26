@@ -19,7 +19,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the project history knows them, and completions answer after a 50 ms typing
   pause instead of 200 ms. The highlighted row also shows inline as a dim ghost
   hint after the cursor — the untyped rest of the suggestion — and Tab accepts
-  it; the hint follows the highlight and clears with the next keystroke.
+  it; the hint follows the highlight and clears with the next keystroke. The
+  candidate list is complete rather than capped at ten rows: it scrolls inside
+  a ten-row window, with ▲/▼ marks on the edge while more rows sit above or
+  below.
 
 ### Fixed
 

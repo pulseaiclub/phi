@@ -84,9 +84,9 @@ func TestPredictCompletesPaths(t *testing.T) {
 	}, items)
 }
 
-// The picker lists at most bashSuggestVisible rows, strongest first: history
-// rows lead, and the overflow is cut from the end.
-func TestPredictCapsTheList(t *testing.T) {
+// Every candidate is listed, strongest first: the picker shows a scrolling
+// window over the list, so nothing is cut to the window size here.
+func TestPredictListsEveryCandidate(t *testing.T) {
 	commands := []string{"goa", "gob", "goc", "god", "goe", "gof", "gog", "goh"}
 	history := []string{"go one", "go two", "go three", "go four", "go five", "go six"}
 	predictor := newPredictor(t, historyStore(t, history...), commands...)
@@ -94,9 +94,9 @@ func TestPredictCapsTheList(t *testing.T) {
 	items, err := predictor.Predict(t.Context(), "go")
 
 	require.NoError(t, err)
-	require.Len(t, items, bashSuggestVisible)
-	assert.Equal(t, "go six", items[0].Command, "the newest history line leads the capped list")
-	assert.Equal(t, "goe", items[bashSuggestVisible-1].Command, "the overflow is cut from the end")
+	assert.Len(t, items, len(history)+len(commands), "history rows and command rows all arrive")
+	assert.Equal(t, "go six", items[0].Command, "the newest history line leads")
+	assert.Equal(t, "goh", items[len(items)-1].Command, "the last command row closes the list")
 }
 
 // A bare bang is not a query: whitespace-only text completes nothing.

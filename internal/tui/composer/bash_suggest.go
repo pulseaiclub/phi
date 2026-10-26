@@ -22,7 +22,9 @@ const (
 	// bashSuggestTimeout bounds one read end to end, so a wedged request
 	// cannot hold the picker open forever.
 	bashSuggestTimeout = 10 * time.Second
-	// bashSuggestVisible caps how many rows the picker lists.
+	// bashSuggestVisible is how many rows the picker shows at once. More rows
+	// than that scroll inside it, like an IDE completion menu: the list holds
+	// every candidate, the window walks it.
 	bashSuggestVisible = 10
 )
 

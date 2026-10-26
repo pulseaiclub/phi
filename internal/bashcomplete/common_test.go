@@ -16,14 +16,15 @@ func TestCompleteArgumentSeededFromCommonSubcommands(t *testing.T) {
 	}, commonSourceRows(c.Complete("git che")))
 }
 
-// With no prefix to narrow it, the table lists its most-typed words first.
+// With no prefix to narrow it, the table lists its most-typed words first —
+// every word of it, now that the list scrolls instead of truncating.
 func TestCommonWordsKeepTableOrder(t *testing.T) {
 	c := newCompleter(nil, nil, t.TempDir())
 
 	rows := commonSourceRows(c.Complete("git "))
 	assert.Equal(t, []string{
 		"add", "checkout", "commit", "status", "push", "pull", "branch",
-		"diff", "log", "merge",
+		"diff", "log", "merge", "rebase", "restore", "stash", "switch", "tag",
 	}, commands(rows))
 }
 
