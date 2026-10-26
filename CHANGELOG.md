@@ -17,7 +17,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   typed; each row shows where it came from (history, command, argument, common,
   path). Popular commands (git, docker, npm, go) seed argument completion before
   the project history knows them, and completions answer after a 50 ms typing
-  pause instead of 200 ms.
+  pause instead of 200 ms. The highlighted row also shows inline as a dim ghost
+  hint after the cursor — the untyped rest of the suggestion — and Tab accepts
+  it; the hint follows the highlight and clears with the next keystroke.
 
 ### Fixed
 

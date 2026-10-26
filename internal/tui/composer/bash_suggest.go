@@ -133,9 +133,37 @@ func (b *bashSuggest) onChange(active bool, query string) {
 	// rows — a list with nothing in it has nothing to say — and so does any
 	// placeholder for them, however long that takes.
 	b.rows = nil
+	b.pane.Chat.GhostText = ""
 	b.picker.SetResults(nil, "")
 	b.show()
 	b.schedule(query)
+}
+
+// ghostRemainder is the inline hint for the highlighted row: the rest of that
+// row the user has not typed yet. A word row hints the rest of its word; a
+// history row the rest of the line. Rows that do not literally extend what is
+// typed have no inline form and hint nothing.
+func (b *bashSuggest) ghostRemainder() string {
+	row, ok := b.row()
+	if !ok {
+		return ""
+	}
+	query, _, ok := chat.ActiveBash(b.pane.Chat.Value, b.pane.Chat.Cursor)
+	if !ok {
+		return ""
+	}
+	if row.Insert != "" {
+		words := bashcomplete.Tokenize(query)
+		typed := words[len(words)-1].Text
+		if strings.HasPrefix(row.Insert, typed) {
+			return row.Insert[len(typed):]
+		}
+		return ""
+	}
+	if strings.HasPrefix(row.Command, query) {
+		return row.Command[len(query):]
+	}
+	return ""
 }
 
 // yields reports whether another completer owns the composer: `@path` can sit
@@ -192,6 +220,7 @@ func (b *bashSuggest) pending() bool {
 // nothing is left behind to answer it with.
 func (b *bashSuggest) hide() {
 	b.rows = nil
+	b.pane.Chat.GhostText = ""
 	b.picker.SetResults(nil, "")
 	b.picker.Hide()
 	b.pane.Chat.BashOpen = false
@@ -301,6 +330,9 @@ func (b *bashSuggest) apply(msg controller.BashSuggestionsMsg) {
 	// There are rows to navigate now, so the picker opens and takes the
 	// navigation keys back from the composer.
 	b.show()
+	// The top row doubles as the inline hint, so the picker and the ghost
+	// never disagree about what Tab would accept.
+	b.pane.Chat.GhostText = b.ghostRemainder()
 }
 
 // bashSuggestionLabel names where the row came from, so a literal history

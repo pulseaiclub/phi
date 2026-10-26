@@ -49,6 +49,13 @@ type ChatInput struct {
 	CursorStyle    xui.Style // visual block when terminal cursor unavailable
 	UseBlockCursor bool      // paint reverse cell in addition to terminal cursor
 
+	// GhostText is a completion hint drawn after the cursor, dim, as the rest
+	// of a suggestion the user has not typed yet — the picker's highlighted
+	// row in "!" mode. It is display only: keys never land in it, and it is
+	// only drawn while the cursor sits at the end of the text.
+	GhostText  string
+	GhostStyle xui.Style // default: dim gray (indexed 244)
+
 	// Theme styles the pending-skills chip row (Muted label, Success names).
 	Theme components.Theme
 
@@ -728,6 +735,21 @@ func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 	// that paints a Width=1 reverse space into the second half of a CJK cell
 	// and shows up as phantom "cursor blocks".
 	cx = text.SnapSurfaceColToGlyphStart(s.Buffer, w, cx, cy)
+
+	// The ghost hint rides the cursor line, after the cursor, and only while
+	// the cursor ends the text: mid-text it would cover characters the user
+	// already has. It truncates to the border rather than wrapping, because a
+	// hint that spills onto its own line reads as typed text.
+	if c.GhostText != "" && c.Cursor == len(c.Value) && w-1-cx > 0 {
+		ghost := layout.TruncateToWidth(c.GhostText, w-1-cx, ctx.Method)
+		if ghost != "" {
+			ghostSt := c.GhostStyle
+			if ghostSt == (xui.Style{}) {
+				ghostSt = xui.Style{Fg: xui.IndexedColor(244)}
+			}
+			s.Print(cx, cy, ghost, ghostSt, ctx.Method)
+		}
+	}
 
 	if c.UseBlockCursor {
 		existing := s.Buffer[cy*w+cx]

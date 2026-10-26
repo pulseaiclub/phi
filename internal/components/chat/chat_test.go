@@ -365,3 +365,52 @@ func TestChatInputBackspacePopsPendingImage(t *testing.T) {
 	c.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyBackspace})
 	require.Empty(t, c.PendingImages)
 }
+
+// The ghost hint draws after the cursor as the untyped rest of a suggestion,
+// in the dim ghost style.
+func TestDrawPaintsGhostTextAfterTheCursor(t *testing.T) {
+	c := &ChatInput{
+		MinBodyRows: 3,
+		PaddingX:    1,
+		Value:       "git sta",
+		Cursor:      len("git sta"),
+		GhostText:   "tus ",
+	}
+	s := c.Draw(components.DrawContext{Max: components.Size{Width: 40, Height: 10}, Method: xui.WidthUnicode})
+
+	assert.Contains(t, rowString(s, 1), "git status ", "the hint completes the typed text inline")
+	ghostCol := 1 + c.PaddingX + len("git sta")
+	assert.Equal(t, xui.IndexedColor(244), s.Buffer[1*s.Size.Width+ghostCol].Style.Fg, "the hint is dim gray")
+}
+
+// The hint truncates at the border instead of wrapping onto its own line,
+// where it would read as typed text.
+func TestDrawTruncatesGhostTextAtTheBorder(t *testing.T) {
+	c := &ChatInput{
+		MinBodyRows: 3,
+		PaddingX:    1,
+		Value:       "git sta",
+		Cursor:      len("git sta"),
+		GhostText:   "tus ",
+	}
+	s := c.Draw(components.DrawContext{Max: components.Size{Width: 12, Height: 10}, Method: xui.WidthUnicode})
+
+	assert.Contains(t, rowString(s, 1), "git stat", "the hint fills the remaining columns")
+	assert.NotContains(t, rowString(s, 1), "git status", "the hint stops at the border")
+}
+
+// Mid-text the cursor has characters after it already, so a hint there would
+// cover them; it is only drawn while the cursor ends the text.
+func TestDrawSkipsGhostTextWhenTheCursorIsMidText(t *testing.T) {
+	c := &ChatInput{
+		MinBodyRows: 3,
+		PaddingX:    1,
+		Value:       "git status",
+		Cursor:      len("git sta"),
+		GhostText:   "xyz",
+	}
+	s := c.Draw(components.DrawContext{Max: components.Size{Width: 40, Height: 10}, Method: xui.WidthUnicode})
+
+	assert.Contains(t, rowString(s, 1), "git status")
+	assert.NotContains(t, rowString(s, 1), "xyz", "no hint over text the user already has")
+}

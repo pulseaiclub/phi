@@ -714,6 +714,9 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 					c.Chat.BashOpen = false
 					c.bash.abandon()
 				}
+				// Navigating moves the highlight, and the inline hint follows
+				// it: the ghost is the rest of the row Tab would accept.
+				c.Chat.GhostText = c.bash.ghostRemainder()
 				return
 			}
 			c.bash.hide()

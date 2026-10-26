@@ -618,3 +618,70 @@ func waitFor(t *testing.T, cond func() bool) {
 	}
 	require.Fail(t, "condition never held")
 }
+
+// The top row doubles as the inline hint: its untyped rest appears after the
+// cursor, so the ghost and the picker never disagree about what Tab accepts.
+func TestApplySetsTheGhostFromTheTopRow(t *testing.T) {
+	predictor := &fakeBashPredictor{items: []controller.BashSuggestion{
+		{Command: "git stash", Source: "history", Score: 1.0},
+		{Command: "status", Insert: "status ", Source: "argument", Score: 0.5},
+	}}
+	c, bus := newBashPane(t, predictor)
+	c.Chat.Value, c.Chat.Cursor = "!git sta", len("!git sta")
+
+	c.bash.onChange(true, "git sta")
+	c.ApplyBashSuggestions(drainBash(t, bus))
+
+	assert.Equal(t, "sh", c.Chat.GhostText, "the hint is the rest of the top history row")
+}
+
+// Navigating moves the highlight, and the hint follows it to the new row.
+func TestGhostFollowsTheHighlight(t *testing.T) {
+	predictor := &fakeBashPredictor{items: []controller.BashSuggestion{
+		{Command: "git stash", Source: "history", Score: 1.0},
+		{Command: "status", Insert: "status ", Source: "argument", Score: 0.5},
+	}}
+	c, bus := wiredComposer(t)
+	c.SetBashPredictor(predictor)
+	c.Chat.Value, c.Chat.Cursor = "!git sta", len("!git sta")
+	c.bash.onChange(true, "git sta")
+	c.ApplyBashSuggestions(drainBash(t, bus))
+	require.Equal(t, "sh", c.Chat.GhostText)
+
+	pressKey(t, c, xui.KeyEvent{Code: xui.KeyDown, Press: true})
+
+	assert.Equal(t, 1, c.bash.picker.Selected)
+	assert.Equal(t, "tus ", c.Chat.GhostText, "the hint is now the rest of the word row")
+}
+
+// Typing on invalidates the hint with the rows it belonged to.
+func TestTypingClearsTheGhost(t *testing.T) {
+	predictor := &fakeBashPredictor{items: []controller.BashSuggestion{
+		{Command: "git stash", Source: "history", Score: 1.0},
+	}}
+	c, bus := newBashPane(t, predictor)
+	c.Chat.Value, c.Chat.Cursor = "!git sta", len("!git sta")
+	c.bash.onChange(true, "git sta")
+	c.ApplyBashSuggestions(drainBash(t, bus))
+	require.Equal(t, "sh", c.Chat.GhostText)
+
+	c.Chat.Value, c.Chat.Cursor = "!git st", len("!git st")
+	c.bash.onChange(true, "git st")
+
+	assert.Empty(t, c.Chat.GhostText, "a hint for other text is not shown")
+}
+
+// Accepting a row fills the composer with it; nothing is left to hint.
+func TestAcceptClearsTheGhost(t *testing.T) {
+	c, _ := newBashPane(t, &fakeBashPredictor{})
+	c.Chat.Value, c.Chat.Cursor = "!git sta", len("!git sta")
+	c.bash.rows = []controller.BashSuggestion{{Command: "git stash", Source: "history"}}
+	c.bash.picker.SetResults([]mention.Item{{Path: "git stash", Description: "history"}}, "")
+	c.Chat.GhostText = "sh"
+	c.bash.show()
+
+	c.bash.accept(c.bash.picker.Items[0])
+
+	assert.Equal(t, "!git stash", c.Chat.Value)
+	assert.Empty(t, c.Chat.GhostText, "the filled text needs no hint")
+}
