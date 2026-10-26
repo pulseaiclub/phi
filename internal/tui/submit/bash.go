@@ -55,7 +55,19 @@ func (b *BashRunner) HandleSubmit(text string) bool {
 	if b == nil || !strings.HasPrefix(text, "!") {
 		return false
 	}
-	command := strings.TrimSpace(text[1:])
+	return b.start(strings.TrimSpace(text[1:]))
+}
+
+// HandleShellSubmit runs the bare text typed in composer shell mode: the mode
+// already says "this is a command", so there is no prefix to strip.
+func (b *BashRunner) HandleShellSubmit(text string) bool {
+	if b == nil {
+		return false
+	}
+	return b.start(strings.TrimSpace(text))
+}
+
+func (b *BashRunner) start(command string) bool {
 	if command == "" {
 		return false
 	}
@@ -85,7 +97,9 @@ func (b *BashRunner) HandleSubmit(text string) bool {
 	}
 	b.composer.HideCompleters()
 	b.composer.ClearInput()
-	b.SyncBorder("")
+	// Through the pane: shell mode keeps its border after the clear, a one-shot
+	// "!cmd" drops it with the prefix that set it.
+	b.composer.SyncBashBorder("")
 
 	id := fmt.Sprintf("bash-%d", started.UnixNano())
 	b.transcript.ApplySession(session.LocalBashStart{ID: id, Command: command})

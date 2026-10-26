@@ -322,7 +322,7 @@ func (c *ComposerPane) rememberPrompt(text string) {
 		return
 	}
 	text = strings.TrimSpace(text)
-	if text == "" || strings.HasPrefix(text, "/") || strings.HasPrefix(text, "!") {
+	if text == "" || strings.HasPrefix(text, "/") || strings.HasPrefix(text, "!") || c.Chat.ShellMode {
 		return
 	}
 	if err := c.promptHistory.Append(text); err != nil {
@@ -381,11 +381,62 @@ func (c *ComposerPane) ClearPendingRefs() {
 	c.Chat.ClearPendingRefs()
 }
 
-// SyncBashBorder updates composer chrome for "!cmd" prefix.
+// SyncBashBorder updates composer chrome for the "!cmd" prefix. Shell mode
+// keeps the bash border on whatever the buffer holds, so clearing the input
+// between commands does not drop the indication.
 func (c *ComposerPane) SyncBashBorder(text string) {
+	if c.Chat.ShellMode {
+		c.SetBashBorderActive(true)
+		return
+	}
 	if c.submitter != nil {
 		c.submitter.SyncBashBorder(text)
 	}
+}
+
+// ShellMode reports whether the composer submits straight to the shell
+// (composer shell mode), so callers can route submits without a prefix probe.
+func (c *ComposerPane) ShellMode() bool {
+	return c.Chat.ShellMode
+}
+
+// toggleShellMode flips composer shell mode: every submit runs as a local
+// shell command, no "!" prefix, like a terminal embed. The border takes the
+// bash color and the header names the mode, so the state is never mistaken
+// for a prompt headed to the agent.
+func (c *ComposerPane) toggleShellMode() {
+	c.Chat.ShellMode = !c.Chat.ShellMode
+	if c.Chat.ShellMode {
+		c.Chat.TopLeftLabel = layout.BorderLabel{Text: "bash · ! exits", Style: c.theme.ToolName}
+		c.SyncBashBorder("")
+	} else {
+		c.Chat.TopLeftLabel = layout.BorderLabel{}
+		c.bash.hide()
+		// Both exits require an empty buffer, so the border goes straight
+		// back to chrome; nothing on it can still ask for the bash color.
+		c.SetBashBorderActive(false)
+	}
+	if c.onRedraw != nil {
+		c.onRedraw()
+	}
+}
+
+// maybeToggleShellMode consumes a bare "!" pressed on an empty composer:
+// the mode exists exactly so consecutive commands do not retype the prefix.
+// Text on the buffer keeps "!" literal, and a pressed "!" still starts a
+// one-shot command there.
+func (c *ComposerPane) maybeToggleShellMode(ev xui.KeyEvent) bool {
+	if !ev.Press || ev.Code != xui.KeyRune || ev.Rune != '!' {
+		return false
+	}
+	if ev.Mods.Has(xui.ModCtrl) || ev.Mods.Has(xui.ModAlt) || ev.Mods.Has(xui.ModShift) {
+		return false
+	}
+	if strings.TrimSpace(c.Chat.Value) != "" {
+		return false
+	}
+	c.toggleShellMode()
+	return true
 }
 
 // CloseMentionSlash hides the @, /, ?, and "!" completers.
@@ -741,6 +792,10 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 				return
 			}
 		}
+		if c.maybeToggleShellMode(ev) {
+			ctx.ConsumeAndRedraw()
+			return
+		}
 		c.Chat.Handle(ctx, ev)
 	case xui.MouseEvent:
 		if c.listPicker.Open {
@@ -808,6 +863,13 @@ func (c *ComposerPane) handleEscape(ctx *components.EventContext) bool {
 		c.mention.Cancel()
 		c.Chat.MentionOpen = false
 		c.abandonMentionSearch()
+		ctx.ConsumeAndRedraw()
+		return true
+	}
+	// An empty composer in shell mode has nothing else for Esc to mean, so it
+	// leaves the mode; with text on the buffer Esc keeps clearing that first.
+	if c.Chat.ShellMode && strings.TrimSpace(c.Chat.Value) == "" {
+		c.toggleShellMode()
 		ctx.ConsumeAndRedraw()
 		return true
 	}

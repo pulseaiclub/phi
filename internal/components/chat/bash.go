@@ -31,6 +31,23 @@ func ActiveBash(value string, cursor int) (query string, start int, ok bool) {
 	return value[start:cursor], start, true
 }
 
+// ActiveBashMode is ActiveBash for a composer that may be in shell mode. Shell
+// mode has no bang to find: the whole buffer is the command text, starting at
+// 0, and even an empty buffer is an (empty) command so the completer can settle
+// while the user has not typed anything yet.
+func ActiveBashMode(value string, cursor int, shellMode bool) (query string, start int, ok bool) {
+	if !shellMode {
+		return ActiveBash(value, cursor)
+	}
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor > len(value) {
+		cursor = len(value)
+	}
+	return value[:cursor], 0, true
+}
+
 // isBashSpace reports whether b is whitespace the submitter would trim before
 // reading a leading bang. TrimSpace also covers vertical tab and form feed,
 // which cannot begin a line in practice.

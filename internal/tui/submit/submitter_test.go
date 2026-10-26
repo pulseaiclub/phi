@@ -18,6 +18,7 @@ type stubComposer struct {
 	skills []string
 	images []imgutil.Attachment
 	input  string
+	shell  bool
 }
 
 func (stubComposer) HideCompleters()                       {}
@@ -32,6 +33,7 @@ func (stubComposer) ClearPendingRefs()                     {}
 func (stubComposer) SyncBashBorder(string)                 {}
 func (stubComposer) CloseMentionSlash()                    {}
 func (stubComposer) SetBashBorderActive(bool)              {}
+func (s *stubComposer) ShellMode() bool                    { return s.shell }
 
 // newTestSubmitter wires a Submitter over a zero EngineController: SessionDir
 // is empty, so no shell history is created. Tests must not reach

@@ -111,6 +111,10 @@ type ChatInput struct {
 	QuestionOpen bool
 	// BashOpen is set while the ! completion picker is visible.
 	BashOpen bool
+	// ShellMode reports that the composer itself is the shell: submits run as
+	// local commands without a "!" prefix, and the "!" completion applies to
+	// the bare text. The composer pane toggles it; ChatInput only carries it.
+	ShellMode bool
 
 	// dumpNextDraw is set on paste/insert when PHI_DEBUG=1.
 	dumpNextDraw bool
@@ -444,6 +448,13 @@ func (c *ChatInput) Handle(ctx *components.EventContext, ev xui.Event) {
 				return
 			}
 			if e.Rune >= 0x20 || e.Rune == '\t' {
+				// A bare "!" on an empty buffer belongs to the composer's
+				// shell-mode toggle one level up: leaving it unconsumed
+				// bubbles it there, the same route the pickers' navigation
+				// keys take. With text on the buffer it stays a literal "!".
+				if e.Rune == '!' && strings.TrimSpace(c.Value) == "" {
+					return
+				}
 				c.insert(string(e.Rune))
 				ctx.ConsumeAndRedraw()
 			}
@@ -576,7 +587,7 @@ func (c *ChatInput) notifyBash() {
 	if c.OnBashChange == nil {
 		return
 	}
-	q, _, ok := ActiveBash(c.Value, c.Cursor)
+	q, _, ok := ActiveBashMode(c.Value, c.Cursor, c.ShellMode)
 	c.OnBashChange(ok, q)
 }
 

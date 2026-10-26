@@ -82,6 +82,10 @@ func (s *Submitter) SyncBashBorder(text string) {
 // Submit handles a user prompt from the composer (agent, slash, or bash).
 func (s *Submitter) Submit(text string) {
 	text = strings.TrimSpace(text)
+	// Shell mode submits bare text as commands: the mode is the prefix.
+	if s.composer.ShellMode() && s.bash.HandleShellSubmit(text) {
+		return
+	}
 	if strings.HasPrefix(text, "!") {
 		if s.bash.HandleSubmit(text) {
 			return

@@ -10,6 +10,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Composer shell mode: pressing `!` on an empty composer toggles a mode where
+  every submit runs as a local shell command without the `!` prefix — type one
+  command after another like in a terminal. The border takes the bash color and
+  the header shows `bash · ! exits` while it is on; the same `!` (or Esc on an
+  empty composer) switches it off. The `!` completion picker works on the bare
+  text in this mode, and shell commands stay out of prompt recall.
 - `!` command completion now completes word by word, not only whole lines from
   history: the command word completes from executables on PATH, arguments from
   words the project's history used in the same position, and path-looking words

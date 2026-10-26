@@ -411,13 +411,16 @@ func TestHideCompletersCancelsThePrediction(t *testing.T) {
 func TestEnterRunsTheCommandBeforeAnyRankingArrives(t *testing.T) {
 	c, bus := wiredComposer(t)
 	c.SetBashPredictor(&fakeBashPredictor{cancelErr: errors.New("still thinking")})
+	// The leading "!" toggles shell mode on an empty composer, so the command
+	// lands bare; the submit is the same run-a-command story either way.
 	pressText(t, c, "!git status")
+	require.True(t, c.Chat.ShellMode)
 	require.False(t, c.bash.picker.Open, "nothing to show, nothing on screen")
 	require.Empty(t, c.bash.picker.Items)
 
 	pressKey(t, c, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
 
-	assert.Equal(t, "!git status", submittedText(t, bus), "Enter runs what the user typed")
+	assert.Equal(t, "git status", submittedText(t, bus), "Enter runs what the user typed")
 }
 
 // When the highlighted row is what the user already typed, accepting it would

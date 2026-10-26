@@ -69,6 +69,13 @@ func (b *bashSuggest) row() (controller.BashSuggestion, bool) {
 	return b.rows[b.picker.Selected], true
 }
 
+// activeBash reads the command text under the cursor for the composer's
+// current mode: shell mode completes the bare buffer, "!" mode the text after
+// the bang.
+func (b *bashSuggest) activeBash() (string, int, bool) {
+	return chat.ActiveBashMode(b.pane.Chat.Value, b.pane.Chat.Cursor, b.pane.Chat.ShellMode)
+}
+
 // newBashSuggest builds the "!" completer for one composer pane: it reads the
 // text it ranks, and the bus it answers on, from there.
 func newBashSuggest(pane *ComposerPane, theme components.Theme) bashSuggest {
@@ -150,7 +157,7 @@ func (b *bashSuggest) ghostRemainder() string {
 	if !ok {
 		return ""
 	}
-	query, _, ok := chat.ActiveBash(b.pane.Chat.Value, b.pane.Chat.Cursor)
+	query, _, ok := b.activeBash()
 	if !ok {
 		return ""
 	}
@@ -188,6 +195,14 @@ func (b *bashSuggest) show() {
 		b.pane.Chat.BashOpen = false
 		return
 	}
+	// Shell mode has no bang on the buffer, so the rows draw bare commands;
+	// "!" mode keeps the bang in front of each row.
+	b.picker.Prefix = "!"
+	b.picker.NoPrefix = false
+	if b.pane.Chat.ShellMode {
+		b.picker.Prefix = ""
+		b.picker.NoPrefix = true
+	}
 	b.picker.Show()
 	b.pane.Chat.BashOpen = len(b.picker.Items) > 0
 }
@@ -200,7 +215,7 @@ func (b *bashSuggest) rowIsTypedText() bool {
 	if b.picker.Selected < 0 || b.picker.Selected >= len(b.picker.Items) {
 		return false
 	}
-	query, _, ok := chat.ActiveBash(b.pane.Chat.Value, b.pane.Chat.Cursor)
+	query, _, ok := b.activeBash()
 	if !ok {
 		return false
 	}
@@ -305,7 +320,7 @@ func (b *bashSuggest) apply(msg controller.BashSuggestionsMsg) {
 	// The buffer may have moved on without a new prediction being scheduled
 	// (a cursor move, say): showing this ranking would suggest the wrong
 	// completion for what is on screen.
-	if query, _, ok := chat.ActiveBash(b.pane.Chat.Value, b.pane.Chat.Cursor); !ok || query != msg.Query {
+	if query, _, ok := b.activeBash(); !ok || query != msg.Query {
 		return
 	}
 	if msg.ErrText != "" {
@@ -376,7 +391,7 @@ func (b *bashSuggest) accept(item mention.Item) {
 // typed, because the rest of the line is already right.
 func (b *bashSuggest) replacement(item mention.Item) (start, end int, text string) {
 	if row, ok := b.row(); ok && row.Insert != "" {
-		if query, qstart, ok := chat.ActiveBash(b.pane.Chat.Value, b.pane.Chat.Cursor); ok {
+		if query, qstart, ok := b.activeBash(); ok {
 			words := bashcomplete.Tokenize(query)
 			word := words[len(words)-1]
 			return qstart + word.Start, b.pane.Chat.Cursor, row.Insert
@@ -394,7 +409,7 @@ func (b *bashSuggest) replacement(item mention.Item) (start, end int, text strin
 // command, so replacing only up to the cursor would splice the accepted command
 // into the middle of the typed one.
 func (b *bashSuggest) replaceRange() (start, end int) {
-	if _, start, ok := chat.ActiveBash(b.pane.Chat.Value, b.pane.Chat.Cursor); ok {
+	if _, start, ok := b.activeBash(); ok {
 		return start, len(b.pane.Chat.Value)
 	}
 	return b.pane.Chat.Cursor, b.pane.Chat.Cursor

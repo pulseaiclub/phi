@@ -27,6 +27,9 @@ type Input interface {
 	SyncBashBorder(text string)
 	CloseMentionSlash()
 	SetBashBorderActive(active bool)
+	// ShellMode reports that the composer is in shell mode: every submit is
+	// already a shell command, so no "!" prefix is needed.
+	ShellMode() bool
 }
 
 // BashPredictor ranks completions for text typed in "!" mode. It owns reading

@@ -156,6 +156,7 @@ toast) run inline — no pane state needs a lock.
 User Enter in composer
   → ComposerPane publishes SubmitMsg{text}
   → drainBus → Submitter.Submit
+       ├─ shell mode     → BashRunner (local shell, SessionEventMsg for output)
        ├─ "!cmd" prefix  → BashRunner (local shell, SessionEventMsg for output)
        ├─ "/slash"       → CommandRegistry / SessionCommands / ExtCommands
        └─ plain text     → Controller.Submit → agent.Engine.Loop (background)
@@ -163,6 +164,13 @@ User Enter in composer
 ```
 
 `Submitter` clears composer input after slash/bash; agent submit passes pending skills from composer.
+
+Shell mode is a composer-wide toggle: pressing `!` on an empty composer turns it
+on (border takes the bash color, the header shows `bash · ! exits`), and until it
+is switched off every submit runs as a local shell command — no `!` prefix, like
+a terminal embed. The same `!` on an empty composer switches it off, and so does
+Esc once the buffer is empty again. The `!` completion picker works on the bare
+text in this mode, and shell-mode submits are excluded from prompt recall.
 
 User `!` commands are also appended to `history.jsonl` in the project's existing
 session directory (`~/.phi/session/<encoded-cwd>/`). All sessions for that workspace
