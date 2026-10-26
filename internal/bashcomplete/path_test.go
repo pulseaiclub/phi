@@ -27,7 +27,7 @@ func pathTestDir(t *testing.T) (dir string, want []string, skip string) {
 	if runtime.GOOS == "windows" {
 		return dir, []string{"git.exe", "noext.exe", "readme.exe"}, "plain.txt"
 	}
-	return dir, []string{"git", "noext.exe", "plain.txt"}, "readme"
+	return dir, []string{"git", "noext", "plain.txt"}, "readme"
 }
 
 func TestPathCommandsListsExecutablesAndBuiltins(t *testing.T) {
