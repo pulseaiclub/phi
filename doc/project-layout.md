@@ -7,6 +7,7 @@
 | `internal/util/update/`  | Self-update check + GitHub Releases install    |
 | `internal/agent/`        | Agent engine, executor, jobs                     |
 | `internal/agent/prompt/` | System prompt templates + Skills/MCP catalogs    |
+| `internal/bashcomplete/` | Local "!" completion: tokenizer, PATH/history/path sources |
 | `internal/components/`   | TUI widgets (chat, input, palette, mention, diffview, codeview, …) |
 | `internal/llm/`          | LLM clients (OpenAI-compatible + Anthropic + Gemini), streaming, skills |
 | `internal/llm/extmodel/` | Extension-served model connection adapted to `llm.ChatClient` |

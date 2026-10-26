@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pulseaiclub/phi/internal/bashcomplete"
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/chat"
 	"github.com/pulseaiclub/phi/internal/components/mention"
@@ -51,6 +52,19 @@ type bashSuggest struct {
 	accepted string
 	// cancel stops the prediction in flight; nil before the first one.
 	cancel context.CancelFunc
+	// rows holds the suggestion behind each picker item, index-aligned, so an
+	// accept knows how the highlighted row replaces the composer text. Rows set
+	// straight on the picker have none, and are whole-line rows.
+	rows []controller.BashSuggestion
+}
+
+// row returns the suggestion behind the highlighted picker row, if one is
+// aligned with it.
+func (b *bashSuggest) row() (controller.BashSuggestion, bool) {
+	if b.picker.Selected < 0 || b.picker.Selected >= len(b.rows) {
+		return controller.BashSuggestion{}, false
+	}
+	return b.rows[b.picker.Selected], true
 }
 
 // newBashSuggest builds the "!" completer for one composer pane: it reads the
@@ -118,6 +132,7 @@ func (b *bashSuggest) onChange(active bool, query string) {
 	// list for the time it takes to replace it. The picker goes with the
 	// rows — a list with nothing in it has nothing to say — and so does any
 	// placeholder for them, however long that takes.
+	b.rows = nil
 	b.picker.SetResults(nil, "")
 	b.show()
 	b.schedule(query)
@@ -149,7 +164,8 @@ func (b *bashSuggest) show() {
 
 // rowIsTypedText reports whether the highlighted row is already what the
 // user typed. Accepting it would rewrite the composer with itself, so Enter
-// keeps its usual meaning — run the command.
+// keeps its usual meaning — run the command. A word row is compared against
+// the word being typed; a whole-line row against the whole query.
 func (b *bashSuggest) rowIsTypedText() bool {
 	if b.picker.Selected < 0 || b.picker.Selected >= len(b.picker.Items) {
 		return false
@@ -157,6 +173,10 @@ func (b *bashSuggest) rowIsTypedText() bool {
 	query, _, ok := chat.ActiveBash(b.pane.Chat.Value, b.pane.Chat.Cursor)
 	if !ok {
 		return false
+	}
+	if row, ok := b.row(); ok && row.Insert != "" {
+		word := bashcomplete.Tokenize(query)
+		return strings.TrimSpace(row.Insert) == strings.TrimSpace(word[len(word)-1].Text)
 	}
 	return strings.TrimSpace(b.picker.Items[b.picker.Selected].Path) == strings.TrimSpace(query)
 }
@@ -171,6 +191,7 @@ func (b *bashSuggest) pending() bool {
 // The query is forgotten with it: re-entering "!" mode is a fresh question, and
 // nothing is left behind to answer it with.
 func (b *bashSuggest) hide() {
+	b.rows = nil
 	b.picker.SetResults(nil, "")
 	b.picker.Hide()
 	b.pane.Chat.BashOpen = false
@@ -268,6 +289,7 @@ func (b *bashSuggest) apply(msg controller.BashSuggestionsMsg) {
 		b.hide()
 		return
 	}
+	b.rows = msg.Items
 	items := make([]mention.Item, 0, len(msg.Items))
 	for _, item := range msg.Items {
 		items = append(items, mention.Item{
@@ -281,22 +303,28 @@ func (b *bashSuggest) apply(msg controller.BashSuggestionsMsg) {
 	b.show()
 }
 
-// bashSuggestionLabel describes how the row was ranked, so a literal completion
-// reads differently from a guess.
+// bashSuggestionLabel names where the row came from, so a literal history
+// match reads differently from a word nobody typed yet. A history row between
+// matches also shows its recency weight.
 func bashSuggestionLabel(item controller.BashSuggestion) string {
-	if item.IsPrefix {
-		return fmt.Sprintf("%.2f · prefix", item.Score)
+	switch item.Source {
+	case string(bashcomplete.SourceCommand),
+		string(bashcomplete.SourceArgument),
+		string(bashcomplete.SourcePath):
+		return item.Source
 	}
-	return fmt.Sprintf("%.2f", item.Score)
+	if item.Score > 0 && item.Score < 1 {
+		return fmt.Sprintf("%s · %.2f", bashcomplete.SourceHistory, item.Score)
+	}
+	return string(bashcomplete.SourceHistory)
 }
 
-// accept fills the composer with the chosen command, replacing what was
-// typed. The command is inserted whole because the picker ranks whole commands:
-// the typed text may be an abbreviation rather than a prefix.
+// accept fills the composer with the chosen completion, replacing what was
+// typed: a whole command for history rows, the word being typed for word rows.
 func (b *bashSuggest) accept(item mention.Item) {
-	start, end := b.replaceRange()
+	start, end, text := b.replacement(item)
 	b.hide()
-	b.pane.Chat.ReplaceRange(start, end, item.Path)
+	b.pane.Chat.ReplaceRange(start, end, text)
 	// ReplaceRange notifies synchronously, so the picker may already have
 	// reopened for the text just accepted. Record that this text is an answer
 	// already given, and close what that notification opened.
@@ -305,6 +333,22 @@ func (b *bashSuggest) accept(item mention.Item) {
 	if b.pane.onRedraw != nil {
 		b.pane.onRedraw()
 	}
+}
+
+// replacement resolves what accepting the highlighted row does to the composer
+// text. A whole-line row carries a full command and replaces the whole command
+// text; a word row carries the word to insert and replaces only the word being
+// typed, because the rest of the line is already right.
+func (b *bashSuggest) replacement(item mention.Item) (start, end int, text string) {
+	if row, ok := b.row(); ok && row.Insert != "" {
+		if query, qstart, ok := chat.ActiveBash(b.pane.Chat.Value, b.pane.Chat.Cursor); ok {
+			words := bashcomplete.Tokenize(query)
+			word := words[len(words)-1]
+			return qstart + word.Start, b.pane.Chat.Cursor, row.Insert
+		}
+	}
+	start, end = b.replaceRange()
+	return start, end, item.Path
 }
 
 // replaceRange resolves the composer range an accepted suggestion replaces:

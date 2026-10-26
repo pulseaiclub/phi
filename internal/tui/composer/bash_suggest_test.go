@@ -81,7 +81,7 @@ func drainBash(t *testing.T, bus *controller.Bus) controller.BashSuggestionsMsg 
 func TestBashSuggestionsRankIntoThePicker(t *testing.T) {
 	predictor := &fakeBashPredictor{items: []controller.BashSuggestion{
 		{Command: "git stash", Score: 0.7},
-		{Command: "git status", Score: 0.3, IsPrefix: true},
+		{Command: "status", Insert: "status ", Source: "argument", Score: 0.3},
 	}}
 	c, bus := newBashPane(t, predictor)
 
@@ -94,13 +94,14 @@ func TestBashSuggestionsRankIntoThePicker(t *testing.T) {
 	c.ApplyBashSuggestions(drainBash(t, bus))
 
 	assert.Equal(t, []mention.Item{
-		{Path: "git stash", Description: "0.70"},
-		{Path: "git status", Description: "0.30 · prefix"},
+		{Path: "git stash", Description: "history · 0.70"},
+		{Path: "status", Description: "argument"},
 	}, c.bash.picker.Items)
 	assert.Empty(t, c.bash.picker.Status, "results leave no status behind")
 	assert.True(t, c.bash.picker.Open, "the ranking opens the picker")
 	assert.True(t, c.Chat.BashOpen, "rows to navigate means the picker owns the keys")
 	assert.Equal(t, []string{"git s"}, predictor.asked())
+	assert.Equal(t, predictor.items, c.bash.rows, "the rows behind the items are kept for the accept")
 }
 
 func TestAcceptBashReplacesTheTypedCommand(t *testing.T) {
@@ -141,6 +142,76 @@ func TestAcceptBashReplacesTheWholeCommandFromAMidCommandCursor(t *testing.T) {
 	c.bash.accept(mention.Item{Path: "git stash"})
 
 	assert.Equal(t, "!git stash", c.Chat.Value)
+}
+
+// A word row completes only the word being typed: the command before it is
+// already right, so accepting "checkout" against "!git che" leaves "git" alone.
+func TestAcceptWordRowReplacesOnlyTheTypedWord(t *testing.T) {
+	c, _ := newBashPane(t, &fakeBashPredictor{})
+	c.Chat.Value, c.Chat.Cursor = "!git che", len("!git che")
+	c.bash.rows = []controller.BashSuggestion{
+		{Command: "git checkout", Source: "history"},
+		{Command: "checkout", Insert: "checkout ", Source: "argument"},
+	}
+	c.bash.picker.SetResults([]mention.Item{
+		{Path: "git checkout", Description: "history"},
+		{Path: "checkout", Description: "argument"},
+	}, "")
+	c.bash.picker.Selected = 1
+	c.bash.show()
+
+	c.bash.accept(c.bash.picker.Items[1])
+
+	assert.Equal(t, "!git checkout ", c.Chat.Value, "only the typed word is replaced")
+	assert.Equal(t, len("!git checkout "), c.Chat.Cursor)
+}
+
+// A path row keeps the prefix the user typed and closes on a directory with a
+// separator, ready to continue inside it.
+func TestAcceptPathRowKeepsTheTypedPrefix(t *testing.T) {
+	c, _ := newBashPane(t, &fakeBashPredictor{})
+	c.Chat.Value, c.Chat.Cursor = "!cat ./doc", len("!cat ./doc")
+	c.bash.rows = []controller.BashSuggestion{{Command: "./doc/", Insert: "./doc/", Source: "path"}}
+	c.bash.picker.SetResults([]mention.Item{{Path: "./doc/", Description: "path"}}, "")
+	c.bash.show()
+
+	c.bash.accept(c.bash.picker.Items[0])
+
+	assert.Equal(t, "!cat ./doc/", c.Chat.Value)
+}
+
+// Enter keeps its usual meaning when the highlighted word row is the word
+// already typed.
+func TestEnterRunsTheCommandWhenTheWordRowIsAlreadyTyped(t *testing.T) {
+	c, bus := wiredComposer(t)
+	c.SetBashPredictor(&fakeBashPredictor{})
+	c.Chat.Value, c.Chat.Cursor = "!git status", len("!git status")
+	c.bash.onChange(true, "git status")
+	c.bash.rows = []controller.BashSuggestion{{Command: "status", Insert: "status ", Source: "argument"}}
+	c.bash.picker.SetResults([]mention.Item{{Path: "status", Description: "argument"}}, "")
+	c.bash.show()
+
+	pressKey(t, c, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
+
+	assert.Equal(t, "!git status", submittedText(t, bus))
+	assert.Equal(t, "!git status", c.Chat.Value, "the composer is not rewritten with itself")
+}
+
+// Enter accepts a word row that differs from the typed word, and fills just
+// that word.
+func TestEnterAcceptsAWordRowThatDiffersFromTheTypedWord(t *testing.T) {
+	c, bus := wiredComposer(t)
+	c.SetBashPredictor(&fakeBashPredictor{})
+	c.Chat.Value, c.Chat.Cursor = "!git st", len("!git st")
+	c.bash.onChange(true, "git st")
+	c.bash.rows = []controller.BashSuggestion{{Command: "status", Insert: "status ", Source: "argument"}}
+	c.bash.picker.SetResults([]mention.Item{{Path: "status", Description: "argument"}}, "")
+	c.bash.show()
+
+	pressKey(t, c, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
+
+	assert.Equal(t, "!git status ", c.Chat.Value, "Enter fills the highlighted word")
+	assert.Empty(t, submittedText(t, bus), "filling is not running")
 }
 
 func TestSupersededBashSuggestionStaysQuiet(t *testing.T) {
@@ -446,8 +517,8 @@ func TestEnterRunsTheCommandAfterAFailedRanking(t *testing.T) {
 func TestBashPickerNavigatesTheRankedRows(t *testing.T) {
 	c, bus := wiredComposer(t)
 	c.SetBashPredictor(&fakeBashPredictor{items: []controller.BashSuggestion{
-		{Command: "git stash", Score: 0.8, IsPrefix: true},
-		{Command: "git status", Score: 0.5, IsPrefix: true},
+		{Command: "git stash", Score: 0.8},
+		{Command: "git status", Score: 0.5},
 	}})
 	c.Chat.Value, c.Chat.Cursor = "!git st", len("!git st")
 	c.bash.onChange(true, "git st")

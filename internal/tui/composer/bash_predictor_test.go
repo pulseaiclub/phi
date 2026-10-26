@@ -1,6 +1,8 @@
 package composer
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -26,66 +28,80 @@ func historyStore(t *testing.T, commands ...string) *shellhist.Store {
 	return store
 }
 
-// Completion is prefix-only: every command that literally starts with the typed
-// text is listed, newest first, with a recency weight.
-func TestPredictListsEveryPrefixMatch(t *testing.T) {
-	predictor := NewBashHistoryPredictor(historyStore(t, "ls -la", "git stash", "git status"))
+// newPredictor wires a predictor over fixed sources, so ranking is asserted
+// without depending on the machine's PATH or directories.
+func newPredictor(t *testing.T, store *shellhist.Store, commands ...string) *LocalBashPredictor {
+	t.Helper()
+	predictor := NewLocalBashPredictor(store, t.TempDir())
+	predictor.commands = func() []string { return commands }
+	return predictor
+}
 
-	items, err := predictor.Predict(t.Context(), "git s")
+// A command word completes from two sources: whole lines from history first,
+// then executable names from PATH.
+func TestPredictCombinesHistoryAndPath(t *testing.T) {
+	predictor := newPredictor(t, historyStore(t, "git status", "git stash", "npm test"), "git", "ginkgo")
+
+	items, err := predictor.Predict(t.Context(), "gi")
 
 	require.NoError(t, err)
 	assert.Equal(t, []controller.BashSuggestion{
-		{Command: "git status", Score: 1.0, IsPrefix: true},
-		{Command: "git stash", Score: 0.5, IsPrefix: true},
+		{Command: "git stash", Source: "history", Score: 1.0},
+		{Command: "git status", Source: "history", Score: 0.5},
+		{Command: "git", Insert: "git ", Source: "command", Score: 1},
+		{Command: "ginkgo", Insert: "ginkgo ", Source: "command", Score: 1},
 	}, items)
 }
 
-// The command equal to the typed text is excluded: there is nothing left to
-// complete, so it never crowds the picker.
-func TestPredictExcludesTheExactCommand(t *testing.T) {
-	predictor := NewBashHistoryPredictor(historyStore(t, "git stash", "git status"))
+// An argument completes with words seen in the same position of the same
+// command, ranked by how often the project ran them.
+func TestPredictCompletesArgumentsFromHistory(t *testing.T) {
+	predictor := newPredictor(t, historyStore(t, "git status", "git stash", "git status"))
 
-	items, err := predictor.Predict(t.Context(), "git status")
-
-	require.NoError(t, err)
-	assert.Empty(t, items)
-}
-
-// Duplicates keep their most recent position: a command run twice is listed once.
-func TestPredictDeduplicatesByMostRecent(t *testing.T) {
-	predictor := NewBashHistoryPredictor(historyStore(t, "git status", "git stash", "git status"))
-
-	items, err := predictor.Predict(t.Context(), "git")
+	items, err := predictor.Predict(t.Context(), "git sta")
 
 	require.NoError(t, err)
 	assert.Equal(t, []controller.BashSuggestion{
-		{Command: "git status", Score: 1.0, IsPrefix: true},
-		{Command: "git stash", Score: 0.5, IsPrefix: true},
+		{Command: "git status", Source: "history", Score: 1.0},
+		{Command: "git stash", Source: "history", Score: 0.5},
+		{Command: "status", Insert: "status ", Source: "argument", Score: 1.0},
+		{Command: "stash", Insert: "stash ", Source: "argument", Score: 0.5},
 	}, items)
 }
 
-// A non-matching prefix leaves the picker quiet rather than guessing.
-func TestPredictStaysQuietWhenNothingMatches(t *testing.T) {
-	predictor := NewBashHistoryPredictor(historyStore(t, "make build", "npm test"))
+// A path word completes against the project directory.
+func TestPredictCompletesPaths(t *testing.T) {
+	cwd := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(cwd, "doc"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(cwd, "doc", "note.md"), nil, 0o644))
+	predictor := NewLocalBashPredictor(historyStore(t), cwd)
 
-	items, err := predictor.Predict(t.Context(), "zzz")
+	items, err := predictor.Predict(t.Context(), "./doc/")
 
 	require.NoError(t, err)
-	assert.Empty(t, items)
+	assert.Equal(t, []controller.BashSuggestion{
+		{Command: "./doc/note.md", Insert: "./doc/note.md ", Source: "path", Score: 1},
+	}, items)
 }
 
-func TestPredictWithoutHistoryIsSilent(t *testing.T) {
-	predictor := NewBashHistoryPredictor(historyStore(t))
+// The picker lists at most bashSuggestVisible rows, strongest first: history
+// rows lead, and the overflow is cut from the end.
+func TestPredictCapsTheList(t *testing.T) {
+	commands := []string{"goa", "gob", "goc", "god", "goe", "gof", "gog", "goh"}
+	history := []string{"go one", "go two", "go three", "go four", "go five", "go six"}
+	predictor := newPredictor(t, historyStore(t, history...), commands...)
 
-	items, err := predictor.Predict(t.Context(), "git")
+	items, err := predictor.Predict(t.Context(), "go")
 
 	require.NoError(t, err)
-	assert.Empty(t, items)
+	require.Len(t, items, bashSuggestVisible)
+	assert.Equal(t, "go six", items[0].Command, "the newest history line leads the capped list")
+	assert.Equal(t, "goe", items[bashSuggestVisible-1].Command, "the overflow is cut from the end")
 }
 
 // A bare bang is not a query: whitespace-only text completes nothing.
 func TestPredictIgnoresBlankText(t *testing.T) {
-	predictor := NewBashHistoryPredictor(historyStore(t, "git stash"))
+	predictor := newPredictor(t, historyStore(t, "git stash"), "git")
 
 	items, err := predictor.Predict(t.Context(), "   ")
 
@@ -93,41 +109,26 @@ func TestPredictIgnoresBlankText(t *testing.T) {
 	assert.Empty(t, items)
 }
 
+// Without a history store the word-level sources still complete: a project
+// without a session directory keeps PATH and path completion.
+func TestPredictWithoutAStoreStillCompletesCommands(t *testing.T) {
+	predictor := newPredictor(t, nil, "git", "ginkgo")
+
+	items, err := predictor.Predict(t.Context(), "gin")
+
+	require.NoError(t, err)
+	assert.Equal(t, []controller.BashSuggestion{
+		{Command: "ginkgo", Insert: "ginkgo ", Source: "command", Score: 1},
+	}, items)
+}
+
 // An inert predictor is not an error: the composer installs one only when it
-// has a history directory, and must never panic if it does not.
-func TestPredictWithoutAStoreIsInert(t *testing.T) {
-	for _, tt := range []struct {
-		name      string
-		predictor *BashHistoryPredictor
-	}{
-		{"nil predictor", nil},
-		{"no store", NewBashHistoryPredictor(nil)},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			items, err := tt.predictor.Predict(t.Context(), "git")
+// has an engine, and must never panic if it does not.
+func TestPredictOnNilPredictorIsInert(t *testing.T) {
+	var predictor *LocalBashPredictor
 
-			require.NoError(t, err)
-			assert.Empty(t, items)
-		})
-	}
-}
+	items, err := predictor.Predict(t.Context(), "git")
 
-// prefixMatches walks history newest first, drops the exact match and
-// duplicates, and caps the result.
-func TestPrefixMatches(t *testing.T) {
-	history := []string{"git pull", "git push", "npm test", "git push", "git status"}
-
-	assert.Equal(t, []string{"git status", "git push", "git pull"},
-		prefixMatches("git", history, 10))
-	assert.Equal(t, []string{"git status", "git push"},
-		prefixMatches("git", history, 2))
-	assert.Empty(t, prefixMatches("git", history, 0))
-	assert.Empty(t, prefixMatches("zzz", history, 10))
-}
-
-func TestRecencyScore(t *testing.T) {
-	assert.Equal(t, 1.0, recencyScore(0, 1))
-	assert.Equal(t, 1.0, recencyScore(0, 3))
-	assert.InDelta(t, 0.67, recencyScore(1, 3), 0.01)
-	assert.InDelta(t, 0.33, recencyScore(2, 3), 0.01)
+	require.NoError(t, err)
+	assert.Empty(t, items)
 }

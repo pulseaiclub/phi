@@ -87,13 +87,16 @@ func NewEditor(
 		composer: composer.NewComposerPane(theme, modelLabel, cwd),
 		footer:   footer.NewFooterChrome(theme, contextWindow),
 	}
-	// The "!" picker reads project shell history: as long as a session
-	// directory exists, prefix completion is wired unconditionally. Without one
-	// the picker stays closed and the composer behaves exactly as before.
-	if ctrl != nil && ctrl.SessionDir() != "" {
-		e.composer.SetBashPredictor(
-			composer.NewBashHistoryPredictor(shellhist.New(ctrl.SessionDir())),
-		)
+	// The "!" picker completes from local sources — project shell history,
+	// executables on PATH, and the project directory — so it is wired whenever
+	// there is an engine to run commands at all. Without a session directory the
+	// history sources read empty; PATH and path completion still work.
+	if ctrl != nil {
+		var store *shellhist.Store
+		if dir := ctrl.SessionDir(); dir != "" {
+			store = shellhist.New(dir)
+		}
+		e.composer.SetBashPredictor(composer.NewLocalBashPredictor(store, cwd))
 	}
 	// Prompt recall is opt-in: it persists what the user typed under the home
 	// directory, so it stays off until PHI_PROMPT_HISTORY turns it on.

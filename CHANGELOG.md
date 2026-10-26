@@ -10,6 +10,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `!` command completion now completes word by word, not only whole lines from
+  history: the command word completes from executables on PATH, arguments from
+  words the project's history used in the same position, and path-looking words
+  from the project directory. Accepting a word row replaces only the word being
+  typed; each row shows where it came from (history, command, argument, path).
+
 ### Fixed
 
 - Auto-compaction no longer saves a summary that finishes after the turn was
