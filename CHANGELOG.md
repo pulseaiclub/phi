@@ -43,6 +43,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   takes) instead of the source name when one is declared. A bare `-` lists the
   flags of the subcommand the cursor is inside, and commands without a spec
   keep completing from history exactly as before.
+- Setting `PHI_COMPLETION_HELP=1` lets completion learn commands the specs do
+  not cover from the command's own `--help`: one run per command, in the
+  background, three seconds at most, cached under `~/.phi/completion` so later
+  sessions complete without running anything. Off by default, since it runs
+  commands.
 
 ### Fixed
 

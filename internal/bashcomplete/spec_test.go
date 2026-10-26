@@ -1,11 +1,53 @@
 package bashcomplete
 
 import (
+	"context"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/pulseaiclub/phi/internal/bashcomplete/spec"
 )
+
+// helpOutput is a usage table in the shape command-line libraries print.
+const helpOutput = `Flags:
+      --verbose   print what is being done
+  -v            print what is being done
+`
+
+// runs returns the commands whose help was read, safe against the background
+// read appending while a test asks.
+func (f *fakeDiscovery) runs() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.ran...)
+}
+
+// fakeDiscovery is a discoverer whose --help output is fixed, so the test
+// never spawns a process.
+type fakeDiscovery struct {
+	*spec.Discoverer
+	mu  sync.Mutex
+	ran []string
+}
+
+func newFakeDiscovery(t *testing.T) *fakeDiscovery {
+	t.Helper()
+	fake := &fakeDiscovery{}
+	fake.Discoverer = spec.NewDiscoverer(t.TempDir())
+	fake.Cached = spec.NewTable
+	fake.Lookup = func(name string) (string, error) { return "/bin/" + name, nil }
+	fake.Run = func(_ context.Context, name string) (string, error) {
+		fake.mu.Lock()
+		fake.ran = append(fake.ran, name)
+		fake.mu.Unlock()
+		return helpOutput, nil
+	}
+	return fake
+}
 
 // blankHistorySource is a history source with nothing in it: the answers come
 // from the spec table alone, so the assertions are about the table.
@@ -119,4 +161,42 @@ func TestCompleteSpecStopsAtPositionalArgument(t *testing.T) {
 
 	assert.Empty(t, specRows(c.Complete("git add -p README.md -")), "add takes paths after its first argument")
 	assert.NotEmpty(t, specRows(c.Complete("git commit README.md -")), "commit keeps completing flags")
+}
+
+// A command the table does not know starts a background read once its word is
+// finished, and the keystroke that starts it still answers from what is known.
+func TestCompleteStartsDiscoveryForAnUnknownCommand(t *testing.T) {
+	help := newFakeDiscovery(t)
+	c := newCompleter([]string{"tea build"}, nil, t.TempDir())
+	c.SetDiscovery(help.Discoverer)
+
+	assert.Empty(t, c.Complete("tea --ver"), "nothing is known yet, and nothing waits")
+	require.Eventually(t, func() bool {
+		return len(c.Complete("tea --ver")) > 0
+	}, 2*time.Second, 10*time.Millisecond, "the read lands and the flags complete")
+}
+
+// The word has to be finished: a half-typed command names nothing to run, so
+// typing it costs no process.
+func TestCompleteDoesNotDiscoverACommandStillBeingTyped(t *testing.T) {
+	help := newFakeDiscovery(t)
+	c := newCompleter(blankHistorySource(), nil, t.TempDir())
+	c.SetDiscovery(help.Discoverer)
+
+	c.Complete("te")
+
+	time.Sleep(50 * time.Millisecond)
+	assert.Empty(t, help.runs(), "no process for a command that is not finished")
+}
+
+// A path word completes from the filesystem and is never executed.
+func TestCompleteDoesNotDiscoverPaths(t *testing.T) {
+	help := newFakeDiscovery(t)
+	c := newCompleter(blankHistorySource(), nil, t.TempDir())
+	c.SetDiscovery(help.Discoverer)
+
+	c.Complete("./tea --ver")
+
+	time.Sleep(50 * time.Millisecond)
+	assert.Empty(t, help.runs())
 }

@@ -1,6 +1,7 @@
 package bashcomplete
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
@@ -66,14 +67,30 @@ type Completer struct {
 	commands func() []string
 	// cwd is the directory path words complete against.
 	cwd string
-	// specs is the embedded command table, consulted before the sources that
-	// need history to be useful. nil leaves those sources as the only ones.
+	// specs is the command table, consulted before the sources that need
+	// history to be useful. nil leaves those sources as the only ones.
 	specs *spec.Table
+	// discovery, when set, starts reading a command's --help once the command
+	// word is complete and the table has nothing for it. It runs in the
+	// background: the keystroke that triggers it answers from what is known.
+	discovery *spec.Discoverer
 }
 
 // New builds a completer over injected sources.
 func New(history, commands func() []string, cwd string) *Completer {
 	return &Completer{history: history, commands: commands, cwd: cwd, specs: spec.Builtin()}
+}
+
+// SetDiscovery adds help discovery to the completer: commands the table does
+// not know get their --help read in the background, and their flags complete
+// from the next keystroke on. The table the completer reads is the discoverer's,
+// so the embedded specs stay the base of it.
+func (c *Completer) SetDiscovery(discovery *spec.Discoverer) {
+	if c == nil || discovery == nil {
+		return
+	}
+	c.discovery = discovery
+	c.specs = discovery.Table()
 }
 
 // Complete lists completions for typed, the "!" line text up to the cursor.
@@ -125,7 +142,47 @@ func (c *Completer) Complete(typed string) []Suggestion {
 		// already went through the first branch.
 		suggestions = append(suggestions, c.pathWordsAt("", word.Text)...)
 	}
+	c.maybeDiscover(tokens, command, hasCommand)
+	c.refreshSpecs()
 	return dedupeSuggestions(suggestions)
+}
+
+// refreshSpecs picks up a table a discovery replaced: the completer reads its
+// own field on the hot path, so the new table has to land there once, off the
+// lock the discoverer holds while it reads.
+func (c *Completer) refreshSpecs() {
+	if c.discovery == nil {
+		return
+	}
+	c.specs = c.discovery.Table()
+}
+
+// maybeDiscover starts a background --help read for a command the table does
+// not know, once the command word itself is complete. Until the read lands the
+// keystroke answers from history and PATH exactly as before.
+func (c *Completer) maybeDiscover(tokens []Token, command int, hasCommand bool) {
+	if c.discovery == nil || !hasCommand {
+		return
+	}
+	name := wordOf(tokens, command)
+	if name == "" || !pathFree(name) {
+		return
+	}
+	// The word has to be finished: a half-typed command names nothing to run,
+	// and the cursor sitting on the command word is exactly that.
+	if command == len(tokens)-1 {
+		return
+	}
+	if c.discovery.Warmed(name) {
+		return
+	}
+	c.discovery.Discover(context.Background(), name)
+}
+
+// pathFree reports whether name is a bare command word rather than a path: a
+// path is completed from the filesystem, never executed for its help.
+func pathFree(name string) bool {
+	return !pathWord(name)
 }
 
 // specWords completes a word from the embedded command specs: the command's

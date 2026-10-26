@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/pulseaiclub/phi/internal/bashcomplete"
+	"github.com/pulseaiclub/phi/internal/bashcomplete/spec"
 	"github.com/pulseaiclub/phi/internal/session/shellhist"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
@@ -38,6 +39,13 @@ func NewLocalBashPredictor(store *shellhist.Store, cwd string) *LocalBashPredict
 		}
 	}
 	predictor.completer = bashcomplete.New(history, predictor.pathCommands, cwd)
+	if spec.HelpEnabled() {
+		// Opt-in: discovery runs commands. The cache is read here, off the
+		// keystroke, so a warm project completes without spawning anything.
+		discovery := spec.NewDiscoverer(spec.DefaultCacheDir())
+		discovery.Warm(bashcomplete.PathCommands())
+		predictor.completer.SetDiscovery(discovery)
+	}
 	return predictor
 }
 

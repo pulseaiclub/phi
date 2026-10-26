@@ -215,6 +215,14 @@ hand-written copy of the community command specs for git, go, docker, npm, and
 cargo; a command outside them keeps completing from history alone, and a stale
 spec entry only costs a stale row.
 
+`PHI_COMPLETION_HELP=1` adds help discovery for the commands the specs do not
+cover. A command whose word is finished and unknown starts one `--help` run in
+the background, bounded at three seconds and 256 KiB; the parsed flag table is
+stored under `~/.phi/completion/` (`PHI_COMPLETION_CACHE` overrides the
+directory) and loaded on the next start without running anything. The keystroke
+that starts a read still answers from what is already known, and nothing here
+touches a path word: a path completes from the filesystem.
+
 ### 2. Stream and transcript
 
 ```text
