@@ -12,6 +12,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- `grep` prints each file path once with compact line references, merges
+  overlapping context without repeating lines, and only reports a match-limit
+  truncation when additional matches exist.
 - Auto-compaction no longer saves a summary that finishes after the turn was
   cancelled or after new messages landed while it was being written; the
   history stays intact and compaction reports a failure instead.
