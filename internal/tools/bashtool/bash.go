@@ -14,6 +14,7 @@ import (
 
 const (
 	bashDefaultTimeout = 300
+	bashMaxTimeout     = 3600
 )
 
 var bashDescription = `Run a shell command and return combined stdout/stderr.
@@ -36,8 +37,11 @@ func BashTool() tooldef.Tool {
 						"description": "Shell command to run. Example: go test ./...",
 					},
 					"timeout": llm.Object{
-						"type":        "integer",
-						"description": "Timeout in seconds, 1-3600. Example: 120 (default: 300).",
+						"type": "integer",
+						"description": fmt.Sprintf(
+							"Timeout in seconds, 1-%d. Example: 120 (default: %d).",
+							bashMaxTimeout, bashDefaultTimeout,
+						),
 					},
 				},
 				Required: []string{"command"},
@@ -71,8 +75,8 @@ func runBash(ctx context.Context, in bashInput) (tooldef.Result, error) {
 	if timeout <= 0 {
 		timeout = bashDefaultTimeout
 	}
-	if timeout > 3600 {
-		timeout = 3600
+	if timeout > bashMaxTimeout {
+		timeout = bashMaxTimeout
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
