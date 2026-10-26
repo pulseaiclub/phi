@@ -2,6 +2,7 @@ package bashcomplete
 
 import (
 	"context"
+	"os/exec"
 	"sync"
 	"testing"
 	"time"
@@ -195,4 +196,71 @@ func TestCompleteDoesNotDiscoverPaths(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 	assert.Empty(t, help.runs())
+}
+
+// A positional argument completes from the project itself once the read lands:
+// `git log ` lists this repository's commits, hash first and subject after.
+func TestCompleteArgumentValuesFromTheRepository(t *testing.T) {
+	dir := gitRepoIn(t, "second commit", "first commit")
+	c := newCompleter(blankHistorySource(), nil, dir)
+	c.SetValues(spec.NewValues(dir))
+
+	assert.Empty(t, c.Complete("git log "), "the first keystroke starts the read")
+
+	require.Eventually(t, func() bool {
+		return len(c.Complete("git log ")) > 0
+	}, 5*time.Second, 20*time.Millisecond)
+
+	rows := c.Complete("git log ")
+	require.Len(t, rows, 2, "both commits of the repository")
+	var subjects []string
+	for _, row := range rows {
+		subjects = append(subjects, row.Description)
+		assert.Len(t, row.Command, 7, "the short hash is the word a user types")
+	}
+	assert.ElementsMatch(t, []string{"first commit", "second commit"}, subjects)
+}
+
+// Branch names complete where a checkout or a switch expects one.
+func TestCompleteBranchValues(t *testing.T) {
+	dir := gitRepoIn(t, "only commit")
+	c := newCompleter(blankHistorySource(), nil, dir)
+	c.SetValues(spec.NewValues(dir))
+	c.values.Load(t.Context(), "branches", "", readBranches(t))
+
+	rows := c.Complete("git switch ")
+
+	require.NotEmpty(t, rows)
+	assert.Equal(t, "main", rows[0].Command)
+}
+
+// gitRepoIn makes a temporary repository with the given commit subjects, so a
+// test can read back what the generator should list.
+func gitRepoIn(t *testing.T, subjects ...string) string {
+	t.Helper()
+	dir := t.TempDir()
+	steps := [][]string{
+		{"init", "-q", "-b", "main"},
+		{"config", "user.email", "test@example.com"},
+		{"config", "user.name", "Test"},
+	}
+	for _, subject := range subjects {
+		steps = append(steps, []string{"commit", "--allow-empty", "-q", "-m", subject})
+	}
+	for _, args := range steps {
+		cmd := exec.CommandContext(t.Context(), "git", args...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "git %v: %s", args, out)
+	}
+	return dir
+}
+
+// readBranches is the branch reader the spec registry exposes, for a test that
+// wants to prime the cache without waiting on a background read.
+func readBranches(t *testing.T) spec.Generator {
+	t.Helper()
+	read, ok := spec.GeneratorByName("branches")
+	require.True(t, ok)
+	return read
 }

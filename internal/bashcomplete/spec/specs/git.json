@@ -183,6 +183,12 @@
             }
           ]
         }
+      ],
+      "args": [
+        {
+          "name": "branch",
+          "generator": "branches"
+        }
       ]
     },
     {
@@ -434,7 +440,13 @@
           "description": "compare two unrelated paths"
         }
       ],
-      "noOptionAfterArgument": true
+      "noOptionAfterArgument": true,
+      "args": [
+        {
+          "name": "commit",
+          "generator": "commits"
+        }
+      ]
     },
     {
       "name": "fetch",
@@ -582,7 +594,13 @@
           ]
         }
       ],
-      "noOptionAfterArgument": true
+      "noOptionAfterArgument": true,
+      "args": [
+        {
+          "name": "commit",
+          "generator": "commits"
+        }
+      ]
     },
     {
       "name": "merge",
@@ -635,6 +653,12 @@
               "name": "strategy"
             }
           ]
+        }
+      ],
+      "args": [
+        {
+          "name": "branch",
+          "generator": "branches"
         }
       ]
     },
@@ -789,6 +813,12 @@
             }
           ]
         }
+      ],
+      "args": [
+        {
+          "name": "branch",
+          "generator": "branches"
+        }
       ]
     },
     {
@@ -900,6 +930,12 @@
           ],
           "description": "choose hunks to unstage interactively"
         }
+      ],
+      "args": [
+        {
+          "name": "commit",
+          "generator": "commits"
+        }
       ]
     },
     {
@@ -947,7 +983,13 @@
           "description": "suppress progress messages"
         }
       ],
-      "noOptionAfterArgument": true
+      "noOptionAfterArgument": true,
+      "args": [
+        {
+          "name": "commit",
+          "generator": "commits"
+        }
+      ]
     },
     {
       "name": "revert",
@@ -978,6 +1020,12 @@
               "name": "parent"
             }
           ]
+        }
+      ],
+      "args": [
+        {
+          "name": "commit",
+          "generator": "commits"
         }
       ]
     },
@@ -1015,7 +1063,13 @@
           ]
         }
       ],
-      "noOptionAfterArgument": true
+      "noOptionAfterArgument": true,
+      "args": [
+        {
+          "name": "commit",
+          "generator": "commits"
+        }
+      ]
     },
     {
       "name": "stash",
@@ -1190,6 +1244,12 @@
             "-t"
           ],
           "description": "set up a tracking branch"
+        }
+      ],
+      "args": [
+        {
+          "name": "branch",
+          "generator": "branches"
         }
       ]
     },

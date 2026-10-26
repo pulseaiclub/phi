@@ -39,12 +39,14 @@ func NewLocalBashPredictor(store *shellhist.Store, cwd string) *LocalBashPredict
 		}
 	}
 	predictor.completer = bashcomplete.New(history, predictor.pathCommands, cwd)
-	if spec.HelpEnabled() {
-		// Opt-in: discovery runs commands. The cache is read here, off the
-		// keystroke, so a warm project completes without spawning anything.
+	// Both readers run commands, so both ride the same opt-in switch: help
+	// discovery reads a command's usage, value generators read the project
+	// (commits, branches). Off, the historical sources answer as before.
+	if spec.ReadersEnabled() {
 		discovery := spec.NewDiscoverer(spec.DefaultCacheDir())
 		discovery.Warm(bashcomplete.PathCommands())
 		predictor.completer.SetDiscovery(discovery)
+		predictor.completer.SetValues(spec.NewValues(cwd))
 	}
 	return predictor
 }

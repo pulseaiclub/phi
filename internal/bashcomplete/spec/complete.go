@@ -25,6 +25,9 @@ const (
 	KindSubcommand Kind = iota
 	// KindOption completes a flag.
 	KindOption
+	// KindArgument completes a positional argument from values the binary read,
+	// such as the commits in this repository.
+	KindArgument
 )
 
 // Complete lists the spec candidates for the word being typed. name is the

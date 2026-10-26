@@ -220,6 +220,13 @@ git's arguments, because a shell command list runs several commands and the
 words before a separator are already decided. Accepting a row replaces the whole
 word under the cursor, even when the cursor sits in its middle.
 
+A positional argument a spec declares with a generator completes from the
+project itself: `git log ` lists the repository's commits (short hash first,
+subject after), `git switch ` its branches. The spec only names the source, so a
+spec file can never make phi run a program of its choosing; the readers are
+`commits` and `branches` in `internal/bashcomplete/spec/generator.go`. One read
+serves every prefix typed next, so only the first keystroke in the slot waits.
+
 `PHI_COMPLETION_HELP=1` adds help discovery for the commands the specs do not
 cover. A command whose word is finished and unknown starts one `--help` run in
 the background, bounded at three seconds and 256 KiB; the parsed flag table is

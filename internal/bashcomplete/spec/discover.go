@@ -17,6 +17,11 @@ import (
 // history keep completing exactly as before while it is unset.
 const EnvHelp = "PHI_COMPLETION_HELP"
 
+// ReadersEnabled reports whether completion may read beyond its embedded
+// tables: command help and the project's own values. Both run programs, so the
+// switch is shared and default-off.
+func ReadersEnabled() bool { return HelpEnabled() }
+
 // HelpEnabled reports whether help discovery should be wired up at all.
 func HelpEnabled() bool {
 	value := os.Getenv(EnvHelp)

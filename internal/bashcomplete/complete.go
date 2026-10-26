@@ -69,11 +69,23 @@ type Completer struct {
 	// word is complete and the table has nothing for it. It runs in the
 	// background: the keystroke that triggers it answers from what is known.
 	discovery *spec.Discoverer
+	// values, when set, serves the rows a declared argument reads from the
+	// project, such as the commits a `git log` word completes from.
+	values *spec.Values
 }
 
 // New builds a completer over injected sources.
 func New(history, commands func() []string, cwd string) *Completer {
 	return &Completer{history: history, commands: commands, cwd: cwd, specs: spec.Builtin()}
+}
+
+// SetValues adds the reader cache that supplies positional argument values from
+// the project, such as commit hashes and branch names.
+func (c *Completer) SetValues(values *spec.Values) {
+	if c == nil {
+		return
+	}
+	c.values = values
 }
 
 // SetDiscovery adds help discovery to the completer: commands the table does
@@ -130,8 +142,10 @@ func (c *Completer) Complete(typed string) []Suggestion {
 	default:
 		// Deeper in the line the declared subcommands of the node the cursor
 		// sits inside still complete (`git remote ` lists remote's), ahead of
-		// the words history saw in this position.
+		// the words history saw in this position and the values the argument
+		// itself takes.
 		suggestions = append(suggestions, c.specWords(tokens, command, word.Text)...)
+		suggestions = append(suggestions, c.valueWords(tokens, command, word.Text)...)
 		suggestions = append(suggestions, c.argumentWords(tokens, command)...)
 	}
 	if word.Text != "" && !pathWord(word.Text) {
@@ -183,6 +197,43 @@ func pathFree(name string) bool {
 	return !pathWord(name)
 }
 
+// valueWords completes a positional argument from the values it takes: the
+// commits of the repository for `git log`, the branches for `git switch`. The
+// first keystroke in the slot starts the read and answers from history; the
+// rows arrive on the next one.
+func (c *Completer) valueWords(tokens []Token, command int, word string) []Suggestion {
+	name := wordOf(tokens, command)
+	if c.values == nil || c.specs == nil || name == "" {
+		return nil
+	}
+	args := make([]string, 0, len(tokens))
+	for _, token := range tokens[command+1:] {
+		args = append(args, token.Text)
+	}
+	declared, read, ok := c.specs.Argument(name, args)
+	if !ok {
+		return nil
+	}
+	rows := c.values.Rows(declared.Generator, word)
+	c.values.Refresh(context.Background(), declared.Generator, word, read)
+	return candidateRows(rows)
+}
+
+// candidateRows turns spec candidates into suggestion rows.
+func candidateRows(candidates []spec.Candidate) []Suggestion {
+	suggestions := make([]Suggestion, 0, len(candidates))
+	for _, candidate := range candidates {
+		suggestions = append(suggestions, Suggestion{
+			Command:     candidate.Name,
+			Insert:      candidate.Insert,
+			Source:      SourceSpec,
+			Score:       1,
+			Description: candidate.Description,
+		})
+	}
+	return suggestions
+}
+
 // specWords completes a word from the embedded command specs: the command's
 // declared subcommands and flags, including the description each carries. A
 // command without a spec (or a build without one) contributes nothing.
@@ -195,18 +246,7 @@ func (c *Completer) specWords(tokens []Token, command int, word string) []Sugges
 	for _, token := range tokens[command+1:] {
 		args = append(args, token.Text)
 	}
-	candidates := c.specs.Complete(name, args, word)
-	suggestions := make([]Suggestion, 0, len(candidates))
-	for _, candidate := range candidates {
-		suggestions = append(suggestions, Suggestion{
-			Command:     candidate.Name,
-			Insert:      candidate.Insert,
-			Source:      SourceSpec,
-			Score:       1,
-			Description: candidate.Description,
-		})
-	}
-	return suggestions
+	return candidateRows(c.specs.Complete(name, args, word))
 }
 
 // dashWord reports whether word is a flag being typed: a dash alone is one,

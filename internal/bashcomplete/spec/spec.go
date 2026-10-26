@@ -29,6 +29,17 @@ type Option struct {
 	Args        []Arg    `json:"args,omitempty"`
 }
 
+// CommandArg declares one positional argument of a command: what it is called,
+// and where its values can be read from when the user starts typing one.
+type CommandArg struct {
+	// Name is how the argument is drawn in a hint: "commit", "branch".
+	Name string `json:"name"`
+	// Generator names a value source the binary knows how to read, such as the
+	// commits in this repository. It is a lookup key, never a command: a spec
+	// file cannot make phi run arbitrary programs.
+	Generator string `json:"generator,omitempty"`
+}
+
 // Command is one node of a command tree: the command itself, a subcommand, or
 // a nested subcommand.
 type Command struct {
@@ -36,6 +47,9 @@ type Command struct {
 	Description string    `json:"description,omitempty"`
 	Options     []Option  `json:"options,omitempty"`
 	Subcommands []Command `json:"subcommands,omitempty"`
+	// Args declares the positional arguments in order, so a word in one of
+	// their slots can complete from the values that argument takes.
+	Args []CommandArg `json:"args,omitempty"`
 	// NoOptionAfterArgument keeps completing options only before the first
 	// positional argument, for commands where the argument list is open-ended.
 	NoOptionAfterArgument bool `json:"noOptionAfterArgument,omitempty"`
@@ -185,4 +199,81 @@ func option(word string) bool {
 		return false
 	}
 	return true
+}
+
+// subcommandWords returns how many of args name a subcommand: the walk down the
+// tree ends at the node the arguments belong to.
+func (t *Table) subcommandWords(name string, args []string) int {
+	if t == nil || name == "" {
+		return 0
+	}
+	node, known := t.nodes[foldName(name)]
+	if !known {
+		return 0
+	}
+	used := 0
+	for _, arg := range args {
+		if arg == "" || option(arg) {
+			continue
+		}
+		next, found := node.subcommand(arg)
+		if !found {
+			break
+		}
+		node = next
+		used++
+	}
+	return used
+}
+
+// Argument returns the declared argument the cursor sits in, and the reader
+// that supplies its values. args are the words after the command name, the last
+// of which is the word being typed.
+//
+// A value already typed next to a flag belongs to that flag, not to the
+// positional list (`git log -n 5`), so those words are not counted.
+func (t *Table) Argument(name string, args []string) (CommandArg, Generator, bool) {
+	// The words that select subcommands are part of the address, not positional
+	// arguments: `git log 23` starts counting at the word after log.
+	start := t.subcommandWords(name, args)
+	node, ok := t.Lookup(name, args)
+	if !ok || len(node.Args) == 0 || start > len(args) {
+		return CommandArg{}, nil, false
+	}
+	position := 0
+	skipNext := false
+	for i, arg := range args {
+		if i < start {
+			continue
+		}
+		last := i == len(args)-1
+		if skipNext {
+			skipNext = false
+			continue
+		}
+		if option(arg) {
+			// A flag may take the next word as its value, which is not a
+			// positional argument.
+			skipNext = !last
+			continue
+		}
+		if arg == "" {
+			// The word under the cursor changes nothing about which slot it
+			// occupies.
+			continue
+		}
+		if !last {
+			position++
+		}
+	}
+	if position >= len(node.Args) {
+		// Past the declared arguments: the command takes no more of them.
+		return CommandArg{}, nil, false
+	}
+	declared := node.Args[position]
+	read := generator(declared.Generator)
+	if read == nil {
+		return CommandArg{}, nil, false
+	}
+	return declared, read, true
 }

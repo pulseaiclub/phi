@@ -45,6 +45,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   takes) instead of the source name when one is declared. A bare `-` lists the
   flags of the subcommand the cursor is inside, and commands without a spec
   keep completing from history exactly as before.
+- `!` completion completes positional arguments from the project itself:
+  `git log ` lists the repository's commits with their subjects, and
+  `git switch ` its branches, so a commit can be completed by its hash instead
+  of retyped from memory. The readers ride the same opt-in switch as help
+  discovery, since they run git.
 - `!` completion now reads only the command the cursor sits in, so
   `cd doc && git sta` completes git's arguments instead of treating the whole
   line as one command, and accepting a completion with the cursor inside a word
