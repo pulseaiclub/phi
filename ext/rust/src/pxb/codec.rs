@@ -5,7 +5,7 @@
 use std::fmt;
 use std::io::{self, Read, Write};
 
-use super::types::{HEADER_SIZE, MAGIC, MAX_PAYLOAD};
+use super::types::{HEADER_SIZE, MAGIC, MAX_PAYLOAD, MAX_STREAM_PAYLOAD};
 
 /// PXB protocol errors.
 #[derive(Debug)]
@@ -91,7 +91,7 @@ pub fn decode_header(src: &[u8]) -> Result<Header, Error> {
         id: u32::from_le_bytes([src[8], src[9], src[10], src[11]]),
         payload: u32::from_le_bytes([src[12], src[13], src[14], src[15]]),
     };
-    if h.payload as usize > MAX_PAYLOAD {
+    if h.payload as usize > MAX_STREAM_PAYLOAD {
         return Err(Error::PayloadTooLarge);
     }
     Ok(h)
@@ -171,16 +171,13 @@ mod tests {
             typ: 1,
             flags: 0,
             id: 0,
-            payload: 1 << 30,
+            payload: (MAX_STREAM_PAYLOAD as u32) + 1,
         });
         let err = decode_header(&b).unwrap_err();
         assert!(matches!(err, Error::PayloadTooLarge));
-        // payload too large for the buffer too
-        b[12..16].copy_from_slice(&(MAX_PAYLOAD as u32 + 1).to_le_bytes());
-        assert!(matches!(
-            decode_header(&b).unwrap_err(),
-            Error::PayloadTooLarge
-        ));
+        // exactly the ceiling is receivable
+        b[12..16].copy_from_slice(&(MAX_STREAM_PAYLOAD as u32).to_le_bytes());
+        assert!(decode_header(&b).is_ok());
     }
 
     #[test]

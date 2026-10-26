@@ -33,6 +33,7 @@ import {
   CAP_COMMANDS,
   CAP_EVENTS,
   CAP_INTERCEPT,
+  CAP_LARGE_FRAMES,
   CAP_MODELS,
   CAP_TOOLS,
   CONN_EXT,
@@ -228,7 +229,7 @@ describe("sdk e2e (fake host)", () => {
       assert.equal(hello.name, "hello");
       assert.equal(hello.version, "0.1.0");
       assert.equal(hello.protocol, PROTOCOL_VERSION);
-      assert.equal(hello.caps, CAP_COMMANDS | CAP_INTERCEPT | CAP_EVENTS);
+      assert.equal(hello.caps, CAP_COMMANDS | CAP_INTERCEPT | CAP_EVENTS | CAP_LARGE_FRAMES);
 
       // Command invoke → Notify frame, then CommandResponse echoing id.
       await h.write(
@@ -315,7 +316,7 @@ describe("sdk e2e (fake host)", () => {
     try {
       const hello = await h.handshake();
       assert.equal(hello.name, "full");
-      assert.equal(hello.caps, CAP_COMMANDS | CAP_TOOLS);
+      assert.equal(hello.caps, CAP_COMMANDS | CAP_TOOLS | CAP_LARGE_FRAMES);
 
       // Command "ask" issues a confirm HostRequest (id 1), waits for the
       // HostResult, then notifies and replies with the queued submit.
@@ -638,7 +639,7 @@ describe("sdk e2e (fake host)", () => {
     try {
       const hello = await h.handshake();
       assert.equal(hello.name, "models");
-      assert.equal(hello.caps, CAP_MODELS);
+      assert.equal(hello.caps, CAP_MODELS | CAP_LARGE_FRAMES);
 
       const models = h.registrations
         .filter((f) => f.header.type === TYPE_REGISTER_MODEL)

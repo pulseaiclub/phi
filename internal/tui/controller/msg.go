@@ -87,10 +87,10 @@ type MentionResultsMsg struct {
 
 func (MentionResultsMsg) isMsg() {}
 
-// BashSuggestion is one ranked completion for text typed in "!" mode. Score is
-// the judge's probability and IsPrefix reports that the command literally
-// starts with what was typed: the picker shows both so a ranked guess reads
-// differently from a literal completion.
+// BashSuggestion is one completion for text typed in "!" mode. Score is a
+// recency weight (1 for the most recent match, lower for older ones) and
+// IsPrefix reports that the command literally starts with what was typed.
+// Completion is prefix-only, so IsPrefix is always true.
 type BashSuggestion struct {
 	Command  string
 	Score    float64

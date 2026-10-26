@@ -1,6 +1,6 @@
 [package]
 name = "phi-ext"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2021"
 rust-version = "1.75"
 description = "Rust author SDK for Phi PXB extensions (port of ext/go)"

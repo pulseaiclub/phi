@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
@@ -41,10 +40,7 @@ func TestShouldBootstrapWhenMissing(t *testing.T) {
 
 func TestShouldBootstrapWhenInBinDir(t *testing.T) {
 	p, _ := testProject(t)
-	binName := "fd"
-	if runtime.GOOS == "windows" {
-		binName += ".exe"
-	}
+	binName := executableName("fd")
 	require.NoError(t, os.WriteFile(filepath.Join(p.Global().BinDir(), binName), []byte("x"), 0o755))
 
 	assert.False(t, shouldBootstrap(p, "fd"))
@@ -53,10 +49,7 @@ func TestShouldBootstrapWhenInBinDir(t *testing.T) {
 
 func TestShouldBootstrapWhenOnPATH(t *testing.T) {
 	p, pathDir := testProject(t)
-	binName := "rg"
-	if runtime.GOOS == "windows" {
-		binName += ".exe"
-	}
+	binName := executableName("rg")
 	require.NoError(t, os.WriteFile(filepath.Join(pathDir, binName), []byte("x"), 0o755))
 
 	assert.False(t, shouldBootstrap(p, "rg"))
@@ -136,10 +129,7 @@ func TestLoadRunBootstrapYolo(t *testing.T) {
 	p, pathDir := testProject(t)
 	// Stub search tools on PATH so EnsureSearchTools does not hit the network.
 	for _, name := range []string{"fd", "rg"} {
-		binName := name
-		if runtime.GOOS == "windows" {
-			binName += ".exe"
-		}
+		binName := executableName(name)
 		require.NoError(t, os.WriteFile(filepath.Join(pathDir, binName), []byte("x"), 0o755))
 	}
 	cfgPath := p.Global().ConfigFile()

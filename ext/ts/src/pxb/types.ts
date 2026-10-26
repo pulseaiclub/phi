@@ -10,8 +10,13 @@ export const MAGIC = Buffer.from("PXB\x01", "latin1");
 /** Fixed frame header length. */
 export const HEADER_SIZE = 16;
 
-/** Maximum payload accepted from a peer (16 MiB). */
+/** Default payload cap for both directions (16 MiB). Peers that negotiate
+ * `CAP_LARGE_FRAMES` may send up to {@link MAX_STREAM_PAYLOAD}. */
 export const MAX_PAYLOAD = 16 << 20;
+
+/** Transport ceiling for a single frame payload once large payloads are
+ * negotiated (256 MiB). Bounds allocation on the receive side. */
+export const MAX_STREAM_PAYLOAD = 256 << 20;
 
 // Message types. Ext→Host are 1–99; Host→Ext are 100–199.
 // Append-only: new types take the next number in their range.
@@ -51,6 +56,9 @@ export const CAP_TOOLS = 1 << 1;
 export const CAP_EVENTS = 1 << 2;
 export const CAP_INTERCEPT = 1 << 3;
 export const CAP_MODELS = 1 << 4;
+/** The advertiser accepts single frames up to {@link MAX_STREAM_PAYLOAD}, so
+ * the peer may raise its send cap above {@link MAX_PAYLOAD}. */
+export const CAP_LARGE_FRAMES = 1 << 5;
 
 /** RegisterModel.Conn values: the host dials BaseURL, or the extension
  * serves the stream itself (mirrors Go's ConnDirect / ConnExt). */

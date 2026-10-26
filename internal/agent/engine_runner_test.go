@@ -106,9 +106,11 @@ func TestEngineRunnerViaJobManager(t *testing.T) {
 
 func TestEngineRunnerExplicitPreset(t *testing.T) {
 	type request struct {
-		ThinkingConfig struct {
-			ThinkingBudget *int `json:"thinkingBudget"`
-		} `json:"thinkingConfig"`
+		GenerationConfig struct {
+			ThinkingConfig struct {
+				ThinkingBudget *int `json:"thinkingBudget"`
+			} `json:"thinkingConfig"`
+		} `json:"generationConfig"`
 	}
 	requests := make(chan request, 1)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -136,8 +138,8 @@ func TestEngineRunnerExplicitPreset(t *testing.T) {
 	assert.Equal(t, "OK", text)
 	select {
 	case body := <-requests:
-		require.NotNil(t, body.ThinkingConfig.ThinkingBudget)
-		assert.Equal(t, 2048, *body.ThinkingConfig.ThinkingBudget)
+		require.NotNil(t, body.GenerationConfig.ThinkingConfig.ThinkingBudget)
+		assert.Equal(t, 2048, *body.GenerationConfig.ThinkingConfig.ThinkingBudget)
 	default:
 		assert.Fail(t, "child engine did not send a request")
 	}

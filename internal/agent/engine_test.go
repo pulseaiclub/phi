@@ -3,7 +3,9 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"iter"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -406,7 +408,8 @@ func TestLoopOverflowRejectsCappedSummary(t *testing.T) {
 
 	require.True(t, sawFailure, "a capped summary must report a failed compaction")
 	require.Error(t, lastErr)
-	require.True(t, llm.IsContextOverflow(lastErr), "the original overflow surfaces unchanged")
+	require.True(t, llm.IsContextOverflow(lastErr), "the original overflow still classifies as overflow")
+	require.ErrorContains(t, lastErr, "token cap", "the error says why recovery failed")
 	require.Equal(t, int32(1), streamHits.Load(), "no retry on a failed compact")
 	// Default reserveTokens is 16384, so the history summary is capped at 0.8x.
 	require.InDelta(t, 13107, compactMaxTokens, 0.5)
@@ -473,12 +476,87 @@ func TestLoopOverflowRejectsBlankSummary(t *testing.T) {
 
 	require.True(t, sawFailure, "a blank summary must report a failed compaction")
 	require.Error(t, lastErr)
-	require.True(t, llm.IsContextOverflow(lastErr), "the original overflow surfaces unchanged")
+	require.True(t, llm.IsContextOverflow(lastErr), "the original overflow still classifies as overflow")
+	require.ErrorContains(t, lastErr, "empty summary", "the error says why recovery failed")
 	require.Equal(t, int32(1), streamHits.Load(), "no retry on a failed compact")
 	require.InDelta(t, 13107, compactMaxTokens, 0.5)
 	for _, entry := range sess.PathEntries() {
 		require.NotEqual(t, session.EntryCompaction, entry.GetType(), "no checkpoint was persisted")
 	}
+}
+
+// fakeCompactClient drives runCompact without a server; Stream is unused.
+type fakeCompactClient struct {
+	compact func(ctx context.Context) error
+}
+
+func (fakeCompactClient) Stream(context.Context, []llm.Message) iter.Seq2[llm.StreamEvent, error] {
+	return func(yield func(llm.StreamEvent, error) bool) {
+		yield(llm.StreamEvent{}, errors.New("fakeCompactClient: Stream is not used here"))
+	}
+}
+
+func (c fakeCompactClient) Compact(ctx context.Context, _ llm.CompactRequest) (llm.CompactResult, error) {
+	return llm.CompactResult{Text: "summary"}, c.compact(ctx)
+}
+
+// runCompactWith force-compacts a seeded session whose summary call runs
+// during, and reports whether a Failed event was emitted.
+func runCompactWith(
+	t *testing.T, ctx context.Context, during func(sess *Session),
+) (sess *Session, did, failed bool, err error) {
+	t.Helper()
+	sess, err = NewSession(WithCwd(t.TempDir()))
+	require.NoError(t, err)
+	require.NoError(t, sess.Append(
+		llm.Message{Role: llm.RoleUser, Content: compactionSeed},
+		llm.Message{Role: llm.RoleAssistant, Content: compactionSeed},
+		llm.Message{Role: llm.RoleUser, Content: compactionSeed},
+	))
+	engine, err := NewEngine(
+		llm.ModelConfig{Name: "fake", BaseURL: "http://unused.test", ContextWindow: 200_000},
+		sess,
+		WithGate(permission.AllowAll{}),
+		WithTools([]tooldef.Tool{}),
+	)
+	require.NoError(t, err)
+	engine.client = fakeCompactClient{compact: func(context.Context) error {
+		during(sess)
+		return nil
+	}}
+	did, err = engine.runCompact(ctx, func(ev session.Event, _ error) bool {
+		if c, ok := ev.(session.CompactionComplete); ok && c.Failed {
+			failed = true
+		}
+		return true
+	}, 0, true)
+	return sess, did, failed, err
+}
+
+func requireNoCompactionEntry(t *testing.T, sess *Session) {
+	t.Helper()
+	for _, entry := range sess.PathEntries() {
+		require.NotEqual(t, session.EntryCompaction, entry.GetType(), "no checkpoint was persisted")
+	}
+}
+
+func TestRunCompactDropsSummaryAfterCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	sess, did, failed, err := runCompactWith(t, ctx, func(*Session) { cancel() })
+	require.ErrorIs(t, err, context.Canceled)
+	require.False(t, did)
+	require.True(t, failed)
+	requireNoCompactionEntry(t, sess)
+}
+
+func TestRunCompactDropsSummaryWhenSessionAdvanced(t *testing.T) {
+	sess, did, failed, err := runCompactWith(t, t.Context(), func(sess *Session) {
+		require.NoError(t, sess.Append(llm.Message{Role: llm.RoleUser, Content: "raced"}))
+	})
+	require.ErrorContains(t, err, "session advanced")
+	require.False(t, did)
+	require.True(t, failed)
+	requireNoCompactionEntry(t, sess)
 }
 
 func TestLoopNonOverflowErrorDoesNotCompact(t *testing.T) {

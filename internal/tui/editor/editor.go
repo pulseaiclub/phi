@@ -14,8 +14,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/listpicker"
 	"github.com/pulseaiclub/phi/internal/components/palette"
 	"github.com/pulseaiclub/phi/internal/components/toast"
-	"github.com/pulseaiclub/phi/internal/debuglog"
-	"github.com/pulseaiclub/phi/internal/optimizer"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/session/shellhist"
 	"github.com/pulseaiclub/phi/internal/tui/codepane"
@@ -89,20 +87,13 @@ func NewEditor(
 		composer: composer.NewComposerPane(theme, modelLabel, cwd),
 		footer:   footer.NewFooterChrome(theme, contextWindow),
 	}
-	// The "!" picker is inert unless optimizer features are available and a
-	// session directory exists: without either, the composer behaves exactly as
-	// before. Available() covers both the switch and the missing-credentials case,
-	// so what is left here is startup noise, not fatal — the picker stays closed,
-	// so it is logged rather than surfaced.
-	if ctrl.SessionDir() != "" && optimizer.Available() {
-		suggester, err := composer.NewJevSuggester()
-		if err != nil {
-			debuglog.Logf("composer: ! completions disabled: %v", err)
-		} else {
-			e.composer.SetBashPredictor(composer.NewBashHistoryPredictor(
-				shellhist.New(ctrl.SessionDir()), suggester,
-			))
-		}
+	// The "!" picker reads project shell history: as long as a session
+	// directory exists, prefix completion is wired unconditionally. Without one
+	// the picker stays closed and the composer behaves exactly as before.
+	if ctrl != nil && ctrl.SessionDir() != "" {
+		e.composer.SetBashPredictor(
+			composer.NewBashHistoryPredictor(shellhist.New(ctrl.SessionDir())),
+		)
 	}
 	// Prompt recall is opt-in: it persists what the user typed under the home
 	// directory, so it stays off until PHI_PROMPT_HISTORY turns it on.

@@ -249,14 +249,14 @@ func TestApplyBashSuggestionsReportsFailureWithoutRows(t *testing.T) {
 }
 
 func TestBashPredictorFailureIsActionable(t *testing.T) {
-	c, bus := newBashPane(t, &fakeBashPredictor{err: errors.New("typesafe API error (500): boom")})
+	c, bus := newBashPane(t, &fakeBashPredictor{err: errors.New("history read failed (500): boom")})
 
 	c.Chat.Value, c.Chat.Cursor = "!git s", len("!git s")
 	c.bash.onChange(true, "git s")
 
 	msg := drainBash(t, bus)
 
-	assert.NotContains(t, msg.ErrText, "500", "a transport error is not something to show the user")
+	assert.NotContains(t, msg.ErrText, "500", "a raw error is not something to show the user")
 	assert.NotEmpty(t, msg.ErrText)
 }
 

@@ -543,6 +543,9 @@ fn handshake(rd: &mut Rd, wr: &mut Wr, ext: &Extension) -> Result<HostInfo, Erro
     if !ext.models.is_empty() {
         caps |= pxb::CAP_MODELS;
     }
+    // Unconditional: this SDK's reader accepts frames up to MAX_STREAM_PAYLOAD,
+    // letting the host send full ModelInvoke histories past the 16 MiB default.
+    caps |= pxb::CAP_LARGE_FRAMES;
 
     let hello = pxb::Hello {
         name: ext.name.clone(),

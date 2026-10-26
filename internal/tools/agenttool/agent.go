@@ -15,8 +15,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/llm"
 )
 
-const agentSummaryLimit = 12000 // bytes, keep parent context small
-
 const agentLaunchGuidance = `Launch a specialized sub-agent. Pick a role:
 
 - explore (default): no write/edit; full bash except hard denies. Multi-hop recon / unknown location — keep tool noise out of this context.
@@ -225,7 +223,7 @@ func agentWaitTool(cfg agentConfig) tooldef.Tool {
 	return tooldef.NewTool(
 		tooldef.WithDefinition(llm.ToolDefinition{
 			Name: "agent_wait",
-			Description: `Block until a sub-agent job reaches a terminal status and return its result.md summary.
+			Description: `Block until a sub-agent job reaches a terminal status and return its complete result.md summary.
 
 timeout_sec only limits how long this wait blocks — it does NOT cancel the job.
 Use agent_cancel to stop a running job.`,
@@ -255,7 +253,6 @@ Use agent_cancel to stop a running job.`,
 			if err != nil {
 				return tooldef.Result{}, err
 			}
-			summary := util.TruncateBytes(res.Summary, agentSummaryLimit, "\n…(truncated)")
 			label := roleDetail(string(res.Info.Role), jobLabel(res.Info.Description, res.Info.Prompt))
 			body := mustJSON(map[string]any{
 				"job_id":      res.Info.ID,
@@ -264,7 +261,7 @@ Use agent_cancel to stop a running job.`,
 				"label":       label,
 				"error":       res.Info.Error,
 				"result_path": res.Info.ResultPath,
-				"summary":     summary,
+				"summary":     res.Summary,
 			})
 			return tooldef.Result{
 				Content: body,

@@ -10,6 +10,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+### Fixed
+
+- Windows: starting phi from a shell whose working directory is set through
+  the Win32 extended-path prefix (`\\?\C:\...`) no longer crashes at startup.
+  The per-directory session storage strips the prefix instead of building a
+  file name containing `?`, which Windows rejects; sessions for the same
+  directory keep connecting to their existing files.
+- `grep` prints each file path once with compact line references, merges
+  overlapping context without repeating lines, and only reports a match-limit
+  truncation when additional matches exist.
+- `agent_wait` returns the complete sub-agent final summary instead of cutting
+  it off at 12,000 bytes, so the parent receives conclusions at the end of long
+  results. Child transcripts remain in the job logs.
+- Auto-compaction no longer saves a summary that finishes after the turn was
+  cancelled or after new messages landed while it was being written; the
+  history stays intact and compaction reports a failure instead.
+- When compaction cannot recover a context overflow, the error now also says
+  why (for example, the summary hit its token cap) instead of showing only the
+  provider's "prompt is too long".
+
+## [0.29.2] - 2026-10-25
+
+### Added
+
+- Extensions can receive `ModelInvoke` frames past the 16 MiB default payload
+  cap. The Go, Rust, and TS SDKs advertise `CapLargeFrames` in the hello
+  handshake; the host then raises its send cap to `MaxStreamPayload`
+  (256 MiB), so long sessions no longer fail an ext-served model request once
+  the serialized conversation history outgrows the old limit. Extensions that
+  predate the capability keep the 16 MiB cap and fail exactly as before.
 - `/diff` opens the same searchable picker as `/branch`, showing each changed
   file once with its modification type. Select a file to review its complete
   changes relative to HEAD; new files are shown as additions. Escape returns
@@ -18,14 +48,39 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
-- Windows: starting phi from a shell whose working directory is set through
-  the Win32 extended-path prefix (`\\?\C:\...`) no longer crashes at startup.
-  The per-directory session storage strips the prefix instead of building a
-  file name containing `?`, which Windows rejects; sessions for the same
-  directory keep connecting to their existing files.
+- Diffs generated for file edits (`util.GenerateDiffString`) now treat a
+  trailing newline as a property of the last line. An edit that removed the
+  file's final newline was reported as the deletion of a phantom empty line,
+  with the old-side hunk range one line too long; a trailing-newline-only
+  difference now rewrites the last line with a `\ No newline at end of file`
+  marker, matching `git diff`.
+- Gemini: send `thinkingConfig` inside `generationConfig`, matching the
+  Generative Language REST schema. A top-level field made every Gemini
+  request fail with `400: Unknown name "thinkingConfig"`.
 - Rust SDK: re-export `phi::PromptTokensDetails`, so extension authors can name
   the type of `Usage::prompt_tokens_details` and report cache traffic from
   served models.
+
+### Changed
+
+- Go SDK: `pxb` no longer exports tagged-field plumbing (`FieldWriter`,
+  `FieldReader`, `Walk`, `ByteWriter`, `ByteReader`, `DumpType`,
+  `ReadFrameBuf`, `Magic`, the `Wire*` kind constants). None of it was usable
+  from outside the package — encoders and decoders are generated — and the
+  surviving surface now matches the Rust and TS SDKs: transport
+  (`Reader`/`Writer`/`Frame`/`WriteFrame`/`ReadFrame`/`CloneBody`), generated
+  messages, and wire constants. `ByteWriter`, `ByteReader`, and `DumpType`
+  were unreachable and are deleted outright.
+- `!` shell completion now ranks by recency only: it lists project-history
+  commands that literally start with the typed text, newest first. The TypeSafe
+  Jev judge is gone, so completion works offline and never sends shell history
+  off the machine.
+
+### Removed
+
+- TypeSafe System One support: `internal/llm/jev`, `internal/optimizer`, and
+  the `PHI_OPTIMIZER` / `TYPESAFE_API_KEY` switches are gone. `!` completion no
+  longer needs or accepts an API key.
 
 ## [0.29.1] - 2026-10-22
 
@@ -1226,7 +1281,8 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.29.1...HEAD
+[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.29.2...HEAD
+[0.29.2]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.2
 [0.29.1]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.1
 [0.29.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.0
 [0.28.9]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.9

@@ -224,11 +224,8 @@ Environment overrides:
 | `PHI_BASE_URL`   | `models[].base_url` (default model) |
 | `PHI_SKILL_PATH` | `skill_path`       |
 | `PHI_THINK_LEVEL` | `models[].think_level` (default model; `off` disables) |
-| `PHI_OPTIMIZER`  | Master on/off switch for optimizer features (`0`, `false`, `off`, `no` to disable) |
 | `PHI_PROMPT_HISTORY` | Composer prompt recall (`on` enables; off by default, writes `prompts.json` in the project's session directory) |
-| `TYPESAFE_API_KEY` | TypeSafe API key required for optimizer features |
 
-**Security:** When `PHI_OPTIMIZER` is enabled, command history and context are sent to an external TypeSafe service for judging and ranking. Avoid using the optimizer in environments where shell history may contain sensitive information (API keys, tokens, credentials).
 Provider routing uses the explicit `api` field (`OpenAI` / `Anthropic` /
 `Gemini`). See [Supported models](doc/models.md).
 

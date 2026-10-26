@@ -3,6 +3,7 @@ package extension_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -143,6 +144,71 @@ func TestExtensionModelsRegisterAndStream(t *testing.T) {
 	assert.Equal(t, 5, usage.TotalTokens)
 	assert.Equal(t, "done", events[3].Type)
 }
+
+// A conversation history past the default 16 MiB frame cap must reach an
+// extension that advertised CapLargeFrames, intact, through the real
+// subprocess pipe. This is the shape of a long session's ModelInvoke.
+func TestExtensionModelLargeHistoryStream(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, create.Materialize(t.Context(), root+"/big", "big", "0.0.1", bigHistoryExtSrc))
+	r, warns, err := extension.Load(root, "")
+	require.NoError(t, err)
+	require.Empty(t, warns, "%v", warns)
+	t.Cleanup(r.Close)
+
+	route, ok := r.LookupModel("big")
+	require.True(t, ok)
+
+	// One user message just over MaxPayload, with sentinels at both ends so a
+	// truncation or aliasing bug cannot pass a length-only check.
+	const fill = pxb.MaxPayload + (1 << 20)
+	content := "HEAD" + strings.Repeat("x", fill) + "TAIL"
+	msgs, err := json.Marshal([]map[string]any{{"role": "user", "content": content}})
+	require.NoError(t, err)
+
+	events := collectModelStream(t, func(yield func(pxb.ModelStreamEvent, error) bool) {
+		seq, serr := r.ModelStream(t.Context(), route, pxb.ModelInvoke{
+			Model: "big", MessagesJSON: msgs,
+		})
+		require.NoError(t, serr)
+		for ev, eerr := range seq {
+			if !yield(ev, eerr) || ev.Type == "done" || ev.Type == "error" {
+				return
+			}
+		}
+	})
+	require.NotEmpty(t, events)
+	assert.Equal(t, "ok", events[0].Content)
+}
+
+const bigHistoryExtSrc = `package main
+
+import (
+	"context"
+	"strings"
+
+	"github.com/pulseaiclub/phi/ext/go"
+	"github.com/pulseaiclub/phi/ext/go/phi"
+)
+
+func main() {
+	m := phi.New("big", "0.0.1")
+	m.RegisterModel(ext.Model{
+		Name: "big", Conn: ext.ConnExt,
+		Stream: func(ctx context.Context, req ext.ModelRequest, emit func(ext.ModelEvent) error) error {
+			if len(req.Messages) != 1 {
+				return emit(ext.ModelEvent{Content: "bad message count"})
+			}
+			c := req.Messages[0].Content
+			if !strings.HasPrefix(c, "HEAD") || !strings.HasSuffix(c, "TAIL") {
+				return emit(ext.ModelEvent{Content: "truncated payload"})
+			}
+			return emit(ext.ModelEvent{Content: "ok"})
+		},
+	})
+	_ = m.Run()
+}
+`
 
 func TestExtensionModelUnknownConnFailsHandshake(t *testing.T) {
 	root := t.TempDir()

@@ -43,6 +43,7 @@ import {
   CAP_COMMANDS,
   CAP_EVENTS,
   CAP_INTERCEPT,
+  CAP_LARGE_FRAMES,
   CAP_MODELS,
   CAP_TOOLS,
   CONN_DIRECT,
@@ -464,6 +465,9 @@ async function handshake(reg: Registry, rt: Runtime): Promise<void> {
   if (reg.eventCodes.length > 0) caps |= CAP_EVENTS;
   if (reg.interceptCodes.length > 0) caps |= CAP_INTERCEPT;
   if (reg.models.length > 0) caps |= CAP_MODELS;
+  // Unconditional: this SDK's reader accepts frames up to MAX_STREAM_PAYLOAD,
+  // letting the host send full ModelInvoke histories past the 16 MiB default.
+  caps |= CAP_LARGE_FRAMES;
 
   const hello = encodeHello({
     name: reg.name,

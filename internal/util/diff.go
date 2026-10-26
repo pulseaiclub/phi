@@ -3,6 +3,7 @@ package util
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -24,23 +25,56 @@ type hunk struct {
 	end   int
 }
 
+// splitLines splits content into display lines and reports whether the
+// content ends with a newline. A trailing newline is a property of the last
+// line, not an extra empty line, so it is not split off.
+func splitLines(content string) ([]string, bool) {
+	if content == "" {
+		return []string{}, false
+	}
+	endsNL := strings.HasSuffix(content, "\n")
+	lines := strings.Split(content, "\n")
+	if endsNL {
+		lines = lines[:len(lines)-1]
+	}
+	return lines, endsNL
+}
+
 // GenerateDiffString computes a unified diff between oldContent and newContent.
 func GenerateDiffString(oldContent, newContent string, contextLines int) DiffResult {
-	var oldLines, newLines []string
-	if oldContent == "" {
-		oldLines = []string{}
-	} else {
-		oldLines = strings.Split(oldContent, "\n")
-	}
-	if newContent == "" {
-		newLines = []string{}
-	} else {
-		newLines = strings.Split(newContent, "\n")
+	oldLines, oldEndsNL := splitLines(oldContent)
+	newLines, newEndsNL := splitLines(newContent)
+
+	// When the only difference is the trailing newline, git rewrites the last
+	// line and marks the side that lacks the newline. Otherwise a trailing
+	// newline is represented as an phantom empty line after the last content
+	// line, matching git diff semantics.
+	trailingOnly := slices.Equal(oldLines, newLines) && oldEndsNL != newEndsNL
+
+	if !trailingOnly && oldEndsNL != newEndsNL {
+		// A trailing newline is represented as a phantom empty line after the
+		// last content line. When the new side is empty, the old side's trailing
+		// newline is still emitted as a phantom line because the entire old
+		// content (including its newline) is being removed. When the old side is
+		// empty, the new side's content is being added wholesale, so its newline
+		// is part of that added line and is not emitted separately.
+		oldHasPhantom := oldEndsNL && len(oldLines) > 0 && oldLines[len(oldLines)-1] != ""
+		newHasPhantom := newEndsNL && len(oldLines) > 0 && len(newLines) > 0 && newLines[len(newLines)-1] != ""
+		if oldHasPhantom {
+			oldLines = append(oldLines, "")
+		}
+		if newHasPhantom {
+			newLines = append(newLines, "")
+		}
 	}
 
 	changes := computeChanges(oldLines, newLines)
 	diff := generateUnifiedDiffFromChanges(changes, contextLines)
 	firstChangedLine := computeFirstChangedLine(changes)
+
+	if diff == "" && trailingOnly && len(oldLines) > 0 {
+		diff, firstChangedLine = trailingNewlineDiff(oldLines, oldEndsNL, newEndsNL)
+	}
 
 	return DiffResult{
 		Diff:             diff,
@@ -166,6 +200,24 @@ func generateUnifiedDiffFromChanges(changes []change, contextLines int) string {
 	}
 
 	return diff.String()
+}
+
+// trailingNewlineDiff renders a trailing-newline-only change the way git
+// does: the last line is rewritten and the side that lacks the final
+// newline carries the "\ No newline at end of file" marker.
+func trailingNewlineDiff(lines []string, oldEndsNL, newEndsNL bool) (string, int) {
+	last := len(lines)
+	var b strings.Builder
+	fmt.Fprintf(&b, "@@ -%d,%d +%d,%d @@\n", last, 1, last, 1)
+	fmt.Fprintf(&b, "-%s\n", lines[last-1])
+	if !oldEndsNL {
+		b.WriteString("\\ No newline at end of file\n")
+	}
+	fmt.Fprintf(&b, "+%s\n", lines[last-1])
+	if !newEndsNL {
+		b.WriteString("\\ No newline at end of file\n")
+	}
+	return b.String(), last
 }
 
 func computeChanges(oldLines, newLines []string) []change {

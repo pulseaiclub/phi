@@ -14,19 +14,19 @@ import (
 )
 
 const (
-	// bashSuggestDebounce waits for a pause in typing. A judgement costs a round
-	// trip, so firing one per keystroke would spend the budget on prefixes the
-	// user never meant to ask about.
+	// bashSuggestDebounce waits for a pause in typing. A history read is I/O, so
+	// firing one per keystroke would re-read on prefixes the user never meant to
+	// ask about.
 	bashSuggestDebounce = 200 * time.Millisecond
-	// bashSuggestTimeout bounds one judgement end to end, so a wedged request
+	// bashSuggestTimeout bounds one read end to end, so a wedged request
 	// cannot hold the picker open forever.
 	bashSuggestTimeout = 10 * time.Second
 	// bashSuggestVisible caps how many rows the picker lists.
 	bashSuggestVisible = 10
 )
 
-// bashSuggest owns the "!" completer: the picker that draws ranked commands,
-// the judgement in flight behind it, and the composer text that judgement
+// bashSuggest owns the "!" completer: the picker that draws matching commands,
+// the completion in flight behind it, and the composer text that completion
 // answers. ComposerPane holds one and delegates to it, so the state a completion
 // source keeps lives with the completion source instead of as a handful of
 // fields on the pane.
@@ -39,7 +39,7 @@ type bashSuggest struct {
 	pane   *ComposerPane
 	picker mention.Picker
 	// predictor ranks "!" completions. nil disables the picker entirely, so a
-	// session without a judge keeps the composer exactly as it was.
+	// session without a predictor keeps the composer exactly as it was.
 	predictor BashPredictor
 	gen       int
 	// query is the text the current rows (or the request in flight) answer,
@@ -67,7 +67,7 @@ func newBashSuggest(pane *ComposerPane, theme components.Theme) bashSuggest {
 }
 
 // SetBashPredictor installs the "!" completion source. Until one is set — or if
-// none is ever set, on a build without a judge — the picker stays closed and
+// none is ever set, on a build without a predictor — the picker stays closed and
 // the composer behaves exactly as before.
 func (c *ComposerPane) SetBashPredictor(predictor BashPredictor) {
 	if c == nil {
@@ -80,10 +80,10 @@ func (c *ComposerPane) SetBashPredictor(predictor BashPredictor) {
 //
 // Two rules keep the picker from getting in the way of running a command:
 //   - it appears only when it has something to say, and owns the navigation keys
-//     only while it has rows to navigate. Until a ranking arrives, Enter must run
+//     only while it has rows to navigate. Until a completion arrives, Enter must run
 //     what the user typed rather than be swallowed by an empty list.
 //   - filling the composer is an answer, not a new question, so the text just
-//     accepted is not re-submitted for judgement.
+//     accepted is not re-submitted.
 func (b *bashSuggest) onChange(active bool, query string) {
 	// The accepted suggestion is now the composer text: the change it fired is
 	// not a new query.
@@ -104,9 +104,9 @@ func (b *bashSuggest) onChange(active bool, query string) {
 		b.hide()
 		return
 	}
-	// A cursor move reports the same query again. Answering it twice would burn
-	// a round trip and flicker the rows away for nothing, so the ranking already
-	// in hand (or already in flight) is kept.
+	// A cursor move reports the same query again. Answering it twice would redo
+	// the work and flicker the rows away for nothing, so the matches already
+	// in hand (or already in flight) are kept.
 	if query == b.query && (len(b.picker.Items) > 0 || b.cancel != nil) {
 		b.show()
 		return
@@ -115,9 +115,9 @@ func (b *bashSuggest) onChange(active bool, query string) {
 	// A ranking is only meaningful for the text it was computed for, so rows
 	// from the previous query are dropped rather than shown against new text:
 	// a score list that silently belongs to other text is worse than a blank
-	// list for the round trip it takes to replace it. The picker goes with the
+	// list for the time it takes to replace it. The picker goes with the
 	// rows — a list with nothing in it has nothing to say — and so does any
-	// placeholder for them, however long that round trip turns out to be.
+	// placeholder for them, however long that takes.
 	b.picker.SetResults(nil, "")
 	b.show()
 	b.schedule(query)
@@ -162,7 +162,7 @@ func (b *bashSuggest) rowIsTypedText() bool {
 }
 
 // pending reports whether there is anything of the "!" completer left to
-// dismiss: rows on screen, or a judgement in flight that has not drawn yet.
+// dismiss: rows on screen, or a completion in flight that has not drawn yet.
 func (b *bashSuggest) pending() bool {
 	return b.picker.Open || b.cancel != nil
 }
@@ -180,7 +180,7 @@ func (b *bashSuggest) hide() {
 
 // abandon drops any prediction still in flight. Bumping the
 // generation alone only makes the UI ignore the answer; the request keeps
-// burning a round trip until its context is cancelled.
+// running until its context is cancelled.
 func (b *bashSuggest) abandon() {
 	b.gen++
 	if b.cancel != nil {
@@ -191,7 +191,7 @@ func (b *bashSuggest) abandon() {
 
 // schedule debounces one keystroke's query, then asks the predictor.
 // The work runs off the UI goroutine and answers on the bus, like the @-file
-// search: the composer never blocks on a judgement.
+// search: the composer never blocks on a history read.
 //
 // Nothing is drawn while it waits. A row saying "asking" would appear a beat
 // before the ranking replaces it, which reads as a flicker rather than as
@@ -328,7 +328,7 @@ func bashSuggestError(err error) string {
 	case err == nil:
 		return ""
 	case errors.Is(err, context.DeadlineExceeded):
-		return "Jev took too long — keep typing or try again"
+		return "Completions took too long — keep typing or try again"
 	default:
 		return "Completions unavailable"
 	}

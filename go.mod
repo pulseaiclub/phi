@@ -4,7 +4,7 @@ go 1.26.3
 
 require (
 	github.com/alecthomas/chroma/v2 v2.27.0
-	github.com/pulseaiclub/phi/ext/go v0.25.3
+	github.com/pulseaiclub/phi/ext/go v0.25.4
 	github.com/pulseaiclub/pli v0.1.0
 	github.com/pulseaiclub/xui v0.1.8
 	github.com/stretchr/testify v1.12.1

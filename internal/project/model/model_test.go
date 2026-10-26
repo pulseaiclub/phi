@@ -178,7 +178,7 @@ func TestGeminiBudgetHookUsesLiveThink(t *testing.T) {
 	req := &gemini.GeminiRequest{}
 	cfg := llm.ModelConfig{Think: llm.ThinkConfig{Enabled: true, Mode: llm.Low}}
 	require.NoError(t, p.Hooks.Gemini.Before(t.Context(), req, cfg))
-	body, err := json.Marshal(req.ThinkingConfig)
+	body, err := json.Marshal(req.GenerationConfig.ThinkingConfig)
 	require.NoError(t, err)
 	assert.Contains(t, string(body), `"thinkingBudget":2048`)
 }
@@ -190,7 +190,7 @@ func TestGeminiLevelHookOffFloor(t *testing.T) {
 
 	req := &gemini.GeminiRequest{}
 	require.NoError(t, p.Hooks.Gemini.Before(t.Context(), req, llm.ModelConfig{}))
-	body, err := json.Marshal(req.ThinkingConfig)
+	body, err := json.Marshal(req.GenerationConfig.ThinkingConfig)
 	require.NoError(t, err)
 	assert.Contains(t, string(body), `"thinkingLevel":"LOW"`)
 }

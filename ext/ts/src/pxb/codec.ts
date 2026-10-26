@@ -3,7 +3,7 @@
 // types are skipped by reading payload_len bytes and ignoring the body.
 
 import { Readable, Writable } from "node:stream";
-import { HEADER_SIZE, MAGIC, MAX_PAYLOAD } from "./types.ts";
+import { HEADER_SIZE, MAGIC, MAX_PAYLOAD, MAX_STREAM_PAYLOAD } from "./types.ts";
 
 /** PXB protocol error codes. */
 export type PxbErrorCode =
@@ -77,7 +77,7 @@ export function decodeHeader(src: Buffer): Header {
     id: src.readUInt32LE(8),
     payload: src.readUInt32LE(12),
   };
-  if (h.payload > MAX_PAYLOAD) {
+  if (h.payload > MAX_STREAM_PAYLOAD) {
     throw new PxbError("payloadTooLarge", "payload too large");
   }
   return h;

@@ -71,16 +71,18 @@ type GeminiRequest struct {
 	Tools             []struct {
 		FunctionDeclarations []functionDeclaration `json:"functionDeclarations"`
 	} `json:"tools,omitempty"`
-	// ThinkingConfig opts Gemini 2.x+ out of default thinking so reasoning text
-	// stays out of the visible stream unless the model cannot disable it.
-	ThinkingConfig *thinkingConfig `json:"thinkingConfig,omitempty"`
 	// GenerationConfig carries the output cap Compaction sets so a runaway
-	// summary cannot outgrow the context the summary is meant to free.
+	// summary cannot outgrow the context the summary is meant to free. Per the
+	// REST schema, thinkingConfig nests inside it — a top-level field is
+	// rejected with a 400 "Unknown name".
 	GenerationConfig *generationConfig `json:"generationConfig,omitempty"`
 }
 
 type generationConfig struct {
 	MaxOutputTokens int `json:"maxOutputTokens,omitempty"`
+	// ThinkingConfig opts Gemini 2.x+ out of default thinking so reasoning text
+	// stays out of the visible stream unless the model cannot disable it.
+	ThinkingConfig *thinkingConfig `json:"thinkingConfig,omitempty"`
 }
 
 // SetMaxOutputTokens caps how many tokens the model may generate. n <= 0 keeps
@@ -95,15 +97,22 @@ func (req *GeminiRequest) SetMaxOutputTokens(n int) {
 	req.GenerationConfig.MaxOutputTokens = n
 }
 
+func (req *GeminiRequest) setThinkingConfig(tc *thinkingConfig) {
+	if req.GenerationConfig == nil {
+		req.GenerationConfig = &generationConfig{}
+	}
+	req.GenerationConfig.ThinkingConfig = tc
+}
+
 // ApplyBudgetThinking maps ThinkConfig to Gemini 2.x thinkingBudget.
 func (req *GeminiRequest) ApplyBudgetThinking(think llm.ThinkConfig) {
 	if !think.Enabled {
 		zero := 0
-		req.ThinkingConfig = &thinkingConfig{ThinkingBudget: &zero}
+		req.setThinkingConfig(&thinkingConfig{ThinkingBudget: &zero})
 		return
 	}
 	budget := mapThinkModeToBudget(think.Mode)
-	req.ThinkingConfig = &thinkingConfig{ThinkingBudget: &budget}
+	req.setThinkingConfig(&thinkingConfig{ThinkingBudget: &budget})
 }
 
 // ApplyLevelThinking maps ThinkConfig to Gemini 3.x thinkingLevel.
@@ -113,10 +122,10 @@ func (req *GeminiRequest) ApplyLevelThinking(think llm.ThinkConfig, offLevel str
 		if offLevel == "" {
 			offLevel = "MINIMAL"
 		}
-		req.ThinkingConfig = &thinkingConfig{ThinkingLevel: offLevel}
+		req.setThinkingConfig(&thinkingConfig{ThinkingLevel: offLevel})
 		return
 	}
-	req.ThinkingConfig = &thinkingConfig{ThinkingLevel: mapThinkModeToGeminiLevel(think.Mode)}
+	req.setThinkingConfig(&thinkingConfig{ThinkingLevel: mapThinkModeToGeminiLevel(think.Mode)})
 }
 
 // mapThinkModeToGeminiLevel maps ThinkMode to Gemini 3's thinkingLevel string.

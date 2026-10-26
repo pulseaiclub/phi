@@ -9,8 +9,13 @@ pub const MAGIC: [u8; 4] = *b"PXB\x01";
 /// Fixed frame header length.
 pub const HEADER_SIZE: usize = 16;
 
-/// Maximum payload accepted from a peer (16 MiB).
+/// Default payload cap for both directions (16 MiB). Peers that negotiate
+/// `CAP_LARGE_FRAMES` may send up to [`MAX_STREAM_PAYLOAD`].
 pub const MAX_PAYLOAD: usize = 16 << 20;
+
+/// Transport ceiling for a single frame payload once large payloads are
+/// negotiated (256 MiB). Bounds allocation on the receive side.
+pub const MAX_STREAM_PAYLOAD: usize = 256 << 20;
 
 // Message types. Ext→Host are 1–99; Host→Ext are 100–199.
 // Append-only: new types take the next number in their range.
@@ -54,6 +59,9 @@ pub const CAP_TOOLS: u32 = 1 << 1;
 pub const CAP_EVENTS: u32 = 1 << 2;
 pub const CAP_INTERCEPT: u32 = 1 << 3;
 pub const CAP_MODELS: u32 = 1 << 4;
+/// The advertiser accepts single frames up to [`MAX_STREAM_PAYLOAD`], so the
+/// peer may raise its send cap above [`MAX_PAYLOAD`].
+pub const CAP_LARGE_FRAMES: u32 = 1 << 5;
 
 /// Frame types with an explicit [`Unknown`](FrameType::Unknown) arm so peers
 /// that do not understand a type still skip the frame by length.

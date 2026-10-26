@@ -45,9 +45,10 @@ var errOversizedEvent = errors.New("ripgrep event exceeds size cap")
 var grepDescription = fmt.Sprintf(
 	`Search file contents by regex or literal text and return matching lines with file and line numbers.
 
-Each matched file is preceded by an @file path header.
-Use the glob parameter to limit files (e.g. *_test.go); that is not the find tool.
-Results are capped at %d matches and %dKB; increase limit or refine the pattern if truncated.
+Each file has an @file path header followed by N|content lines.
+With context, >N| marks matches counted toward limit; overlapping context is merged and -- separates gaps.
+Use glob to filter files (e.g. *_test.go, !*_test.go). Comments and tests are searched too.
+Defaults to %d matching lines; output is capped at %dKB. Increase limit or narrow path/glob/pattern if truncated.
 Use read for full untruncated line text. Prefer this over bash grep/rg.`,
 	grepDefaultLimit,
 	grepDefaultMaxBytes/1024,
@@ -266,14 +267,14 @@ func runGrep(ctx context.Context, in grepInput) (tooldef.Result, error) {
 		if fp == "" || ln < 1 {
 			continue
 		}
-		matchCount++
-		matches = append(matches, grepMatch{filePath: fp, lineNumber: ln})
-		if matchCount >= effectiveLimit {
+		if matchCount == effectiveLimit {
 			matchLimitReached = true
 			killedForLimit = true
 			stopRipgrep(cmd, stdout)
 			break
 		}
+		matchCount++
+		matches = append(matches, grepMatch{filePath: fp, lineNumber: ln})
 	}
 
 	// Reap ripgrep. Paths that killed it early already waited inside stopRipgrep.
@@ -326,24 +327,19 @@ func runGrep(ctx context.Context, in grepInput) (tooldef.Result, error) {
 		return lines
 	}
 
-	formatPath := func(filePath string) string {
-		return tooldef.RelToCwd(ctx, filePath)
-	}
-
 	var out []string
 	linesTruncated := false
-	lastAbs := ""
-	for _, m := range matches {
-		if m.filePath != lastAbs {
-			lastAbs = m.filePath
-			_ = getFileLines(m.filePath)
-			out = append(out, "@file "+formatPath(m.filePath))
+	for start := 0; start < len(matches); {
+		end := start + 1
+		for end < len(matches) && matches[end].filePath == matches[start].filePath {
+			end++
 		}
-		block, lt := formatGrepBlock(formatPath, getFileLines, m.filePath, m.lineNumber, contextN)
-		if lt {
-			linesTruncated = true
-		}
+		path := matches[start].filePath
+		out = append(out, "@file "+tooldef.RelToCwd(ctx, path))
+		block, lt := formatGrepBlock(getFileLines(path), matches[start:end], contextN)
+		linesTruncated = linesTruncated || lt
 		out = append(out, block...)
+		start = end
 	}
 
 	raw := strings.Join(out, "\n")
@@ -437,45 +433,33 @@ func resolveRipgrepPath() (string, error) {
 	return rgPath, rgPathErr
 }
 
-func formatGrepBlock(
-	formatPath func(string) string,
-	getLines func(string) []string,
-	absPath string,
-	lineNumber, contextN int,
-) (lines []string, anyLineTruncated bool) {
-	rel := formatPath(absPath)
-	fileLines := getLines(absPath)
-	if len(fileLines) == 0 {
-		return []string{fmt.Sprintf("%s:%d: (unable to read file)", rel, lineNumber)}, false
+func formatGrepBlock(fileLines []string, matches []grepMatch, contextN int) (lines []string, anyLineTruncated bool) {
+	matched := make(map[int]bool, len(matches))
+	for _, m := range matches {
+		matched[m.lineNumber] = true
 	}
-
-	start, end := lineNumber, lineNumber
-	if contextN > 0 {
-		start = max(1, lineNumber-contextN)
-		end = min(len(fileLines), lineNumber+contextN)
-	}
-
-	numLines := end - start + 1
-	lines = make([]string, 0, numLines)
-
-	for cur := start; cur <= end; cur++ {
-		var lineText string
-		if cur >= 1 && cur <= len(fileLines) {
-			lineText = fileLines[cur-1]
+	lastLine := 0
+	for _, m := range matches {
+		if m.lineNumber > len(fileLines) {
+			lines = append(lines, fmt.Sprintf("%d| (unable to read matched line; rerun grep)", m.lineNumber))
+			continue
 		}
-		lineText = util.ReplaceAll(lineText, "\r", "")
-		ref := strconv.Itoa(cur)
-		truncLine, wasTrunc := truncateLine(lineText, grepMaxLineRunes)
-		if wasTrunc {
-			anyLineTruncated = true
+		start := max(1, m.lineNumber-contextN)
+		end := min(len(fileLines), m.lineNumber+contextN)
+		if contextN > 0 && lastLine > 0 && start > lastLine+1 {
+			lines = append(lines, "--")
 		}
-		var prefix string
-		if cur == lineNumber {
-			prefix = ">>"
-		} else {
-			prefix = "  "
+		// Adjacent matches share context; emit each source line only once.
+		for cur := max(start, lastLine+1); cur <= end; cur++ {
+			line, truncated := truncateLine(fileLines[cur-1], grepMaxLineRunes)
+			anyLineTruncated = anyLineTruncated || truncated
+			prefix := ""
+			if contextN > 0 && matched[cur] {
+				prefix = ">"
+			}
+			lines = append(lines, prefix+strconv.Itoa(cur)+"|"+line)
+			lastLine = cur
 		}
-		lines = append(lines, fmt.Sprintf("%s:%s%s|%s", rel, prefix, ref, truncLine))
 	}
 	return lines, anyLineTruncated
 }
