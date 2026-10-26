@@ -36,8 +36,6 @@ func TestCompleteCommandWordCombinesHistoryAndPath(t *testing.T) {
 	)
 
 	assert.Equal(t, []Suggestion{
-		{Command: "git stash", Source: SourceHistory, Score: 1.0},
-		{Command: "git status", Source: SourceHistory, Score: 0.5},
 		{Command: "git", Insert: "git ", Source: SourceCommand, Score: 1},
 		{Command: "ginkgo", Insert: "ginkgo ", Source: SourceCommand, Score: 1},
 	}, c.Complete("gi"))
@@ -59,13 +57,13 @@ func TestCompleteExcludesTheTypedWordItself(t *testing.T) {
 	assert.Empty(t, c.Complete("git status"))
 }
 
-// History lines and command names can draw the same row; the history row is
-// the stronger one and the duplicate is dropped.
+// A command name the history also ran is one row, from the source that can
+// complete it: whole lines never complete, so they never crowd the list.
 func TestCompleteDedupesAcrossSources(t *testing.T) {
 	c := newCompleter([]string{"git"}, []string{"git"}, t.TempDir())
 
 	assert.Equal(t, []Suggestion{
-		{Command: "git", Source: SourceHistory, Score: 1.0},
+		{Command: "git", Insert: "git ", Source: SourceCommand, Score: 1},
 	}, c.Complete("gi"))
 }
 
@@ -79,8 +77,6 @@ func TestCompleteArgumentRanksFrequencyThenRecency(t *testing.T) {
 	)
 
 	assert.Equal(t, []Suggestion{
-		{Command: "make bar", Source: SourceHistory, Score: 1.0},
-		{Command: "make baz", Source: SourceHistory, Score: 0.5},
 		{Command: "bar", Insert: "bar ", Source: SourceArgument, Score: 1.0},
 		{Command: "baz", Insert: "baz ", Source: SourceArgument, Score: 0.5},
 	}, c.Complete("make ba"))
@@ -93,8 +89,6 @@ func TestCompleteArgumentAfterASpaceListsEveryWord(t *testing.T) {
 	c := newCompleter([]string{"make bar", "make baz", "make bar"}, nil, t.TempDir())
 
 	assert.Equal(t, []Suggestion{
-		{Command: "make bar", Source: SourceHistory, Score: 1.0},
-		{Command: "make baz", Source: SourceHistory, Score: 0.5},
 		{Command: "bar", Insert: "bar ", Source: SourceArgument, Score: 1.0},
 		{Command: "baz", Insert: "baz ", Source: SourceArgument, Score: 0.5},
 	}, c.Complete("make "))
@@ -172,4 +166,42 @@ func TestCompleteWithoutSourcesIsEmpty(t *testing.T) {
 func TestCompleteOnNilCompleterIsEmpty(t *testing.T) {
 	var c *Completer
 	assert.Empty(t, c.Complete("git"))
+}
+
+// A typed line never completes whole from history: the part that differs is
+// usually a one-off value such as a commit hash or a process id, so offering
+// `git log 2343` back as a row would only teach a constant that never repeats.
+func TestCompleteNeverOffersAWholeHistoryLine(t *testing.T) {
+	c := newCompleter([]string{"git log 2343", "git log --oneline"}, []string{"git"}, t.TempDir())
+
+	for _, typed := range []string{"git l", "git log", "git log 2"} {
+		for _, row := range c.Complete(typed) {
+			assert.NotEqual(t, "git log 2343", row.Command, "typed %q", typed)
+			assert.NotEmpty(t, row.Insert, "every row completes a word, not a line")
+		}
+	}
+}
+
+// A command list runs several commands; the cursor's one is the only one worth
+// completing, so the words before a separator never steer the answer.
+func TestCompleteReadsOnlyTheCommandUnderTheCursor(t *testing.T) {
+	c := newCompleter(blankHistorySource(), nil, t.TempDir())
+
+	for _, typed := range []string{"cd doc && git sta", "ls | git sta", "cd doc; git sta", "serve & git sta"} {
+		rows := c.Complete(typed)
+		require.NotEmpty(t, rows, "typed %q", typed)
+		assert.Contains(t, commands(rows), "stash", "typed %q", typed)
+	}
+}
+
+// A flag after a separator belongs to the command after it, not to the one
+// before: completing `cd doc && ` must not list go's flags.
+func TestCompleteDoesNotBorrowTheFirstCommandsSpec(t *testing.T) {
+	c := newCompleter(blankHistorySource(), nil, t.TempDir())
+
+	rows := c.Complete("git commit -m x && go -")
+
+	for _, row := range rows {
+		assert.NotContains(t, row.Command, "--message", "the flag of the command before the separator")
+	}
 }

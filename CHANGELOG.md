@@ -16,8 +16,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the header shows `bash · ! exits` while it is on; the same `!` (or Esc on an
   empty composer) switches it off. The `!` completion picker works on the bare
   text in this mode, and shell commands stay out of prompt recall.
-- `!` command completion now completes word by word, not only whole lines from
-  history: the command word completes from executables on PATH, arguments from
+- `!` command completion now completes word by word and never offers a whole
+  past line back: the part that differs is usually a one-off value such as a
+  commit hash, so a whole-line row would only teach a constant that never
+  repeats. The command word completes from executables on PATH, arguments from
   words the project's history used in the same position, and path-looking words
   from the project directory. Accepting a word row replaces only the word being
   typed; each row shows where it came from (history, command, argument, common,
@@ -43,11 +45,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   takes) instead of the source name when one is declared. A bare `-` lists the
   flags of the subcommand the cursor is inside, and commands without a spec
   keep completing from history exactly as before.
+- `!` completion now reads only the command the cursor sits in, so
+  `cd doc && git sta` completes git's arguments instead of treating the whole
+  line as one command, and accepting a completion with the cursor inside a word
+  replaces the whole word rather than splicing the completion into it.
 - Setting `PHI_COMPLETION_HELP=1` lets completion learn commands the specs do
   not cover from the command's own `--help`: one run per command, in the
   background, three seconds at most, cached under `~/.phi/completion` so later
-  sessions complete without running anything. Off by default, since it runs
-  commands.
+  sessions complete without running anything. An expired cache keeps answering
+  while it refreshes in the background. Off by default, since it runs commands.
 
 ### Fixed
 

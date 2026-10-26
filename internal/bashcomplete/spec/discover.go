@@ -117,9 +117,10 @@ func (d *Discoverer) Table() *Table {
 	return d.table
 }
 
-// Warm loads the cached trees for names into memory. It is the one call worth
-// making off the hot path; it touches the disk once per command and never runs
-// a subprocess.
+// Warm loads the cached trees for names into memory, stale ones included: a
+// tree read last week still describes most flags, and Discover refreshes it in
+// the background rather than making the user wait for a process. This is the
+// one call worth making off the hot path.
 func (d *Discoverer) Warm(names []string) {
 	if d == nil || d.dir == "" || len(names) == 0 {
 		return
@@ -138,8 +139,9 @@ func (d *Discoverer) Warm(names []string) {
 	d.table = Merge(d.table, extra)
 }
 
-// Warmed reports whether the table already knows the command, which is what
-// decides whether a keystroke has to start a discovery.
+// Warmed reports whether the table already knows the command. Knowing it does
+// not stop a refresh: Discover still checks freshness, so a stale tree is
+// replaced in the background while it keeps answering.
 func (d *Discoverer) Warmed(name string) bool {
 	_, ok := d.Table().Lookup(name, nil)
 	return ok
@@ -155,6 +157,8 @@ func (d *Discoverer) Discover(ctx context.Context, name string) {
 	if d.cachedFresh(name) {
 		return
 	}
+	// A stale cache is still an answer: it loads, and the read below refreshes
+	// it for the next session. The keystroke never waits either way.
 	d.mu.Lock()
 	if d.loading[name] {
 		d.mu.Unlock()

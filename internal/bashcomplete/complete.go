@@ -16,8 +16,6 @@ import (
 type Source string
 
 const (
-	// SourceHistory completes the whole line from the project shell history.
-	SourceHistory Source = "history"
 	// SourceCommand completes the command word from executables on PATH.
 	SourceCommand Source = "command"
 	// SourceArgument completes an argument with words seen in the same position
@@ -34,9 +32,6 @@ const (
 )
 
 const (
-	// historyLineLimit caps whole-line rows: they are the strongest rows, and
-	// an endless tail of them would bury the word-level sources below.
-	historyLineLimit = 20
 	// wordLimit caps the rows any word-level source contributes. The picker
 	// shows a scrolling window, not the whole list, so the cap only bounds the
 	// request — not what the user can reach.
@@ -100,10 +95,13 @@ func (c *Completer) Complete(typed string) []Suggestion {
 	if c == nil {
 		return nil
 	}
-	tokens := Tokenize(typed)
+	// Only the command the cursor sits in is being typed: `cd doc && git sta`
+	// completes git's arguments, and the words of every command before it are
+	// already decided.
+	segment, _ := Segment(typed)
+	tokens := Tokenize(segment)
 	word := tokens[len(tokens)-1]
 	var suggestions []Suggestion
-	suggestions = append(suggestions, c.historyLines(typed)...)
 	command, hasCommand := CommandWord(tokens)
 	switch {
 	case pathWord(word.Text):
@@ -224,38 +222,6 @@ func wordOf(tokens []Token, index int) string {
 		return ""
 	}
 	return tokens[index].Text
-}
-
-// historyLines lists recent whole commands that literally start with the typed
-// text, newest first. The line equal to the typed text is excluded — there is
-// nothing left to complete — and duplicates keep their most recent position,
-// matching what HIST_IGNORE_ALL_DUPS would show.
-func (c *Completer) historyLines(typed string) []Suggestion {
-	query := strings.TrimSpace(typed)
-	if query == "" || c.history == nil {
-		return nil
-	}
-	history := c.history()
-	seen := make(map[string]struct{}, historyLineLimit)
-	lines := make([]string, 0, historyLineLimit)
-	for _, command := range slices.Backward(history) {
-		if len(lines) == historyLineLimit {
-			break
-		}
-		if command == query || !strings.HasPrefix(command, query) {
-			continue
-		}
-		if _, duplicate := seen[command]; duplicate {
-			continue
-		}
-		seen[command] = struct{}{}
-		lines = append(lines, command)
-	}
-	suggestions := make([]Suggestion, len(lines))
-	for i, line := range lines {
-		suggestions[i] = Suggestion{Command: line, Source: SourceHistory, Score: recencyScore(i, len(lines))}
-	}
-	return suggestions
 }
 
 // commandWords completes the command word from executable names: a word the
@@ -543,14 +509,4 @@ func dedupeSuggestions(suggestions []Suggestion) []Suggestion {
 		out = append(out, suggestion)
 	}
 	return out
-}
-
-// recencyScore turns a 0-based newest-first index into a 0..1 weight: the most
-// recent match scores 1, and each older one weighs less. The picker shows it so
-// a fresher completion reads differently from a stale one.
-func recencyScore(index, total int) float64 {
-	if total <= 1 {
-		return 1
-	}
-	return 1 - float64(index)/float64(total)
 }

@@ -190,13 +190,13 @@ The `internal/session/shellhist` store reads a bounded tail and caches records, 
 from appended bytes and reloading after replacement or truncation. History files
 are excluded from the session picker.
 
-That history also feeds `!` command completion in the composer: typing `!git s`
-lists recent commands that literally start with the typed text, newest first,
-above the input. Rows are whole commands, so accepting one (Tab, or Enter on a
-row that differs from what was typed) replaces the command text after the bang;
-Enter keeps its usual meaning of running the command whenever the list is empty.
-Completion is prefix-only — like a shell — so it needs no API key and never sends
-history off the machine.
+That history also feeds `!` command completion in the composer, but only word by
+word: completion never offers a whole past line back. The part of a line that
+differs is usually a one-off value — a commit hash in `git log 2343`, a process
+id, a timestamp — so a whole-line row would teach a constant that never
+repeats. Accepting a row replaces the word being typed; Enter keeps its usual
+meaning of running the command. Completion is prefix-only — like a shell — so it
+needs no API key and never sends history off the machine.
 
 Past the command word the sources are positional. The word right after the
 command name completes its subcommand from the embedded command specs first
@@ -215,13 +215,20 @@ hand-written copy of the community command specs for git, go, docker, npm, and
 cargo; a command outside them keeps completing from history alone, and a stale
 spec entry only costs a stale row.
 
+Only the command the cursor sits in is read: `cd doc && git sta` completes
+git's arguments, because a shell command list runs several commands and the
+words before a separator are already decided. Accepting a row replaces the whole
+word under the cursor, even when the cursor sits in its middle.
+
 `PHI_COMPLETION_HELP=1` adds help discovery for the commands the specs do not
 cover. A command whose word is finished and unknown starts one `--help` run in
 the background, bounded at three seconds and 256 KiB; the parsed flag table is
 stored under `~/.phi/completion/` (`PHI_COMPLETION_CACHE` overrides the
-directory) and loaded on the next start without running anything. The keystroke
-that starts a read still answers from what is already known, and nothing here
-touches a path word: a path completes from the filesystem.
+directory) and loaded on the next start without running anything. A tree past
+its seven days still answers: it loads as before and is refreshed in the
+background, so the user reads last week's flags instead of waiting on a process.
+The keystroke that starts a read still answers from what is already known, and
+nothing here touches a path word: a path completes from the filesystem.
 
 ### 2. Stream and transcript
 

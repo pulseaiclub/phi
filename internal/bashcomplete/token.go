@@ -7,6 +7,10 @@ import "strings"
 type Token struct {
 	Text  string
 	Start int
+	// Complete reports that the word ended before the cursor: a space or a
+	// separator follows it. The word under the cursor is the one being typed,
+	// and a completion there extends it rather than starting the next one.
+	Complete bool
 }
 
 // Tokenize splits a command line into words on unquoted whitespace. Quotes keep
@@ -23,10 +27,138 @@ func Tokenize(line string) []Token {
 	if len(tokens) == 0 {
 		return []Token{{Text: "", Start: len(line)}}
 	}
-	if isWordSpace(line[len(line)-1]) {
+	if isWordSpace(line[len(line)-1]) || endsInSeparator(line) {
 		tokens = append(tokens, Token{Text: "", Start: len(line)})
 	}
+	// The closing word is the one under the cursor; every other word has been
+	// left behind by a separator or a space.
+	for i := range tokens {
+		tokens[i].Complete = i < len(tokens)-1
+	}
 	return tokens
+}
+
+// Segment returns the part of line the cursor is typing in: a shell command
+// list runs several commands, and only the last of them is being completed.
+// `cd doc && git sta` completes git's arguments, not doc's.
+//
+// The offset is where the segment starts in line, so a caller adding token
+// offsets still points at the right place in the composer.
+func Segment(line string) (segment string, offset int) {
+	depth := 0
+	var quote byte
+	last := 0
+	for i := 0; i < len(line); i++ {
+		b := line[i]
+		switch {
+		case quote != 0:
+			// A closing quote counts only when it is not escaped: `\'` inside
+			// a single-quoted word is part of the word.
+			if b == quote && (i == 0 || line[i-1] != '\\') {
+				quote = 0
+			}
+		case b == '\'' || b == '"' || b == '`':
+			quote = b
+		case b == '(' || b == '{':
+			depth++
+		case b == ')' || b == '}':
+			if depth > 0 {
+				depth--
+			}
+		case depth == 0 && b == ';':
+			last = i + 1
+		case depth == 0 && b == '|':
+			// A pipe hands the next command its turn, whether it is a plain
+			// pipe or half of ||.
+			if i+1 < len(line) && line[i+1] == '|' {
+				i++
+			}
+			last = i + 1
+		case depth == 0 && b == '&':
+			// && is the common one; a lone & backgrounds and also starts a new
+			// command after it.
+			if i+1 < len(line) && line[i+1] == '&' {
+				i++
+			}
+			last = i + 1
+		}
+	}
+	segment = line[last:]
+	// A segment usually starts right after its separator; the spaces the user
+	// typed there belong to neither side.
+	for segment != "" && isWordSpace(segment[0]) {
+		segment = segment[1:]
+		last++
+	}
+	return segment, last
+}
+
+// WordEnd returns the offset just past the word the cursor sits in, so a caller
+// replacing that word takes the text after the cursor with it. `git comm|it -m`
+// accepts a completion over `commit`, not over `comm` and then `it`.
+func WordEnd(line string, cursor int) int {
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor > len(line) {
+		cursor = len(line)
+	}
+	end := cursor
+	var quote byte
+	// A quote the cursor has not passed yet is still open, even though it sits
+	// behind the cursor: `git "a|b" x` with the cursor inside the quotes is one
+	// word, and the space it holds does not end it.
+	for end > 0 && quote == 0 {
+		end--
+		if b := line[end]; b == '\'' || b == '"' || b == '`' {
+			if end == 0 || line[end-1] != '\\' {
+				quote = b
+			}
+			break
+		}
+		if isWordSpace(line[end]) || isCommandSeparator(line[end]) {
+			break
+		}
+	}
+	end = cursor
+	for end < len(line) {
+		b := line[end]
+		switch {
+		case quote != 0:
+			if b == quote && (end == 0 || line[end-1] != '\\') {
+				quote = 0
+			}
+		case b == '\'' || b == '"' || b == '`':
+			quote = b
+		case isWordSpace(b), isCommandSeparator(b):
+			return end
+		}
+		end++
+	}
+	return end
+}
+
+// isCommandSeparator reports whether b closes one command in a list, the way
+// the shell reads `&&`, `||`, `;`, `|`, and a lone `&`.
+func isCommandSeparator(b byte) bool {
+	switch b {
+	case ';', '|', '&':
+		return true
+	}
+	return false
+}
+
+// endsInSeparator reports whether line closes with a command separator, which
+// ends the word before it the way a space does.
+func endsInSeparator(line string) bool {
+	if line == "" {
+		return false
+	}
+	switch line[len(line)-1] {
+	case ';', '|', '&':
+		return true
+	}
+	return false
 }
 
 // wrapperCommands are words that run the command after them: completing

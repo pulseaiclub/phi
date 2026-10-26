@@ -204,3 +204,27 @@ func TestHelpEnabledDefaultsOff(t *testing.T) {
 		assert.False(t, HelpEnabled(), value)
 	}
 }
+
+// A stale tree keeps answering while a refresh runs: the user reads an answer
+// from last week instead of waiting on a process.
+func TestDiscovererServesAStaleTreeWhileRefreshing(t *testing.T) {
+	dir := t.TempDir()
+	first := newFakeHelp(t, map[string]string{"tea": cobraUsage})
+	first.dir = dir
+	_, err := first.DiscoverNow(t.Context(), "tea")
+	require.NoError(t, err)
+
+	second := newFakeHelp(t, map[string]string{"tea": cobraUsage})
+	second.dir = dir
+	second.now = func() time.Time { return time.Now().Add(30 * 24 * time.Hour) }
+	second.Warm([]string{"tea"})
+
+	node, ok := second.Table().Lookup("tea", nil)
+	require.True(t, ok, "a stale tree still answers")
+	require.NotEmpty(t, node.Options)
+	assert.False(t, second.cachedFresh("tea"), "and is still scheduled for a refresh")
+
+	second.Discover(t.Context(), "tea")
+	require.Eventually(t, func() bool { return len(second.runs()) == 1 }, 2*time.Second, 10*time.Millisecond,
+		"the refresh ran in the background")
+}

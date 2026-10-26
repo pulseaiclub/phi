@@ -46,8 +46,6 @@ func TestPredictCombinesHistoryAndPath(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []controller.BashSuggestion{
-		{Command: "git stash", Source: "history", Score: 1.0},
-		{Command: "git status", Source: "history", Score: 0.5},
 		{Command: "git", Insert: "git ", Source: "command", Score: 1},
 		{Command: "ginkgo", Insert: "ginkgo ", Source: "command", Score: 1},
 	}, items)
@@ -61,11 +59,9 @@ func TestPredictCompletesArgumentsFromHistory(t *testing.T) {
 	items, err := predictor.Predict(t.Context(), "git sta")
 
 	require.NoError(t, err)
-	// The declared subcommands lead the history words and fold them away: one
-	// row per word, with the description the picker shows.
+	// The declared subcommands lead and carry the description the picker
+	// shows; the history words fold into them.
 	assert.Equal(t, []controller.BashSuggestion{
-		{Command: "git status", Source: "history", Score: 1.0},
-		{Command: "git stash", Source: "history", Score: 0.5},
 		{
 			Command: "status", Insert: "status", Source: "spec", Score: 1.0,
 			Description: "show the work tree status",
@@ -102,8 +98,8 @@ func TestPredictListsEveryCandidate(t *testing.T) {
 	items, err := predictor.Predict(t.Context(), "go")
 
 	require.NoError(t, err)
-	assert.Len(t, items, len(history)+len(commands), "history rows and command rows all arrive")
-	assert.Equal(t, "go six", items[0].Command, "the newest history line leads")
+	assert.Len(t, items, len(commands), "every command row arrives, and no whole history line does")
+	assert.Equal(t, "goa", items[0].Command)
 	assert.Equal(t, "goh", items[len(items)-1].Command, "the last command row closes the list")
 }
 

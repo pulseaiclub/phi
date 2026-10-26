@@ -3,7 +3,6 @@ package composer
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -362,27 +361,17 @@ func bashSuggestionHint(item controller.BashSuggestion) string {
 	return bashSuggestionLabel(item)
 }
 
-// bashSuggestionLabel names where the row came from. A history row between
-// matches also shows its recency weight.
+// bashSuggestionLabel names where the row came from, which is the only hint a
+// row without a declared description has.
 func bashSuggestionLabel(item controller.BashSuggestion) string {
-	switch item.Source {
-	case string(bashcomplete.SourceCommand),
-		string(bashcomplete.SourceArgument),
-		string(bashcomplete.SourcePath),
-		string(bashcomplete.SourceFlag),
-		string(bashcomplete.SourceSpec):
-		return item.Source
-	}
-	if item.Score > 0 && item.Score < 1 {
-		return fmt.Sprintf("%s · %.2f", bashcomplete.SourceHistory, item.Score)
-	}
-	return string(bashcomplete.SourceHistory)
+	return item.Source
 }
 
 // accept fills the composer with the chosen completion, replacing what was
 // typed: a whole command for history rows, the word being typed for word rows.
 func (b *bashSuggest) accept(item mention.Item) {
-	start, end, text := b.replacement(item)
+	row, ok := b.replacementRow(item)
+	start, end, text := b.replacement(item, row, ok)
 	b.hide()
 	b.pane.Chat.ReplaceRange(start, end, text)
 	// ReplaceRange notifies synchronously, so the picker may already have
@@ -399,16 +388,45 @@ func (b *bashSuggest) accept(item mention.Item) {
 // text. A whole-line row carries a full command and replaces the whole command
 // text; a word row carries the word to insert and replaces only the word being
 // typed, because the rest of the line is already right.
-func (b *bashSuggest) replacement(item mention.Item) (start, end int, text string) {
-	if row, ok := b.row(); ok && row.Insert != "" {
-		if query, qstart, ok := b.activeBash(); ok {
-			words := bashcomplete.Tokenize(query)
-			word := words[len(words)-1]
-			return qstart + word.Start, b.pane.Chat.Cursor, row.Insert
-		}
+func (b *bashSuggest) replacement(
+	item mention.Item,
+	row controller.BashSuggestion,
+	known bool,
+) (start, end int, text string) {
+	// The row behind the item is the one that knows how it replaces text; the
+	// item itself only carries the drawing.
+	if known && row.Insert != "" {
+		return b.wordReplacement(row.Insert)
 	}
 	start, end = b.replaceRange()
 	return start, end, item.Path
+}
+
+// wordReplacement replaces the word the cursor sits in with insert, taking the
+// part after the cursor with it: accepting a row mid-word must not leave the
+// old tail behind.
+func (b *bashSuggest) wordReplacement(insert string) (start, end int, text string) {
+	if query, qstart, ok := b.activeBash(); ok {
+		words := bashcomplete.Tokenize(query)
+		word := words[len(words)-1]
+		return qstart + word.Start, qstart + bashcomplete.WordEnd(query, len(query)), insert
+	}
+	return b.pane.Chat.Cursor, b.pane.Chat.Cursor, insert
+}
+
+// replacementRow is the suggestion a picked item stands for. The picker's own
+// selection is authoritative when it is open; a row accepted after a
+// navigation closed the list falls back to the text it draws.
+func (b *bashSuggest) replacementRow(item mention.Item) (controller.BashSuggestion, bool) {
+	if row, ok := b.row(); ok {
+		return row, true
+	}
+	for _, row := range b.rows {
+		if row.Command == item.Path {
+			return row, true
+		}
+	}
+	return controller.BashSuggestion{}, false
 }
 
 // replaceRange resolves the composer range an accepted suggestion replaces:

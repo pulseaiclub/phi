@@ -80,7 +80,7 @@ func drainBash(t *testing.T, bus *controller.Bus) controller.BashSuggestionsMsg 
 
 func TestBashSuggestionsRankIntoThePicker(t *testing.T) {
 	predictor := &fakeBashPredictor{items: []controller.BashSuggestion{
-		{Command: "git stash", Score: 0.7},
+		{Command: "stash", Insert: "stash ", Source: "argument", Score: 0.7},
 		{Command: "status", Insert: "status ", Source: "argument", Score: 0.3},
 	}}
 	c, bus := newBashPane(t, predictor)
@@ -94,7 +94,7 @@ func TestBashSuggestionsRankIntoThePicker(t *testing.T) {
 	c.ApplyBashSuggestions(drainBash(t, bus))
 
 	assert.Equal(t, []mention.Item{
-		{Path: "git stash", Description: "history · 0.70"},
+		{Path: "stash", Description: "argument"},
 		{Path: "status", Description: "argument"},
 	}, c.bash.picker.Items)
 	assert.Empty(t, c.bash.picker.Status, "results leave no status behind")
@@ -687,4 +687,25 @@ func TestAcceptClearsTheGhost(t *testing.T) {
 
 	assert.Equal(t, "!git stash", c.Chat.Value)
 	assert.Empty(t, c.Chat.GhostText, "the filled text needs no hint")
+}
+
+// Accepting a completion with the cursor in the middle of a word replaces the
+// whole word: the text after the cursor is part of what the row completes.
+func TestAcceptReplacesTheWholeWordUnderTheCursor(t *testing.T) {
+	predictor := &fakeBashPredictor{items: []controller.BashSuggestion{
+		{Command: "commit", Insert: "commit ", Source: "spec"},
+	}}
+	c, bus := wiredComposer(t)
+	c.SetBashPredictor(predictor)
+	c.Chat.Value, c.Chat.Cursor = "!git comm -m x", len("!git comm -m x")
+	c.bash.onChange(true, "git comm -m x")
+	c.ApplyBashSuggestions(drainBash(t, bus))
+	require.True(t, c.bash.picker.Open)
+
+	// Put the cursor back inside the word, after "comm".
+	c.Chat.Cursor = len("!git comm")
+
+	pressKey(t, c, xui.KeyEvent{Code: xui.KeyTab, Press: true})
+
+	assert.Equal(t, "!git commit  -m x", c.Chat.Value, "the stale tail of the word is gone")
 }

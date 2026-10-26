@@ -78,22 +78,18 @@ func TestCompleteSubcommandFromSpec(t *testing.T) {
 }
 
 // The declared subcommands lead; words the project already ran follow and are
-// not dropped, so history still reaches a command the table does not know.
+// not dropped, so history still reaches a command the table does not know. The
+// word the project ran is one row: the declared one, which carries the
+// description and leaves room for arguments.
 func TestCompleteSubcommandsLeadHistory(t *testing.T) {
 	c := newCompleter([]string{"git status"}, nil, t.TempDir())
 
 	rows := c.Complete("git sta")
 
 	require.NotEmpty(t, rows)
-	assert.Equal(t, SourceHistory, rows[0].Source, "whole lines stay the strongest rows")
-	var wordRows []Suggestion
-	for _, row := range rows {
-		if row.Command == "status" && row.Insert != "" {
-			wordRows = append(wordRows, row)
-		}
-	}
-	require.Len(t, wordRows, 1, "one row per word: the spec row wins the dedupe")
-	assert.Equal(t, SourceSpec, wordRows[0].Source, "the declared subcommands come first among word rows")
+	assert.Equal(t, SourceSpec, rows[0].Source, "the declared subcommands come first")
+	assert.Equal(t, "status", rows[0].Command)
+	assert.Equal(t, "show the work tree status", rows[0].Description)
 
 	ordered := commands(sourceRows(rows, SourceArgument))
 	assert.NotContains(t, ordered, "status", "the declared row replaced the history word, not joined it")
