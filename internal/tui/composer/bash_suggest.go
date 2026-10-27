@@ -326,5 +326,9 @@ func bashSuggestError(err error) string {
 	if errors.Is(err, context.DeadlineExceeded) {
 		return "Completions took too long — keep typing or try again"
 	}
+	var hint interface{ CompletionHint() string }
+	if errors.As(err, &hint) {
+		return hint.CompletionHint()
+	}
 	return "Completions unavailable"
 }

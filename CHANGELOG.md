@@ -10,6 +10,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- AI commit-message completion in `!git commit -m` uses the staged diff and recent
+  commit subjects; `-am` includes tracked working-tree changes. Suggestions use
+  the current model and fill the input for review before execution. An empty
+  index shows a staging hint instead of silently hiding completion.
 - Shell completion uses sev's command specs, flags, paths, and Git arguments,
   with descriptions and fuzzy fallback. It works without command history.
   The former `history.jsonl` shell-history reader, writer, and cache are removed;

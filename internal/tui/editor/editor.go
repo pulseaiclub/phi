@@ -8,6 +8,7 @@ import (
 
 	"github.com/pulseaiclub/xui"
 
+	"github.com/pulseaiclub/phi/internal/commitmsg"
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/components/chat"
@@ -87,8 +88,10 @@ func NewEditor(
 		composer: composer.NewComposerPane(theme, modelLabel, cwd),
 		footer:   footer.NewFooterChrome(theme, contextWindow),
 	}
-	// Completion uses the embedded command specs and generators rooted at cwd.
-	e.composer.SetBashPredictor(composer.NewBashPredictor(cwd))
+	commitMessages := commitmsg.New(cwd, ctrl.GenerateCommitMessage)
+	e.composer.SetBashPredictor(composer.NewCommitBashPredictor(
+		composer.NewBashPredictor(cwd), commitMessages.Complete,
+	))
 	// Prompt recall is opt-in: it persists what the user typed under the home
 	// directory, so it stays off until PHI_PROMPT_HISTORY turns it on.
 	if dir := ctrl.SessionDir(); dir != "" && shellhist.PromptsEnabled() {
