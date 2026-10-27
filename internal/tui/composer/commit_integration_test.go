@@ -10,14 +10,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/commitmsg"
+	"github.com/pulseaiclub/sev/commitmsg"
 )
 
 func TestCommitCompletionThroughInputAndPicker(t *testing.T) {
 	dir := t.TempDir()
 	git := func(args ...string) {
 		t.Helper()
-		cmd := exec.Command("git", args...)
+		cmd := exec.CommandContext(t.Context(), "git", args...)
 		cmd.Dir = dir
 		out, err := cmd.CombinedOutput()
 		require.NoError(t, err, "%s", out)
@@ -26,11 +26,11 @@ func TestCommitCompletionThroughInputAndPicker(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "example.txt"), []byte("hello\n"), 0o600))
 	pane, bus := wiredComposer(t)
 	generated := make(chan string, 1)
-	complete := commitmsg.New(dir, func(_ context.Context, _, user string) (string, error) {
+	complete := commitmsg.New(func(_ context.Context, _, user string) (string, error) {
 		generated <- user
 		return "feat: add example", nil
 	})
-	pane.SetBashPredictor(NewCommitBashPredictor(NewBashPredictor(dir), complete.Complete))
+	pane.SetBashPredictor(NewBashPredictor(dir, complete.Complete))
 	pane.Chat.ReplaceRange(0, 0, `!git commit -m "`)
 	pane.ApplyBashSuggestions(drainBash(t, bus))
 	assert.True(t, pane.bash.picker.Open)

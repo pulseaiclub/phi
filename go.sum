@@ -10,8 +10,8 @@ github.com/hexops/gotextdiff v1.0.3 h1:gitA9+qJrrTCsiCl7+kh75nPqQt1cx4ZkudSTLoUq
 github.com/hexops/gotextdiff v1.0.3/go.mod h1:pSWU5MAI3yDq+fZBTazCSJysOMbxWL1BSow5/V2vxeg=
 github.com/pulseaiclub/pli v0.1.0 h1:a9EYNXKwrz2UeULIYCJ/ctvb0GpqzS20IvqqHshBj9g=
 github.com/pulseaiclub/pli v0.1.0/go.mod h1:F8cwlTfsPJpohVahihWo5hog3J2pExjMWvh+2AOMSKw=
-github.com/pulseaiclub/sev v0.1.0 h1:8wKsqNP0Pyvnz2vlIqO8rNUGCEoNWEoRdHNZie46LNQ=
-github.com/pulseaiclub/sev v0.1.0/go.mod h1:FqKJVH6cRRZ2pPlXQEyRXIaRwMLPnze5VaMFOU2cFmY=
+github.com/pulseaiclub/sev v0.2.0 h1:BU8ZmXtxZQvgJdC/EXwNL8AsEgBTfdiNDKd1myAZliU=
+github.com/pulseaiclub/sev v0.2.0/go.mod h1:FqKJVH6cRRZ2pPlXQEyRXIaRwMLPnze5VaMFOU2cFmY=
 github.com/pulseaiclub/xui v0.1.8 h1:zaGbfzbxhsvBzqC6IUds/wDGPK8wSQcnQ8xenYdOEYc=
 github.com/pulseaiclub/xui v0.1.8/go.mod h1:/5J54Q/LjLKKEWE6C7tx9dMH4vEd0pPZ+I02FL4nlOo=
 github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWDWE=
