@@ -14,11 +14,10 @@ import (
 )
 
 const (
-	// bashSuggestDebounce waits for a pause in typing. A history read is I/O, so
-	// firing one per keystroke would re-read on prefixes the user never meant to
-	// ask about.
+	// bashSuggestDebounce waits for a pause in typing to avoid running dynamic
+	// argument generators for prefixes the user never meant to ask about.
 	bashSuggestDebounce = 200 * time.Millisecond
-	// bashSuggestTimeout bounds one read end to end, so a wedged request
+	// bashSuggestTimeout bounds one prediction end to end, so a wedged request
 	// cannot hold the picker open forever.
 	bashSuggestTimeout = 10 * time.Second
 	// bashSuggestVisible caps how many rows the picker lists.
@@ -158,7 +157,7 @@ func (b *bashSuggest) rowIsTypedText() bool {
 	if !ok {
 		return false
 	}
-	return strings.TrimSpace(b.picker.Items[b.picker.Selected].Path) == strings.TrimSpace(query)
+	return b.picker.Items[b.picker.Selected].Path == query
 }
 
 // pending reports whether there is anything of the "!" completer left to
@@ -191,21 +190,18 @@ func (b *bashSuggest) abandon() {
 
 // schedule debounces one keystroke's query, then asks the predictor.
 // The work runs off the UI goroutine and answers on the bus, like the @-file
-// search: the composer never blocks on a history read.
+// search: the composer never blocks on completion generators.
 //
 // Nothing is drawn while it waits. A row saying "asking" would appear a beat
 // before the ranking replaces it, which reads as a flicker rather than as
 // information, and the wait is bounded by bashSuggestTimeout either way.
 func (b *bashSuggest) schedule(query string) {
-	if b.predictor == nil {
-		return
-	}
 	b.abandon()
 	gen := b.gen
 	predictor := b.predictor
 	bus := b.pane.bus
-	// Recorded here rather than by the caller, so abandoning the request above
-	// cannot erase what this one was asked about.
+	// Record the query after abandoning the previous request, so this request's
+	// query cannot be cleared by the cancellation above.
 	b.query = query
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -281,9 +277,12 @@ func (b *bashSuggest) apply(msg controller.BashSuggestionsMsg) {
 	b.show()
 }
 
-// bashSuggestionLabel describes how the row was ranked, so a literal completion
-// reads differently from a guess.
+// bashSuggestionLabel prefers command help, falling back to ranking information
+// for completion sources that do not provide descriptions.
 func bashSuggestionLabel(item controller.BashSuggestion) string {
+	if item.Description != "" {
+		return item.Description
+	}
 	if item.IsPrefix {
 		return fmt.Sprintf("%.2f · prefix", item.Score)
 	}
@@ -324,12 +323,8 @@ func (b *bashSuggest) replaceRange() (start, end int) {
 // bashSuggestError turns a prediction failure into something the user can act
 // on, rather than a transport-level string.
 func bashSuggestError(err error) string {
-	switch {
-	case err == nil:
-		return ""
-	case errors.Is(err, context.DeadlineExceeded):
+	if errors.Is(err, context.DeadlineExceeded) {
 		return "Completions took too long — keep typing or try again"
-	default:
-		return "Completions unavailable"
 	}
+	return "Completions unavailable"
 }

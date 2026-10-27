@@ -164,31 +164,28 @@ User Enter in composer
 
 `Submitter` clears composer input after slash/bash; agent submit passes pending skills from composer.
 
-User `!` commands are also appended to `history.jsonl` in the project's existing
-session directory (`~/.phi/session/<encoded-cwd>/`). All sessions for that workspace
-share the file; agent tool commands are excluded. Each JSONL record contains format
-version `v`, start time `at` (Unix milliseconds), working directory `cwd`, command
-`cmd`, and nullable exit status `exit`. Failed and cancelled attempts are retained;
-unknown exit status is `null`. Shell output is not stored in this history.
+The `!` picker uses [sev](https://github.com/pulseaiclub/sev) to complete commands,
+subcommands, flags, paths, and Git arguments. It works without previously executed
+commands, uses the workspace directory for generators, and shows command descriptions.
+The engine is initialized on the first completion request; generators have a 20 ms
+budget and run off the UI goroutine. Prefix matches take priority, with fuzzy
+matches as a fallback.
+
+Rows contain the whole command line. Accepting one (Tab, or Enter on a row that
+differs from what was typed) replaces the text after the bang. Enter runs the
+command when the list is empty. Trailing spaces and quoting are preserved when
+requesting and inserting completions.
+
+Shell commands no longer read or write `history.jsonl` or its rotated backup.
+Completion history ranking is disabled. Existing history files are ignored and
+remain excluded from the session picker; ordinary session transcripts are unchanged.
+Completion requires no API key or download.
 
 Composer prompt recall is opt-in. With `PHI_PROMPT_HISTORY=on`, the last ten
-submitted prompts for the workspace are kept in `prompts.json` next to
-`history.jsonl`, and Up/Down (or Ctrl+P/Ctrl+N) walk them in the composer; slash
-and shell commands are not recorded. Recording prompts writes a file under the
-home directory, so the default is off and nothing is written unless the switch
-is set. While it is on, `?` lists the recall keys.
-
-The `internal/session/shellhist` store reads a bounded tail and caches records, refreshing
-from appended bytes and reloading after replacement or truncation. History files
-are excluded from the session picker.
-
-That history also feeds `!` command completion in the composer: typing `!git s`
-lists recent commands that literally start with the typed text, newest first,
-above the input. Rows are whole commands, so accepting one (Tab, or Enter on a
-row that differs from what was typed) replaces the command text after the bang;
-Enter keeps its usual meaning of running the command whenever the list is empty.
-Completion is prefix-only — like a shell — so it needs no API key and never sends
-history off the machine.
+submitted prompts for the workspace are kept in `prompts.json` in the project's
+session directory. Up/Down (or Ctrl+P/Ctrl+N) walk them in the composer; slash and
+shell commands are not recorded. The default is off. While it is on, `?` lists
+the recall keys.
 
 ### 2. Stream and transcript
 

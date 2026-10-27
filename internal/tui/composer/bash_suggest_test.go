@@ -25,9 +25,8 @@ type fakeBashPredictor struct {
 	typed []string
 	items []controller.BashSuggestion
 	err   error
-	// cancelErr records whether the prediction saw its context cancelled, which
-	// is how a superseded keystroke stops costing a round trip.
-	cancelErr error
+	// waitForCancel keeps the prediction in flight until its context is cancelled.
+	waitForCancel bool
 }
 
 func (f *fakeBashPredictor) Predict(ctx context.Context, typed string) ([]controller.BashSuggestion, error) {
@@ -40,7 +39,7 @@ func (f *fakeBashPredictor) Predict(ctx context.Context, typed string) ([]contro
 		return nil, err
 	}
 	// Hold the call until the context ends, so a cancel is observable.
-	if f.cancelErr != nil {
+	if f.waitForCancel {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}
@@ -101,6 +100,20 @@ func TestBashSuggestionsRankIntoThePicker(t *testing.T) {
 	assert.True(t, c.bash.picker.Open, "the ranking opens the picker")
 	assert.True(t, c.Chat.BashOpen, "rows to navigate means the picker owns the keys")
 	assert.Equal(t, []string{"git s"}, predictor.asked())
+}
+
+func TestBashCompletionSpaceCanBeAccepted(t *testing.T) {
+	pane, _ := newBashPane(t, nil)
+	pane.Chat.Value, pane.Chat.Cursor = "!git", len("!git")
+	pane.ApplyBashSuggestions(controller.BashSuggestionsMsg{
+		Query: "git",
+		Items: []controller.BashSuggestion{{Command: "git ", Description: "Version control", IsPrefix: true}},
+	})
+	require.Len(t, pane.bash.picker.Items, 1)
+	assert.Equal(t, "Version control", pane.bash.picker.Items[0].Description)
+	assert.False(t, pane.bash.rowIsTypedText(), "a completion space changes the shell argument position")
+	pane.bash.accept(pane.bash.picker.Items[0])
+	assert.Equal(t, "!git ", pane.Chat.Value)
 }
 
 func TestAcceptBashReplacesTheTypedCommand(t *testing.T) {
@@ -178,7 +191,7 @@ func TestNewQueryDropsThePreviousRanking(t *testing.T) {
 }
 
 func TestBashSuggestionsAreDroppedWhenTheRequestWasCancelled(t *testing.T) {
-	predictor := &fakeBashPredictor{cancelErr: errors.New("blocked until cancelled")}
+	predictor := &fakeBashPredictor{waitForCancel: true}
 	c, bus := newBashPane(t, predictor)
 
 	c.bash.onChange(true, "git s")
@@ -315,7 +328,7 @@ func TestLeavingBashModeClosesThePicker(t *testing.T) {
 }
 
 func TestHideCompletersCancelsThePrediction(t *testing.T) {
-	predictor := &fakeBashPredictor{cancelErr: errors.New("blocked")}
+	predictor := &fakeBashPredictor{waitForCancel: true}
 	c, _ := newBashPane(t, predictor)
 
 	c.bash.onChange(true, "git s")
@@ -339,7 +352,7 @@ func TestHideCompletersCancelsThePrediction(t *testing.T) {
 // Enter, or "!cmd⏎" would need two presses.
 func TestEnterRunsTheCommandBeforeAnyRankingArrives(t *testing.T) {
 	c, bus := wiredComposer(t)
-	c.SetBashPredictor(&fakeBashPredictor{cancelErr: errors.New("still thinking")})
+	c.SetBashPredictor(&fakeBashPredictor{waitForCancel: true})
 	pressText(t, c, "!git status")
 	require.False(t, c.bash.picker.Open, "nothing to show, nothing on screen")
 	require.Empty(t, c.bash.picker.Items)
@@ -365,6 +378,19 @@ func TestEnterRunsTheCommandWhenTheRowIsAlreadyTyped(t *testing.T) {
 	assert.Equal(t, "!git status", c.Chat.Value, "the composer is not rewritten with itself")
 }
 
+func TestEnterAcceptsTrailingSpaceCompletion(t *testing.T) {
+	c, bus := wiredComposer(t)
+	c.SetBashPredictor(&fakeBashPredictor{})
+	c.Chat.Value, c.Chat.Cursor = "!git", len("!git")
+	c.bash.picker.SetResults([]mention.Item{{Path: "git "}}, "")
+	c.bash.show()
+
+	pressKey(t, c, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
+
+	assert.Equal(t, "!git ", c.Chat.Value)
+	assert.Empty(t, submittedText(t, bus), "the space starts an argument, rather than executing git")
+}
+
 func TestEnterAcceptsARowThatDiffersFromWhatWasTyped(t *testing.T) {
 	c, bus := wiredComposer(t)
 	c.SetBashPredictor(&fakeBashPredictor{})
@@ -381,7 +407,7 @@ func TestEnterAcceptsARowThatDiffersFromWhatWasTyped(t *testing.T) {
 
 func TestNavigationKeysStayWithTheComposerUntilThereAreRows(t *testing.T) {
 	c, _ := wiredComposer(t)
-	c.SetBashPredictor(&fakeBashPredictor{cancelErr: errors.New("still thinking")})
+	c.SetBashPredictor(&fakeBashPredictor{waitForCancel: true})
 	// Editing a multi-line command needs the cursor keys, so a picker with no
 	// rows must not hold them.
 	pressText(t, c, "!for f in *; do\necho done")
@@ -405,7 +431,7 @@ func TestEnterRunsTheCommandWhileARerankIsInFlight(t *testing.T) {
 	c.ApplyBashSuggestions(drainBash(t, bus))
 	require.True(t, c.Chat.BashOpen)
 
-	c.SetBashPredictor(&fakeBashPredictor{cancelErr: errors.New("still thinking")})
+	c.SetBashPredictor(&fakeBashPredictor{waitForCancel: true})
 	pressKey(t, c, xui.KeyEvent{Code: xui.KeyRune, Rune: 't', Press: true})
 	require.False(t, c.bash.picker.Open, "the dropped rows take the picker with them")
 	require.Empty(t, c.bash.picker.Items)
@@ -496,7 +522,7 @@ func TestRepeatedQueryIsNotAskedTwice(t *testing.T) {
 // the picker's own state cannot tell the two apart.
 func TestEscapeDropsAJudgementThatHasNotDrawnAnything(t *testing.T) {
 	c, bus := wiredComposer(t)
-	predictor := &fakeBashPredictor{cancelErr: errors.New("still thinking")}
+	predictor := &fakeBashPredictor{waitForCancel: true}
 	c.SetBashPredictor(predictor)
 
 	pressText(t, c, "!git status")

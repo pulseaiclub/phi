@@ -11,7 +11,6 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/session"
-	"github.com/pulseaiclub/phi/internal/session/shellhist"
 	"github.com/pulseaiclub/phi/internal/tools/bashtool"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"github.com/pulseaiclub/phi/internal/tui/composer"
@@ -24,7 +23,6 @@ type BashRunner struct {
 	transcript *transcript.TranscriptPane
 	composer   composer.Input
 	bus        *controller.Bus
-	history    *shellhist.Store
 
 	running atomic.Bool
 	mu      sync.Mutex
@@ -35,13 +33,11 @@ func newBashRunner(
 	transcript *transcript.TranscriptPane,
 	composer composer.Input,
 	bus *controller.Bus,
-	history *shellhist.Store,
 ) *BashRunner {
 	return &BashRunner{
 		transcript: transcript,
 		composer:   composer,
 		bus:        bus,
-		history:    history,
 	}
 }
 
@@ -78,9 +74,7 @@ func (b *BashRunner) HandleSubmit(text string) bool {
 	b.running.Store(true)
 	b.mu.Unlock()
 	started := time.Now()
-	cwd, cwdErr := os.Getwd()
-	entry := shellhist.Entry{Version: 1, At: started.UnixMilli(), Cwd: cwd, Command: command}
-	if cwdErr == nil {
+	if cwd, err := os.Getwd(); err == nil {
 		ctx = tooldef.WithCwd(ctx, cwd)
 	}
 	b.composer.HideCompleters()
@@ -92,11 +86,11 @@ func (b *BashRunner) HandleSubmit(text string) bool {
 	b.transcript.Sync()
 	b.transcript.StickToBottom()
 
-	go b.run(ctx, id, entry, cwdErr)
+	go b.run(ctx, id, command)
 	return true
 }
 
-func (b *BashRunner) run(ctx context.Context, id string, entry shellhist.Entry, cwdErr error) {
+func (b *BashRunner) run(ctx context.Context, id, command string) {
 	defer func() {
 		b.mu.Lock()
 		b.cancel()
@@ -104,7 +98,6 @@ func (b *BashRunner) run(ctx context.Context, id string, entry shellhist.Entry, 
 		b.running.Store(false)
 		b.mu.Unlock()
 	}()
-	command := entry.Command
 	const bashPublishInterval = 100 * time.Millisecond
 
 	liveOutput := newBashLiveOutput(bashPublishInterval, func(cur string) {
@@ -122,25 +115,6 @@ func (b *BashRunner) run(ctx context.Context, id string, entry shellhist.Entry, 
 		OnChunk: liveOutput.Append,
 	})
 	liveOutput.Close()
-	if b.history != nil {
-		if err == nil && !result.Canceled && result.ExitCode >= 0 {
-			entry.Exit = &result.ExitCode
-		}
-		historyErr := cwdErr
-		if historyErr == nil {
-			historyErr = b.history.Append(entry)
-		}
-		if historyErr != nil {
-			b.showToast(
-				fmt.Sprintf(
-					"Shell history was not saved: %v. Check the working directory and session directory permissions.",
-					historyErr,
-				),
-				toast.ToastWarning,
-				6*time.Second,
-			)
-		}
-	}
 	if err != nil {
 		b.publishSession(session.ToolData{Run: session.ToolRun{
 			ToolUseID: id,

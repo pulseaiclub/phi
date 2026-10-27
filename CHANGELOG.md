@@ -10,6 +10,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Shell completion uses sev's command specs, flags, paths, and Git arguments,
+  with descriptions and fuzzy fallback. It works without command history.
+  The former `history.jsonl` shell-history reader, writer, and cache are removed;
+  prompt recall and session transcripts are unchanged.
+
 ### Fixed
 
 - MCP: `tools/list` is followed across pages, so a server that splits its

@@ -51,7 +51,7 @@ type PromptHistory struct {
 	mu  sync.Mutex
 }
 
-// NewPromptHistory shares the per-project session directory with shell history.
+// NewPromptHistory stores prompt recall in the per-project session directory.
 func NewPromptHistory(dir string) *PromptHistory { return &PromptHistory{dir: dir} }
 
 // Entries returns the recalled inputs, oldest first. A missing or corrupt file

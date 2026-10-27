@@ -29,9 +29,8 @@ type Input interface {
 	SetBashBorderActive(active bool)
 }
 
-// BashPredictor ranks completions for text typed in "!" mode. It owns reading
-// and caching the shell history behind that text; the composer only asks for a
-// ranking and lists it.
+// BashPredictor ranks full-line completions for text typed in "!" mode. Queries
+// and results preserve shell quoting and whitespace; the composer lists them.
 // Predict is called off the UI goroutine. It must respect ctx — a new query
 // cancels the one before it — and be safe against overlapping calls: the
 // composer cancels the previous context but does not wait for it to return.

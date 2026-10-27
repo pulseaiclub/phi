@@ -87,14 +87,14 @@ type MentionResultsMsg struct {
 
 func (MentionResultsMsg) isMsg() {}
 
-// BashSuggestion is one completion for text typed in "!" mode. Score is a
-// recency weight (1 for the most recent match, lower for older ones) and
-// IsPrefix reports that the command literally starts with what was typed.
-// Completion is prefix-only, so IsPrefix is always true.
+// BashSuggestion is one full-line completion for text typed in "!" mode. Score
+// is the engine's ranking weight; IsPrefix distinguishes literal completions
+// from fuzzy matches. Description explains the command or argument when known.
 type BashSuggestion struct {
-	Command  string
-	Score    float64
-	IsPrefix bool
+	Command     string
+	Description string
+	Score       float64
+	IsPrefix    bool
 }
 
 // BashSuggestionsMsg delivers async "!" completions to the UI goroutine. Gen
