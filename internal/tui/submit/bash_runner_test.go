@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -145,17 +144,19 @@ func TestBashUsesSubmissionCwd(t *testing.T) {
 	b := shellRunner(t)
 	cwd, err := os.Getwd()
 	require.NoError(t, err)
-	cwd, err = filepath.EvalSymlinks(cwd)
-	require.NoError(t, err)
 	other := t.TempDir()
+	// Relative reads verify cwd without interpreting MSYS paths as Windows paths.
+	const name = "submission-cwd.txt"
+	probe := filepath.Join(cwd, name)
+	require.NoError(t, os.WriteFile(probe, []byte("submission directory"), 0o600))
+	t.Cleanup(func() { require.NoError(t, os.Remove(probe)) })
+	require.NoError(t, os.WriteFile(filepath.Join(other, name), []byte("later directory"), 0o600))
 	b.composer = &acceptingComposer{onAccept: func() {
 		// Change cwd after submission captures it, before execution starts.
 		t.Chdir(other)
 	}}
-	require.True(t, b.HandleSubmit("!pwd"))
+	require.True(t, b.HandleSubmit("!cat "+name))
 	result := waitForShell(t, b)
 	assert.Equal(t, session.ToolDone, result.Status)
-	actual, err := filepath.EvalSymlinks(strings.TrimSpace(result.Output))
-	require.NoError(t, err)
-	assert.Equal(t, cwd, actual)
+	assert.Equal(t, "submission directory", result.Output)
 }
