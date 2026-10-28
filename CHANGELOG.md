@@ -10,6 +10,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+### Fixed
+
+- Terminal: upgrade xui to v0.1.9 to correctly detect synchronized output,
+  preventing input cursor flicker during animated redraws on supported terminals.
+
 ## [0.29.3] - 2026-10-27
 
 ### Added
