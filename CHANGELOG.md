@@ -12,6 +12,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Sub-agent tool guidance now recommends waiting with only `job_id`, which
+  waits until completion and returns as soon as the result is ready, to avoid
+  repeated short waits caused by guessing task durations.
 - Terminal: upgrade xui to v0.1.9 to correctly detect synchronized output,
   preventing input cursor flicker during animated redraws on supported terminals.
 
