@@ -12,6 +12,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- TUI: long bash commands now wrap in full, with continuation lines aligned to
+  the command. Simple chains are split after `&&`, `||` and pipes when they
+  exceed the available width; short commands stay on one line. Commands with
+  ambiguous shell constructs (heredocs, substitutions, unbalanced quotes) keep
+  their original layout. Sub-agent commands keep their tree guide and use
+  readable foreground text.
 - Sub-agent tool guidance now recommends waiting with only `job_id`, which
   waits until completion and returns as soon as the result is ready, to avoid
   repeated short waits caused by guessing task durations.

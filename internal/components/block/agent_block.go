@@ -166,10 +166,21 @@ func (a *AgentBlock) Draw(ctx components.DrawContext) components.Surface {
 				{Text: cIcon + " ", Style: cSt},
 				{Text: c.Name, Style: th.ToolName},
 			}
-			if c.Detail != "" {
-				row = append(row, components.Span{Text: " " + c.Detail, Style: th.Muted})
+			if strings.EqualFold(c.Name, "bash") && c.Detail != "" {
+				row = append(row, components.Span{Text: " ", Style: th.ToolName})
+				guide := ""
+				if i < n-1 {
+					guide = st.Vertical
+				}
+				treeLines = append(treeLines, wrapCommand(row, []components.Span{
+					{Text: c.Detail, Style: th.Foreground},
+				}, guide, w, ctx.Method)...)
+			} else {
+				if c.Detail != "" {
+					row = append(row, components.Span{Text: " " + c.Detail, Style: th.Muted})
+				}
+				treeLines = append(treeLines, components.WrapSpans(row, w, ctx.Method)...)
 			}
-			treeLines = append(treeLines, components.WrapSpans(row, w, ctx.Method)...)
 		}
 		if err := strings.TrimSpace(a.Error); err != "" {
 			footLines = append(footLines, components.WrapSpans([]components.Span{
