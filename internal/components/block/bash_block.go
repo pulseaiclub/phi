@@ -12,6 +12,8 @@ import (
 	"github.com/pulseaiclub/phi/internal/util"
 )
 
+const bashToolName = "bash"
+
 // BashBlock renders bash tool / "!cmd" output:
 //
 //	$ ls

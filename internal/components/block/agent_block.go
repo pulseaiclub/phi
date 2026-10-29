@@ -160,27 +160,11 @@ func (a *AgentBlock) Draw(ctx components.DrawContext) components.Surface {
 		n := len(a.Children)
 		for i, c := range a.Children {
 			prefix := tree.PrefixForSiblings(n, i, st)
-			cIcon, cSt := chrome.ToolIcon(c.Status, th, a.Spinner)
-			row := []components.Span{
-				{Text: prefix, Style: th.Muted},
-				{Text: cIcon + " ", Style: cSt},
-				{Text: c.Name, Style: th.ToolName},
+			guide := ""
+			if i < n-1 {
+				guide = st.Vertical
 			}
-			if strings.EqualFold(c.Name, "bash") && c.Detail != "" {
-				row = append(row, components.Span{Text: " ", Style: th.ToolName})
-				guide := ""
-				if i < n-1 {
-					guide = st.Vertical
-				}
-				treeLines = append(treeLines, wrapCommand(row, []components.Span{
-					{Text: c.Detail, Style: th.Foreground},
-				}, guide, w, ctx.Method)...)
-			} else {
-				if c.Detail != "" {
-					row = append(row, components.Span{Text: " " + c.Detail, Style: th.Muted})
-				}
-				treeLines = append(treeLines, components.WrapSpans(row, w, ctx.Method)...)
-			}
+			treeLines = append(treeLines, a.childToolLines(c, prefix, guide, th, w, ctx.Method)...)
 		}
 		if err := strings.TrimSpace(a.Error); err != "" {
 			footLines = append(footLines, components.WrapSpans([]components.Span{
@@ -213,4 +197,32 @@ func (a *AgentBlock) Draw(ctx components.DrawContext) components.Surface {
 		y++
 	}
 	return s
+}
+
+func (a *AgentBlock) childToolLines(
+	child ChildTool,
+	prefix, guide string,
+	th components.Theme,
+	width int,
+	method xui.WidthMethod,
+) []components.RichLine {
+	icon, iconStyle := chrome.ToolIcon(child.Status, th, a.Spinner)
+	row := []components.Span{
+		{Text: prefix, Style: th.Muted},
+		{Text: icon + " ", Style: iconStyle},
+		{Text: child.Name, Style: th.ToolName},
+	}
+	if child.Detail == "" {
+		return components.WrapSpans(row, width, method)
+	}
+	// Bash details are executable commands, so keep them readable and align
+	// wrapped continuations with the command instead of the tree prefix.
+	if strings.EqualFold(child.Name, bashToolName) {
+		row = append(row, components.Span{Text: " ", Style: th.ToolName})
+		return wrapCommand(row, []components.Span{
+			{Text: child.Detail, Style: th.Foreground},
+		}, guide, width, method)
+	}
+	row = append(row, components.Span{Text: " " + child.Detail, Style: th.Muted})
+	return components.WrapSpans(row, width, method)
 }
