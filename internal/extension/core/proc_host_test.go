@@ -203,7 +203,7 @@ func TestHostBackpressureClose(t *testing.T) {
 	p, ready := hostTestProc(t, "blocked")
 	hostAwait(t, ready)
 	sent := make(chan struct{})
-	go func() { p.PushSessionMeta("session", "/tmp", strings.Repeat("x", 4<<20)); close(sent) }()
+	go func() { p.PushSessionMeta("session", strings.Repeat("x", 4<<20)); close(sent) }()
 	time.Sleep(50 * time.Millisecond)
 	done := make(chan struct{})
 	go func() { _ = p.Close(); close(done) }()

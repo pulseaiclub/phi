@@ -62,7 +62,6 @@ type cmdReg struct {
 type HelloInfo struct {
 	Cwd          string
 	SessionID    string
-	Title        string // user-facing session name; empty when unnamed
 	ExtensionDir string
 	PhiVersion   string
 }
@@ -446,11 +445,10 @@ func (extension *ExtensionAPI) run(r io.Reader, w io.Writer) (err error) {
 			resp := pxb.CommandResponse{OK: true}
 			if cmd, ok := cmdByName[inv.Name]; ok {
 				if err := cmd.Handler(inv.Args, &ext.Context{
-					Cwd:          extension.host.Cwd,
-					SessionID:    extension.host.SessionID,
-					SessionTitle: extension.host.Title,
-					HasUI:        true,
-					UI:           extensionUI{extensionAPI: extension},
+					Cwd:       extension.host.Cwd,
+					SessionID: extension.host.SessionID,
+					HasUI:     true,
+					UI:        extensionUI{extensionAPI: extension},
 				}); err != nil {
 					resp.OK = false
 					resp.Error = err.Error()
@@ -566,9 +564,6 @@ func (extension *ExtensionAPI) run(r io.Reader, w io.Writer) (err error) {
 			if meta.Cwd != "" {
 				extension.host.Cwd = meta.Cwd
 			}
-			// Assign unconditionally: the host always sends the current name, so
-			// an empty one clears the name this extension saw.
-			extension.host.Title = meta.Title
 			extension.mu.Unlock()
 		}
 	}

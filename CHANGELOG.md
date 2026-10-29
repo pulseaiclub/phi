@@ -10,6 +10,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Session names: use the first prompt as a title, rename with Ctrl+R in
+  `/sessions` or `phi sessions rename <id> <title>`, and clear with an empty title.
+  Names are stored in the session header without changing IDs or file names;
+  renames are serialized with appends to preserve concurrent messages.
+
 ### Fixed
 
 - Sessions: restore the compact time and ID columns, showing the title or preview
@@ -21,14 +26,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-- Session names: a session takes its name from the first prompt, and Ctrl+R in
-  `/sessions` — or `phi sessions rename <id> <title>` from the shell — lets the
-  user change it. The title lives on the session header, so the session list
-  leads with a name instead of a hex id. The id stays the durable key — renaming
-  never touches the file name — and an empty title clears the name. A rename is
-  serialized with appends, so naming a session that another phi process is
-  writing cannot drop a message. Extensions receive the name on the session-meta
-  frame, re-pushed on rename.
 - AI commit-message completion in `!git commit -m` uses sev's optional completion
   hook with the staged diff and recent commit subjects; `-am` includes tracked
   working-tree changes. Phi supplies model generation and repository rules. Suggestions use

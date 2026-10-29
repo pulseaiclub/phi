@@ -741,13 +741,12 @@ func (p *Proc) Emit(ev pxb.EventNotify) {
 	}
 }
 
-// PushSessionMeta sends session identity to the child. title is the user's
-// name for the session, empty when unnamed.
-func (p *Proc) PushSessionMeta(sessionID, cwd, title string) {
+// PushSessionMeta sends cwd/session identity to the child.
+func (p *Proc) PushSessionMeta(sessionID, cwd string) {
 	if p == nil || p.closed.Load() {
 		return
 	}
-	body := pxb.EncodeSessionMeta(pxb.SessionMeta{SessionID: sessionID, Cwd: cwd, Title: title})
+	body := pxb.EncodeSessionMeta(pxb.SessionMeta{SessionID: sessionID, Cwd: cwd})
 	if err := p.write(context.Background(), pxb.TypeSessionMeta, 0, 0, body); err != nil {
 		debuglog.Logf("extension %q: session meta: %v", p.Manifest.Name, err)
 	}

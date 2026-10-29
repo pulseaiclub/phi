@@ -495,13 +495,6 @@ them under management.
 5. Runtime RPC (`CommandInvoked`, `ToolInvoke`, `Intercept`, `Event`, `HostRequest`, `SessionMeta`)
 6. Host → `Shutdown` · Ext → `ShutdownAck` (then SIGKILL if needed)
 
-`SessionMeta` carries `session_id`, `cwd`, and the user-facing `title`, so an
-extension never has to re-read the session file to name it. The frame is pushed
-on every session switch and again after a rename. `title` is empty while the
-session is unnamed, and an empty push clears it, so naming and unnaming both
-reach the extension. Go (`ext.Context.SessionTitle`) and Rust
-(`Context::session_title`) expose it to handlers.
-
 ## Packages
 
 | Path | Role |

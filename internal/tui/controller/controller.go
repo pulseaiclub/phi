@@ -572,24 +572,7 @@ func (c *EngineController) RenameSession(title string) error {
 	if c.engine == nil {
 		return errors.New("no live session")
 	}
-	if err := c.engine.SetSessionTitle(title); err != nil {
-		return err
-	}
-	// Extensions hold their own copy of the session meta (and re-push it to
-	// their subprocesses), so a rename has to reach them or a footer status
-	// keeps showing the old name.
-	if r := c.Extensions(); r != nil {
-		r.SetMeta(c.SessionID(), c.cwd, c.engine.SessionTitle())
-	}
-	return nil
-}
-
-// SessionTitle returns the live session's user-facing name.
-func (c *EngineController) SessionTitle() string {
-	if c.engine == nil {
-		return ""
-	}
-	return c.engine.SessionTitle()
+	return c.engine.SetSessionTitle(title)
 }
 
 func (c *EngineController) Resume(id string) (cwdWarning string, err error) {
@@ -754,7 +737,7 @@ func (c *EngineController) sessionBeforeSwitch(reason, fromID, targetID string) 
 	if r == nil {
 		return ext.SessionEffects{}
 	}
-	r.SetMeta(fromID, c.cwd, c.SessionTitle())
+	r.SetMeta(fromID, c.cwd)
 	return r.EmitSessionBeforeSwitch(ext.SessionBeforeSwitchEvent{
 		Reason:          reason,
 		TargetSessionID: targetID,
@@ -766,7 +749,7 @@ func (c *EngineController) sessionShutdown(reason, sessionID string) {
 	if r == nil {
 		return
 	}
-	r.SetMeta(sessionID, c.cwd, c.SessionTitle())
+	r.SetMeta(sessionID, c.cwd)
 	c.publishSessionEffects(r.EmitSessionShutdown(ext.SessionShutdownEvent{Reason: reason}))
 }
 
@@ -775,7 +758,7 @@ func (c *EngineController) emitSessionStart(reason, sessionID, previousID string
 	if r == nil {
 		return
 	}
-	r.SetMeta(sessionID, c.cwd, c.SessionTitle())
+	r.SetMeta(sessionID, c.cwd)
 	c.publishSessionEffects(r.EmitSessionStart(ext.SessionStartEvent{
 		Reason:            reason,
 		PreviousSessionID: previousID,

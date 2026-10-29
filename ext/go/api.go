@@ -23,7 +23,6 @@ type API struct {
 	ui           UI
 	cwd          string
 	sessionID    string
-	sessionTitle string
 	hasUI        bool
 	getActive    func() []string
 	setActive    func([]string)
@@ -133,7 +132,6 @@ func (a *API) BindHost(opts HostOpts) {
 	a.ui = opts.UI
 	a.cwd = opts.Cwd
 	a.sessionID = opts.SessionID
-	a.sessionTitle = opts.Title
 	a.hasUI = opts.HasUI
 	a.getActive = opts.GetActiveTools
 	a.setActive = opts.SetActiveTools
@@ -148,7 +146,6 @@ type HostOpts struct {
 	UI              UI
 	Cwd             string
 	SessionID       string
-	Title           string // user-facing session name; empty when unnamed
 	HasUI           bool
 	GetActiveTools  func() []string
 	SetActiveTools  func([]string)
@@ -166,11 +163,10 @@ func (a *API) NewContext() *Context {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return &Context{
-		Cwd:          a.cwd,
-		SessionID:    a.sessionID,
-		SessionTitle: a.sessionTitle,
-		HasUI:        a.hasUI,
-		UI:           a.ui,
+		Cwd:       a.cwd,
+		SessionID: a.sessionID,
+		HasUI:     a.hasUI,
+		UI:        a.ui,
 	}
 }
 

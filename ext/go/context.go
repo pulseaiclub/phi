@@ -2,11 +2,10 @@ package ext
 
 // Context is passed to event handlers and command handlers.
 type Context struct {
-	Cwd          string
-	SessionID    string
-	SessionTitle string // user-facing session name; empty when unnamed
-	HasUI        bool
-	UI           UI
+	Cwd       string
+	SessionID string
+	HasUI     bool
+	UI        UI
 }
 
 // ConfirmRequest describes a modal yes/no dialog.

@@ -259,12 +259,10 @@ pxb_message! {
 }
 
 pxb_message! {
-    /// Host→ext session identity push. `title` follows the user's name for the
-    /// session and is re-pushed on every rename.
+    /// Host→ext session identity push.
     pub struct SessionMeta {
         1 => session_id: String,
         2 => cwd: String,
-        3 => title: String,
     }
 }
 
@@ -483,7 +481,6 @@ mod tests {
             SessionMeta {
                 session_id: "s2".into(),
                 cwd: "/x".into(),
-                title: "fix resume leak".into(),
             }
         );
     }

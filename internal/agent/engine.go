@@ -89,7 +89,7 @@ func NewEngine(model llm.ModelConfig, sess *Session, opts ...EngineOption) (*Eng
 	engine.SetMaxRounds(maxRounds)
 	engine.baseTools = cfg.tools
 	engine.extensions.SetBaseTools(engine.buildCoreTools(engine.baseTools))
-	engine.extensions.SetMeta(engine.SessionID(), engine.SessionCwd(), engine.SessionTitle())
+	engine.extensions.SetMeta(engine.SessionID(), engine.SessionCwd())
 	toolList := engine.buildToolList(engine.baseTools)
 	engine.client = engine.newChatClient(toolList)
 	engine.bindExecutor(tooldef.NewRegistry(toolList))
@@ -216,7 +216,7 @@ func (engine *Engine) systemPrompt() string {
 
 func (engine *Engine) bindExecutor(registry tooldef.Registry) {
 	engine.executor = NewExecutor(registry, engine.gate, engine.ask, engine.extensions)
-	engine.executor.SetMeta(engine.SessionID(), engine.SessionCwd(), engine.SessionTitle())
+	engine.executor.SetMeta(engine.SessionID(), engine.SessionCwd())
 }
 
 // HasTool reports whether a tool is currently registered on the executor.
@@ -284,14 +284,6 @@ func (engine *Engine) SessionCwd() string {
 		return ""
 	}
 	return engine.session.Cwd()
-}
-
-// SessionTitle returns the user-facing session name (empty when unnamed).
-func (engine *Engine) SessionTitle() string {
-	if engine == nil || engine.session == nil {
-		return ""
-	}
-	return engine.session.Title()
 }
 
 // SetSessionTitle renames the live session, rewriting the JSONL header.

@@ -1307,7 +1307,6 @@ func DecodeHostResult(b []byte) (HostResult, error) {
 const (
 	fSessionMetaSessionID uint16 = 1
 	fSessionMetaCwd       uint16 = 2
-	fSessionMetaTitle     uint16 = 3
 )
 
 // sizeSessionMeta is the exact wire size of msg.
@@ -1315,7 +1314,6 @@ func sizeSessionMeta(msg SessionMeta) int {
 	n := 0
 	n += strSize(msg.SessionID)
 	n += strSize(msg.Cwd)
-	n += strSize(msg.Title)
 	return n
 }
 
@@ -1327,7 +1325,6 @@ func EncodeSessionMeta(msg SessionMeta) []byte {
 	fw := sizedWriter(n)
 	fw.putString(fSessionMetaSessionID, msg.SessionID)
 	fw.putString(fSessionMetaCwd, msg.Cwd)
-	fw.putString(fSessionMetaTitle, msg.Title)
 	return fw.bytes()
 }
 
@@ -1342,10 +1339,6 @@ func DecodeSessionMeta(b []byte) (SessionMeta, error) {
 		case fSessionMetaCwd:
 			s, err := takeString(kind, fr)
 			msg.Cwd = s
-			return err
-		case fSessionMetaTitle:
-			s, err := takeString(kind, fr)
-			msg.Title = s
 			return err
 		default:
 			return fr.skip(kind)
