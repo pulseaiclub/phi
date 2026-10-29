@@ -32,11 +32,12 @@ func TestItemsMapsCurrentBadge(t *testing.T) {
 	assert.Empty(t, items[0].Badge)
 	assert.Equal(t, "current", items[1].Badge)
 	assert.Equal(t, "bbbbbbbb", items[1].Primary)
+	assert.Equal(t, "two", items[1].Detail)
 	assert.Empty(t, items[1].Edit, "an unnamed session opens the rename line blank")
 }
 
-// A named session leads with its title but keeps the short id on the row and in
-// the filter haystack: resume, delete, and the CLI all take the id.
+// Named and unnamed sessions share the ID column; the title replaces the
+// preview on screen while both remain searchable.
 func TestItemsPrefersTitle(t *testing.T) {
 	now := time.Now()
 	items := Items([]session.SessionMeta{
@@ -44,9 +45,10 @@ func TestItemsPrefersTitle(t *testing.T) {
 	}, "", now)
 	require.Len(t, items, 1)
 
-	assert.Equal(t, "fix resume leak", items[0].Primary)
-	assert.Equal(t, "aaaaaaaa · look at Start", items[0].Detail)
+	assert.Equal(t, "aaaaaaaa", items[0].Primary)
+	assert.Equal(t, "fix resume leak", items[0].Detail)
 	assert.Equal(t, "fix resume leak", items[0].Edit, "rename pre-fills the full title")
 	assert.Contains(t, items[0].Keywords, "aaaaaaaa-1111")
 	assert.Contains(t, items[0].Keywords, "fix resume leak")
+	assert.Contains(t, items[0].Keywords, "look at Start")
 }
