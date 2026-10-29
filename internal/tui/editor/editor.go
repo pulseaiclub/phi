@@ -173,15 +173,8 @@ func NewEditor(
 	builtins.Bind(
 		e.submitter,
 		func() commands.Context { return cmdCtx },
-		func(items []session.SessionMeta, currentID string, startRename bool) {
-			e.composer.ShowSessionList(
-				items,
-				currentID,
-				e.sessions.Accept,
-				e.sessions.Delete,
-				e.sessions.Rename,
-				startRename,
-			)
+		func(items []session.SessionMeta, currentID string) {
+			e.composer.ShowSessionList(items, currentID, e.sessions.Accept, e.sessions.Delete, e.sessions.Rename)
 		},
 		e.composer.RefreshSessionList,
 		func(branches []gitx.Branch, recent []string, onAccept, onDelete func(name string)) {

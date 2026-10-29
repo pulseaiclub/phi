@@ -306,7 +306,7 @@ func TestListAcceptHandlerIsNotSharedBetweenDomains(t *testing.T) {
 func TestListDeleteHandlerIsNotSharedBetweenDomains(t *testing.T) {
 	c := NewComposerPane(components.DefaultTheme(), "m", "/repo")
 	var sessions, branches []string
-	c.ShowSessionList(nil, "", nil, func(id string) { sessions = append(sessions, id) }, nil, false)
+	c.ShowSessionList(nil, "", nil, func(id string) { sessions = append(sessions, id) }, nil)
 	c.ShowBranchList([]gitx.Branch{{Name: "main", Current: true}}, nil, nil, func(name string) {
 		branches = append(branches, name)
 	})
@@ -362,7 +362,7 @@ func TestRefreshBranchListKeepsOpenPickerInPlace(t *testing.T) {
 func TestShowSessionListRoutesDelete(t *testing.T) {
 	c := NewComposerPane(components.DefaultTheme(), "m", "/repo")
 	var deleted string
-	c.ShowSessionList([]session.SessionMeta{{ID: "deadbeef"}}, "", nil, func(id string) { deleted = id }, nil, false)
+	c.ShowSessionList([]session.SessionMeta{{ID: "deadbeef"}}, "", nil, func(id string) { deleted = id }, nil)
 
 	ctx := &components.EventContext{}
 	c.listPicker.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'x', Mods: xui.ModCtrl})
@@ -376,7 +376,7 @@ func TestEscapeCancelsRenameBeforeClosingPicker(t *testing.T) {
 	renamed := false
 	c.ShowSessionList([]session.SessionMeta{{ID: "deadbeef", Title: "name"}}, "", nil, nil, func(string, string) {
 		renamed = true
-	}, false)
+	})
 	c.listPicker.Handle(
 		&components.EventContext{},
 		xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'r', Mods: xui.ModCtrl},
@@ -400,7 +400,6 @@ func TestShowSessionListRoutesRename(t *testing.T) {
 		nil,
 		func(string) {},
 		func(id, title string) { renamedID, renamedTitle = id, title },
-		false,
 	)
 
 	ctx := &components.EventContext{}
@@ -420,7 +419,7 @@ func TestShowSessionListRoutesRename(t *testing.T) {
 func TestListRenameHandlerIsNotSharedBetweenDomains(t *testing.T) {
 	c := NewComposerPane(components.DefaultTheme(), "m", "/repo")
 	var renamed []string
-	c.ShowSessionList(nil, "", nil, nil, func(id, title string) { renamed = append(renamed, id+":"+title) }, false)
+	c.ShowSessionList(nil, "", nil, nil, func(id, title string) { renamed = append(renamed, id+":"+title) })
 	c.ShowBranchList([]gitx.Branch{{Name: "main", Current: true}}, nil, nil, nil)
 
 	ctx := &components.EventContext{}
@@ -429,28 +428,9 @@ func TestListRenameHandlerIsNotSharedBetweenDomains(t *testing.T) {
 	assert.Empty(t, renamed, "opening a branch picker must clear the session rename path")
 }
 
-// `/rename` with no argument opens the list with the selected row already in
-// the rename line, so the very next keystroke edits the name.
-func TestShowSessionListCanStartInRenameMode(t *testing.T) {
-	c := NewComposerPane(components.DefaultTheme(), "m", "/repo")
-	renamed := ""
-	c.ShowSessionList(
-		[]session.SessionMeta{{ID: "deadbeef", Title: "old name"}},
-		"deadbeef",
-		nil,
-		nil,
-		func(_, title string) { renamed = title },
-		true,
-	)
-
-	c.listPicker.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: '!'})
-	c.listPicker.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyEnter})
-	assert.Equal(t, "old name!", renamed, "the line starts pre-filled and saves on enter")
-}
-
 func TestRefreshSessionListKeepsOpenPickerInPlace(t *testing.T) {
 	c := NewComposerPane(components.DefaultTheme(), "m", "/repo")
-	c.ShowSessionList([]session.SessionMeta{{ID: "a"}, {ID: "b"}}, "", nil, nil, nil, false)
+	c.ShowSessionList([]session.SessionMeta{{ID: "a"}, {ID: "b"}}, "", nil, nil, nil)
 	c.listPicker.Query = "a"
 
 	c.RefreshSessionList([]session.SessionMeta{{ID: "b"}}, "b")

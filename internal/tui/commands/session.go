@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"strings"
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/components/toast"
@@ -19,8 +18,7 @@ type SessionCommands struct {
 	Bus        *controller.Bus
 	SyncHooks  func()
 	// OpenPicker opens the session list overlay (wired by Builtin.Bind).
-	// startRename opens it straight into the rename line.
-	OpenPicker func(items []session.SessionMeta, currentID string, startRename bool)
+	OpenPicker func(items []session.SessionMeta, currentID string)
 	// RefreshPicker swaps rows into the open overlay (wired by Builtin.Bind).
 	RefreshPicker func(items []session.SessionMeta, currentID string)
 	// StreamActive reports whether resume/new should be blocked.
@@ -69,32 +67,10 @@ func (s *SessionCommands) Register(r *CommandRegistry) {
 			return nil
 		},
 	})
-	r.Register(Command{
-		Name:        "rename",
-		Description: "Rename the current session",
-		Slash:       true,
-		Insert:      "/rename ",
-		Run: func(_ Context, args []string) error {
-			title := strings.TrimSpace(strings.Join(args, " "))
-			if title == "" {
-				s.ShowRename()
-				return nil
-			}
-			_, currentID := s.dirAndID()
-			s.Rename(currentID, title)
-			return nil
-		},
-	})
 }
 
 // Show opens the session picker for the current session directory.
-func (s *SessionCommands) Show() { s.open(false) }
-
-// ShowRename opens the session picker with the selected row already in the
-// rename line: `/rename` with no argument is a request for the overlay.
-func (s *SessionCommands) ShowRename() { s.open(true) }
-
-func (s *SessionCommands) open(startRename bool) {
+func (s *SessionCommands) Show() {
 	dir, currentID := s.dirAndID()
 	list, err := session.ListSessions(dir)
 	if err != nil {
@@ -105,7 +81,7 @@ func (s *SessionCommands) open(startRename bool) {
 		publishToast(s.Bus, "No sessions for this directory", toast.ToastWarning, 3*time.Second)
 		return
 	}
-	s.OpenPicker(list, currentID, startRename)
+	s.OpenPicker(list, currentID)
 }
 
 func (s *SessionCommands) dirAndID() (dir, currentID string) {

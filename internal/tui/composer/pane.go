@@ -226,15 +226,13 @@ func (c *ComposerPane) RestoreListState(state listpicker.State) { c.listPicker.R
 // SetListFocusReturn directs acceptance to a detail view instead of chat.
 func (c *ComposerPane) SetListFocusReturn(w components.Widget) { c.listPicker.FocusReturn = w }
 
-// ShowSessionList maps sessions into list rows and opens the picker. startRename
-// opens it straight into the rename line, for `/rename` with no argument.
+// ShowSessionList maps sessions into list rows and opens the picker.
 func (c *ComposerPane) ShowSessionList(
 	items []session.SessionMeta,
 	currentID string,
 	onAccept func(id string),
 	onDelete func(id string),
 	onRename func(id, title string),
-	startRename bool,
 ) {
 	var onRenameItem func(listpicker.Item, string)
 	if onRename != nil {
@@ -249,19 +247,6 @@ func (c *ComposerPane) ShowSessionList(
 			onDelete(item.ID)
 		}
 	}, onRenameItem)
-	if startRename {
-		c.StartListRename()
-	}
-}
-
-// StartListRename arms the open picker's inline rename line on the selected row.
-func (c *ComposerPane) StartListRename() {
-	if !c.listPicker.BeginRename() {
-		return
-	}
-	if c.onRedraw != nil {
-		c.onRedraw()
-	}
 }
 
 // RefreshSessionList swaps the rows of an open session picker in place,

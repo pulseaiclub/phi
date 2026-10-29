@@ -27,10 +27,9 @@ func TestSessionCommands_ShowOpensPicker(t *testing.T) {
 		Bus:        bus,
 		SessionDir: func() string { return dir },
 		SessionID:  func() string { return m.ID() },
-		OpenPicker: func(items []session.SessionMeta, currentID string, startRename bool) {
+		OpenPicker: func(items []session.SessionMeta, currentID string) {
 			got = items
 			current = currentID
-			assert.False(t, startRename)
 		},
 	}
 	s.Show()
@@ -45,7 +44,7 @@ func TestSessionCommands_ShowEmptyToasts(t *testing.T) {
 	s := &SessionCommands{
 		Bus:        bus,
 		SessionDir: func() string { return t.TempDir() },
-		OpenPicker: func([]session.SessionMeta, string, bool) {
+		OpenPicker: func([]session.SessionMeta, string) {
 			require.Fail(t, "picker should not open")
 		},
 	}
@@ -185,35 +184,6 @@ func TestSessionCommands_RenameUnknownIdToastsAndKeepsList(t *testing.T) {
 	s.Rename("nosuchsession", "name")
 	assert.Contains(t, drainToast(t, bus), "not found")
 	assert.False(t, refreshed, "failed rename must not touch the picker")
-}
-
-// /rename without an argument is a request for the overlay: it opens the list
-// with the selected row already in the rename line.
-func TestRenameCommandWithoutArgsOpensPickerInRenameMode(t *testing.T) {
-	dir := t.TempDir()
-	m, err := session.NewSessionManager(dir, session.WithSessionDir(dir), session.WithShouldFlush(true))
-	require.NoError(t, err)
-	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
-	require.NoError(t, err)
-	require.NoError(t, m.SetTitle("old name"))
-
-	r := NewCommandRegistry()
-	bus := controller.NewBus(nil)
-	var startRename, opened bool
-	(&SessionCommands{
-		Bus:        bus,
-		SessionDir: func() string { return dir },
-		SessionID:  func() string { return m.ID() },
-		OpenPicker: func(_ []session.SessionMeta, _ string, wantRename bool) {
-			opened = true
-			startRename = wantRename
-		},
-	}).Register(r)
-
-	assert.Equal(t, "/rename ", r.LookupInsert("rename"))
-	r.DispatchSlash("/rename", NewContext(bus, nil))
-	assert.True(t, opened)
-	assert.True(t, startRename)
 }
 
 func TestSessionCommands_DeleteUnknownIdToastsAndKeepsList(t *testing.T) {

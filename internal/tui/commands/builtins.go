@@ -77,7 +77,7 @@ func NewBuiltinRegistry(
 func (b *Builtin) Bind(
 	submitter extSubmitter,
 	commandCtx func() Context,
-	openPicker func(items []session.SessionMeta, currentID string, startRename bool),
+	openPicker func(items []session.SessionMeta, currentID string),
 	refreshPicker func(items []session.SessionMeta, currentID string),
 	openBranchPicker func(branches []gitx.Branch, recent []string, onAccept, onDelete func(name string)),
 	refreshBranchPicker func(branches []gitx.Branch, recent []string),

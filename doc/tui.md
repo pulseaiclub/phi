@@ -245,13 +245,12 @@ query. Deleting the current session resets the engine to a fresh one, since
 the old JSONL file is gone. The same store call backs `phi sessions remove`.
 
 Ctrl+R turns that filter line into an edit line for the selected session's
-name (⏎ saves, Esc drops the edit and keeps the list); bare `/rename` opens the
-same overlay with the current row already in the rename line. `/rename <title>`
-names the current session without opening the overlay, and
-`phi sessions rename` does the same from the shell. A session takes its name
-from its first prompt, so the list is readable before anyone renames anything.
-The name lives on the session header, so resuming, forking, and deleting still
-key off the id, and a name is capped at one line of 80 runes.
+name (⏎ saves, Esc drops the edit and keeps the list), so naming stays inside
+the overlay next to Ctrl+X for delete. `phi sessions rename` does the same from
+the shell. A session takes its name from its first prompt, so the list is
+readable before anyone renames anything. The name lives on the session header,
+so resuming, forking, and deleting still key off the id, and a name is capped
+at one line of 80 runes.
 
 ### 6. Background chrome
 
