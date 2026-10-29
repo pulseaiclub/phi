@@ -165,6 +165,22 @@ func TestRenameSessionUnknownID(t *testing.T) {
 	}
 }
 
+// Lock files live beside the sessions; listings must not treat them as
+// sessions, and deleting a session takes its lock with it.
+func TestLockFilesStayOutOfListings(t *testing.T) {
+	dir := t.TempDir()
+	m := flushedManagerInto(t, dir)
+	require.NoError(t, m.SetTitle("named"))
+	require.FileExists(t, m.File()+".lock")
+
+	list, err := ListSessions(dir)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+
+	require.NoError(t, DeleteSession(dir, m.ID()))
+	assert.NoFileExists(t, m.File()+".lock")
+}
+
 func TestRenameSessionRejectsCorruptHeader(t *testing.T) {
 	dir := t.TempDir()
 	path := dir + "/2024-01-01T00-00-00_deadbeef.jsonl"

@@ -187,9 +187,14 @@ func DeleteSession(dir, id string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.Remove(path); err != nil {
+	// The delete waits for a rename or append in flight, so it cannot land in
+	// the middle of a rewrite that would then recreate the file.
+	if err := withSessionLock(path, func() error { return os.Remove(path) }); err != nil {
 		return fmt.Errorf("session: delete %s: %w", path, err)
 	}
+	// The lock file is not the session: a waiter that already opened it simply
+	// recreates it on the next write, so removing it is best effort.
+	_ = os.Remove(sessionLockPath(path))
 	return nil
 }
 
@@ -210,7 +215,15 @@ func RenameSession(dir, id, title string) error {
 // rewrite goes through a same-directory temp file and restores the original
 // mtime: ListSessions orders by mtime, and naming a session must not reorder
 // the list. Unchanged titles skip the write entirely.
+//
+// The whole stage-and-replace holds the session lock: another phi process may
+// be appending, and an append that lands after the copy is read would be
+// replaced by that copy and lost.
 func rewriteTitle(path, title string) error {
+	return withSessionLock(path, func() error { return rewriteTitleLocked(path, title) })
+}
+
+func rewriteTitleLocked(path, title string) error {
 	orig, err := os.Stat(path)
 	if err != nil {
 		return fmt.Errorf("session: rename %s: %w", path, err)

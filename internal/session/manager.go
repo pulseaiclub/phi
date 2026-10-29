@@ -348,21 +348,25 @@ func (sm *Manager) flush(entry MessageEntry) error {
 }
 
 func (sm *Manager) flushAllEntries() error {
-	f, err := os.Create(sm.sessionFile)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return sm.encodeEntries(f, sm.entries)
+	return withSessionLock(sm.sessionFile, func() error {
+		f, err := os.Create(sm.sessionFile)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		return sm.encodeEntries(f, sm.entries)
+	})
 }
 
 func (sm *Manager) appendFile(entry MessageEntry) error {
-	f, err := os.OpenFile(sm.sessionFile, os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return sm.encodeEntries(f, []MessageEntry{entry})
+	return withSessionLock(sm.sessionFile, func() error {
+		f, err := os.OpenFile(sm.sessionFile, os.O_APPEND|os.O_WRONLY, 0o644)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		return sm.encodeEntries(f, []MessageEntry{entry})
+	})
 }
 
 func (*Manager) encodeEntries(f *os.File, entries []MessageEntry) error {

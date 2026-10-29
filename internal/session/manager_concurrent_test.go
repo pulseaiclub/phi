@@ -43,6 +43,43 @@ func TestManagerConcurrentAccess(t *testing.T) {
 	require.GreaterOrEqual(t, m.Len(), 8*50)
 }
 
+// TestRenameSessionKeepsConcurrentAppends covers what the manager mutex cannot:
+// `phi sessions rename` stages a copy of the file and replaces it, so an append
+// that lands between the copy and the rename must wait for the session lock
+// instead of being dropped. Two managers share the file and never share a mutex,
+// which is exactly the shape of two phi processes.
+func TestRenameSessionKeepsConcurrentAppends(t *testing.T) {
+	dir := t.TempDir()
+	writer, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	require.NoError(t, err)
+	_, err = writer.Append(llm.Message{Role: llm.RoleAssistant, Content: "start"})
+	require.NoError(t, err)
+
+	const appends = 200
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := range appends {
+			_, err := writer.Append(llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("m%d", i)})
+			assert.NoError(t, err)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := range 100 {
+			assert.NoError(t, RenameSession(dir, writer.ID(), fmt.Sprintf("name %d", i)))
+		}
+	}()
+	wg.Wait()
+
+	loaded, err := OpenSession(writer.File())
+	require.NoError(t, err)
+	// header + the opening assistant message + every accepted append.
+	assert.Equal(t, 2+appends, loaded.Len(), "a rename must not drop a concurrent append")
+	assert.NotEmpty(t, loaded.Title())
+}
+
 // TestSetTitleDuringAppend covers the rename path rewriting the same file
 // appends write to: the mutex must keep the header rewrite from clobbering a
 // message line. Run with -race.
