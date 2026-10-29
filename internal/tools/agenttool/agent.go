@@ -27,7 +27,7 @@ When NOT to use any sub-agent:
 - Tiny local edit — edit/write yourself
 
 How to use:
-1. Use agent_spawn to launch a job, then agent_wait for its summary. For parallel jobs, spawn all first, then wait each.
+1. Spawn jobs first, do any independent work, then use agent_wait with only job_id when you need a result. It wakes on completion; do not guess a timeout or poll. For parallel jobs, spawn all first, then wait each.
 2. Stateless: put a highly detailed, self-contained prompt and say what the final summary must include.
 3. You only receive the final summary. Summarize for the user if needed.
 4. Sub-agents cannot spawn further agents. Do not put secrets in the prompt.
@@ -94,7 +94,7 @@ func agentSpawnTool(cfg agentConfig) tooldef.Tool {
 			Name: "agent_spawn",
 			Description: fmt.Sprintf(agentLaunchGuidance+`
 
-Starts asynchronously and returns job_id immediately. Use agent_wait for the summary. Best for parallel jobs.
+Starts asynchronously and returns job_id immediately. Use agent_wait with only job_id for the summary. Best for parallel jobs.
 
 Concurrency cap: at most %d sub-agents run concurrently; spawning more fails (jobs are not queued).`, cfg.manager.MaxConcurrent()),
 			Params: &llm.FunctionParameters{
@@ -223,10 +223,13 @@ func agentWaitTool(cfg agentConfig) tooldef.Tool {
 	return tooldef.NewTool(
 		tooldef.WithDefinition(llm.ToolDefinition{
 			Name: "agent_wait",
-			Description: `Block until a sub-agent job reaches a terminal status and return its complete result.md summary.
+			Description: `Wait for a sub-agent to finish and return its complete result.md summary.
 
-timeout_sec only limits how long this wait blocks — it does NOT cancel the job.
-Use agent_cancel to stop a running job.`,
+Normally call with only job_id: {"job_id":"..."}. With timeout_sec omitted or 0, this single call waits until the job finishes and returns immediately on completion. You do not need to predict how long the job will take. Do not poll with repeated short waits.
+
+Do independent work before waiting. For parallel jobs, spawn all first, then wait for each result you need.
+Set timeout_sec only when you need control back before completion. If it returns a non-terminal status, the job is still running; omit timeout_sec on the next wait to receive the result.
+A wait timeout or interrupted wait does NOT cancel the job. Use agent_cancel to stop it.`,
 			Params: &llm.FunctionParameters{
 				Type: "object",
 				Properties: llm.Object{
@@ -236,7 +239,7 @@ Use agent_cancel to stop a running job.`,
 					},
 					"timeout_sec": llm.Object{
 						"type":        "integer",
-						"description": "Max seconds to wait (does not cancel the job).",
+						"description": "Omit or use 0 to wait until completion (recommended). Positive seconds limit only this wait, not the job. Avoid short polling timeouts.",
 					},
 				},
 				Required: []string{"job_id"},
