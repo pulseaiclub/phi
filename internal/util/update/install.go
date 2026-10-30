@@ -14,12 +14,16 @@ import (
 	"github.com/pulseaiclub/phi/internal/util/archive"
 	"github.com/pulseaiclub/phi/internal/util/githubrelease"
 	"github.com/pulseaiclub/phi/internal/util/platform"
+	"github.com/pulseaiclub/phi/internal/util/update/download"
 )
 
 // InstallOptions configures Install.
 type InstallOptions struct {
 	Current string // running version string
 	Stdout  io.Writer
+
+	// DownloadFile overrides release downloads for tests.
+	DownloadFile func(ctx context.Context, url, dest string) error
 }
 
 func (o InstallOptions) out() io.Writer {
@@ -84,11 +88,6 @@ func Install(ctx context.Context, opts InstallOptions) error {
 	}
 	printf(out, "phi update: target asset %s\n", assetName)
 
-	base := githubrelease.DownloadBaseURL(rel.HTMLURL)
-	assetURL := base + "/" + assetName
-	sumsName := "checksums_" + githubrelease.TagVersion(rel.TagName) + ".txt"
-	sumsURL := base + "/" + sumsName
-
 	// Resolve the install path before staging so the temp dir prefers the same
 	// volume as the binary (Windows os.Rename cannot cross drives).
 	curBin, err := currentBinaryPath()
@@ -102,29 +101,15 @@ func Install(ctx context.Context, opts InstallOptions) error {
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
 
-	printf(out, "phi update: downloading checksums...\n")
-	sumsPath := filepath.Join(tmp, sumsName)
-	if err = githubrelease.DownloadFile(ctx, sumsURL, sumsPath); err != nil {
-		return fmt.Errorf("download checksums: %w", err)
-	}
-	wantSum, err := githubrelease.LookupChecksum(sumsPath, assetName)
+	archivePath, err := download.Archive(ctx, download.Options{
+		Release:      rel,
+		AssetName:    assetName,
+		Dir:          tmp,
+		Stdout:       out,
+		DownloadFile: opts.DownloadFile,
+	})
 	if err != nil {
 		return err
-	}
-
-	printf(out, "phi update: downloading archive...\n")
-	archivePath := filepath.Join(tmp, assetName)
-	if err = githubrelease.DownloadFile(ctx, assetURL, archivePath); err != nil {
-		return fmt.Errorf("download archive: %w", err)
-	}
-
-	printf(out, "phi update: verifying checksum...\n")
-	gotSum, err := githubrelease.SHA256File(archivePath)
-	if err != nil {
-		return fmt.Errorf("hash archive: %w", err)
-	}
-	if !strings.EqualFold(gotSum, wantSum) {
-		return fmt.Errorf("checksum mismatch for %s: got %s, want %s", assetName, gotSum, wantSum)
 	}
 
 	printf(out, "phi update: extracting...\n")

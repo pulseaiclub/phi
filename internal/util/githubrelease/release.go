@@ -20,6 +20,7 @@ const maxReleasesPerPage = 100
 type Asset struct {
 	Name               string `json:"name"`
 	BrowserDownloadURL string `json:"browser_download_url"`
+	Digest             string `json:"digest"`
 }
 
 // Release is metadata from the GitHub Releases API.

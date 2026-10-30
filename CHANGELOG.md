@@ -12,6 +12,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Updates use GitHub asset digests when available and download legacy checksums alongside the archive to reduce update latency.
+
 <!-- Released section -->
 <!-- Don't change this section unless doing release -->
 
