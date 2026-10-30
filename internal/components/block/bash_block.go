@@ -176,12 +176,6 @@ func wrapCommand(
 	for _, span := range prefix {
 		indent += xui.StringWidth(span.Text, method)
 	}
-	// The first span is the command; status suffixes keep their own styling.
-	if len(command) > 0 {
-		formatted := formatCommand(command[0].Text, max(1, width-indent), method)
-		command = append([]components.Span(nil), command...)
-		command[0].Text = formatted
-	}
 	// On very narrow terminals, give the content the full width instead of
 	// reserving a gutter that leaves no room for a wide grapheme.
 	if width-indent < 2 {
