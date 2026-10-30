@@ -295,7 +295,7 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 		if msg == "" {
 			msg = "No matches"
 		}
-		panel.Print(padL+1, listY, layout.TruncateToWidth(msg, boxW-3, ctx.Method), th.Muted, ctx.Method)
+		panel.Print(padL+1, listY, components.TruncateToWidth(msg, boxW-3, ctx.Method), th.Muted, ctx.Method)
 	} else {
 		pathSt := th.ToolName
 		descSt := th.Muted
@@ -336,7 +336,7 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 			labelW := xui.StringWidth(label, ctx.Method)
 			descBudget := innerW - max(labelW, colW) - gapW
 			if item.Description == "" || descBudget < minDescW {
-				panel.Print(padL+1, y, layout.TruncateToWidth(label, innerW, ctx.Method), st, ctx.Method)
+				panel.Print(padL+1, y, components.TruncateToWidth(label, innerW, ctx.Method), st, ctx.Method)
 				continue
 			}
 			panel.Print(padL+1, y, label, st, ctx.Method)
@@ -345,7 +345,7 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 			panel.Print(
 				padL+1+labelW+gapW+len(pad),
 				y,
-				layout.TruncateToWidth(item.Description, descBudget, ctx.Method),
+				components.TruncateToWidth(item.Description, descBudget, ctx.Method),
 				dst,
 				ctx.Method,
 			)
