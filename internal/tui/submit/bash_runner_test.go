@@ -24,7 +24,7 @@ func shellRunner(t *testing.T) *BashRunner {
 	t.Chdir(dir)
 	th := components.DefaultTheme()
 	pane := transcript.NewTranscriptPane(th, status.NewSpinner(th.ToolName), "Phi test")
-	b := newBashRunner(pane, &stubComposer{}, controller.NewBus(nil))
+	b := newBashRunner(pane, &stubComposer{}, controller.NewBus(nil), nil)
 	t.Cleanup(func() {
 		b.Cancel()
 		require.Eventually(t, func() bool { return !b.Running() }, 5*time.Second, time.Millisecond)
@@ -131,7 +131,7 @@ func TestBashLaunchFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(tooldef.WithCwd(t.Context(), cwd))
 	b.cancel = cancel
 	b.running.Store(true)
-	b.run(ctx, "failed-launch", "printf never")
+	b.run(ctx, "failed-launch", "printf never", false, "")
 	result := waitForShell(t, b)
 	assert.Equal(t, session.ToolError, result.Status)
 	assert.Equal(t, "printf never", result.Detail)
