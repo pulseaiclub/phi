@@ -7,14 +7,17 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/pulseaiclub/xui"
 
 	"github.com/pulseaiclub/phi/internal/components"
+	"github.com/pulseaiclub/phi/internal/components/chrome"
 	"github.com/pulseaiclub/phi/internal/components/diffview"
 	"github.com/pulseaiclub/phi/internal/components/listpicker"
 	"github.com/pulseaiclub/phi/internal/util/diffreview"
+	"github.com/pulseaiclub/phi/internal/util/gitx"
 )
 
 // Pane is a full-screen git diff review overlay.
@@ -27,6 +30,10 @@ type Pane struct {
 	label  string
 	err    string
 	empty  string
+
+	change       *gitx.Change
+	changeNotes  map[string][]diffreview.CommentDraft
+	returnToList bool
 
 	rows        []diffreview.Row
 	drafts      []diffreview.CommentDraft
@@ -84,6 +91,9 @@ func New(
 // Active reports whether the overlay is showing.
 func (p *Pane) Active() bool { return p != nil && p.active }
 
+// ReturnToList distinguishes back navigation from sending notes to the agent.
+func (p *Pane) ReturnToList() bool { return p.returnToList }
+
 // SetTheme updates chrome and syntax colors.
 func (p *Pane) SetTheme(th components.Theme) {
 	if p == nil {
@@ -99,10 +109,14 @@ func (p *Pane) OpenGit(cwd string, spec []string) {
 	if p == nil {
 		return
 	}
+	wasChange := p.change != nil
+	p.saveChangeNotes()
+	p.change = nil
+	p.returnToList = false
 	if cwd != "" {
 		p.cwd = cwd
 	}
-	keepNotes := slices.Equal(p.spec, spec)
+	keepNotes := !wasChange && slices.Equal(p.spec, spec)
 	p.spec = append([]string(nil), spec...)
 	p.label = diffreview.LabelForSpec(spec)
 	text, err := diffreview.LoadGit(context.Background(), p.cwd, spec)
@@ -118,10 +132,55 @@ func (p *Pane) OpenText(input string, spec []string) {
 	if p == nil {
 		return
 	}
-	keepNotes := slices.Equal(p.spec, spec)
+	wasChange := p.change != nil
+	p.saveChangeNotes()
+	p.change = nil
+	p.returnToList = false
+	keepNotes := !wasChange && slices.Equal(p.spec, spec)
 	p.spec = append([]string(nil), spec...)
 	p.label = diffreview.LabelForSpec(spec)
 	p.openParsed(input, "", keepNotes)
+}
+
+// OpenChange reviews a changed file without treating its path as a revision.
+func (p *Pane) OpenChange(root string, change gitx.Change) {
+	p.saveChangeNotes()
+	p.cwd = root
+	p.change = &change
+	p.returnToList = false
+	p.spec = nil
+	p.drafts = slices.Clone(p.changeNotes[p.changeKey()])
+	path := change.Path
+	if strings.ContainsFunc(path, unicode.IsControl) {
+		path = strconv.Quote(path)
+	}
+	p.label = path
+	text, err := diffreview.LoadChange(context.Background(), root, change)
+	if err != nil {
+		p.openParsed("", err.Error(), true)
+		return
+	}
+	p.openParsed(text, "", true)
+}
+
+// changeKey scopes saved notes to one file in one repo, so switching projects
+// with the same relative path does not leak notes across roots.
+func (p *Pane) changeKey() string { return p.cwd + "\x00" + p.change.Path }
+
+// saveChangeNotes stashes the drafts of the file being left; an empty draft set
+// deletes the entry instead of storing an empty slice.
+func (p *Pane) saveChangeNotes() {
+	if p.change == nil {
+		return
+	}
+	if len(p.drafts) == 0 {
+		delete(p.changeNotes, p.changeKey())
+		return
+	}
+	if p.changeNotes == nil {
+		p.changeNotes = make(map[string][]diffreview.CommentDraft)
+	}
+	p.changeNotes[p.changeKey()] = slices.Clone(p.drafts)
 }
 
 // openParsed rebuilds rows for input. Notes are dropped unless keepNotes is set,
@@ -155,7 +214,25 @@ func (p *Pane) openParsed(input, loadErr string, keepNotes bool) {
 		p.status = err.Error()
 		return
 	}
-	p.rows = doc.Rows()
+	options := diffreview.DefaultRenderOptions()
+	if p.change != nil {
+		for _, file := range doc.Files {
+			if len(file.Hunks) == 0 {
+				options.ShowFileMetadata = true
+			}
+		}
+	}
+	p.rows = doc.RowsWithOptions(options)
+	if p.change != nil {
+		// Git quotes unusual paths and no-index adds ./; status already gave us
+		// the exact path, which review comments must retain verbatim.
+		for i := range p.rows {
+			p.rows[i].FileName = p.change.Path
+			if diffreview.AnchorValid(p.rows[i].Review) {
+				p.rows[i].Review.Path = p.change.Path
+			}
+		}
+	}
 	p.highlighted = diffview.HighlightRows(p.rows, p.theme)
 	p.cursor = 0
 	p.scroll = 0
@@ -165,7 +242,11 @@ func (p *Pane) openParsed(input, loadErr string, keepNotes bool) {
 		p.status = "empty diff"
 		// Once per open: the untracked hint shells out to git and Draw runs on
 		// every frame.
-		p.empty = diffreview.EmptyNote(p.cwd, p.spec)
+		if p.change != nil {
+			p.empty = "No net changes to display. Press Esc to return to the file list."
+		} else {
+			p.empty = diffreview.EmptyNote(p.cwd, p.spec)
+		}
 	} else {
 		p.status = fmt.Sprintf("%d files", countFiles(p.rows))
 	}
@@ -176,6 +257,8 @@ func (p *Pane) Close() {
 	if p == nil {
 		return
 	}
+	p.saveChangeNotes()
+	p.returnToList = false
 	p.active = false
 	p.help = false
 	p.searchMode = false
@@ -223,6 +306,7 @@ func (p *Pane) handleKey(ctx *components.EventContext, e xui.KeyEvent) {
 	if e.Code == xui.KeyEscape ||
 		(e.Code == xui.KeyRune && (e.Rune == 'q' || e.Rune == 'Q') && !e.Mods.Has(xui.ModCtrl)) {
 		p.Close()
+		p.returnToList = p.change != nil
 		ctx.ConsumeAndRedraw()
 		return
 	}
@@ -348,7 +432,11 @@ func (p *Pane) handleRune(ctx *components.EventContext, r rune) {
 	case 'f':
 		p.openFilePicker()
 	case 'r':
-		p.OpenGit(p.cwd, p.spec)
+		if p.change != nil {
+			p.OpenChange(p.cwd, *p.change)
+		} else {
+			p.OpenGit(p.cwd, p.spec)
+		}
 	case '?':
 		p.help = true
 	default:
@@ -801,10 +889,15 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 		status = loc
 	}
 
+	hint := ""
+	if p.change != nil {
+		hint = "j/k move" + chrome.Sep + "i note" + chrome.Sep + "a send" + chrome.Sep + "? help" + chrome.Sep + "esc/q files"
+	}
 	surf := diffview.Paint(ctx, diffview.Model{
 		Theme:       p.theme,
 		Title:       "diff · " + p.label,
 		Status:      status,
+		Hint:        hint,
 		Rows:        p.rows,
 		Vis:         p.visList(),
 		Scroll:      p.scroll,

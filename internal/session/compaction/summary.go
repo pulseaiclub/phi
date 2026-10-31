@@ -18,22 +18,51 @@ var (
 	compactionTurnPrefixPrompt string
 )
 
-// Summaries are capped at a fraction of the headroom compaction frees
-// (reserveTokens). A summary larger than the headroom it creates does not pay
-// for itself, and the turn-prefix budget is smaller because it only recovers
-// the tail of one turn.
+// Summary output caps follow the model's output limit, as pi does, instead of
+// a fraction of reserveTokens. The summary request is far smaller than the live
+// context (kept messages, the system prompt and tools are not sent), so the
+// reserved headroom says nothing about how much output it can afford, and
+// reasoning shares the cap on most providers. Tying it to the reserve
+// (0.8 × 16384) eventually truncated every compaction of a long session.
 const (
-	historySummaryRatio    = 0.8
-	turnPrefixSummaryRatio = 0.5
+	// defaultSummaryMaxTokens stands in when the model declares no output
+	// limit; pi uses the same default for models it has no metadata for.
+	defaultSummaryMaxTokens = 16384
+	// contextSafetyTokens is the margin pi keeps between the estimated input
+	// plus output and the context window.
+	contextSafetyTokens = 4096
+	minSummaryMaxTokens = 1
 )
 
-// summarizationCap returns the output cap for one summary. Zero means the
-// provider default (no budget to derive a cap from).
-func summarizationCap(reserveTokens int, ratio float64) int {
-	if reserveTokens <= 0 {
-		return 0
+// OutputLimits are the model limits that size a summary request.
+type OutputLimits struct {
+	// MaxTokens is the model's output limit; zero uses defaultSummaryMaxTokens.
+	MaxTokens int
+	// ContextWindow clamps the cap to the room left after the prompt; zero
+	// skips the clamp.
+	ContextWindow int
+}
+
+// summaryMaxTokens is the output cap for one summary request: the model's
+// output limit, clamped so the estimated prompt plus output fits the window
+// (pi's clampMaxTokensToContext). The cap is always sent: omitting it falls back
+// to provider defaults that are lower still (Anthropic requires one; DeepSeek
+// non-thinking stops at 8192).
+func summaryMaxTokens(limits OutputLimits, prompt string) int {
+	maxTokens := limits.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = defaultSummaryMaxTokens
 	}
-	return int(float64(reserveTokens) * ratio)
+	if limits.ContextWindow <= 0 {
+		return max(minSummaryMaxTokens, maxTokens)
+	}
+	available := limits.ContextWindow - estimatePromptTokens(prompt) - contextSafetyTokens
+	return min(maxTokens, max(minSummaryMaxTokens, available))
+}
+
+// estimatePromptTokens uses the chars/4 heuristic the cut planner uses.
+func estimatePromptTokens(prompt string) int {
+	return (len(prompt) + 3) / 4
 }
 
 // errTruncatedSummary reports a summary that hit the output cap: its text is a
@@ -58,7 +87,7 @@ func generateSummary(
 	compactor llm.Compactor,
 	currentMessages []llm.Message,
 	previousSummary string,
-	maxTokens int,
+	limits OutputLimits,
 ) (string, error) {
 	basePrompt := compactionSummaryPrompt
 	if previousSummary != "" {
@@ -71,7 +100,7 @@ func generateSummary(
 		promptText += fmt.Sprintf("<previous-summary>\n%s\n</previous-summary>", previousSummary)
 	}
 	promptText += basePrompt
-	return compact(ctx, compactor, promptText, maxTokens, "Summarization")
+	return compact(ctx, compactor, promptText, limits, "Summarization")
 }
 
 // generateTurnPrefixSummary generates a summary specifically for turn prefixes
@@ -82,12 +111,12 @@ func generateTurnPrefixSummary(
 	ctx context.Context,
 	compactor llm.Compactor,
 	messages []llm.Message,
-	maxTokens int,
+	limits OutputLimits,
 ) (string, error) {
 	conversation := SerializeConversation(messages)
 	promptText := fmt.Sprintf("<conversation>\n%s\n</conversation>\n\n", conversation)
 	promptText += compactionTurnPrefixPrompt
-	return compact(ctx, compactor, promptText, maxTokens, "Turn prefix summarization")
+	return compact(ctx, compactor, promptText, limits, "Turn prefix summarization")
 }
 
 // compact runs one summarization call and rejects a capped or blank answer:
@@ -97,10 +126,10 @@ func compact(
 	ctx context.Context,
 	compactor llm.Compactor,
 	prompt string,
-	maxTokens int,
+	limits OutputLimits,
 	label string,
 ) (string, error) {
-	res, err := compactor.Compact(ctx, llm.CompactRequest{Prompt: prompt, MaxTokens: maxTokens})
+	res, err := compactor.Compact(ctx, llm.CompactRequest{Prompt: prompt, MaxTokens: summaryMaxTokens(limits, prompt)})
 	if err != nil {
 		return "", err
 	}

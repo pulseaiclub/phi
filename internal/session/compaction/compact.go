@@ -23,9 +23,11 @@ type CompactionPreparation struct {
 	TokensBefore           int
 	PreviousSummary        string
 	PreviousFileOperations string
-	// ReserveTokens is the headroom compaction keeps from the context window;
-	// summaries are capped at a fraction of it.
+	// ReserveTokens is the headroom compaction keeps from the context window.
+	// It only decides when compaction starts; it does not size the summary.
 	ReserveTokens int
+	// Limits size each summary request from the model's output limit.
+	Limits OutputLimits
 	// TODO: wire into Compact / AppendCompaction so hook preserveData
 	// survives across compaction rounds (currently collected but unused).
 	PreviousPreserveData map[string]any
@@ -206,7 +208,7 @@ func summarizeMidTurnCut(
 			ctx,
 			llm,
 			preparation.TurnPrefixMessages,
-			summarizationCap(preparation.ReserveTokens, turnPrefixSummaryRatio),
+			preparation.Limits,
 		)
 	}()
 
@@ -245,7 +247,7 @@ func summarizeHistory(
 		llm,
 		preparation.MessagesToSummarize,
 		preparation.PreviousSummary,
-		summarizationCap(preparation.ReserveTokens, historySummaryRatio),
+		preparation.Limits,
 	)
 }
 

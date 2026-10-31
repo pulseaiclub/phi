@@ -62,6 +62,70 @@ pxb_message! {
 }
 
 pxb_message! {
+    /// Registers a model the host can switch to. `conn` picks the connection
+    /// method: [`CONN_DIRECT`](crate::pxb::CONN_DIRECT) means the host dials
+    /// `base_url` itself (like a `models[]` entry in config.yaml);
+    /// [`CONN_EXT`](crate::pxb::CONN_EXT) means the extension serves each
+    /// request via `ModelInvoke` / `ModelStreamEvent` frames.
+    /// `api` names a wire format ("OpenAI" | "OpenAIResponses" | "Anthropic"
+    /// | "Gemini"); empty means OpenAI-compatible /chat/completions
+    /// (direct-connect only).
+    pub struct RegisterModel {
+        1 => name: String,
+        2 => api: String,
+        3 => base_url: String,
+        4 => api_key: String,
+        /// Binds a built-in model name for capabilities and request hooks
+        /// (e.g. "glm-5.3-flash" for an opaque gateway route).
+        5 => preset: String,
+        option 6 => context_window: u32,
+        option 7 => image_enabled: bool,
+        option 8 => think_enabled: bool,
+        /// off|minimal|low|medium|high|xhigh|max; empty keeps the preset default.
+        9 => think_level: String,
+        /// Connection method: "" direct-connect, "ext" extension-served.
+        10 => conn: String,
+    }
+}
+
+pxb_message! {
+    /// Host→ext for one chat completion on a `CONN_EXT` model. `messages_json`
+    /// / `tools_json` use the session-serialization JSON shapes of the host's
+    /// message / tool-definition types. The invoke frame id correlates the
+    /// `ModelStreamEvent` stream; `ModelCancel` carries the same id to
+    /// best-effort stop it.
+    pub struct ModelInvoke {
+        1 => model: String,
+        2 => messages_json: Vec<u8>,
+        3 => tools_json: Vec<u8>,
+        4 => system_prompt: String,
+        /// Requested think mode: off|minimal|low|medium|high|xhigh|max;
+        /// empty means unset.
+        5 => think: String,
+    }
+}
+
+pxb_message! {
+    /// Ext→host, one frame per stream event, each echoing the `ModelInvoke`
+    /// frame id. `type_` is "delta" | "done" | "error"; a stream ends on done
+    /// or error. The host assembles the final assistant message from the
+    /// deltas, so extensions never send a complete message.
+    pub struct ModelStreamEvent {
+        1 => type_: String,
+        /// Delta payload: `content` / `reasoning` are text fragments;
+        /// `tool_calls` is a JSON array of OpenAI-style tool-call deltas
+        /// (index + argument fragments).
+        2 => content: String,
+        3 => reasoning: String,
+        4 => tool_calls: Vec<u8>,
+        /// JSON usage object; report it before or on the done frame.
+        5 => usage_json: Vec<u8>,
+        /// Failure text for type "error".
+        6 => error: String,
+    }
+}
+
+pxb_message! {
     /// Ext→host reply for a detail-from-args request (body of tool invoke is reused).
     pub struct ToolDetailResult {
         1 => detail: String,
@@ -254,6 +318,42 @@ mod tests {
                 timeout_sec: 120,
                 has_detail: true,
                 readable: true,
+            }
+        );
+        rt!(
+            RegisterModel,
+            RegisterModel {
+                name: "echo".into(),
+                api: "Anthropic".into(),
+                base_url: "http://127.0.0.1:9".into(),
+                api_key: "k".into(),
+                preset: "glm-5.3-flash".into(),
+                context_window: 1000,
+                image_enabled: true,
+                think_enabled: true,
+                think_level: "high".into(),
+                conn: "ext".into(),
+            }
+        );
+        rt!(
+            ModelInvoke,
+            ModelInvoke {
+                model: "echo".into(),
+                messages_json: br#"[{"role":"user","content":"hi"}]"#.to_vec(),
+                tools_json: br#"[{"name":"t"}]"#.to_vec(),
+                system_prompt: "sys".into(),
+                think: "high".into(),
+            }
+        );
+        rt!(
+            ModelStreamEvent,
+            ModelStreamEvent {
+                type_: "delta".into(),
+                content: "c".into(),
+                reasoning: "r".into(),
+                tool_calls: br#"[{"index":0,"id":"c1"}]"#.to_vec(),
+                usage_json: br#"{"total_tokens":3}"#.to_vec(),
+                error: String::new(),
             }
         );
         rt!(

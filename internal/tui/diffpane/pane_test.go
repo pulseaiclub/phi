@@ -3,6 +3,7 @@ package diffpane
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/pulseaiclub/xui"
@@ -10,6 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/components"
+	"github.com/pulseaiclub/phi/internal/util/diffreview"
+	"github.com/pulseaiclub/phi/internal/util/gitx"
 )
 
 const sampleDiff = `diff --git a/main.go b/main.go
@@ -119,4 +122,107 @@ func TestPaneEmptyNoteNamesUntrackedPath(t *testing.T) {
 	p.OpenText("", []string{"@new.go"})
 	surf := p.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 24}, Method: xui.WidthUnicode})
 	assert.Contains(t, components.SurfaceText(surf), "new.go is untracked")
+}
+
+func TestChangeMetadataAndExactCommentPaths(t *testing.T) {
+	dir := t.TempDir()
+	p := New(components.DefaultTheme(), dir, nil, nil, nil)
+	for _, tc := range []struct{ path, content, want string }{
+		{"empty", "", "Empty file"},
+		{"binary", "\x00\x01", "Binary files"},
+		{"space file", "content\n", "content"},
+		{"文件.txt", "content\n", "content"},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			require.NoError(t, os.WriteFile(filepath.Join(dir, tc.path), []byte(tc.content), 0o600))
+			p.OpenChange(dir, gitx.Change{Status: '?', Path: tc.path})
+			require.Empty(t, p.err)
+			text := components.SurfaceText(p.Draw(components.DrawContext{
+				Max: components.Size{Width: 100, Height: 30}, Method: xui.WidthUnicode,
+			}))
+			assert.Contains(t, text, tc.want)
+			for _, row := range p.rows {
+				if diffreview.AnchorValid(row.Review) {
+					assert.Equal(t, tc.path, row.Review.Path)
+				}
+			}
+		})
+	}
+}
+
+func TestChangeNotesAndBackNavigation(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a"), []byte("content\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "b"), []byte("other\n"), 0o600))
+	var submitted string
+	p := New(components.DefaultTheme(), dir, func(s string) { submitted = s }, nil, nil)
+	a := gitx.Change{Status: '?', Path: "a"}
+	b := gitx.Change{Status: '?', Path: "b"}
+	p.OpenChange(dir, a)
+	require.Empty(t, p.err)
+	p.drafts = []diffreview.CommentDraft{{Body: "note for a"}}
+	p.OpenChange(dir, b)
+	assert.Empty(t, p.drafts)
+	p.drafts = []diffreview.CommentDraft{{Body: "note for b"}}
+	p.OpenChange(dir, a)
+	require.Len(t, p.drafts, 1)
+	assert.Equal(t, "note for a", p.drafts[0].Body)
+
+	p.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'r'})
+	assert.Equal(t, a, *p.change)
+	require.Empty(t, p.err)
+	require.Len(t, p.drafts, 1)
+	p.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyEscape})
+	assert.True(t, p.ReturnToList())
+	p.OpenChange(dir, a)
+	assert.False(t, p.ReturnToList())
+	p.sendToAgent()
+	assert.False(t, p.ReturnToList())
+	assert.Contains(t, submitted, "note for a")
+
+	p.OpenText(sampleDiff, nil)
+	assert.Empty(t, p.drafts, "explicit diff must not inherit a selected change's notes")
+	p.OpenChange(dir, b)
+	require.Len(t, p.drafts, 1)
+	assert.Equal(t, "note for b", p.drafts[0].Body)
+}
+
+// TestChangeQuotedPathKeepsExactCommentPath covers the control-character path
+// without a control-character file: neither windows nor the filesystem is
+// needed, because git's C-quoted header is what the rewrite consumes.
+func TestChangeQuotedPathKeepsExactCommentPath(t *testing.T) {
+	path := "line\nfile"
+	// Byte-for-byte what `git diff --no-index /dev/null "./line\nfile"` prints.
+	quoted := `diff --git "a/./line\nfile" "b/./line\nfile"` + "\n" +
+		"new file mode 100644\n" +
+		"index 0000000..d95f3ad\n" +
+		"--- /dev/null\n" +
+		`+++ "b/./line\nfile"` + "\n" +
+		"@@ -0,0 +1 @@\n" +
+		"+content\n"
+	p := New(components.DefaultTheme(), t.TempDir(), nil, nil, nil)
+	p.change = &gitx.Change{Status: '?', Path: path}
+	p.openParsed(quoted, "", true)
+	require.Empty(t, p.err)
+	require.NotEmpty(t, p.rows)
+	anchored := 0
+	for _, row := range p.rows {
+		assert.Equal(t, path, row.FileName, "the quoted form must not reach the status bar")
+		if diffreview.AnchorValid(row.Review) {
+			assert.Equal(t, path, row.Review.Path, "comments must anchor on the status path")
+			anchored++
+		}
+	}
+	require.NotZero(t, anchored, "the fixture must produce a commentable row")
+}
+
+// TestChangeControlCharPathIsQuotedInLabel keeps the label quoting covered on
+// every platform; the file is absent on all of them, so the load error is part
+// of the expectation rather than an accident.
+func TestChangeControlCharPathIsQuotedInLabel(t *testing.T) {
+	path := "line\nfile"
+	p := New(components.DefaultTheme(), t.TempDir(), nil, nil, nil)
+	p.OpenChange(p.cwd, gitx.Change{Status: '?', Path: path})
+	assert.Equal(t, strconv.Quote(path), p.label)
+	assert.NotEmpty(t, p.err)
 }

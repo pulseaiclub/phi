@@ -202,7 +202,12 @@ func TestCompact_TruncatedSummary_ReturnsError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "generation hit the token cap")
 	assert.Empty(t, comp.Summary)
-	assert.Equal(t, []int{13107}, c.maxTokens, "0.8 * reserveTokens")
+	assert.Equal(
+		t,
+		[]int{defaultSummaryMaxTokens},
+		c.maxTokens,
+		"with no model limit the cap is the default, not 0.8 × reserveTokens",
+	)
 }
 
 func TestCompact_EmptyHistoryRefreshesFileOperations(t *testing.T) {

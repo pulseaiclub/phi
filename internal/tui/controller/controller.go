@@ -191,13 +191,23 @@ func (c *EngineController) AgentsEnabled() bool { return c.agentsEnabled.Load() 
 
 func (c *EngineController) modelForRole(role job.Role) llm.ModelConfig {
 	role = job.NormalizeRole(string(role))
-	if name := c.roleModels[role]; name != "" {
-		if m, ok := c.proj.Config().FindModel(name); ok {
-			m.MaxRounds = c.MaxRounds()
-			return m
-		}
-		debuglog.Logf("agents: unknown role model %q for %s; using parent", name, role)
+	name := c.roleModels[role]
+	if name == "" {
+		return c.modelSnapshot()
 	}
+	if route, ok := c.Extensions().LookupModel(name); ok {
+		m, err := extensionModelConfig(route, c.proj.Config(), c.MaxRounds())
+		if err != nil {
+			debuglog.Logf("agents: extension role model %q: %v; using parent", name, err)
+			return c.modelSnapshot()
+		}
+		return m
+	}
+	if m, ok := c.proj.Config().FindModel(name); ok {
+		m.MaxRounds = c.MaxRounds()
+		return m
+	}
+	debuglog.Logf("agents: unknown role model %q for %s; using parent", name, role)
 	return c.modelSnapshot()
 }
 
@@ -224,7 +234,9 @@ func (c *EngineController) SetRoleModel(role, name string) error {
 		return nil
 	}
 	if _, ok := c.proj.Config().FindModel(name); !ok {
-		return fmt.Errorf("unknown model %q", name)
+		if _, ok := c.Extensions().LookupModel(name); !ok {
+			return fmt.Errorf("unknown model %q", name)
+		}
 	}
 	c.roleModels[r] = name
 	return nil
@@ -455,12 +467,9 @@ func (c *EngineController) SetModel(name string) error {
 	if err := c.proj.LoadConfig(); err != nil {
 		return err
 	}
-	cfg, ok := c.proj.Config().FindModel(name)
-	if !ok {
-		// Not a configured model: keep the primary's connection settings and
-		// only swap the name (arbitrary-model workflow).
-		cfg = c.proj.Config().Model()
-		cfg.Name = name
+	cfg, err := resolveModelConfig(c.proj.Config(), c.Extensions(), name)
+	if err != nil {
+		return err
 	}
 	c.Cancel()
 	c.initGate(c.proj.Config().Permissions)

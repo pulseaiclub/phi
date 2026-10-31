@@ -10,11 +10,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pulseaiclub/phi/ext/go/pxb"
 	"github.com/pulseaiclub/phi/internal/agent/prompt"
 	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
+	"github.com/pulseaiclub/phi/internal/llm/extmodel"
 	"github.com/pulseaiclub/phi/internal/llm/skills"
 	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/permission"
@@ -42,7 +44,7 @@ type ContinueFunc func(ctx context.Context, maxRounds int) (bool, error)
 // and yields session.Event for the TUI reducer. Context compaction is owned
 // here so Session stays a thin message store.
 type Engine struct {
-	client       *llmclient.Client
+	client       llm.ChatClient
 	executor     *Executor
 	maxRounds    atomic.Int64
 	modelCfg     llm.ModelConfig
@@ -89,9 +91,29 @@ func NewEngine(model llm.ModelConfig, sess *Session, opts ...EngineOption) (*Eng
 	engine.extensions.SetBaseTools(engine.buildCoreTools(engine.baseTools))
 	engine.extensions.SetMeta(engine.SessionID(), engine.SessionCwd())
 	toolList := engine.buildToolList(engine.baseTools)
-	engine.client = llmclient.NewClient(model, engine.hooks, tooldef.Definitions(toolList), engine.systemPrompt())
+	engine.client = engine.newChatClient(toolList)
 	engine.bindExecutor(tooldef.NewRegistry(toolList))
 	return engine, nil
+}
+
+// newChatClient picks the transport for the active model: an extension-served
+// connection when the model name is registered Conn "ext" (an extension model
+// shadows a config.yaml entry with the same name), else the builtin HTTP
+// client. Hooks only apply to the builtin path — extension-served requests
+// never pass through a provider request builder.
+func (engine *Engine) newChatClient(tools []tooldef.Tool) llm.ChatClient {
+	defs := tooldef.Definitions(tools)
+	if route, ok := engine.extensions.LookupModel(engine.modelCfg.Name); ok && route.ExtConn() {
+		runner := engine.extensions
+		stream := func(
+			ctx context.Context,
+			req pxb.ModelInvoke,
+		) (iter.Seq2[pxb.ModelStreamEvent, error], error) {
+			return runner.ModelStream(ctx, route, req)
+		}
+		return extmodel.New(route.Reg.Name, stream, engine.modelCfg, defs, engine.systemPrompt())
+	}
+	return llmclient.NewClient(engine.modelCfg, engine.hooks, defs, engine.systemPrompt())
 }
 
 func (engine *Engine) buildToolList(base []tooldef.Tool) []tooldef.Tool {
@@ -168,12 +190,7 @@ func (engine *Engine) SetMaxRounds(n int) {
 func (engine *Engine) rebindTools() {
 	engine.extensions.SetBaseTools(engine.buildCoreTools(engine.baseTools))
 	toolList := engine.buildToolList(engine.baseTools)
-	engine.client = llmclient.NewClient(
-		engine.modelCfg,
-		engine.hooks,
-		tooldef.Definitions(toolList),
-		engine.systemPrompt(),
-	)
+	engine.client = engine.newChatClient(toolList)
 	engine.bindExecutor(tooldef.NewRegistry(toolList))
 }
 
@@ -363,6 +380,9 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 						overflowRecovered = true
 						continue
 					}
+					// Keep the overflow first (IsContextOverflow still matches) and say
+					// why recovery could not help.
+					err = errors.Join(err, cerr)
 				}
 				yield(nil, err)
 				return
@@ -478,6 +498,10 @@ func (engine *Engine) runCompact(
 	if prep.FirstKeptEntryId == "" {
 		return false, nil
 	}
+	prep.Limits = compaction.OutputLimits{
+		MaxTokens:     engine.modelCfg.MaxTokens,
+		ContextWindow: engine.modelCfg.ContextWindow,
+	}
 	if force && len(prep.MessagesToSummarize) == 0 && len(prep.TurnPrefixMessages) == 0 {
 		return false, nil
 	}
@@ -487,7 +511,18 @@ func (engine *Engine) runCompact(
 		return false, context.Canceled
 	}
 
+	// The summary was planned against this leaf; anchoring it anywhere else
+	// would drop or duplicate history.
+	leaf := engine.session.LastID()
 	comp, err := compaction.Compact(ctx, *prep, engine.client)
+	if err == nil {
+		// A summary that lands after cancellation must not become the checkpoint.
+		err = ctx.Err()
+	}
+	if err == nil && engine.session.LastID() != leaf {
+		err = fmt.Errorf("compaction aborted: session advanced while summarizing (leaf is now %q)",
+			engine.session.LastID())
+	}
 	if err != nil {
 		_ = yield(session.CompactionComplete{ID: id, Failed: true}, nil)
 		return false, err

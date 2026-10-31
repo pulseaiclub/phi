@@ -12,10 +12,12 @@ Source of truth: [`internal/project/model`](../internal/project/model/).
 
 ## Gateway aliases and preset bindings
 
-Matching is case-insensitive and accepts routing prefixes, date suffixes and
-qualifiers such as `vendor/glm-5.3-flash:free`. The rightmost recognized model
-wins; slashes inside `:` or `[...]` qualifiers are ignored. Specific variants
-take precedence over their families; arbitrary variant suffixes do not match.
+Matching is case-insensitive and accepts routing prefixes, build suffixes and
+qualifiers such as `vendor/glm-5.3-flash:free`. A build suffix is a date
+(`-20250901`, `-2025-09-01`) or a four-digit tag (`deepseek-v4.1-flash-1017`).
+The rightmost recognized model wins; slashes inside `:` or `[...]` qualifiers
+are ignored. Specific variants take precedence over their families; arbitrary
+variant suffixes do not match.
 
 Also recognized: `group/auto-glm-5-3-flash`, `group/auto-kimi-k3`, and
 DeepSeek V4.1 Flash aliases (using the `deepseek-flash` preset).
@@ -33,25 +35,25 @@ models:
 
 ## Built-in presets
 
-| Name | API | Base URL (default) | Context | Images | Thinking wire |
-| ---- | --- | ------------------ | ------: | :----: | ------------- |
-| `gpt-6-astra` | OpenAIResponses | `https://api.openai.com/v1` | 272K | yes | `reasoning.effort` (max) |
-| `gpt-5.6-sol` | OpenAIResponses | `https://api.openai.com/v1` | 272K | yes | `reasoning.effort` (high) |
-| `gpt-5.6-terra` | OpenAIResponses | `https://api.openai.com/v1` | 272K | yes | `reasoning.effort` (high) |
-| `gpt-5.6-luna` | OpenAIResponses | `https://api.openai.com/v1` | 272K | yes | `reasoning.effort` (high) |
-| `gpt-5-chat-latest` | OpenAIResponses | `https://api.openai.com/v1` | 128K | yes | — |
-| `gpt-5.5` | OpenAIResponses | `https://api.openai.com/v1` | 272K | yes | `reasoning.effort` (high) |
-| `gpt-5.5-pro` | OpenAIResponses | `https://api.openai.com/v1` | 1.05M | yes | `reasoning.effort` (high) |
-| `deepseek-flash` | OpenAI | `https://api.deepseek.com` | 1M | yes | `thinking` + `reasoning_effort` |
-| `deepseek-v4-pro` | OpenAI | `https://api.deepseek.com` | 1M | no | same as Flash |
-| `gemini-2.5-pro` | Gemini | Google Generative Language | 1M | yes | `thinkingBudget` (token cap) |
-| `gemini-2.5-flash` | Gemini | Google Generative Language | 1M | yes | `thinkingBudget` |
-| `gemini-3-pro` | Gemini | Google Generative Language | 1M | yes | `thinkingLevel` (off floor `LOW`) |
-| `gemini-3-flash` | Gemini | Google Generative Language | 1M | yes | `thinkingLevel` (off floor `MINIMAL`) |
-| `kimi-k3` | OpenAI | `https://api.moonshot.cn/v1` | 1M | yes | `reasoning_effort` (max) |
-| `kimi-k2.7-code` | OpenAI | `https://api.moonshot.cn/v1` | 10M | yes | — |
-| `glm-5.3` | OpenAI | `https://api.z.ai/api/coding/paas/v4` | 1M | no | endpoint-specific `thinking` + `reasoning_effort` |
-| `glm-5.3-flash` | OpenAI | `https://api.z.ai/api/coding/paas/v4` | 1M | yes | same as `glm-5.3` |
+| Name | API | Base URL (default) | Context | Output | Images | Thinking wire |
+| ---- | --- | ------------------ | ------: | -----: | :----: | ------------- |
+| `gpt-6-astra` | OpenAIResponses | `https://api.openai.com/v1` | 272K | 128K | yes | `reasoning.effort` (max) |
+| `gpt-5.6-sol` | OpenAIResponses | `https://api.openai.com/v1` | 272K | 128K | yes | `reasoning.effort` (high) |
+| `gpt-5.6-terra` | OpenAIResponses | `https://api.openai.com/v1` | 272K | 128K | yes | `reasoning.effort` (high) |
+| `gpt-5.6-luna` | OpenAIResponses | `https://api.openai.com/v1` | 272K | 128K | yes | `reasoning.effort` (high) |
+| `gpt-5-chat-latest` | OpenAIResponses | `https://api.openai.com/v1` | 128K | — | yes | — |
+| `gpt-5.5` | OpenAIResponses | `https://api.openai.com/v1` | 272K | — | yes | `reasoning.effort` (high) |
+| `gpt-5.5-pro` | OpenAIResponses | `https://api.openai.com/v1` | 1.05M | — | yes | `reasoning.effort` (high) |
+| `deepseek-flash` | OpenAI | `https://api.deepseek.com` | 1M | 384K | yes | `thinking` + `reasoning_effort` |
+| `deepseek-v4-pro` | OpenAI | `https://api.deepseek.com` | 1M | 384K | no | same as Flash |
+| `gemini-2.5-pro` | Gemini | Google Generative Language | 1M | — | yes | `thinkingBudget` (token cap) |
+| `gemini-2.5-flash` | Gemini | Google Generative Language | 1M | — | yes | `thinkingBudget` |
+| `gemini-3-pro` | Gemini | Google Generative Language | 1M | — | yes | `thinkingLevel` (off floor `LOW`) |
+| `gemini-3-flash` | Gemini | Google Generative Language | 1M | — | yes | `thinkingLevel` (off floor `MINIMAL`) |
+| `kimi-k3` | OpenAI | `https://api.moonshot.cn/v1` | 1M | 131K | yes | `reasoning_effort` (max) |
+| `kimi-k2.7-code` | OpenAI | `https://api.moonshot.cn/v1` | 10M | — | yes | — |
+| `glm-5.3` | OpenAI | `https://api.z.ai/api/coding/paas/v4` | 1M | 128K | no | endpoint-specific `thinking` + `reasoning_effort` |
+| `glm-5.3-flash` | OpenAI | `https://api.z.ai/api/coding/paas/v4` | 1M | 128K | yes | same as `glm-5.3` |
 
 Minimal config for a preset (api key only):
 
@@ -86,6 +88,27 @@ xychart-beta
     y-axis "Hit %" 95 --> 100
     line [98.1, 98.8, 97.5, 98.1, 98.1, 98.8, 99.1, 99.9, 98.7, 99.7, 99.5, 99.5, 96.3, 99.4, 97.0, 99.7, 99.9, 99.3, 98.3, 96.4, 98.9, 98.7, 97.2, 99.8, 95.0, 99.7, 99.2, 98.9, 99.3, 99.5, 99.5, 99.4, 99.2, 98.6, 99.4, 99.6, 100.0, 97.8, 99.4]
 ```
+
+## Output limit
+
+`max_tokens` is the model's output limit in tokens. Compaction summaries use it
+as their cap, clamped so the prompt plus output fits `context_window` (minus a
+4096-token margin). Presets with a value in the **Output** column supply it;
+other models use 16384 unless you set it:
+
+```yaml
+models:
+  - name: my-gateway/some-reasoning-model
+    api: OpenAI
+    base_url: https://gateway.example/v1
+    api_key: ...
+    context_window: 1000000
+    max_tokens: 128000
+```
+
+It currently sizes compaction summaries only; normal turns keep their existing
+caps. It is a model setting, not a request override: `request_parameters`
+still rejects `max_tokens` and other output-limit fields.
 
 ## Other / custom models
 
@@ -186,6 +209,21 @@ limits remain managed by phi. Gemini options must merge into `generationConfig`
 without replacing it or changing `maxOutputTokens` / `candidateCount` (including
 snake_case aliases). Anthropic validates final thinking budgets. Vendor fields
 belong directly under `request_parameters`, not an `extra_body` wrapper.
+
+## Models from extensions
+
+Extensions can add connections at runtime without touching config.yaml:
+
+- **Direct-connect** — the host dials `base_url` with the registered
+  `api`/`api_key`, same as a config entry.
+- **Extension-served** (`Conn: ext`) — the extension proxies or generates
+  every request itself and streams deltas back; see
+  [extensions.md § Models](extensions.md#models-from-extensions).
+
+Extension names shadow config entries with the same name; preset resolution,
+thinking validation and context-window handling match config entries. The
+`/model` palette snapshots names at startup, so restart once after installing
+a model extension.
 
 ## Related
 

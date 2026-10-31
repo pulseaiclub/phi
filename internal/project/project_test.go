@@ -541,6 +541,7 @@ models:
   - name: deepseek-v4-pro
     api_key: sk-pro
     context_window: 50000
+    max_tokens: 64000
   - name: custom-model
     api_key: sk-custom
     base_url: https://custom.example/v1
@@ -554,6 +555,7 @@ models:
 	require.True(t, ok)
 	assert.Equal(t, "https://api.deepseek.com", flash.BaseURL)
 	assert.Equal(t, 1_000_000, flash.ContextWindow)
+	assert.Equal(t, 384_000, flash.MaxTokens, "preset supplies the output limit")
 	assert.True(t, flash.ImageEnabled, "flash supports image input")
 
 	// deepseek-v4-pro: explicit context_window overrides the preset; image
@@ -562,6 +564,7 @@ models:
 	require.True(t, ok)
 	assert.Equal(t, "https://api.deepseek.com", pro.BaseURL)
 	assert.Equal(t, 50_000, pro.ContextWindow, "explicit context_window overrides preset")
+	assert.Equal(t, 64_000, pro.MaxTokens, "explicit max_tokens overrides preset")
 	assert.False(t, pro.ImageEnabled, "v4-pro has no image understanding")
 
 	// Unknown names keep the generic OpenAI fallback and no preset.
@@ -569,5 +572,6 @@ models:
 	require.True(t, ok)
 	assert.Equal(t, "https://custom.example/v1", custom.BaseURL)
 	assert.Zero(t, custom.ContextWindow)
+	assert.Zero(t, custom.MaxTokens, "no preset and no max_tokens leaves the compaction default")
 	assert.False(t, custom.ImageEnabled)
 }

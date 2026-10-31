@@ -1,8 +1,6 @@
 package layout
 
 import (
-	"strings"
-
 	"github.com/pulseaiclub/xui"
 
 	"github.com/pulseaiclub/phi/internal/components"
@@ -78,7 +76,7 @@ func fitBorderLabel(l *BorderLabel, maxW int, method xui.WidthMethod) (spans []f
 		if l.Text == "" {
 			return nil, 0
 		}
-		text := TruncateToWidth(l.Text, maxW, method)
+		text := components.TruncateToWidth(l.Text, maxW, method)
 		return []fittedSpan{{Text: text, Style: l.Style}}, xui.StringWidth(text, method)
 	}
 	remain := maxW
@@ -87,7 +85,7 @@ func fitBorderLabel(l *BorderLabel, maxW int, method xui.WidthMethod) (spans []f
 		if remain <= 0 {
 			break
 		}
-		text := TruncateToWidth(sp.Text, remain, method)
+		text := components.TruncateToWidth(sp.Text, remain, method)
 		if text == "" {
 			// Budget too small for this grapheme; stop so later spans don't jump ahead.
 			break
@@ -189,30 +187,4 @@ func DrawRoundedBorder(
 	}
 	embed(0, topLeft, topRight)
 	embed(h-1, bottomLeft, bottomRight)
-}
-
-// TruncateToWidth returns the longest prefix of s that fits within max columns.
-func TruncateToWidth(s string, max int, method xui.WidthMethod) string {
-	if max <= 0 {
-		return ""
-	}
-	if xui.StringWidth(s, method) <= max {
-		return s
-	}
-	var b strings.Builder
-	w := 0
-	rest := s
-	for rest != "" {
-		cluster, cw, next := xui.FirstGrapheme(rest, method)
-		rest = next
-		if cw < 1 {
-			cw = 1
-		}
-		if w+cw > max {
-			break
-		}
-		b.WriteString(cluster)
-		w += cw
-	}
-	return b.String()
 }

@@ -143,10 +143,85 @@ func TestGenerateDiffStringFirstChangedLine(t *testing.T) {
 
 func TestGenerateFileDiffAddsHeaders(t *testing.T) {
 	require.Equal(t,
-		"--- a/file.go\n+++ b/file.go\n@@ -1,2 +1,3 @@\n A\n+B\n \n",
+		"--- a/file.go\n+++ b/file.go\n@@ -1,1 +1,2 @@\n A\n+B\n",
 		GenerateFileDiff("/tmp/dir/file.go", "A\n", "A\nB\n", 3),
 	)
 	require.Equal(t, "--- a/file.go\n+++ b/file.go\n", GenerateFileDiff("dir/file.go", "A", "A", 3))
+}
+
+// TestGenerateDiffStringTrailingNewline pins the git semantics for
+// trailing-newline-only differences: the last line is rewritten and the side
+// that lacks the final newline carries the "\ No newline at end of file"
+// marker, instead of reporting a phantom empty-line deletion.
+func TestGenerateDiffStringTrailingNewline(t *testing.T) {
+	t.Run("removing the final newline rewrites the last line", func(t *testing.T) {
+		require.Equal(t,
+			"@@ -1,1 +1,1 @@\n-b\n+b\n\\ No newline at end of file\n",
+			GenerateDiffString("b\n", "b", 3).Diff,
+		)
+	})
+	t.Run("adding the final newline rewrites the last line", func(t *testing.T) {
+		require.Equal(t,
+			"@@ -1,1 +1,1 @@\n-b\n\\ No newline at end of file\n+b\n",
+			GenerateDiffString("b", "b\n", 3).Diff,
+		)
+	})
+	t.Run("last line is the one rewritten", func(t *testing.T) {
+		require.Equal(t,
+			"@@ -2,1 +2,1 @@\n-b\n+b\n\\ No newline at end of file\n",
+			GenerateDiffString("a\nb\n", "a\nb", 3).Diff,
+		)
+	})
+	t.Run("identical content with a final newline yields no diff", func(t *testing.T) {
+		require.Empty(t, GenerateDiffString("a\nb\n", "a\nb\n", 3).Diff)
+	})
+	t.Run("first changed line is the rewritten line", func(t *testing.T) {
+		require.Equal(t, 2, GenerateDiffString("a\nb\n", "a\nb", 3).FirstChangedLine)
+	})
+	t.Run("empty file gaining a trailing newline", func(t *testing.T) {
+		require.Equal(t,
+			"@@ -0,0 +1,1 @@\n+\n",
+			GenerateDiffString("", "\n", 3).Diff,
+		)
+	})
+	t.Run("empty file losing a trailing newline", func(t *testing.T) {
+		require.Equal(t,
+			"@@ -1,1 +0,0 @@\n-\n",
+			GenerateDiffString("\n", "", 3).Diff,
+		)
+	})
+	t.Run("content change plus trailing newline change keeps both changes", func(t *testing.T) {
+		// When the content also differs we fall back to the normal diff path,
+		// so the trailing-newline marker is not emitted yet.
+		require.Equal(t,
+			"@@ -1,1 +1,2 @@\n-hello\n+hello world\n+\n",
+			GenerateDiffString("hello", "hello world\n", 3).Diff,
+		)
+	})
+	t.Run("deleting a single line also removes its trailing newline", func(t *testing.T) {
+		require.Equal(t,
+			"@@ -1,2 +0,0 @@\n-A\n-\n",
+			GenerateDiffString("A\n", "", 3).Diff,
+		)
+	})
+	t.Run("replacing a line with one that lacks a newline", func(t *testing.T) {
+		require.Equal(t,
+			"@@ -1,2 +1,1 @@\n-A\n-\n+B\n",
+			GenerateDiffString("A\n", "B", 3).Diff,
+		)
+	})
+	t.Run("replacing a line with one that has a trailing newline", func(t *testing.T) {
+		require.Equal(t,
+			"@@ -1,1 +1,2 @@\n-A\n+B\n+\n",
+			GenerateDiffString("A", "B\n", 3).Diff,
+		)
+	})
+	t.Run("single trailing newline is not an extra phantom empty line", func(t *testing.T) {
+		require.Equal(t,
+			"@@ -1,1 +0,0 @@\n-\n",
+			GenerateDiffString("\n", "", 3).Diff,
+		)
+	})
 }
 
 // TestGenerateDiffStringAppliesBack is the invariant every unified diff has to
@@ -219,8 +294,15 @@ func applyDiff(t *testing.T, label string, oldLines []string, diff string) strin
 			out = append(out, oldLines[cursor])
 		}
 		for _, line := range h.body {
-			if line[0] == ' ' || line[0] == '+' {
+			switch {
+			case line[0] == ' ' || line[0] == '+':
 				out = append(out, line[1:])
+			case line[0] == '-':
+				// Deletion: consume from old without emitting.
+			case strings.HasPrefix(line, "\\"):
+				// "\ No newline at end of file" is metadata, not a content line.
+			default:
+				require.Failf(t, "unexpected diff line", "%s: %q", label, line)
 			}
 		}
 		cursor += h.oldCount
@@ -253,7 +335,7 @@ func parseDiffHunks(t *testing.T, label, diff string) []diffHunk {
 		i++
 		for i < len(lines) && !strings.HasPrefix(lines[i], "@@") {
 			require.NotEmpty(t, lines[i], "%s: hunk body has a line without a marker", label)
-			require.Contains(t, " +-", lines[i][:1], "%s: unexpected marker in %q", label, lines[i])
+			require.Contains(t, " +-\\", lines[i][:1], "%s: unexpected marker in %q", label, lines[i])
 			h.body = append(h.body, lines[i])
 			i++
 		}

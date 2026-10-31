@@ -7,7 +7,6 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/chrome"
-	"github.com/pulseaiclub/phi/internal/components/layout"
 )
 
 // Model is everything the painter needs for one frame of the file viewer.
@@ -61,7 +60,7 @@ func Paint(ctx components.DrawContext, m Model) components.Surface {
 	if title == "" {
 		title = defaultTitle
 	}
-	s.Print(1, 0, layout.TruncateToWidth(title, w-2, method), th.TitleOrForeground(), method)
+	s.Print(1, 0, components.TruncateToWidth(title, w-2, method), th.TitleOrForeground(), method)
 
 	numW := lineNumberWidth(len(m.Lines))
 	gutterW := numW + gutterRuleWidth
@@ -74,7 +73,7 @@ func Paint(ctx components.DrawContext, m Model) components.Surface {
 
 	if len(m.Lines) == 0 {
 		if m.Empty != "" {
-			s.Print(1, 2, layout.TruncateToWidth(m.Empty, w-2, method), th.Muted, method)
+			s.Print(1, 2, components.TruncateToWidth(m.Empty, w-2, method), th.Muted, method)
 		}
 	} else {
 		y := 1
@@ -141,7 +140,7 @@ func paintStatus(s *components.Surface, w, h int, m Model, method xui.WidthMetho
 	th := m.Theme
 	statusY := h - 1
 	fillRow(s, statusY, w, th.Muted)
-	s.Print(1, statusY, layout.TruncateToWidth(m.Status, w/2, method), th.Muted, method)
+	s.Print(1, statusY, components.TruncateToWidth(m.Status, w/2, method), th.Muted, method)
 	hint := m.Hint
 	if hint == "" {
 		hint = defaultHint
@@ -277,7 +276,7 @@ func clipSpans(spans []components.Span, width int, method xui.WidthMethod) []com
 		if sp.Text == "" {
 			continue
 		}
-		text := layout.TruncateToWidth(sp.Text, width-used, method)
+		text := components.TruncateToWidth(sp.Text, width-used, method)
 		if text == "" {
 			break
 		}

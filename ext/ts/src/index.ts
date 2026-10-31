@@ -3,6 +3,7 @@
 // ext/rust's two modules.
 
 export * from "./phi/extension.ts";
+export * from "./phi/model.ts";
 export * from "./phi/schema.ts";
 export * from "./pxb/codec.ts";
 export * from "./pxb/fields.ts";

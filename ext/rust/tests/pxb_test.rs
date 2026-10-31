@@ -70,6 +70,54 @@ fn golden_intercept_req() {
     assert_eq!(r.encode(), raw);
 }
 
+#[test]
+fn golden_register_model() {
+    let Some(raw) = testdata("register_model.bin") else {
+        return;
+    };
+    let m = pxb::RegisterModel::decode(&raw).unwrap();
+    assert_eq!(m.name, "echo");
+    assert_eq!(m.api, "Anthropic");
+    assert_eq!(m.base_url, "http://127.0.0.1:9");
+    assert_eq!(m.api_key, "k");
+    assert_eq!(m.preset, "glm-5.3-flash");
+    assert_eq!(m.context_window, 1000);
+    assert!(m.image_enabled);
+    assert!(m.think_enabled);
+    assert_eq!(m.think_level, "high");
+    assert_eq!(m.conn, pxb::CONN_EXT);
+    assert_eq!(m.encode(), raw);
+}
+
+#[test]
+fn golden_model_invoke() {
+    let Some(raw) = testdata("model_invoke.bin") else {
+        return;
+    };
+    let inv = pxb::ModelInvoke::decode(&raw).unwrap();
+    assert_eq!(inv.model, "echo");
+    assert_eq!(inv.messages_json, br#"[{"role":"user","content":"hi"}]"#);
+    assert_eq!(inv.tools_json, br#"[{"name":"t"}]"#);
+    assert_eq!(inv.system_prompt, "sys");
+    assert_eq!(inv.think, "high");
+    assert_eq!(inv.encode(), raw);
+}
+
+#[test]
+fn golden_model_stream() {
+    let Some(raw) = testdata("model_stream.bin") else {
+        return;
+    };
+    let ev = pxb::ModelStreamEvent::decode(&raw).unwrap();
+    assert_eq!(ev.type_, "delta");
+    assert_eq!(ev.content, "c");
+    assert_eq!(ev.reasoning, "r");
+    assert_eq!(ev.tool_calls, br#"[{"index":0,"id":"c1"}]"#);
+    assert_eq!(ev.usage_json, br#"{"total_tokens":3}"#);
+    assert!(ev.error.is_empty());
+    assert_eq!(ev.encode(), raw);
+}
+
 /// The framed fixture is a full `TypeHello` frame; the payload must equal
 /// `hello.bin` and the header must parse.
 #[test]

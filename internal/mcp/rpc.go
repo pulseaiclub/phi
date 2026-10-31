@@ -51,14 +51,17 @@ func nextID(counter *atomic.Int64) int64 {
 	return counter.Add(1)
 }
 
-func decodeToolsList(raw json.RawMessage) ([]ToolDefinition, error) {
+// decodeToolsList reads one tools/list page. nextCursor is empty on the last
+// page; an omitted or null cursor is the same as empty.
+func decodeToolsList(raw json.RawMessage) (tools []ToolDefinition, nextCursor string, err error) {
 	var parsed struct {
-		Tools []ToolDefinition `json:"tools"`
+		Tools      []ToolDefinition `json:"tools"`
+		NextCursor string           `json:"nextCursor"`
 	}
 	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return nil, fmt.Errorf("decode tools/list: %w", err)
+		return nil, "", fmt.Errorf("decode tools/list: %w", err)
 	}
-	return parsed.Tools, nil
+	return parsed.Tools, parsed.NextCursor, nil
 }
 
 // extractToolContent turns a tools/call result into model-facing text.

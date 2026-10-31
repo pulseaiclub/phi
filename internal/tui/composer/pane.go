@@ -19,6 +19,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/palette"
 	"github.com/pulseaiclub/phi/internal/components/sessionlist"
 	"github.com/pulseaiclub/phi/internal/components/toast"
+	"github.com/pulseaiclub/phi/internal/debuglog"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
@@ -71,6 +72,10 @@ type ComposerPane struct {
 	requestFocus          func(components.Widget)
 	ctrlClose             func()
 	imageEnabled          func() bool
+
+	// promptHistory is the per-project recall ring behind Up/Down; nil when
+	// the session directory is unavailable.
+	promptHistory PromptHistory
 }
 
 // NewComposerPane builds composer widgets; call Wire before use.
@@ -140,6 +145,7 @@ func (c *ComposerPane) Wire(
 	c.palette.FocusReturn = &c.Chat
 	c.listPicker.FocusReturn = &c.Chat
 	c.Chat.OnSubmit = func(text string) {
+		c.rememberPrompt(text)
 		c.bus.Publish(controller.SubmitMsg{Text: text})
 		if c.drainBus != nil {
 			c.drainBus()
@@ -196,6 +202,7 @@ func (c *ComposerPane) ShowList(
 	c.HideCompleters()
 	c.HidePalette()
 	c.listPicker.OnAccept = onAccept
+	c.listPicker.FocusReturn = &c.Chat
 	// Assign unconditionally: a nil clears a prior domain's delete path off
 	// the shared picker, mirroring the accept-leak guard above.
 	c.listPicker.OnDelete = onDelete
@@ -207,6 +214,15 @@ func (c *ComposerPane) ShowList(
 		c.onRedraw()
 	}
 }
+
+// ListState saves the shared picker's query and selected row before acceptance.
+func (c *ComposerPane) ListState() listpicker.State { return c.listPicker.State() }
+
+// RestoreListState restores a domain's place after reopening the shared picker.
+func (c *ComposerPane) RestoreListState(state listpicker.State) { c.listPicker.Restore(state) }
+
+// SetListFocusReturn directs acceptance to a detail view instead of chat.
+func (c *ComposerPane) SetListFocusReturn(w components.Widget) { c.listPicker.FocusReturn = w }
 
 // ShowSessionList maps sessions into list rows and opens the picker.
 func (c *ComposerPane) ShowSessionList(
@@ -289,16 +305,45 @@ func (c *ComposerPane) ListOverlay(ctx components.DrawContext) (components.SubSu
 	}, true
 }
 
+// SetPromptHistory installs the per-project recall ring and loads what is
+// already stored. A nil store leaves the composer without recall.
+func (c *ComposerPane) SetPromptHistory(h PromptHistory) {
+	c.promptHistory = h
+	if h != nil {
+		c.Chat.History = h.Entries()
+	}
+}
+
+// rememberPrompt records a submitted prompt so Up can recall it later. Slash
+// and shell commands are skipped: they are already reachable by typing, and
+// recalling a "!" line would run it on Enter.
+func (c *ComposerPane) rememberPrompt(text string) {
+	if c.promptHistory == nil {
+		return
+	}
+	text = strings.TrimSpace(text)
+	if text == "" || strings.HasPrefix(text, "/") || strings.HasPrefix(text, "!") {
+		return
+	}
+	if err := c.promptHistory.Append(text); err != nil {
+		debuglog.Logf("composer: record prompt history: %v", err)
+		return
+	}
+	c.Chat.History = c.promptHistory.Entries()
+}
+
 // ClearInput clears the chat composer text.
 func (c *ComposerPane) ClearInput() {
 	c.Chat.Value = ""
 	c.Chat.Cursor = 0
+	c.Chat.ResetHistoryBrowse()
 }
 
 // SetInput replaces the composer text and places the cursor at the end.
 func (c *ComposerPane) SetInput(text string) {
 	c.Chat.Value = text
 	c.Chat.Cursor = len(text)
+	c.Chat.ResetHistoryBrowse()
 }
 
 // PendingSkills returns attached skill names awaiting submit.
@@ -614,8 +659,8 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 		if c.listPicker.Open {
 			c.listPicker.Handle(ctx, ev)
-			if !c.listPicker.Open {
-				c.FocusChat()
+			if !c.listPicker.Open && c.requestFocus != nil {
+				c.requestFocus(c.listPicker.FocusReturn)
 			}
 			return
 		}
@@ -831,7 +876,7 @@ func (c *ComposerPane) onQuestionChange(active bool, query string) {
 	c.abandonMentionSearch()
 	c.slash.Hide()
 	c.Chat.SlashOpen = false
-	items := filterQuestionItems(query, questionShortcutItems())
+	items := filterQuestionItems(query, questionShortcutItems(c.promptHistory != nil))
 	status := ""
 	if len(items) == 0 {
 		status = "No matching shortcuts"

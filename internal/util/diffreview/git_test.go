@@ -23,6 +23,12 @@ func newGitRepo(t *testing.T) string {
 	// Windows CI often sets autocrlf=true, which makes git print an LF/CRLF
 	// warning on stderr; LoadGit merges stderr into the diff text.
 	runGit(t, dir, "git", "config", "core.autocrlf", "false")
+	// Windows defaults to false because NTFS has no executable bit. Pinning it
+	// keeps mode-change tests portable instead of windows-only skips.
+	runGit(t, dir, "git", "config", "core.fileMode", "false")
+	// Keep C-quoting on, so tests exercise the quoted header any non-ascii path
+	// produces instead of silently depending on the runner's global config.
+	runGit(t, dir, "git", "config", "core.quotePath", "true")
 	return dir
 }
 

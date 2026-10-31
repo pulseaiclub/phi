@@ -14,6 +14,8 @@ struct Host {
     child: Child,
     rd: Receiver<Result<pxb::Frame, pxb::Error>>,
     wr: BufWriter<ChildStdin>,
+    /// Registration frames collected by [`handshake`](Self::handshake).
+    registrations: Vec<pxb::Frame>,
 }
 
 impl Host {
@@ -34,7 +36,12 @@ impl Host {
             }
         });
         let wr = BufWriter::new(child.stdin.take().unwrap());
-        Self { child, rd, wr }
+        Self {
+            child,
+            rd,
+            wr,
+            registrations: Vec::new(),
+        }
     }
 
     fn read(&mut self) -> pxb::Frame {
@@ -78,7 +85,8 @@ impl Host {
             match pxb::FrameType::from_u16(f.header.typ) {
                 pxb::FrameType::RegisterCommand
                 | pxb::FrameType::RegisterTool
-                | pxb::FrameType::Subscribe => {}
+                | pxb::FrameType::RegisterModel
+                | pxb::FrameType::Subscribe => self.registrations.push(f),
                 pxb::FrameType::Ready => break,
                 other => panic!("unexpected frame during registration: {other:?}"),
             }
@@ -112,7 +120,7 @@ fn hello_extension_lifecycle() {
     assert_eq!(hello.protocol, pxb::PROTOCOL_VERSION);
     assert_eq!(
         hello.caps,
-        pxb::CAP_COMMANDS | pxb::CAP_INTERCEPT | pxb::CAP_EVENTS
+        pxb::CAP_COMMANDS | pxb::CAP_INTERCEPT | pxb::CAP_EVENTS | pxb::CAP_LARGE_FRAMES
     );
 
     // Command invoke → Notify frame, then CommandResponse echoing id.
@@ -190,7 +198,10 @@ fn full_extension_confirm_tool_and_submit() {
 
     let hello = h.handshake();
     assert_eq!(hello.name, "full");
-    assert_eq!(hello.caps, pxb::CAP_COMMANDS | pxb::CAP_TOOLS);
+    assert_eq!(
+        hello.caps,
+        pxb::CAP_COMMANDS | pxb::CAP_TOOLS | pxb::CAP_LARGE_FRAMES
+    );
 
     // Command "ask" issues a confirm HostRequest (id 1), waits for the
     // HostResult, then notifies and replies with the queued submit.
@@ -302,6 +313,97 @@ fn full_extension_confirm_tool_and_submit() {
     assert_eq!(tr.content, r#"async echo: {"text":"yo"}"#);
     assert!(tr.error.is_empty());
 
+    h.shutdown();
+}
+
+#[test]
+fn models_extension_registration_and_stream() {
+    let mut h = Host::spawn("models");
+    let hello = h.handshake();
+    assert_eq!(hello.name, "models");
+    assert_eq!(hello.caps, pxb::CAP_MODELS | pxb::CAP_LARGE_FRAMES);
+
+    let regs: Vec<pxb::RegisterModel> = h
+        .registrations
+        .iter()
+        .map(|f| pxb::RegisterModel::decode(&f.body).unwrap())
+        .collect();
+    assert_eq!(regs.len(), 2);
+    let direct = &regs[0];
+    assert_eq!(
+        (direct.name.as_str(), direct.conn.as_str()),
+        ("gw", pxb::CONN_DIRECT)
+    );
+    assert_eq!(
+        (
+            direct.api.as_str(),
+            direct.base_url.as_str(),
+            direct.api_key.as_str()
+        ),
+        ("Anthropic", "http://127.0.0.1:9", "k")
+    );
+    assert_eq!(direct.context_window, 42);
+    let served = &regs[1];
+    assert_eq!(
+        (served.name.as_str(), served.conn.as_str()),
+        ("echo", pxb::CONN_EXT)
+    );
+    assert_eq!(served.context_window, 1000);
+    assert!(served.think_enabled);
+    assert_eq!(served.think_level, "high");
+
+    // One invoke: deltas echo the id, then a done frame.
+    h.write(
+        pxb::TYPE_MODEL_INVOKE,
+        pxb::FLAG_HAS_ID,
+        5,
+        &pxb::ModelInvoke {
+            model: "echo".into(),
+            messages_json: br#"[{"role":"user","content":"hi"}]"#.to_vec(),
+            system_prompt: "sys".into(),
+            think: "high".into(),
+            ..Default::default()
+        }
+        .encode(),
+    );
+    let mut assembled = String::new();
+    for _ in 0..3 {
+        let f = h.read();
+        assert_eq!((f.header.typ, f.header.id), (pxb::TYPE_MODEL_STREAM, 5));
+        assert_eq!(f.header.flags, pxb::FLAG_HAS_ID);
+        let ev = pxb::ModelStreamEvent::decode(&f.body).unwrap();
+        assert_eq!(ev.type_, "delta");
+        assembled.push_str(&ev.content);
+        if !ev.usage_json.is_empty() {
+            let usage: serde_json::Value = serde_json::from_slice(&ev.usage_json).unwrap();
+            assert_eq!(usage["total_tokens"], 3);
+        }
+    }
+    assert_eq!(assembled, "echo: hi [think:high]");
+    let f = h.read();
+    assert_eq!((f.header.typ, f.header.id), (pxb::TYPE_MODEL_STREAM, 5));
+    let ev = pxb::ModelStreamEvent::decode(&f.body).unwrap();
+    assert_eq!(ev.type_, "done");
+
+    // Unknown model → a single error frame; the loop survives.
+    h.write(
+        pxb::TYPE_MODEL_INVOKE,
+        pxb::FLAG_HAS_ID,
+        6,
+        &pxb::ModelInvoke {
+            model: "nope".into(),
+            ..Default::default()
+        }
+        .encode(),
+    );
+    let f = h.read();
+    assert_eq!((f.header.typ, f.header.id), (pxb::TYPE_MODEL_STREAM, 6));
+    let ev = pxb::ModelStreamEvent::decode(&f.body).unwrap();
+    assert_eq!(ev.type_, "error");
+    assert!(ev.error.contains("unknown model nope"), "got: {ev:?}");
+
+    // ModelCancel is best-effort; a late one after the stream ends is inert.
+    h.write(pxb::TYPE_MODEL_CANCEL, pxb::FLAG_HAS_ID, 5, &[]);
     h.shutdown();
 }
 

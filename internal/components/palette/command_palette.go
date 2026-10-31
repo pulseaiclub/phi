@@ -457,7 +457,7 @@ func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 	qx := 3
 	availQ := innerW - 2
 	availQ = max(availQ, 1)
-	panel.Print(qx, promptY, layout.TruncateToWidth(q, availQ, ctx.Method), th.Foreground, ctx.Method)
+	panel.Print(qx, promptY, components.TruncateToWidth(q, availQ, ctx.Method), th.Foreground, ctx.Method)
 	curCol := xui.StringWidth(q[:min(p.Cursor, len(q))], ctx.Method)
 	if curCol >= availQ {
 		curCol = availQ - 1
@@ -506,7 +506,7 @@ func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 				nw := xui.StringWidth(noun, ctx.Method)
 				nx := x + catW - nw
 				nx = max(nx, x)
-				panel.Print(nx, y, layout.TruncateToWidth(noun, catW, ctx.Method), nounStyle, ctx.Method)
+				panel.Print(nx, y, components.TruncateToWidth(noun, catW, ctx.Method), nounStyle, ctx.Method)
 				x += catW + 2
 			}
 			verbSt := rowStyle
@@ -520,7 +520,7 @@ func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 			}
 			verbAvail := boxW - 1 - x - shortcutW
 			verbAvail = max(verbAvail, 1)
-			panel.Print(x, y, layout.TruncateToWidth(verb, verbAvail, ctx.Method), verbSt, ctx.Method)
+			panel.Print(x, y, components.TruncateToWidth(verb, verbAvail, ctx.Method), verbSt, ctx.Method)
 			if cmd.Shortcut != "" {
 				sw := xui.StringWidth(cmd.Shortcut, ctx.Method)
 				panel.Print(boxW-1-sw, y, cmd.Shortcut, shortcutStyle, ctx.Method)

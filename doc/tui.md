@@ -157,7 +157,6 @@ User Enter in composer
   → ComposerPane publishes SubmitMsg{text}
   → drainBus → Submitter.Submit
        ├─ "!cmd" prefix  → BashRunner (local shell, SessionEventMsg for output)
-       │                    "!!cmd" also records the result in the model context
        ├─ "/slash"       → CommandRegistry / SessionCommands / ExtCommands
        └─ plain text     → Controller.Submit → agent.Engine.Loop (background)
                               └─ SessionEventMsg, FooterMsg, OverlayMsg, …
@@ -165,36 +164,28 @@ User Enter in composer
 
 `Submitter` clears composer input after slash/bash; agent submit passes pending skills from composer.
 
-A `!` line runs a local shell that the model never sees. A `!!` line runs the
-same way but, once it finishes, also appends the command and output to the
-session as a user message so the next turn sees it. The transcript row is marked
-`· ctx`, and a resumed session replays it as a shell row rather than a user
-bubble. The append is skipped if the agent is streaming (appending mid-turn
-would break tool_use/tool_result ordering) or if the session changed while the
-command ran.
+The `!` picker uses [sev](https://github.com/pulseaiclub/sev) to complete commands,
+subcommands, flags, paths, and Git arguments. It works without previously executed
+commands, uses the workspace directory for generators, and shows command descriptions.
+The engine is initialized on the first completion request; generators have a 20 ms
+budget and run off the UI goroutine. Prefix matches take priority, with fuzzy
+matches as a fallback.
 
-User `!` commands are also appended to `history.jsonl` in the project's existing
-session directory (`~/.phi/session/<encoded-cwd>/`). All sessions for that workspace
-share the file; agent tool commands are excluded. Each JSONL record contains format
-version `v`, start time `at` (Unix milliseconds), working directory `cwd`, command
-`cmd`, and nullable exit status `exit`. Failed and cancelled attempts are retained;
-unknown exit status is `null`. Shell output is not stored in this history.
+Rows contain the whole command line. Accepting one (Tab, or Enter on a row that
+differs from what was typed) replaces the text after the bang. Enter runs the
+command when the list is empty. Trailing spaces and quoting are preserved when
+requesting and inserting completions.
 
-The `internal/session/shellhist` store reads a bounded tail and caches records, refreshing
-from appended bytes and reloading after replacement or truncation. History files
-are excluded from the session picker.
+Shell commands no longer read or write `history.jsonl` or its rotated backup.
+Completion history ranking is disabled. Existing history files are ignored and
+remain excluded from the session picker; ordinary session transcripts are unchanged.
+Completion requires no API key or download.
 
-That history also feeds `!` command completion in the composer: typing `!git s`
-ranks recent commands with Jev and lists the completions above the input. Rows are
-whole commands, so accepting one (Tab, or Enter on a row that differs from what
-was typed) replaces the command text after the bang; Enter keeps its usual meaning
-of running the command whenever the list is empty. Literal prefix matches are
-listed as such and a single one needs no judgement call. Completion is off by
-default without credentials: it requires `TYPESAFE_API_KEY`, and without it the
-picker stays closed and `!` behaves as it always did. `PHI_OPTIMIZER=off`
-turns the feature off even when a key is configured.
-
-**Security:** When the optimizer is enabled, command history and context are sent to an external TypeSafe service for judging and ranking. Avoid running the optimizer in environments where shell history or command text may contain sensitive information (API keys, tokens, credentials).
+Composer prompt recall is opt-in. With `PHI_PROMPT_HISTORY=on`, the last ten
+submitted prompts for the workspace are kept in `prompts.json` in the project's
+session directory. Up/Down (or Ctrl+P/Ctrl+N) walk them in the composer; slash and
+shell commands are not recorded. The default is off. While it is on, `?` lists
+the recall keys.
 
 ### 2. Stream and transcript
 

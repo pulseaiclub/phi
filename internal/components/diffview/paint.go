@@ -63,11 +63,11 @@ func Paint(ctx components.DrawContext, model Model) components.Surface {
 	if title == "" {
 		title = "diff review"
 	}
-	s.Print(1, 0, layout.TruncateToWidth(title, w-2, method), th.TitleOrForeground(), method)
+	s.Print(1, 0, components.TruncateToWidth(title, w-2, method), th.TitleOrForeground(), method)
 
 	bodyH := max(h-2, 1)
 	if len(model.Vis) == 0 && model.Empty != "" {
-		s.Print(1, 2, layout.TruncateToWidth(model.Empty, w-2, method), th.Muted, method)
+		s.Print(1, 2, components.TruncateToWidth(model.Empty, w-2, method), th.Muted, method)
 	} else {
 		y := 1
 		for i := model.Scroll; i < len(model.Vis) && y < 1+bodyH; i++ {
@@ -84,7 +84,7 @@ func Paint(ctx components.DrawContext, model Model) components.Surface {
 		s.Print(
 			len(prefix),
 			statusY,
-			layout.TruncateToWidth(model.Prompt, w-len(prefix)-1, method),
+			components.TruncateToWidth(model.Prompt, w-len(prefix)-1, method),
 			th.Foreground,
 			method,
 		)
@@ -100,7 +100,7 @@ func Paint(ctx components.DrawContext, model Model) components.Surface {
 		if right == "" {
 			right = "j/k move" + chrome.Sep + "s split" + chrome.Sep + "i note" + chrome.Sep + "a send" + chrome.Sep + "? help" + chrome.Sep + "q quit"
 		}
-		s.Print(1, statusY, layout.TruncateToWidth(left, w/2, method), th.Muted, method)
+		s.Print(1, statusY, components.TruncateToWidth(left, w/2, method), th.Muted, method)
 		rw := xui.StringWidth(right, method)
 		if rw < w-2 {
 			s.Print(w-1-rw, statusY, right, th.Muted, method)
@@ -122,7 +122,7 @@ func paintVis(s *components.Surface, y, w int, model Model, v Vis, method xui.Wi
 			st = withSel(st, th)
 		}
 		fillRow(s, y, w, st)
-		s.Print(2, y, layout.TruncateToWidth("▸ "+v.Note, w-3, method), st, method)
+		s.Print(2, y, components.TruncateToWidth("▸ "+v.Note, w-3, method), st, method)
 	default:
 		if model.SideBySide && v.Side != nil && v.Side.Full < 0 {
 			paintSideRow(s, y, w, model, v, method)
@@ -215,7 +215,7 @@ func paintDocRow(
 		if row.Kind == diffreview.RowFile {
 			text = "▎ " + text
 		}
-		s.Print(0, y, layout.TruncateToWidth(text, w, method), st, method)
+		s.Print(0, y, components.TruncateToWidth(text, w, method), st, method)
 	default:
 		paintCoded(s, y, 0, w, model, row, doc, row.Gutter, active, method)
 	}
@@ -321,7 +321,7 @@ func clipSpans(spans []components.Span, width int, method xui.WidthMethod) []com
 		if used >= width {
 			break
 		}
-		text := layout.TruncateToWidth(sp.Text, width-used, method)
+		text := components.TruncateToWidth(sp.Text, width-used, method)
 		if text == "" {
 			break
 		}
@@ -359,7 +359,7 @@ func paintHelp(s *components.Surface, th components.Theme, method xui.WidthMetho
 		if i+1 >= boxH-1 {
 			break
 		}
-		panel.Print(2, i+1, layout.TruncateToWidth(l, boxW-4, method), th.Foreground, method)
+		panel.Print(2, i+1, components.TruncateToWidth(l, boxW-4, method), th.Foreground, method)
 	}
 	s.Children = append(s.Children, components.SubSurface{
 		Origin:  components.Point{X: ox, Y: oy},

@@ -122,7 +122,7 @@ func (t *Toast) Draw(ctx components.DrawContext) components.Surface {
 	}
 	avail := boxW - 1 - textX
 	avail = max(avail, 1)
-	panel.Print(textX, 1, layout.TruncateToWidth(msg, avail, ctx.Method), fg, ctx.Method)
+	panel.Print(textX, 1, components.TruncateToWidth(msg, avail, ctx.Method), fg, ctx.Method)
 
 	ox := (maxW - boxW) / 2
 	oy := 1

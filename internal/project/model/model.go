@@ -74,7 +74,9 @@ func LookupBound(bound, name string) (Preset, bool) {
 }
 
 // Specific variants take precedence over their families. Only documented
-// routing prefixes, date suffixes and gateway qualifiers are interchangeable.
+// routing prefixes, build suffixes and gateway qualifiers are interchangeable.
+// A build suffix is a date (-20250901, -2025-09-01) or a four-digit tag
+// (-1017) that some routes pin; any other trailing text is a different model.
 var aliasRules = sync.OnceValue(buildAliasRules)
 
 func buildAliasRules() []aliasRule {
@@ -85,7 +87,7 @@ func buildAliasRules() []aliasRule {
 			pattern = regexp.QuoteMeta(p.Config.Name)
 		}
 		rules = append(rules, aliasRule{
-			match:  regexp.MustCompile(`(?i)^` + pattern + `(?:-\d{8}|-\d{4}-\d{2}-\d{2})?(?:[:/\[].*)?$`),
+			match:  regexp.MustCompile(`(?i)^` + pattern + `(?:-\d{8}|-\d{4}-\d{2}-\d{2}|-\d{4})?(?:[:/\[].*)?$`),
 			preset: p,
 		})
 	}
@@ -119,6 +121,10 @@ var (
 // presets is the built-in catalog, keyed by model name. Values mirror each
 // provider's public API docs; re-check the linked page when refreshing a
 // model — context length, base URL, and capabilities change between versions.
+// MaxTokens (output limit) is set only where a source states it; presets
+// without it fall back to the compaction default. GPT values come from each
+// model's page under the OpenAI source below; DeepSeek, Kimi and GLM follow the
+// limits ZCode ships for the same models.
 var presets = []Preset{
 	// Source: https://platform.openai.com/docs/models
 	{
@@ -126,6 +132,7 @@ var presets = []Preset{
 			Name:          "gpt-6-astra",
 			BaseURL:       "https://api.openai.com/v1",
 			ContextWindow: 272_000,
+			MaxTokens:     128_000,
 			ImageEnabled:  true,
 			API:           llm.OpenAIResponses,
 			Think:         thinkMax,
@@ -136,6 +143,7 @@ var presets = []Preset{
 			Name:          "gpt-5.6-sol",
 			BaseURL:       "https://api.openai.com/v1",
 			ContextWindow: 272_000,
+			MaxTokens:     128_000,
 			ImageEnabled:  true,
 			API:           llm.OpenAIResponses,
 			Think:         thinkHigh,
@@ -146,6 +154,7 @@ var presets = []Preset{
 			Name:          "gpt-5.6-terra",
 			BaseURL:       "https://api.openai.com/v1",
 			ContextWindow: 272_000,
+			MaxTokens:     128_000,
 			ImageEnabled:  true,
 			API:           llm.OpenAIResponses,
 			Think:         thinkHigh,
@@ -156,6 +165,7 @@ var presets = []Preset{
 			Name:          "gpt-5.6-luna",
 			BaseURL:       "https://api.openai.com/v1",
 			ContextWindow: 272_000,
+			MaxTokens:     128_000,
 			ImageEnabled:  true,
 			API:           llm.OpenAIResponses,
 			Think:         thinkHigh,
@@ -197,6 +207,7 @@ var presets = []Preset{
 			Name:          "deepseek-flash",
 			BaseURL:       "https://api.deepseek.com",
 			ContextWindow: 1_000_000,
+			MaxTokens:     384_000,
 			ImageEnabled:  true,
 			API:           llm.OpenAI,
 			Think:         thinkHigh,
@@ -212,6 +223,7 @@ var presets = []Preset{
 			Name:          "deepseek-v4-pro",
 			BaseURL:       "https://api.deepseek.com",
 			ContextWindow: 1_000_000,
+			MaxTokens:     384_000,
 			API:           llm.OpenAI,
 			Think:         thinkHigh,
 		},
@@ -270,6 +282,7 @@ var presets = []Preset{
 			Name:          "kimi-k3",
 			BaseURL:       "https://api.moonshot.cn/v1",
 			ContextWindow: 1_000_000,
+			MaxTokens:     131_072,
 			ImageEnabled:  true,
 			API:           llm.OpenAI,
 			Think:         thinkMax,
@@ -295,6 +308,7 @@ var presets = []Preset{
 			Name:          "glm-5.3-flash",
 			BaseURL:       "https://api.z.ai/api/coding/paas/v4",
 			ContextWindow: 1_048_576,
+			MaxTokens:     128_000,
 			ImageEnabled:  true,
 			API:           llm.OpenAI,
 			Think:         thinkMax,
@@ -309,6 +323,7 @@ var presets = []Preset{
 			Name:          "glm-5.3",
 			BaseURL:       "https://api.z.ai/api/coding/paas/v4",
 			ContextWindow: 1_048_576,
+			MaxTokens:     128_000,
 			API:           llm.OpenAI,
 			Think:         thinkMax,
 		},

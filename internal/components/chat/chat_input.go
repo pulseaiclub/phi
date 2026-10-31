@@ -64,6 +64,10 @@ type ChatInput struct {
 	// bordered editor as "Refs: path:12-18".
 	PendingRefs []Ref
 
+	// History is the project's recall ring, oldest first. The composer only
+	// walks it; the caller fills it from the project store.
+	History []string
+
 	PaddingX int // horizontal inner padding; default 1
 
 	// OnSubmit is called when Enter is pressed (without modifiers).
@@ -103,6 +107,12 @@ type ChatInput struct {
 
 	// dumpNextDraw is set on paste/insert when PHI_DEBUG=1.
 	dumpNextDraw bool
+
+	// Browse state for History; see history.go. The zero value means "not
+	// browsing", so nothing needs initializing.
+	histPos   int
+	histDraft string
+	histBusy  bool
 }
 
 func (c *ChatInput) completerOpen() bool {
@@ -371,12 +381,20 @@ func (c *ChatInput) Handle(ctx *components.EventContext, ev xui.Event) {
 			if c.completerOpen() {
 				return
 			}
+			if c.historyAtFirstLine() && c.historyUp() {
+				ctx.ConsumeAndRedraw()
+				return
+			}
 			c.moveVert(-1)
 			c.notifyCompleters()
 			ctx.ConsumeAndRedraw()
 			return
 		case xui.KeyDown:
 			if c.completerOpen() {
+				return
+			}
+			if c.historyAtLastLine() && c.historyDown() {
+				ctx.ConsumeAndRedraw()
 				return
 			}
 			c.moveVert(1)
@@ -402,6 +420,13 @@ func (c *ChatInput) Handle(ctx *components.EventContext, ev xui.Event) {
 				case 'u', 'U':
 					// Ctrl+U clears the composer, pending images, and pending skills.
 					c.clear()
+				case 'p', 'P':
+					// Ctrl+P recalls an older input from anywhere in the draft,
+					// which Up cannot do on a multi-line prompt.
+					c.historyUp()
+				case 'n', 'N':
+					// Ctrl+N walks toward the newest input, then the draft.
+					c.historyDown()
 				default:
 					return
 				}
@@ -490,6 +515,7 @@ func isComposerChrome(r rune) bool {
 }
 
 func (c *ChatInput) notifyChange() {
+	c.historyReset()
 	if c.OnChange != nil {
 		c.OnChange(c.Value)
 	}

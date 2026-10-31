@@ -143,7 +143,7 @@ func (e *ConfigEditor) paintRow(s *components.Surface, y int, r row, selected bo
 	case rowSection:
 		e.paintSection(s, y, r, method)
 	case rowError:
-		s.Print(xModel, y, layout.TruncateToWidth(r.note, s.Size.Width-2-xModel, method), th.Destructive, method)
+		s.Print(xModel, y, components.TruncateToWidth(r.note, s.Size.Width-2-xModel, method), th.Destructive, method)
 	case rowModel:
 		// A model header is a label/value row like any other: the name owns the
 		// label column and the default marker plus the preset summary share the
@@ -151,7 +151,7 @@ func (e *ConfigEditor) paintRow(s *components.Surface, y int, r row, selected bo
 		col := e.valueCol()
 		nameStyle := base
 		nameStyle.Bold = true
-		s.Print(xModel, y, layout.TruncateToWidth(r.name, max(col-1-xModel, 1), method), nameStyle, method)
+		s.Print(xModel, y, components.TruncateToWidth(r.name, max(col-1-xModel, 1), method), nameStyle, method)
 		x := col
 		if r.badge != "" {
 			x += s.Print(x, y, r.badge, withBG(th.Success, bg, selected), method)
@@ -160,7 +160,7 @@ func (e *ConfigEditor) paintRow(s *components.Surface, y int, r row, selected bo
 			}
 		}
 		if r.note != "" {
-			s.Print(x, y, layout.TruncateToWidth(r.note, max(s.Size.Width-2-x, 1), method), secondary, method)
+			s.Print(x, y, components.TruncateToWidth(r.note, max(s.Size.Width-2-x, 1), method), secondary, method)
 		}
 	case rowItem:
 		x := xNested
@@ -174,20 +174,20 @@ func (e *ConfigEditor) paintRow(s *components.Surface, y int, r row, selected bo
 				style.Bg = bg
 			}
 		}
-		s.Print(x, y, layout.TruncateToWidth(text, s.Size.Width-2-x, method), style, method)
+		s.Print(x, y, components.TruncateToWidth(text, s.Size.Width-2-x, method), style, method)
 		if e.edit != nil && e.edit.key == r.key {
 			e.caretX = x + xui.StringWidth(string(e.edit.buf[:e.edit.cur]), method)
 			e.caretY = y
 		}
 	case rowNote:
-		s.Print(xNested, y, layout.TruncateToWidth(r.label, s.Size.Width-2-xNested, method),
+		s.Print(xNested, y, components.TruncateToWidth(r.label, s.Size.Width-2-xNested, method),
 			e.valStyle(r.style, bg, selected), method)
 	case rowAdd:
 		style := th.ToolName
 		if selected {
 			style = base
 		}
-		s.Print(xNested, y, layout.TruncateToWidth(r.label, s.Size.Width-2-xNested, method), style, method)
+		s.Print(xNested, y, components.TruncateToWidth(r.label, s.Size.Width-2-xNested, method), style, method)
 	case rowField:
 		e.paintField(s, y, r, selected, base, secondary, bg, method)
 	}
@@ -207,7 +207,7 @@ func (e *ConfigEditor) paintField(
 	col := e.valueCol()
 	// The active label carries focus even when the value is unset.
 	labelStyle := secondary
-	s.Print(x, y, layout.TruncateToWidth(r.label, max(col-x-2, 1), method), labelStyle, method)
+	s.Print(x, y, components.TruncateToWidth(r.label, max(col-x-2, 1), method), labelStyle, method)
 
 	style := e.valStyle(r.style, bg, selected)
 	text := r.display
@@ -220,7 +220,7 @@ func (e *ConfigEditor) paintField(
 		}
 	}
 	avail := max(s.Size.Width-2-col, 1)
-	printed := s.Print(col, y, layout.TruncateToWidth(text, avail, method), style, method)
+	printed := s.Print(col, y, components.TruncateToWidth(text, avail, method), style, method)
 	if editing {
 		e.caretX = col + xui.StringWidth(string(e.edit.buf[:e.edit.cur]), method)
 		e.caretY = y
@@ -231,7 +231,7 @@ func (e *ConfigEditor) paintField(
 		note.Dim = true
 		// The selection bar is one continuous stripe, hint included.
 		note.Bg = bg
-		s.Print(col+printed+2, y, layout.TruncateToWidth(r.hint, max(avail-printed-2, 0), method), note, method)
+		s.Print(col+printed+2, y, components.TruncateToWidth(r.hint, max(avail-printed-2, 0), method), note, method)
 	}
 }
 
@@ -270,7 +270,7 @@ func (e *ConfigEditor) paintFooter(s *components.Surface, method xui.WidthMethod
 	// hintLine keeps the line inside the width on its own; the truncation is
 	// only there for the one-hint terminal, where nothing can be dropped.
 	hints := e.hintLine(max(w-6, 1), method)
-	printed := s.Print(2, y, layout.TruncateToWidth(hints, max(w-6, 1), method), th.Muted, method)
+	printed := s.Print(2, y, components.TruncateToWidth(hints, max(w-6, 1), method), th.Muted, method)
 	if e.status == "" {
 		return
 	}
@@ -279,7 +279,7 @@ func (e *ConfigEditor) paintFooter(s *components.Surface, method xui.WidthMethod
 	if start <= 4+printed {
 		return
 	}
-	s.Print(start, y, layout.TruncateToWidth(e.status, max(w-4, 1), method), e.statusStyle(), method)
+	s.Print(start, y, components.TruncateToWidth(e.status, max(w-4, 1), method), e.statusStyle(), method)
 }
 
 // hintSegments lists the current state's shortcuts, most useful first. The

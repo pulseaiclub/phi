@@ -52,7 +52,7 @@ func TestGenerateTurnPrefixSummary_IncludesPrompt(t *testing.T) {
 		t.Context(),
 		c,
 		[]llm.Message{{Role: llm.RoleUser, Content: "fix the parser"}},
-		1024,
+		OutputLimits{MaxTokens: 1024},
 	)
 
 	require.NoError(t, err)
@@ -73,7 +73,7 @@ func TestGenerateSummary_IncludesPrompt(t *testing.T) {
 		c,
 		[]llm.Message{{Role: llm.RoleUser, Content: "hello"}},
 		"",
-		2048,
+		OutputLimits{MaxTokens: 2048},
 	)
 
 	require.NoError(t, err)
@@ -89,7 +89,13 @@ func TestGenerateSummary_IncludesPrompt(t *testing.T) {
 func TestGenerateSummary_Truncated_ReturnsError(t *testing.T) {
 	c := &captureCompactor{truncated: true}
 
-	_, err := generateSummary(t.Context(), c, []llm.Message{{Role: llm.RoleUser, Content: "hi"}}, "", 2048)
+	_, err := generateSummary(
+		t.Context(),
+		c,
+		[]llm.Message{{Role: llm.RoleUser, Content: "hi"}},
+		"",
+		OutputLimits{MaxTokens: 2048},
+	)
 
 	require.Error(t, err)
 	assert.Equal(t, "Summarization failed: generation hit the token cap, summary incomplete", err.Error())
@@ -98,7 +104,12 @@ func TestGenerateSummary_Truncated_ReturnsError(t *testing.T) {
 func TestGenerateTurnPrefixSummary_Truncated_ReturnsError(t *testing.T) {
 	c := &captureCompactor{truncated: true}
 
-	_, err := generateTurnPrefixSummary(t.Context(), c, []llm.Message{{Role: llm.RoleUser, Content: "hi"}}, 1024)
+	_, err := generateTurnPrefixSummary(
+		t.Context(),
+		c,
+		[]llm.Message{{Role: llm.RoleUser, Content: "hi"}},
+		OutputLimits{MaxTokens: 1024},
+	)
 
 	require.Error(t, err)
 	assert.Equal(t, "Turn prefix summarization failed: generation hit the token cap, summary incomplete", err.Error())
@@ -119,7 +130,7 @@ func TestGenerateSummary_BlankText_ReturnsError(t *testing.T) {
 					c,
 					[]llm.Message{{Role: llm.RoleUser, Content: "hi"}},
 					previousSummary,
-					2048,
+					OutputLimits{MaxTokens: 2048},
 				)
 
 				require.Error(t, err)
@@ -133,21 +144,19 @@ func TestGenerateTurnPrefixSummary_BlankText_ReturnsError(t *testing.T) {
 	for _, blank := range []string{"", "   ", "\n\t\n"} {
 		c := &captureCompactor{textFor: func(string) string { return blank }}
 
-		_, err := generateTurnPrefixSummary(t.Context(), c, []llm.Message{{Role: llm.RoleUser, Content: "hi"}}, 1024)
+		_, err := generateTurnPrefixSummary(
+			t.Context(),
+			c,
+			[]llm.Message{{Role: llm.RoleUser, Content: "hi"}},
+			OutputLimits{MaxTokens: 1024},
+		)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "Turn prefix summarization failed: model returned an empty summary")
 	}
 }
 
-func TestSummarizationCap(t *testing.T) {
-	// Default reserveTokens is 16384: 0.8 for history, 0.5 for the turn prefix.
-	assert.Equal(t, 13107, summarizationCap(16384, historySummaryRatio))
-	assert.Equal(t, 8192, summarizationCap(16384, turnPrefixSummaryRatio))
-	assert.Equal(t, 0, summarizationCap(0, historySummaryRatio), "no budget means the provider default")
-}
-
-// A mid-turn cut summarizes two buckets at once, each with its own cap.
+// A mid-turn cut summarizes two buckets at once; both use the model's limit.
 func TestSummarizeMidTurnCut_CapsEachSummary(t *testing.T) {
 	c := &captureCompactor{}
 
@@ -155,12 +164,50 @@ func TestSummarizeMidTurnCut_CapsEachSummary(t *testing.T) {
 		MessagesToSummarize: []llm.Message{{Role: llm.RoleUser, Content: "older history"}},
 		TurnPrefixMessages:  []llm.Message{{Role: llm.RoleUser, Content: "turn prefix"}},
 		ReserveTokens:       16384,
+		Limits:              OutputLimits{MaxTokens: 50_000},
 	}, c)
 
 	require.NoError(t, err)
 	assert.Contains(t, summary, "SUMMARY")
 	assert.Contains(t, summary, "Turn Context (mid-turn cut)")
-	assert.ElementsMatch(t, []int{13107, 8192}, c.maxTokens)
+	assert.ElementsMatch(t, []int{50_000, 50_000}, c.maxTokens)
+}
+
+func TestSummaryMaxTokens(t *testing.T) {
+	prompt := strings.Repeat("x", 40_000) // ~10k estimated tokens
+	tests := []struct {
+		name   string
+		limits OutputLimits
+		want   int
+	}{
+		{name: "no limit and no window uses the default", want: defaultSummaryMaxTokens},
+		{name: "model limit is used as is", limits: OutputLimits{MaxTokens: 128_000}, want: 128_000},
+		{
+			name:   "large window leaves the model limit",
+			limits: OutputLimits{MaxTokens: 128_000, ContextWindow: 1_000_000},
+			want:   128_000,
+		},
+		{
+			name:   "small window clamps to what is left after the prompt",
+			limits: OutputLimits{MaxTokens: 128_000, ContextWindow: 32_768},
+			want:   32_768 - 10_000 - contextSafetyTokens,
+		},
+		{
+			name:   "default is clamped too",
+			limits: OutputLimits{ContextWindow: 20_000},
+			want:   20_000 - 10_000 - contextSafetyTokens,
+		},
+		{
+			name:   "a prompt past the window still sends a positive cap",
+			limits: OutputLimits{MaxTokens: 128_000, ContextWindow: 8_000},
+			want:   minSummaryMaxTokens,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, summaryMaxTokens(tt.limits, prompt))
+		})
+	}
 }
 
 // A blank answer from either mid-turn bucket must fail the whole cut. The file

@@ -12,6 +12,8 @@ import (
 	"github.com/pulseaiclub/phi/internal/util"
 )
 
+const bashToolName = "bash"
+
 // BashBlock renders bash tool / "!cmd" output:
 //
 //	$ ls
@@ -95,7 +97,8 @@ func (bashBlock *BashBlock) Draw(ctx components.DrawContext) components.Surface 
 		w = 40
 	}
 
-	titleWrapped := components.WrapSpans(bashBlock.titleSpans(th), w, ctx.Method)
+	title := bashBlock.titleSpans(th)
+	titleWrapped := wrapCommand(title[:1], title[1:], "", w, ctx.Method)
 	titleH := len(titleWrapped)
 	bashBlock.titleH = titleH
 
@@ -163,6 +166,38 @@ func (bashBlock *BashBlock) titleSpans(th components.Theme) []components.Span {
 		title = append(title, components.Span{Text: chrome.ExpandArrow(bashBlock.Expanded), Style: th.Muted})
 	}
 	return title
+}
+
+// wrapCommand keeps continuation lines aligned with the command, leaving room
+// for the tree's ancestor guide when the command belongs to a child tool.
+func wrapCommand(
+	prefix, command []components.Span,
+	guide string,
+	width int,
+	method xui.WidthMethod,
+) []components.RichLine {
+	indent := 0
+	for _, span := range prefix {
+		indent += xui.StringWidth(span.Text, method)
+	}
+	// On very narrow terminals, give the content the full width instead of
+	// reserving a gutter that leaves no room for a wide grapheme.
+	if width-indent < 2 {
+		return components.WrapSpans(append(prefix, command...), width, method)
+	}
+	lines := components.WrapSpans(command, width-indent, method)
+	continuation := components.Span{
+		Text:  guide + strings.Repeat(" ", indent-xui.StringWidth(guide, method)),
+		Style: prefix[0].Style,
+	}
+	for i := range lines {
+		if i == 0 {
+			lines[i] = append(prefix, lines[i]...)
+		} else {
+			lines[i] = append([]components.Span{continuation}, lines[i]...)
+		}
+	}
+	return lines
 }
 
 func bashBodyLines(output string, th components.Theme, width int, method xui.WidthMethod) []components.RichLine {

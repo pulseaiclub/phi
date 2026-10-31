@@ -78,10 +78,16 @@ func TestLookupUnknownFallsThrough(t *testing.T) {
 		Name:          "deepseek-flash",
 		BaseURL:       "https://api.deepseek.com",
 		ContextWindow: 1_000_000,
+		MaxTokens:     384_000,
 		ImageEnabled:  true,
 		API:           llm.OpenAI,
 		Think:         llm.ThinkConfig{Enabled: true, Mode: llm.High},
 	}, p.Config)
+
+	// A gateway route inherits the output limit with the rest of the preset.
+	routed, ok := Lookup("deepseek/deepseek-flash")
+	require.True(t, ok)
+	assert.Equal(t, 384_000, routed.Config.MaxTokens)
 }
 
 func TestDeepSeekInterceptorSetsTopLevelThinking(t *testing.T) {
@@ -178,7 +184,7 @@ func TestGeminiBudgetHookUsesLiveThink(t *testing.T) {
 	req := &gemini.GeminiRequest{}
 	cfg := llm.ModelConfig{Think: llm.ThinkConfig{Enabled: true, Mode: llm.Low}}
 	require.NoError(t, p.Hooks.Gemini.Before(t.Context(), req, cfg))
-	body, err := json.Marshal(req.ThinkingConfig)
+	body, err := json.Marshal(req.GenerationConfig.ThinkingConfig)
 	require.NoError(t, err)
 	assert.Contains(t, string(body), `"thinkingBudget":2048`)
 }
@@ -190,7 +196,7 @@ func TestGeminiLevelHookOffFloor(t *testing.T) {
 
 	req := &gemini.GeminiRequest{}
 	require.NoError(t, p.Hooks.Gemini.Before(t.Context(), req, llm.ModelConfig{}))
-	body, err := json.Marshal(req.ThinkingConfig)
+	body, err := json.Marshal(req.GenerationConfig.ThinkingConfig)
 	require.NoError(t, err)
 	assert.Contains(t, string(body), `"thinkingLevel":"LOW"`)
 }

@@ -11,13 +11,25 @@ import {
   decodeHello,
   decodeHelloAck,
   decodeInterceptReq,
+  decodeModelInvoke,
+  decodeModelStreamEvent,
+  decodeRegisterModel,
   decodeSubscribe,
   encodeHello,
   encodeHelloAck,
   encodeInterceptReq,
+  encodeModelInvoke,
+  encodeModelStreamEvent,
+  encodeRegisterModel,
   encodeSubscribe,
 } from "../src/pxb/msg.ts";
-import { CAP_COMMANDS, CAP_TOOLS, Event, TYPE_HELLO } from "../src/pxb/types.ts";
+import {
+  CAP_COMMANDS,
+  CAP_TOOLS,
+  CONN_EXT,
+  Event,
+  TYPE_HELLO,
+} from "../src/pxb/types.ts";
 
 const TESTDATA = new URL("../../go/pxb/testdata/", import.meta.url);
 
@@ -94,5 +106,41 @@ describe("golden fixtures (byte compat with ext/go)", () => {
     assert.equal(header.id, 0);
     assert.equal(header.payload, raw.length - 16);
     assert.deepEqual(raw.subarray(16), encodeHello(decodeHello(raw.subarray(16))));
+  });
+
+  it("RegisterModel encodes to register_model.bin", () => {
+    const m = decodeRegisterModel(golden("register_model.bin"));
+    assert.equal(m.name, "echo");
+    assert.equal(m.api, "Anthropic");
+    assert.equal(m.baseUrl, "http://127.0.0.1:9");
+    assert.equal(m.apiKey, "k");
+    assert.equal(m.preset, "glm-5.3-flash");
+    assert.equal(m.contextWindow, 1000);
+    assert.equal(m.imageEnabled, true);
+    assert.equal(m.thinkEnabled, true);
+    assert.equal(m.thinkLevel, "high");
+    assert.equal(m.conn, CONN_EXT);
+    assert.deepEqual(encodeRegisterModel(m), golden("register_model.bin"));
+  });
+
+  it("ModelInvoke encodes to model_invoke.bin", () => {
+    const inv = decodeModelInvoke(golden("model_invoke.bin"));
+    assert.equal(inv.model, "echo");
+    assert.deepEqual(inv.messagesJson, Buffer.from('[{"role":"user","content":"hi"}]'));
+    assert.deepEqual(inv.toolsJson, Buffer.from('[{"name":"t"}]'));
+    assert.equal(inv.systemPrompt, "sys");
+    assert.equal(inv.think, "high");
+    assert.deepEqual(encodeModelInvoke(inv), golden("model_invoke.bin"));
+  });
+
+  it("ModelStreamEvent encodes to model_stream.bin", () => {
+    const ev = decodeModelStreamEvent(golden("model_stream.bin"));
+    assert.equal(ev.type, "delta");
+    assert.equal(ev.content, "c");
+    assert.equal(ev.reasoning, "r");
+    assert.deepEqual(ev.toolCalls, Buffer.from('[{"index":0,"id":"c1"}]'));
+    assert.deepEqual(ev.usageJson, Buffer.from('{"total_tokens":3}'));
+    assert.equal(ev.error, "");
+    assert.deepEqual(encodeModelStreamEvent(ev), golden("model_stream.bin"));
   });
 });

@@ -569,3 +569,92 @@ export function encodeSessionMeta(m: SessionMeta): Buffer {
 export function decodeSessionMeta(b: Uint8Array): SessionMeta {
   return decodeMsg(SESSION_META, b) as unknown as SessionMeta;
 }
+
+const REGISTER_MODEL = [
+  { tag: 1, kind: "string", key: "name" },
+  { tag: 2, kind: "string", key: "api" },
+  { tag: 3, kind: "string", key: "baseUrl" },
+  { tag: 4, kind: "string", key: "apiKey" },
+  { tag: 5, kind: "string", key: "preset" },
+  { tag: 6, kind: "u64", key: "contextWindow", opt: true },
+  { tag: 7, kind: "u64", key: "imageEnabled", opt: true, bool: true },
+  { tag: 8, kind: "u64", key: "thinkEnabled", opt: true, bool: true },
+  { tag: 9, kind: "string", key: "thinkLevel" },
+  // "" = direct-connect (host dials baseUrl); "ext" = extension-served.
+  { tag: 10, kind: "string", key: "conn" },
+] as const satisfies readonly FieldSpec[];
+
+/** Ext→host: advertise a model the host can switch to. */
+export interface RegisterModel {
+  name: string;
+  api: string;
+  baseUrl: string;
+  apiKey: string;
+  preset: string;
+  contextWindow: number;
+  imageEnabled: boolean;
+  thinkEnabled: boolean;
+  thinkLevel: string;
+  conn: string;
+}
+
+export function encodeRegisterModel(m: RegisterModel): Buffer {
+  return encodeMsg(REGISTER_MODEL, m);
+}
+export function decodeRegisterModel(b: Uint8Array): RegisterModel {
+  return decodeMsg(REGISTER_MODEL, b) as unknown as RegisterModel;
+}
+
+const MODEL_INVOKE = [
+  { tag: 1, kind: "string", key: "model" },
+  { tag: 2, kind: "bytes", key: "messagesJson" },
+  { tag: 3, kind: "bytes", key: "toolsJson" },
+  { tag: 4, kind: "string", key: "systemPrompt" },
+  { tag: 5, kind: "string", key: "think" },
+] as const satisfies readonly FieldSpec[];
+
+/** Host→ext chat completion for an extension-served model. The frame id
+ * correlates the stream; deltas come back as ModelStreamEvent with it. */
+export interface ModelInvoke {
+  model: string;
+  messagesJson: Uint8Array;
+  toolsJson: Uint8Array;
+  systemPrompt: string;
+  think: string;
+}
+
+export function encodeModelInvoke(m: ModelInvoke): Buffer {
+  return encodeMsg(MODEL_INVOKE, m);
+}
+export function decodeModelInvoke(b: Uint8Array): ModelInvoke {
+  return decodeMsg(MODEL_INVOKE, b) as unknown as ModelInvoke;
+}
+
+const MODEL_STREAM_EVENT = [
+  // "delta" | "done" | "error"
+  { tag: 1, kind: "string", key: "type" },
+  { tag: 2, kind: "string", key: "content" },
+  { tag: 3, kind: "string", key: "reasoning" },
+  { tag: 4, kind: "bytes", key: "toolCalls" },
+  { tag: 5, kind: "bytes", key: "usageJson" },
+  { tag: 6, kind: "string", key: "error" },
+] as const satisfies readonly FieldSpec[];
+
+/** Ext→host stream fragment for an in-flight ModelInvoke. */
+export interface ModelStreamEvent {
+  type: string;
+  content: string;
+  reasoning: string;
+  /** OpenAI-style delta fragments as JSON; empty when absent. */
+  toolCalls: Uint8Array;
+  usageJson: Uint8Array;
+  error: string;
+}
+
+export function encodeModelStreamEvent(m: ModelStreamEvent): Buffer {
+  return encodeMsg(MODEL_STREAM_EVENT, m);
+}
+export function decodeModelStreamEvent(b: Uint8Array): ModelStreamEvent {
+  return decodeMsg(MODEL_STREAM_EVENT, b) as unknown as ModelStreamEvent;
+}
+

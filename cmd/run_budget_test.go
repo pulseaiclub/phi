@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -65,10 +64,7 @@ func TestRunHeadlessRoundBudget(t *testing.T) {
 			binDir := filepath.Join(home, ".phi", "bin")
 			require.NoError(t, os.MkdirAll(binDir, 0o755))
 			for _, name := range []string{"fd", "rg"} {
-				if runtime.GOOS == "windows" {
-					name += ".exe"
-				}
-				require.NoError(t, os.WriteFile(filepath.Join(binDir, name), []byte("x"), 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(binDir, executableName(name)), []byte("x"), 0o755))
 			}
 			config := fmt.Sprintf(`models:
   - name: fake

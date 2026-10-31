@@ -6,15 +6,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pulseaiclub/sev/commitmsg"
 	"github.com/pulseaiclub/xui"
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/components/chat"
+	"github.com/pulseaiclub/phi/internal/components/listpicker"
 	"github.com/pulseaiclub/phi/internal/components/palette"
 	"github.com/pulseaiclub/phi/internal/components/toast"
-	"github.com/pulseaiclub/phi/internal/debuglog"
-	"github.com/pulseaiclub/phi/internal/optimizer"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/session/shellhist"
 	"github.com/pulseaiclub/phi/internal/tui/codepane"
@@ -54,6 +54,7 @@ type Editor struct {
 	toast      toast.Toast
 	diff       *diffpane.Pane
 	code       *codepane.Pane
+	diffList   listpicker.State
 
 	ctrl *controller.EngineController
 
@@ -87,20 +88,12 @@ func NewEditor(
 		composer: composer.NewComposerPane(theme, modelLabel, cwd),
 		footer:   footer.NewFooterChrome(theme, contextWindow),
 	}
-	// The "!" picker is inert unless optimizer features are available and a
-	// session directory exists: without either, the composer behaves exactly as
-	// before. Available() covers both the switch and the missing-credentials case,
-	// so what is left here is startup noise, not fatal — the picker stays closed,
-	// so it is logged rather than surfaced.
-	if ctrl.SessionDir() != "" && optimizer.Available() {
-		suggester, err := composer.NewJevSuggester()
-		if err != nil {
-			debuglog.Logf("composer: ! completions disabled: %v", err)
-		} else {
-			e.composer.SetBashPredictor(composer.NewBashHistoryPredictor(
-				shellhist.New(ctrl.SessionDir()), suggester,
-			))
-		}
+	commitMessages := commitmsg.New(ctrl.GenerateCommitMessage)
+	e.composer.SetBashPredictor(composer.NewBashPredictor(cwd, commitMessages.Complete))
+	// Prompt recall is opt-in: it persists what the user typed under the home
+	// directory, so it stays off until PHI_PROMPT_HISTORY turns it on.
+	if dir := ctrl.SessionDir(); dir != "" && shellhist.PromptsEnabled() {
+		e.composer.SetPromptHistory(shellhist.NewPromptHistory(dir))
 	}
 	e.transcript = transcript.NewTranscriptPane(theme, e.footer.Spinner(), "Phi "+version.Version)
 	e.transcript.SetUsageCallback(e.footer.UpdateTokenDisplay)
@@ -309,6 +302,12 @@ func (e *Editor) blocksComposer() bool {
 // both own the frame, and the one underneath would come back on the next Esc.
 func (e *Editor) openDiff(args []string) {
 	e.code.Close()
+	if len(args) == 0 {
+		e.diff.Close()
+		e.diffList = listpicker.State{}
+		e.showChanges(false)
+		return
+	}
 	e.diff.OpenGit(e.cwd, args)
 	e.captureOverlayFocus()
 }
@@ -350,7 +349,11 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 		e.captureOverlayFocus()
 		e.diff.Handle(ctx, ev)
 		if !e.diff.Active() {
-			e.composer.FocusChat()
+			if e.diff.ReturnToList() {
+				e.showChanges(true)
+			} else {
+				e.composer.FocusChat()
+			}
 		}
 		return
 	}

@@ -16,8 +16,8 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
-// newTestEditor builds the shell the way cmd does, with no engine behind it:
-// headless App, live bus, zero-value controller (SessionDir "" → no suggester).
+// newTestEditor builds the shell the way cmd does:
+// headless App, live bus, zero-value controller, and an empty session directory.
 // No vx: only fine because these paths never refresh the terminal.
 func newTestEditor(t *testing.T) *Editor {
 	t.Helper()

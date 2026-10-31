@@ -205,6 +205,9 @@ func ResolveModelDoc(m ModelDoc) (llm.ModelConfig, error) {
 		if pc.ContextWindow > 0 {
 			cfg.ContextWindow = pc.ContextWindow
 		}
+		if pc.MaxTokens > 0 {
+			cfg.MaxTokens = pc.MaxTokens
+		}
 		cfg.ImageEnabled = pc.ImageEnabled
 		if cfg.API == "" {
 			cfg.API = pc.API
@@ -213,6 +216,9 @@ func ResolveModelDoc(m ModelDoc) (llm.ModelConfig, error) {
 	}
 	if m.ContextWindow != nil && *m.ContextWindow > 0 {
 		cfg.ContextWindow = *m.ContextWindow
+	}
+	if m.MaxTokens != nil && *m.MaxTokens > 0 {
+		cfg.MaxTokens = *m.MaxTokens
 	}
 	if m.ImageEnabled != nil {
 		cfg.ImageEnabled = *m.ImageEnabled

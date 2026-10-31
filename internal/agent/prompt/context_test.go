@@ -133,6 +133,13 @@ func TestBuildIncludesContext(t *testing.T) {
 	require.Contains(t, ctx, "always use tabs")
 }
 
+func TestProjectContextUsesCwd(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "AGENTS.md"), "always use tabs")
+
+	require.Contains(t, ProjectContext(dir), "always use tabs")
+}
+
 func mustWrite(t *testing.T, path, content string) {
 	t.Helper()
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))

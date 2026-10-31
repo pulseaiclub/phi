@@ -28,6 +28,7 @@ type model struct {
 	activeTools []ext.ToolInfo   // tools is filtered by the active set
 	extTools    []tooldef.Tool   // extension tools as agent tools
 	commands    []ext.CommandEntry
+	routes      []ModelRoute // extension-registered models, extension-name order
 }
 
 // buildModelLocked snapshots the current topology. Caller holds r.mu for writing.
@@ -48,10 +49,19 @@ func (r *Runner) buildModelLocked() *model {
 	sort.Strings(m.names)
 
 	seenCmd := make(map[string]bool)
+	seenModel := make(map[string]bool)
 	for _, name := range m.names {
 		api := r.fibers[name].API()
 		if api == nil {
 			continue
+		}
+		for _, reg := range r.fibers[name].Proc().Models() {
+			// First extension to claim a model name wins, like commands.
+			if seenModel[reg.Name] {
+				continue
+			}
+			seenModel[reg.Name] = true
+			m.routes = append(m.routes, ModelRoute{Ext: name, Reg: reg})
 		}
 		for _, event := range ext.EventNames {
 			if hs := api.Handlers(event); len(hs) > 0 {

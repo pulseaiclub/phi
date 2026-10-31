@@ -13,7 +13,9 @@ import {
   decodeCommandResponse,
   decodeHello,
   decodeHostRequest,
+  decodeModelStreamEvent,
   decodeNotifyMsg,
+  decodeRegisterModel,
   decodeToolDetailResult,
   decodeToolResultMsg,
   encodeCommandInvoked,
@@ -22,6 +24,7 @@ import {
   encodeHostResult,
   encodeInterceptReq,
   encodeInterceptResp,
+  encodeModelInvoke,
   encodeSessionMeta,
   encodeToolInvoke,
   type Hello,
@@ -30,7 +33,10 @@ import {
   CAP_COMMANDS,
   CAP_EVENTS,
   CAP_INTERCEPT,
+  CAP_LARGE_FRAMES,
+  CAP_MODELS,
   CAP_TOOLS,
+  CONN_EXT,
   Event,
   FLAG_HAS_ID,
   PROTOCOL_VERSION,
@@ -43,9 +49,13 @@ import {
   TYPE_HOST_RESULT,
   TYPE_INTERCEPT,
   TYPE_INTERCEPT_RESPONSE,
+  TYPE_MODEL_CANCEL,
+  TYPE_MODEL_INVOKE,
+  TYPE_MODEL_STREAM,
   TYPE_NOTIFY,
   TYPE_READY,
   TYPE_REGISTER_COMMAND,
+  TYPE_REGISTER_MODEL,
   TYPE_REGISTER_TOOL,
   TYPE_SESSION_META,
   TYPE_SHUTDOWN,
@@ -93,6 +103,9 @@ const EMPTY_INTERCEPT_RESP = encodeInterceptResp({
  * the Go host is pinned separately in golden.test.ts. */
 class Host {
   readonly child: ChildProcess;
+  /** Registration frames (tools / commands / models / subscribe) observed
+   * during handshake, in wire order. */
+  readonly registrations: Frame[] = [];
   private readonly src: ByteSource;
   private readonly wr: Writable;
 
@@ -166,9 +179,11 @@ class Host {
     );
     for (;;) {
       const reg = await this.read();
+      this.registrations.push(reg);
       switch (reg.header.type) {
         case TYPE_REGISTER_COMMAND:
         case TYPE_REGISTER_TOOL:
+        case TYPE_REGISTER_MODEL:
         case TYPE_SUBSCRIBE:
           break;
         case TYPE_READY:
@@ -214,7 +229,7 @@ describe("sdk e2e (fake host)", () => {
       assert.equal(hello.name, "hello");
       assert.equal(hello.version, "0.1.0");
       assert.equal(hello.protocol, PROTOCOL_VERSION);
-      assert.equal(hello.caps, CAP_COMMANDS | CAP_INTERCEPT | CAP_EVENTS);
+      assert.equal(hello.caps, CAP_COMMANDS | CAP_INTERCEPT | CAP_EVENTS | CAP_LARGE_FRAMES);
 
       // Command invoke → Notify frame, then CommandResponse echoing id.
       await h.write(
@@ -301,7 +316,7 @@ describe("sdk e2e (fake host)", () => {
     try {
       const hello = await h.handshake();
       assert.equal(hello.name, "full");
-      assert.equal(hello.caps, CAP_COMMANDS | CAP_TOOLS);
+      assert.equal(hello.caps, CAP_COMMANDS | CAP_TOOLS | CAP_LARGE_FRAMES);
 
       // Command "ask" issues a confirm HostRequest (id 1), waits for the
       // HostResult, then notifies and replies with the queued submit.
@@ -613,6 +628,97 @@ describe("sdk e2e (fake host)", () => {
       await h.expectClose();
       const [code] = await once(h.child, "exit");
       assert.equal(code, 1);
+    } catch (e) {
+      h.kill();
+      throw e;
+    }
+  });
+
+  it("models extension registration and stream", async () => {
+    const h = Host.spawn("../examples/models.ts");
+    try {
+      const hello = await h.handshake();
+      assert.equal(hello.name, "models");
+      assert.equal(hello.caps, CAP_MODELS | CAP_LARGE_FRAMES);
+
+      const models = h.registrations
+        .filter((f) => f.header.type === TYPE_REGISTER_MODEL)
+        .map((f) => decodeRegisterModel(f.body));
+      assert.equal(models.length, 2);
+      const gw = models.find((mo) => mo.name === "gw")!;
+      assert.equal(gw.conn, ""); // direct-connect: the host dials baseUrl
+      assert.equal(gw.api, "Anthropic");
+      assert.equal(gw.baseUrl, "http://127.0.0.1:9");
+      assert.equal(gw.apiKey, "k");
+      assert.equal(gw.contextWindow, 42);
+      const echo = models.find((mo) => mo.name === "echo")!;
+      assert.equal(echo.conn, CONN_EXT);
+      assert.equal(echo.contextWindow, 1000);
+      assert.equal(echo.thinkEnabled, true);
+      assert.equal(echo.thinkLevel, "high");
+
+      // Served stream: deltas + usage echo the invoke id, closed by done.
+      await h.write(
+        TYPE_MODEL_INVOKE,
+        FLAG_HAS_ID,
+        5,
+        encodeModelInvoke({
+          model: "echo",
+          messagesJson: Buffer.from('[{"role":"user","content":"hi"}]'),
+          toolsJson: Buffer.from("[]"),
+          systemPrompt: "sys",
+          think: "high",
+        }),
+      );
+      let text = "";
+      let totalTokens = 0;
+      let sawDone = false;
+      for (let i = 0; i < 4; i++) {
+        const f = await h.read();
+        assert.equal(f.header.type, TYPE_MODEL_STREAM);
+        assert.equal(f.header.flags & FLAG_HAS_ID, FLAG_HAS_ID);
+        assert.equal(f.header.id, 5);
+        const ev = decodeModelStreamEvent(f.body);
+        if (ev.type === "delta") {
+          text += ev.content;
+          if (ev.usageJson.length > 0) {
+            totalTokens = (JSON.parse(ev.usageJson.toString()) as { total_tokens: number })
+              .total_tokens;
+          }
+        } else {
+          assert.equal(ev.type, "done");
+          sawDone = true;
+        }
+      }
+      assert.ok(sawDone, "stream must end with a done frame");
+      assert.equal(text, "echo: hi [think:high]");
+      assert.equal(totalTokens, 3);
+
+      // Unknown model: one error terminal frame, nothing else.
+      await h.write(
+        TYPE_MODEL_INVOKE,
+        FLAG_HAS_ID,
+        6,
+        encodeModelInvoke({
+          model: "ghost",
+          messagesJson: Buffer.from("[]"),
+          toolsJson: Buffer.from("[]"),
+          systemPrompt: "",
+          think: "",
+        }),
+      );
+      const f = await h.read();
+      assert.equal(f.header.type, TYPE_MODEL_STREAM);
+      assert.equal(f.header.id, 6);
+      const err = decodeModelStreamEvent(f.body);
+      assert.equal(err.type, "error");
+      assert.match(err.error, /unknown model ghost/);
+
+      // A cancel for an idle stream id is inert.
+      await h.write(TYPE_MODEL_CANCEL, FLAG_HAS_ID, 99, Buffer.alloc(0));
+      await h.expectSilence(150);
+
+      await h.shutdown();
     } catch (e) {
       h.kill();
       throw e;

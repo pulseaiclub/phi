@@ -2,11 +2,12 @@
 
 Rust is a **first-class language for Phi extensions** — on par with the Go SDK
 in [`ext/go`](../go). Same PXB wire protocol on stdin/stdout, same host
-features (LLM tools, slash commands, intercepts, event subscriptions, confirm
-dialogs), byte-for-byte interop, and the same install flow (`phi.yaml` + a
-binary under `~/.phi/extensions/<name>/`). The only dependencies are
-`serde`/`serde_json` at the JSON edges (tool schemas, confirm payloads) plus
-`tokio` (`rt` feature) to drive async tool handlers; the
+features (LLM tools, slash commands, model registration and serving, intercepts,
+event subscriptions, confirm dialogs), byte-for-byte interop, and the same
+install flow (`phi.yaml` + a binary under `~/.phi/extensions/<name>/`). The only
+dependencies are `serde`/`serde_json` at the JSON edges (tool schemas, model
+messages, confirm payloads) plus `tokio` (`rt` feature) to drive async tool
+handlers; the
 PXB wire codec stays hand-rolled — no reflection, no runtime protocol deps.
 
 Wire compatibility with the Go SDK is pinned byte-for-byte by golden tests
@@ -17,8 +18,8 @@ against `ext/go/pxb/testdata/*.bin` (`tests/pxb_test.rs`).
 | Path | Role |
 |------|------|
 | `src/pxb/` | Wire protocol: frames (`codec`), tagged fields (`fields`), message codecs (`msg`), types/events (`types`) |
-| `src/phi/` | Author SDK: `Extension`, `Tool`, `Command`, `Context`, `Schema` |
-| `examples/` | Runnable extensions: `hello` (commands, intercepts, subscribe), `full` (tool, confirm, submit) |
+| `src/phi/` | Author SDK: `Extension`, `Tool`, `Command`, `Model`, `Context`, `Schema` |
+| `examples/` | Runnable extensions: `hello` (commands, intercepts, subscribe), `full` (tool, confirm, submit), `models` (direct-connect + served models) |
 | `tests/` | Golden byte-compat + end-to-end fake-host tests |
 
 ## Authoring
@@ -89,6 +90,29 @@ Command handlers get a [`phi::Context`](src/phi.rs) for host interaction:
 `notify`, `set_status`, `submit`, `send_user_message`, `confirm`,
 `confirm_opts`. Commands themselves stay synchronous: their `Context` reads
 nested PXB frames off the same pipe, which only works on the loop thread.
+
+Extensions can register models the host switches to — direct-connect (the host
+dials `base_url` itself) or extension-served (each request arrives as a
+`ModelInvoke` and your handler streams deltas back):
+
+```rust,no_run
+use phi_ext::phi;
+
+m.register_model(phi::Model::direct("gw")
+    .api("Anthropic").base_url("https://gateway.example/v1").api_key("k")
+    .context_window(200_000));
+m.register_model(phi::Model::served("proxy", |req, emit| {
+    // Forward req.system_prompt / req.messages / req.think upstream; emit
+    // fragments as they arrive. Ok(()) ends with a done frame, Err fails it.
+    emit(phi::ModelEvent { content: "hi".into(), ..Default::default() })
+})
+.context_window(272_000)
+.think_enabled(true));
+```
+
+Served handlers run on the loop thread — the host's `ModelCancel` is
+best-effort and only observed between requests. See
+[doc/extensions.md](../../doc/extensions.md) for the full model contract.
 
 Build and install (a `phi.yaml` manifest must live next to the binary):
 

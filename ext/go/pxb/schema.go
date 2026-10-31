@@ -64,6 +64,63 @@ type RegisterTool struct {
 	Readable bool `pxb:"6,opt"`
 }
 
+// RegisterModel registers a model the host can switch to. Conn picks the
+// connection method: empty means direct-connect — the host dials BaseURL
+// itself with these settings, like a models[] entry in config.yaml; "ext"
+// means the extension serves each request (host sends ModelInvoke and reads
+// ModelStreamEvent frames), e.g. as a proxy. API names a wire format
+// ("OpenAI" | "OpenAIResponses" | "Anthropic" | "Gemini"); empty means
+// OpenAI-compatible /chat/completions (direct-connect only).
+type RegisterModel struct {
+	Name    string `pxb:"1"`
+	API     string `pxb:"2"`
+	BaseURL string `pxb:"3"`
+	APIKey  string `pxb:"4"`
+	// Preset binds a built-in model name for capabilities and request hooks
+	// (e.g. "glm-5.3-flash" for an opaque gateway route).
+	Preset        string `pxb:"5"`
+	ContextWindow uint32 `pxb:"6,opt"`
+	ImageEnabled  bool   `pxb:"7,opt"`
+	ThinkEnabled  bool   `pxb:"8,opt"`
+	// ThinkLevel is off|minimal|low|medium|high|xhigh|max; empty keeps the
+	// preset default.
+	ThinkLevel string `pxb:"9"`
+	// Conn is the connection method: "" direct-connect, "ext" extension-served.
+	Conn string `pxb:"10"`
+}
+
+// ModelInvoke is host→ext for one chat completion on a Conn "ext" model.
+// Messages/Tools use the session-serialization JSON shapes of llm.Message and
+// llm.ToolDefinition. The invoke frame ID correlates the ModelStreamEvent
+// stream; ModelCancel carries the same ID to best-effort stop it.
+type ModelInvoke struct {
+	Model        string `pxb:"1"`
+	MessagesJSON []byte `pxb:"2"`
+	ToolsJSON    []byte `pxb:"3"`
+	SystemPrompt string `pxb:"4"`
+	// Think is the requested think mode: off|minimal|low|medium|high|xhigh|max;
+	// empty means unset.
+	Think string `pxb:"5"`
+}
+
+// ModelStreamEvent is ext→host, one frame per stream event, each echoing the
+// ModelInvoke frame ID. Type mirrors the host StreamEventType values
+// ("delta" | "done" | "error"); a stream ends on done or error. The host
+// assembles the final assistant message from the deltas, so the extension
+// never sends a complete message.
+type ModelStreamEvent struct {
+	Type string `pxb:"1"`
+	// Delta payload: Content / Reasoning are text fragments; ToolCalls is a
+	// JSON array of OpenAI-style tool-call deltas (index + argument fragments).
+	Content   string `pxb:"2"`
+	Reasoning string `pxb:"3"`
+	ToolCalls []byte `pxb:"4"`
+	// UsageJSON is a JSON usage object; report it before or on the done frame.
+	UsageJSON []byte `pxb:"5"`
+	// Error is the failure text for Type "error".
+	Error string `pxb:"6"`
+}
+
 // ToolDetailResult is ext→host for TypeToolDetailInvoke (reuse ToolInvoke body).
 type ToolDetailResult struct {
 	Detail string `pxb:"1"`

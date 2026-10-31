@@ -31,6 +31,7 @@ type ModelDoc struct {
 	APIKey        string `yaml:"api_key,omitempty"`
 	BaseURL       string `yaml:"base_url,omitempty"`
 	ContextWindow *int   `yaml:"context_window,omitempty"`
+	MaxTokens     *int   `yaml:"max_tokens,omitempty"`
 	// ImageEnabled is a pointer so json/yaml round-trips keep "key absent"
 	// distinct from an explicit false.
 	ImageEnabled      *bool                 `yaml:"image_enabled,omitempty"`

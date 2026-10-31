@@ -9,8 +9,13 @@ pub const MAGIC: [u8; 4] = *b"PXB\x01";
 /// Fixed frame header length.
 pub const HEADER_SIZE: usize = 16;
 
-/// Maximum payload accepted from a peer (16 MiB).
+/// Default payload cap for both directions (16 MiB). Peers that negotiate
+/// `CAP_LARGE_FRAMES` may send up to [`MAX_STREAM_PAYLOAD`].
 pub const MAX_PAYLOAD: usize = 16 << 20;
+
+/// Transport ceiling for a single frame payload once large payloads are
+/// negotiated (256 MiB). Bounds allocation on the receive side.
+pub const MAX_STREAM_PAYLOAD: usize = 256 << 20;
 
 // Message types. Ext→Host are 1–99; Host→Ext are 100–199.
 // Append-only: new types take the next number in their range.
@@ -26,6 +31,8 @@ pub const TYPE_SHUTDOWN_ACK: u16 = 9;
 pub const TYPE_NOTIFY: u16 = 10;
 pub const TYPE_HOST_REQUEST: u16 = 11;
 pub const TYPE_TOOL_DETAIL_RESULT: u16 = 12;
+pub const TYPE_REGISTER_MODEL: u16 = 13; // ext→host model registration (direct-connect or served)
+pub const TYPE_MODEL_STREAM: u16 = 14; // ext→host stream event for a ModelInvoke (echoes its id)
 
 pub const TYPE_HELLO_ACK: u16 = 100;
 pub const TYPE_COMMAND_INVOKED: u16 = 101;
@@ -36,6 +43,12 @@ pub const TYPE_SHUTDOWN: u16 = 105;
 pub const TYPE_HOST_RESULT: u16 = 106;
 pub const TYPE_SESSION_META: u16 = 107;
 pub const TYPE_TOOL_DETAIL_INVOKE: u16 = 108;
+pub const TYPE_MODEL_INVOKE: u16 = 109; // host→ext chat completion on a Conn "ext" model
+pub const TYPE_MODEL_CANCEL: u16 = 110; // host→ext best-effort stop; id echoes the ModelInvoke
+
+/// Model connection methods (`RegisterModel::conn`).
+pub const CONN_DIRECT: &str = ""; // host dials base_url itself
+pub const CONN_EXT: &str = "ext"; // the extension serves each request via ModelInvoke
 
 /// Flag bits in the header.
 pub const FLAG_HAS_ID: u16 = 1 << 0; // id field is meaningful (RPC correlation)
@@ -45,6 +58,10 @@ pub const CAP_COMMANDS: u32 = 1 << 0;
 pub const CAP_TOOLS: u32 = 1 << 1;
 pub const CAP_EVENTS: u32 = 1 << 2;
 pub const CAP_INTERCEPT: u32 = 1 << 3;
+pub const CAP_MODELS: u32 = 1 << 4;
+/// The advertiser accepts single frames up to [`MAX_STREAM_PAYLOAD`], so the
+/// peer may raise its send cap above [`MAX_PAYLOAD`].
+pub const CAP_LARGE_FRAMES: u32 = 1 << 5;
 
 /// Frame types with an explicit [`Unknown`](FrameType::Unknown) arm so peers
 /// that do not understand a type still skip the frame by length.
@@ -62,6 +79,8 @@ pub enum FrameType {
     Notify,
     HostRequest,
     ToolDetailResult,
+    RegisterModel,
+    ModelStream,
     HelloAck,
     CommandInvoked,
     ToolInvoke,
@@ -71,6 +90,8 @@ pub enum FrameType {
     HostResult,
     SessionMeta,
     ToolDetailInvoke,
+    ModelInvoke,
+    ModelCancel,
     Unknown(u16),
 }
 
@@ -89,6 +110,8 @@ impl FrameType {
             TYPE_NOTIFY => Self::Notify,
             TYPE_HOST_REQUEST => Self::HostRequest,
             TYPE_TOOL_DETAIL_RESULT => Self::ToolDetailResult,
+            TYPE_REGISTER_MODEL => Self::RegisterModel,
+            TYPE_MODEL_STREAM => Self::ModelStream,
             TYPE_HELLO_ACK => Self::HelloAck,
             TYPE_COMMAND_INVOKED => Self::CommandInvoked,
             TYPE_TOOL_INVOKE => Self::ToolInvoke,
@@ -98,6 +121,8 @@ impl FrameType {
             TYPE_HOST_RESULT => Self::HostResult,
             TYPE_SESSION_META => Self::SessionMeta,
             TYPE_TOOL_DETAIL_INVOKE => Self::ToolDetailInvoke,
+            TYPE_MODEL_INVOKE => Self::ModelInvoke,
+            TYPE_MODEL_CANCEL => Self::ModelCancel,
             other => Self::Unknown(other),
         }
     }
@@ -116,6 +141,8 @@ impl FrameType {
             Self::Notify => TYPE_NOTIFY,
             Self::HostRequest => TYPE_HOST_REQUEST,
             Self::ToolDetailResult => TYPE_TOOL_DETAIL_RESULT,
+            Self::RegisterModel => TYPE_REGISTER_MODEL,
+            Self::ModelStream => TYPE_MODEL_STREAM,
             Self::HelloAck => TYPE_HELLO_ACK,
             Self::CommandInvoked => TYPE_COMMAND_INVOKED,
             Self::ToolInvoke => TYPE_TOOL_INVOKE,
@@ -125,6 +152,8 @@ impl FrameType {
             Self::HostResult => TYPE_HOST_RESULT,
             Self::SessionMeta => TYPE_SESSION_META,
             Self::ToolDetailInvoke => TYPE_TOOL_DETAIL_INVOKE,
+            Self::ModelInvoke => TYPE_MODEL_INVOKE,
+            Self::ModelCancel => TYPE_MODEL_CANCEL,
             Self::Unknown(v) => v,
         }
     }
@@ -256,6 +285,9 @@ mod tests {
     #[test]
     fn frame_type_roundtrip() {
         for v in 1..=19 {
+            assert_eq!(FrameType::from_u16(v).code(), v);
+        }
+        for v in 100..=110 {
             assert_eq!(FrameType::from_u16(v).code(), v);
         }
         assert_eq!(FrameType::from_u16(999), FrameType::Unknown(999));

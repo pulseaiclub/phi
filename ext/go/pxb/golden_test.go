@@ -46,6 +46,25 @@ func TestWriteGoldenFixtures(t *testing.T) {
 	})
 	write("subscribe.bin", sub)
 
+	reg := pxb.EncodeRegisterModel(pxb.RegisterModel{
+		Name: "echo", API: "Anthropic", BaseURL: "http://127.0.0.1:9", APIKey: "k",
+		Preset: "glm-5.3-flash", ContextWindow: 1000, ImageEnabled: true,
+		ThinkEnabled: true, ThinkLevel: "high", Conn: pxb.ConnExt,
+	})
+	write("register_model.bin", reg)
+
+	inv := pxb.EncodeModelInvoke(pxb.ModelInvoke{
+		Model: "echo", MessagesJSON: []byte(`[{"role":"user","content":"hi"}]`),
+		ToolsJSON: []byte(`[{"name":"t"}]`), SystemPrompt: "sys", Think: "high",
+	})
+	write("model_invoke.bin", inv)
+
+	stream := pxb.EncodeModelStreamEvent(pxb.ModelStreamEvent{
+		Type: "delta", Content: "c", Reasoning: "r",
+		ToolCalls: []byte(`[{"index":0,"id":"c1"}]`), UsageJSON: []byte(`{"total_tokens":3}`),
+	})
+	write("model_stream.bin", stream)
+
 	frame := append([]byte(nil), make([]byte, pxb.HeaderSize)...)
 	pxb.EncodeHeader(frame, pxb.Header{Type: pxb.TypeHello, Flags: 0, ID: 0, Payload: uint32(len(hello))})
 	frame = append(frame[:pxb.HeaderSize], hello...)
@@ -73,4 +92,12 @@ func TestGoldenFixturesDecode(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "bash", ix.ToolName)
 	require.JSONEq(t, `{"command":"ls"}`, string(ix.Input))
+
+	regRaw, err := os.ReadFile(filepath.Join(dir, "register_model.bin"))
+	require.NoError(t, err)
+	reg, err := pxb.DecodeRegisterModel(regRaw)
+	require.NoError(t, err)
+	require.Equal(t, "echo", reg.Name)
+	require.Equal(t, pxb.ConnExt, reg.Conn)
+	require.Equal(t, uint32(1000), reg.ContextWindow)
 }

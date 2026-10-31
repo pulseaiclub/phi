@@ -67,6 +67,33 @@ func TestAgentToolsSpawnWaitForcesDepthAndParent(t *testing.T) {
 	assert.Equal(t, "explore: d", waitRes.Detail)
 }
 
+func TestAgentWaitPreservesFullSummary(t *testing.T) {
+	// Important conclusions can appear after the former 12,000-byte cutoff.
+	summary := strings.Repeat("分析结果：保留完整上下文。\n", 2000) + "Final conclusion: fix the root cause.\n"
+	_, reg := newAgentTestRegistry(t, func(_ context.Context, _ job.RunEnv) (string, error) {
+		return summary, nil
+	})
+	spawnRes, err := reg["agent_spawn"].Run(t.Context(), json.RawMessage(`{"prompt":"investigate"}`))
+	require.NoError(t, err)
+	var spawned struct {
+		JobID string `json:"job_id"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(spawnRes.Content), &spawned))
+	waitArgs, err := json.Marshal(map[string]any{"job_id": spawned.JobID})
+	require.NoError(t, err)
+	res, err := reg["agent_wait"].Run(t.Context(), waitArgs)
+	require.NoError(t, err)
+	var out struct {
+		Status  string `json:"status"`
+		Summary string `json:"summary"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(res.Content), &out))
+	assert.Equal(t, "completed", out.Status)
+	assert.Equal(t, summary, out.Summary)
+	assert.Equal(t, res.Content, res.Output)
+	assert.Equal(t, strings.TrimSpace(summary), agenttool.ParseAgentResult(res.Output).RenderableSummary())
+}
+
 func TestAgentToolsSpawnRoleWorker(t *testing.T) {
 	_, reg := newAgentTestRegistry(t, func(_ context.Context, env job.RunEnv) (string, error) {
 		assert.Equal(t, job.RoleWorker, env.Job.Role)

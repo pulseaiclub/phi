@@ -15,6 +15,8 @@ func TestModelAliasesInheritCapabilitiesWithoutChangingIdentity(t *testing.T) {
 			"vendor/" + original.Config.Name,
 			"gateway/vendor/" + original.Config.Name + ":free",
 			original.Config.Name + "-20250901",
+			original.Config.Name + "-1017",
+			"vendor/route/" + original.Config.Name + "-1017:free",
 		} {
 			t.Run(name, func(t *testing.T) {
 				p, ok := Lookup(name)
@@ -31,7 +33,11 @@ func TestModelAliasesInheritCapabilitiesWithoutChangingIdentity(t *testing.T) {
 }
 
 func TestModelAliasBoundariesAndSpecificity(t *testing.T) {
-	for _, name := range []string{"notglm-5.3", "glm-5.30", "glm-5.3-unknown", "deepseek-flashy", "group/auto-kimi-k30"} {
+	for _, name := range []string{
+		"notglm-5.3", "glm-5.30", "glm-5.3-unknown", "deepseek-flashy", "group/auto-kimi-k30",
+		// A numeric build suffix is four digits exactly; other counts stay unknown.
+		"deepseek-v4.1-flash-101", "deepseek-v4.1-flash-10170", "glm-5.3-1017x",
+	} {
 		_, ok := Lookup(name)
 		assert.False(t, ok, name)
 	}
@@ -44,6 +50,17 @@ func TestModelAliasBoundariesAndSpecificity(t *testing.T) {
 	p, ok := Lookup("clinepass/cline-pass/deepseek-v4.1-flash")
 	require.True(t, ok)
 	assert.True(t, p.Config.ImageEnabled)
+
+	// Routes that pin a build with a four-digit suffix keep the family preset.
+	for _, name := range []string{
+		"cline/cline-pass/deepseek-v4.1-flash-1017",
+		"tokenrhythm/deepseek-v4.1-flash-1017",
+	} {
+		p, ok := Lookup(name)
+		require.True(t, ok, name)
+		assert.Equal(t, name, p.Config.Name)
+		assert.Equal(t, 384_000, p.Config.MaxTokens, name)
+	}
 }
 
 func TestModelAliasPrefersModelOverRoutePrefix(t *testing.T) {

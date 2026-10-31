@@ -2,73 +2,67 @@ package composer
 
 import (
 	"context"
+	"strings"
+	"sync"
 
-	"github.com/pulseaiclub/phi/internal/llm/jev"
-	"github.com/pulseaiclub/phi/internal/optimizer"
-	"github.com/pulseaiclub/phi/internal/optimizer/suggest"
-	"github.com/pulseaiclub/phi/internal/session/shellhist"
+	"github.com/pulseaiclub/sev"
+
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
-// BashHistoryPredictor ranks "!" completions from the project shell history.
-// shellhist owns reading and caching history.jsonl; suggest owns candidate
-// selection and the Jev judgement; this type is only the seam between them and
-// the composer's predictor interface.
-type BashHistoryPredictor struct {
-	store     *shellhist.Store
-	suggester *suggest.Suggester
+// SevBashPredictor completes "!" text using command specs and dynamic arguments.
+// The working directory is fixed when the composer is constructed.
+type SevBashPredictor struct {
+	cwd    string
+	engine func() (*sev.Engine, error)
 }
 
-// NewBashHistoryPredictor combines a project history store with a Jev-backed
-// suggester. A nil store or suggester leaves the predictor inert: Predict then
-// reports no completions instead of panicking, so a caller can install it
-// unconditionally.
-func NewBashHistoryPredictor(store *shellhist.Store, suggester *suggest.Suggester) *BashHistoryPredictor {
-	return &BashHistoryPredictor{store: store, suggester: suggester}
+// NewBashPredictor defers loading command specs until the first query, so engine
+// initialization errors travel through Predict without blocking editor startup.
+func NewBashPredictor(cwd string, hook sev.CompletionHook) *SevBashPredictor {
+	return &SevBashPredictor{
+		cwd: cwd,
+		engine: sync.OnceValues(func() (*sev.Engine, error) {
+			return sev.New(sev.Options{
+				Limit: bashSuggestVisible, DisableHistory: true, CompletionHook: hook,
+			})
+		}),
+	}
 }
 
-// NewJevSuggester builds a suggester over the TypeSafe System One backend.
-// An unset TYPESAFE_API_KEY fails here, and the caller leaves the predictor
-// unwired: without a judge the "!" picker stays closed.
-func NewJevSuggester() (*suggest.Suggester, error) {
-	client, err := jev.NewClient(jev.Config{})
-	if err != nil {
+// Predict preserves shell syntax in both the query and the engine's full-line
+// completions. Only an identical result has nothing left to complete.
+func (p *SevBashPredictor) Predict(ctx context.Context, typed string) ([]controller.BashSuggestion, error) {
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	backend, err := optimizer.NewJevBackend(client)
-	if err != nil {
-		return nil, err
-	}
-	return suggest.New(backend)
-}
-
-// Predict ranks the project history against the typed text. A missing or
-// unreadable history is an empty one: completions degrade to Jev-less silence
-// instead of reporting an error the user cannot act on.
-func (p *BashHistoryPredictor) Predict(ctx context.Context, typed string) ([]controller.BashSuggestion, error) {
-	if p == nil || p.store == nil || p.suggester == nil {
+	if strings.TrimSpace(typed) == "" {
 		return nil, nil
 	}
-	history, err := p.store.Commands()
-	if err != nil {
-		history = nil
-	}
-	result, err := p.suggester.Suggest(ctx, typed, history)
+	engine, err := p.engine()
 	if err != nil {
 		return nil, err
 	}
-	// The picker lists a ranking, not one answer: the judge already ordered the
-	// candidates and Shortlist decides which of them cleared the gates.
-	ranked := p.suggester.Shortlist(result, bashSuggestVisible)
-	if len(ranked) == 0 {
-		return nil, nil
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	items := make([]controller.BashSuggestion, 0, len(ranked))
-	for _, suggestion := range ranked {
+	matches, err := engine.Complete(ctx, sev.Request{Line: typed, Cwd: p.cwd})
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	items := make([]controller.BashSuggestion, 0, len(matches))
+	for _, item := range matches {
+		if item.Text == typed {
+			continue
+		}
 		items = append(items, controller.BashSuggestion{
-			Command:  suggestion.Command,
-			Score:    suggestion.Score,
-			IsPrefix: suggestion.IsPrefix,
+			Command:     item.Text,
+			Description: item.Desc,
+			Score:       item.Score,
+			IsPrefix:    strings.HasPrefix(item.Text, typed),
 		})
 	}
 	return items, nil

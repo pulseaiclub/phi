@@ -20,6 +20,9 @@ type (
 	// topology mutations (load / unload / reload).
 	Runner = core.Runner
 
+	// ModelRoute is one extension-registered model and the extension serving it.
+	ModelRoute = core.ModelRoute
+
 	// BusUI publishes extension UI effects onto host callbacks.
 	BusUI = ui.BusUI
 )

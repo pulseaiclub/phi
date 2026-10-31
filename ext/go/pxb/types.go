@@ -4,13 +4,31 @@ package pxb
 const ProtocolVersion uint16 = 1
 
 // Frame magic: P X B + version byte.
-var Magic = [4]byte{'P', 'X', 'B', 0x01}
+var magic = [4]byte{'P', 'X', 'B', 0x01}
 
 // HeaderSize is the fixed frame header length.
 const HeaderSize = 16
 
-// Maximum payload accepted from a peer (16 MiB).
+// MaxPayload is the default payload cap for both directions (16 MiB). Peers
+// that negotiate CapLargeFrames may send up to MaxStreamPayload.
 const MaxPayload = 16 << 20
+
+// MaxStreamPayload is the transport ceiling for a single frame payload once
+// large payloads are negotiated (256 MiB). It bounds allocation on the receive
+// side; a history that big is already far past compaction.
+const MaxStreamPayload = 256 << 20
+
+// Capability bits advertised in Hello.
+const (
+	CapCommands uint32 = 1 << 0
+	CapTools    uint32 = 1 << 1
+	CapEvents   uint32 = 1 << 2
+	// CapLargeFrames: the advertiser accepts single frames up to
+	// MaxStreamPayload, so the peer may raise its send cap above MaxPayload.
+	CapLargeFrames uint32 = 1 << 5
+	CapIntercept   uint32 = 1 << 3
+	CapModels      uint32 = 1 << 4
+)
 
 // Message types. Ext→Host are 1–99; Host→Ext are 100–199.
 const (
@@ -26,6 +44,8 @@ const (
 	TypeNotify            uint16 = 10
 	TypeHostRequest       uint16 = 11 // ext→host RPC (send_user_message, …)
 	TypeToolDetailResult  uint16 = 12 // ext→host reply to TypeToolDetailInvoke
+	TypeRegisterModel     uint16 = 13 // ext→host model registration (direct-connect or ext-served)
+	TypeModelStream       uint16 = 14 // ext→host stream event for a ModelInvoke (echoes its frame ID)
 
 	TypeHelloAck         uint16 = 100
 	TypeCommandInvoked   uint16 = 101
@@ -36,19 +56,19 @@ const (
 	TypeHostResult       uint16 = 106 // host→ext reply to TypeHostRequest
 	TypeSessionMeta      uint16 = 107 // host→ext session/cwd push
 	TypeToolDetailInvoke uint16 = 108 // host→ext DetailFromArgs
+	TypeModelInvoke      uint16 = 109 // host→ext chat completion on a Conn "ext" model
+	TypeModelCancel      uint16 = 110 // host→ext best-effort stop; ID echoes the ModelInvoke
+)
+
+// Model connection methods (RegisterModel.Conn).
+const (
+	ConnDirect string = ""    // host dials BaseURL itself
+	ConnExt    string = "ext" // extension serves each request via ModelInvoke
 )
 
 // Flag bits in the header.
 const (
 	FlagHasID uint16 = 1 << 0 // id field is meaningful (RPC correlation)
-)
-
-// Capability bits advertised in Hello.
-const (
-	CapCommands  uint32 = 1 << 0
-	CapTools     uint32 = 1 << 1
-	CapEvents    uint32 = 1 << 2
-	CapIntercept uint32 = 1 << 3
 )
 
 // Event name codes (compact on the wire; strings only at SDK edges).

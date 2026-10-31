@@ -141,8 +141,9 @@ func TestApplyBudgetThinking(t *testing.T) {
 	t.Run("disabled", func(t *testing.T) {
 		var req GeminiRequest
 		req.ApplyBudgetThinking(llm.ThinkConfig{})
-		require.NotNil(t, req.ThinkingConfig)
-		body, err := json.Marshal(req.ThinkingConfig)
+		require.NotNil(t, req.GenerationConfig)
+		require.NotNil(t, req.GenerationConfig.ThinkingConfig)
+		body, err := json.Marshal(req.GenerationConfig.ThinkingConfig)
 		require.NoError(t, err)
 		assert.Contains(t, string(body), `"thinkingBudget":0`)
 	})
@@ -159,7 +160,8 @@ func TestApplyBudgetThinking(t *testing.T) {
 			t.Run(string(tc.mode), func(t *testing.T) {
 				var req GeminiRequest
 				req.ApplyBudgetThinking(llm.ThinkConfig{Enabled: true, Mode: tc.mode})
-				body, err := json.Marshal(req.ThinkingConfig)
+				require.NotNil(t, req.GenerationConfig)
+				body, err := json.Marshal(req.GenerationConfig.ThinkingConfig)
 				require.NoError(t, err)
 				assert.Contains(t, string(body), tc.want)
 			})
@@ -181,7 +183,8 @@ func TestApplyLevelThinking(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				var req GeminiRequest
 				req.ApplyLevelThinking(llm.ThinkConfig{}, tc.off)
-				body, err := json.Marshal(req.ThinkingConfig)
+				require.NotNil(t, req.GenerationConfig)
+				body, err := json.Marshal(req.GenerationConfig.ThinkingConfig)
 				require.NoError(t, err)
 				assert.Contains(t, string(body), tc.want)
 			})
@@ -199,7 +202,8 @@ func TestApplyLevelThinking(t *testing.T) {
 			t.Run(string(tc.mode), func(t *testing.T) {
 				var req GeminiRequest
 				req.ApplyLevelThinking(llm.ThinkConfig{Enabled: true, Mode: tc.mode}, "MINIMAL")
-				body, err := json.Marshal(req.ThinkingConfig)
+				require.NotNil(t, req.GenerationConfig)
+				body, err := json.Marshal(req.GenerationConfig.ThinkingConfig)
 				require.NoError(t, err)
 				assert.Contains(t, string(body), tc.want)
 			})

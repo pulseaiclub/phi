@@ -6,8 +6,10 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/mention"
 )
 
-func questionShortcutItems() []mention.Item {
-	return []mention.Item{
+// questionShortcutItems lists `?` help rows. promptRecall adds the Up/Down
+// recall keys, which do nothing unless prompt history is enabled.
+func questionShortcutItems(promptRecall bool) []mention.Item {
+	items := []mention.Item{
 		{Path: "/", Description: "slash commands"},
 		{Path: "!", Description: "shell commands"},
 		{Path: "@", Description: "mention files"},
@@ -21,6 +23,12 @@ func questionShortcutItems() []mention.Item {
 		{Path: "Shift+Enter", Description: "newline"},
 		{Path: "Ctrl+Shift+C", Description: "copy message"},
 	}
+	if promptRecall {
+		items = append(items,
+			mention.Item{Path: "Up/Down, Ctrl+P/Ctrl+N", Description: "recall recent prompts"},
+		)
+	}
+	return items
 }
 
 func filterQuestionItems(query string, all []mention.Item) []mention.Item {

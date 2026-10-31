@@ -20,6 +20,7 @@ const configDocFixture = `models:
     api_key: key-a
     base_url: https://a.example/v1
     context_window: 1000
+    max_tokens: 900
     image_enabled: true
     default: true
   - name: model-b
@@ -78,6 +79,7 @@ func TestConfigDocRoundTripThroughLoader(t *testing.T) {
 	assert.Equal(t, "model-a", loaded.Model().Name)
 	assert.Equal(t, "new-key", loaded.Model().APIKey)
 	assert.Equal(t, 1000, loaded.Model().ContextWindow)
+	assert.Equal(t, 900, loaded.Model().MaxTokens, "max_tokens survives an editor save")
 	assert.True(t, loaded.Model().ImageEnabled)
 	assert.Equal(t, "readonly", string(loaded.Permissions.Mode))
 	assert.True(t, loaded.Permissions.DangerouslyAllowAll)

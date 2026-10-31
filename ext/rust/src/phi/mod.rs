@@ -1,8 +1,9 @@
 //! Author-facing SDK for a Phi PXB extension binary — a Rust port of
 //! `ext/go/phi`.
 //!
-//! Build an [`Extension`], register tools / slash commands / event handlers,
-//! then call [`Extension::run`] to speak PXB on stdin/stdout until shutdown:
+//! Build an [`Extension`], register tools / slash commands / models / event
+//! handlers, then call [`Extension::run`] to speak PXB on stdin/stdout until
+//! shutdown:
 //!
 //! ```no_run
 //! use phi_ext::{phi, pxb};
@@ -32,6 +33,15 @@ use std::io;
 use std::pin::Pin;
 
 pub use crate::pxb::Error;
+
+// Everything reachable through a public field must be nameable here: `model`
+// stays private, so this list is the whole surface (e.g. `Usage` carries
+// `Option<PromptTokensDetails>`).
+mod model;
+pub use model::{
+    ChatMessage, FunctionSpec, MessageImage, Model, ModelEvent, ModelRequest, ModelTool,
+    PromptTokensDetails, StreamFn, StreamResult, ToolCallSpec, Usage,
+};
 
 mod schema;
 pub use schema::Schema;
@@ -345,6 +355,7 @@ struct ServeState<'a> {
     host: HostInfo,
     tools: Vec<Tool>,
     commands: Vec<(String, Command)>,
+    models: Vec<Model>,
     handlers: Handlers,
     pending_submit: Option<String>,
     next_host_id: u32,
@@ -358,6 +369,7 @@ pub struct Extension {
     version: String,
     tools: Vec<Tool>,
     commands: Vec<(String, Command)>,
+    models: Vec<Model>,
     events: Vec<pxb::Event>,
     intercept: Vec<pxb::Event>,
     handlers: Handlers,
@@ -372,6 +384,7 @@ impl Extension {
             version: version.into(),
             tools: Vec::new(),
             commands: Vec::new(),
+            models: Vec::new(),
             events: Vec::new(),
             intercept: Vec::new(),
             handlers: Handlers::default(),
@@ -391,6 +404,21 @@ impl Extension {
         if !name.is_empty() && !self.commands.iter().any(|(n, _)| *n == name) {
             self.commands.push((name, cmd));
         }
+    }
+
+    /// Adds a model the host can switch to. Direct-connect models
+    /// ([`CONN_DIRECT`](pxb::CONN_DIRECT)) need a `base_url` at the host
+    /// level; served models ([`CONN_EXT`](pxb::CONN_EXT)) must carry a stream
+    /// handler — build them with [`Model::served`]. Invalid models are
+    /// dropped, mirroring the Go SDK.
+    pub fn register_model(&mut self, model: Model) {
+        if model.name.is_empty()
+            || (model.conn != pxb::CONN_DIRECT && model.conn != pxb::CONN_EXT)
+            || (model.conn == pxb::CONN_EXT && model.stream.is_none())
+        {
+            return;
+        }
+        self.models.push(model);
     }
 
     /// Registers a pre-gate tool_call intercept.
@@ -476,6 +504,7 @@ impl Extension {
         let Extension {
             tools,
             commands,
+            models,
             handlers,
             ..
         } = self;
@@ -485,6 +514,7 @@ impl Extension {
             host,
             tools,
             commands,
+            models,
             handlers,
             pending_submit: None,
             next_host_id: 0,
@@ -510,6 +540,12 @@ fn handshake(rd: &mut Rd, wr: &mut Wr, ext: &Extension) -> Result<HostInfo, Erro
     if !ext.intercept.is_empty() {
         caps |= pxb::CAP_INTERCEPT;
     }
+    if !ext.models.is_empty() {
+        caps |= pxb::CAP_MODELS;
+    }
+    // Unconditional: this SDK's reader accepts frames up to MAX_STREAM_PAYLOAD,
+    // letting the host send full ModelInvoke histories past the 16 MiB default.
+    caps |= pxb::CAP_LARGE_FRAMES;
 
     let hello = pxb::Hello {
         name: ext.name.clone(),
@@ -559,6 +595,22 @@ fn register(wr: &mut Wr, ext: &Extension) -> Result<(), Error> {
         .encode();
         pxb::write_frame(wr, pxb::TYPE_REGISTER_COMMAND, 0, 0, &body)?;
     }
+    for model in &ext.models {
+        let body = pxb::RegisterModel {
+            name: model.name.clone(),
+            api: model.api.clone(),
+            base_url: model.base_url.clone(),
+            api_key: model.api_key.clone(),
+            preset: model.preset.clone(),
+            context_window: model.context_window,
+            image_enabled: model.image_enabled,
+            think_enabled: model.think_enabled,
+            think_level: model.think_level.clone(),
+            conn: model.conn.clone(),
+        }
+        .encode();
+        pxb::write_frame(wr, pxb::TYPE_REGISTER_MODEL, 0, 0, &body)?;
+    }
     if !ext.events.is_empty() || !ext.intercept.is_empty() {
         let body = pxb::Subscribe {
             events: ext.events.iter().map(|e| e.code()).collect(),
@@ -589,6 +641,10 @@ fn serve(state: &mut ServeState<'_>) -> Result<(), Error> {
             pxb::FrameType::CommandInvoked => serve_command(state, &f)?,
             pxb::FrameType::ToolInvoke => serve_tool(state.wr, &f, &mut state.tools, state.rt)?,
             pxb::FrameType::ToolDetailInvoke => serve_tool_detail(state.wr, &f, &mut state.tools)?,
+            pxb::FrameType::ModelInvoke => serve_model(state.wr, &f, &mut state.models)?,
+            // Cancel is best-effort: streams run on the loop thread, so a
+            // ModelCancel is only read once its stream has already ended.
+            pxb::FrameType::ModelCancel => {}
             pxb::FrameType::Intercept => serve_intercept(state.wr, &f, &mut state.handlers)?,
             pxb::FrameType::Event => {
                 if let Ok(ev) = pxb::EventNotify::decode(&f.body) {
@@ -712,6 +768,92 @@ fn serve_tool_detail(wr: &mut Wr, frame: &pxb::Frame, tools: &mut [Tool]) -> Res
         &body,
     )?;
     Ok(())
+}
+
+/// Serves one chat completion on a `CONN_EXT` model: the handler emits delta
+/// frames echoing the invoke id, and its return value picks the terminal
+/// done / error frame. Streams run on the loop thread (the host waits for
+/// them anyway), so a ModelCancel that arrives mid-stream is only observed
+/// after the stream ends — cancellation stays best-effort, as on the host.
+fn serve_model(wr: &mut Wr, frame: &pxb::Frame, models: &mut [Model]) -> Result<(), Error> {
+    let inv = pxb::ModelInvoke::decode(&frame.body)?;
+    let (flags, id) = (frame.header.flags, frame.header.id);
+    if flags & pxb::FLAG_HAS_ID == 0 {
+        return Ok(()); // cannot correlate a stream without the invoke id
+    }
+    let served = models
+        .iter_mut()
+        .find(|m| m.name == inv.model && m.conn == pxb::CONN_EXT)
+        .and_then(|m| m.stream.as_mut());
+    let result = match served {
+        Some(stream) => match build_model_request(&inv) {
+            Ok(req) => {
+                let mut emit = |ev: ModelEvent| -> StreamResult {
+                    let body = delta_body(&ev)?;
+                    pxb::write_frame(wr, pxb::TYPE_MODEL_STREAM, flags, id, &body)
+                        .map_err(|e| e.to_string())
+                };
+                stream(req, &mut emit)
+            }
+            Err(e) => Err(e),
+        },
+        None => Err(format!("unknown model {}", inv.model)),
+    };
+    let terminal = match result {
+        Ok(()) => pxb::ModelStreamEvent {
+            type_: "done".into(),
+            ..Default::default()
+        },
+        Err(e) => pxb::ModelStreamEvent {
+            type_: "error".into(),
+            error: e,
+            ..Default::default()
+        },
+    };
+    let body = terminal.encode();
+    pxb::write_frame(wr, pxb::TYPE_MODEL_STREAM, flags, id, &body)
+}
+
+/// Decodes the neutral request payload. Malformed JSON fails the stream
+/// instead of handing the handler silent empties (mirrors Go's
+/// `buildModelRequest`).
+fn build_model_request(inv: &pxb::ModelInvoke) -> Result<ModelRequest, String> {
+    Ok(ModelRequest {
+        model: inv.model.clone(),
+        think: inv.think.clone(),
+        system_prompt: inv.system_prompt.clone(),
+        messages: decode_json(&inv.messages_json, "decode model messages")?,
+        tools: decode_json(&inv.tools_json, "decode model tools")?,
+    })
+}
+
+/// Empty JSON stays an empty vec, matching Go's nil-skip on unmarshal.
+fn decode_json<T: serde::de::DeserializeOwned>(
+    raw: &[u8],
+    context: &str,
+) -> Result<Vec<T>, String> {
+    if raw.is_empty() {
+        return Ok(Vec::new());
+    }
+    serde_json::from_slice(raw).map_err(|e| format!("{context}: {e}"))
+}
+
+/// Packs one [`ModelEvent`] into a delta `ModelStreamEvent` frame body.
+fn delta_body(ev: &ModelEvent) -> Result<Vec<u8>, String> {
+    let mut frame = pxb::ModelStreamEvent {
+        type_: "delta".into(),
+        content: ev.content.clone(),
+        reasoning: ev.reasoning.clone(),
+        ..Default::default()
+    };
+    if !ev.tool_calls.is_empty() {
+        frame.tool_calls = serde_json::to_vec(&ev.tool_calls)
+            .map_err(|e| format!("encode tool-call deltas: {e}"))?;
+    }
+    if let Some(usage) = &ev.usage {
+        frame.usage_json = serde_json::to_vec(usage).map_err(|e| format!("encode usage: {e}"))?;
+    }
+    Ok(frame.encode())
 }
 
 /// Replies to one intercept request with the registered handler's result.
@@ -1008,7 +1150,9 @@ impl Context<'_> {
             | pxb::FrameType::ToolDetailInvoke
             | pxb::FrameType::Intercept
             | pxb::FrameType::Event
-            | pxb::FrameType::SessionMeta => {
+            | pxb::FrameType::SessionMeta
+            | pxb::FrameType::ModelInvoke
+            | pxb::FrameType::ModelCancel => {
                 if let Err(error) = self.inbox.defer(f) {
                     self.inbox.terminal = Some(Err(error));
                     return Some(ConfirmReply::default());

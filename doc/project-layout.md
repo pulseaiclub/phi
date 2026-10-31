@@ -9,6 +9,7 @@
 | `internal/agent/prompt/` | System prompt templates + Skills/MCP catalogs    |
 | `internal/components/`   | TUI widgets (chat, input, palette, mention, diffview, codeview, …) |
 | `internal/llm/`          | LLM clients (OpenAI-compatible + Anthropic + Gemini), streaming, skills |
+| `internal/llm/extmodel/` | Extension-served model connection adapted to `llm.ChatClient` |
 | `internal/project/`      | Workspace layout and config                    |
 | `internal/project/model/` | Built-in model presets + request interceptors |
 | `internal/session/`      | Session persistence, load/apply                |

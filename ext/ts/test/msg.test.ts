@@ -14,8 +14,11 @@ import type {
   HostResult,
   InterceptReq,
   InterceptResp,
+  ModelInvoke,
+  ModelStreamEvent,
   NotifyMsg,
   RegisterCommand,
+  RegisterModel,
   RegisterTool,
   SessionMeta,
   Subscribe,
@@ -33,8 +36,11 @@ import {
   decodeHostResult,
   decodeInterceptReq,
   decodeInterceptResp,
+  decodeModelInvoke,
+  decodeModelStreamEvent,
   decodeNotifyMsg,
   decodeRegisterCommand,
+  decodeRegisterModel,
   decodeRegisterTool,
   decodeSessionMeta,
   decodeSubscribe,
@@ -50,8 +56,11 @@ import {
   encodeHostResult,
   encodeInterceptReq,
   encodeInterceptResp,
+  encodeModelInvoke,
+  encodeModelStreamEvent,
   encodeNotifyMsg,
   encodeRegisterCommand,
+  encodeRegisterModel,
   encodeRegisterTool,
   encodeSessionMeta,
   encodeSubscribe,
@@ -172,6 +181,33 @@ describe("messages", () => {
     });
     roundtrip<HostResult>(encodeHostResult, decodeHostResult, { ok: true, error: "", body: "b" });
     roundtrip<SessionMeta>(encodeSessionMeta, decodeSessionMeta, { sessionId: "s2", cwd: "/x" });
+    roundtrip<RegisterModel>(encodeRegisterModel, decodeRegisterModel, {
+      name: "echo",
+      api: "Anthropic",
+      baseUrl: "http://127.0.0.1:9",
+      apiKey: "k",
+      preset: "glm-5.3-flash",
+      contextWindow: 1000,
+      imageEnabled: true,
+      thinkEnabled: true,
+      thinkLevel: "high",
+      conn: "ext",
+    });
+    roundtrip<ModelInvoke>(encodeModelInvoke, decodeModelInvoke, {
+      model: "echo",
+      messagesJson: Buffer.from('[{"role":"user","content":"hi"}]'),
+      toolsJson: Buffer.from('[{"name":"t"}]'),
+      systemPrompt: "sys",
+      think: "high",
+    });
+    roundtrip<ModelStreamEvent>(encodeModelStreamEvent, decodeModelStreamEvent, {
+      type: "delta",
+      content: "c",
+      reasoning: "r",
+      toolCalls: Buffer.from('[{"index":0,"id":"c1"}]'),
+      usageJson: Buffer.from('{"total_tokens":3}'),
+      error: "",
+    });
   });
 
   it("omits opt zeros and empty values on the wire", () => {
@@ -180,6 +216,16 @@ describe("messages", () => {
     assert.deepEqual(
       encodeRegisterCommand({ name: "hi", description: "", needsArgs: false }),
       Buffer.from([1, 0, 2, 2, 0, 0, 0, 0x68, 0x69]),
+    );
+    // RegisterModel: opt zeros (contextWindow/imageEnabled/thinkEnabled) and
+    // empty strings all drop — name + conn:"" keep only tag 1 on the wire.
+    assert.deepEqual(
+      encodeRegisterModel({
+        name: "gw", api: "", baseUrl: "", apiKey: "", preset: "",
+        contextWindow: 0, imageEnabled: false, thinkEnabled: false,
+        thinkLevel: "", conn: "",
+      }),
+      Buffer.from([1, 0, 2, 2, 0, 0, 0, 0x67, 0x77]),
     );
   });
 

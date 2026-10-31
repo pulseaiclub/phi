@@ -12,19 +12,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/llm"
 )
 
-func TestListSessionsExcludesShellHistory(t *testing.T) {
-	dir := t.TempDir()
-	// Valid headers ensure reserved names are excluded regardless of their contents.
-	for _, name := range []string{"history.jsonl", "history.1.jsonl", "20260922_real.jsonl"} {
-		data := []byte(`{"type":"session","id":"real","cwd":"/project"}` + "\n")
-		require.NoError(t, os.WriteFile(filepath.Join(dir, name), data, 0o600))
-	}
-	items, err := ListSessions(dir)
-	require.NoError(t, err)
-	require.Len(t, items, 1)
-	assert.Equal(t, filepath.Join(dir, "20260922_real.jsonl"), items[0].File)
-}
-
 func TestSessionPersistRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
@@ -282,8 +269,6 @@ func TestDeleteSession(t *testing.T) {
 
 	gone := write("deadbeef00001111")
 	_ = write("abcdef1234567890")
-	hist := filepath.Join(dir, "history.jsonl")
-	require.NoError(t, os.WriteFile(hist, []byte("{}\n"), 0o644))
 
 	// Exact id.
 	require.NoError(t, DeleteSession(dir, "deadbeef00001111"))
@@ -295,13 +280,6 @@ func TestDeleteSession(t *testing.T) {
 	list, err := ListSessions(dir)
 	require.NoError(t, err)
 	assert.Empty(t, list)
-
-	// Reserved shell-history files survive even when named directly.
-	err = DeleteSession(dir, "history.jsonl")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "reserved")
-	_, err = os.Stat(hist)
-	require.NoError(t, err)
 
 	// Unknown id is an error, not a silent no-op.
 	err = DeleteSession(dir, "abcdef1234567890")

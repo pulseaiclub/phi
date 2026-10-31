@@ -16,14 +16,17 @@ import {
   decodeHelloAck,
   decodeHostResult,
   decodeInterceptReq,
+  decodeModelInvoke,
   decodeSessionMeta,
   decodeToolInvoke,
   encodeCommandResponse,
   encodeHello,
   encodeHostRequest,
   encodeInterceptResp,
+  encodeModelStreamEvent,
   encodeNotifyMsg,
   encodeRegisterCommand,
+  encodeRegisterModel,
   encodeRegisterTool,
   encodeSubscribe,
   encodeToolDetailResult,
@@ -32,13 +35,19 @@ import {
   type EventNotify,
   type InterceptReq,
   type InterceptResp,
+  type ModelInvoke,
+  type ModelStreamEvent,
   type ToolResultMsg,
 } from "../pxb/msg.ts";
 import {
   CAP_COMMANDS,
   CAP_EVENTS,
   CAP_INTERCEPT,
+  CAP_LARGE_FRAMES,
+  CAP_MODELS,
   CAP_TOOLS,
+  CONN_DIRECT,
+  CONN_EXT,
   Event,
   FLAG_HAS_ID,
   MAX_PAYLOAD,
@@ -52,9 +61,13 @@ import {
   TYPE_HOST_RESULT,
   TYPE_INTERCEPT,
   TYPE_INTERCEPT_RESPONSE,
+  TYPE_MODEL_CANCEL,
+  TYPE_MODEL_INVOKE,
+  TYPE_MODEL_STREAM,
   TYPE_NOTIFY,
   TYPE_READY,
   TYPE_REGISTER_COMMAND,
+  TYPE_REGISTER_MODEL,
   TYPE_REGISTER_TOOL,
   TYPE_SESSION_META,
   TYPE_SHUTDOWN,
@@ -66,6 +79,13 @@ import {
   TYPE_TOOL_RESULT,
 } from "../pxb/types.ts";
 import { schemaBytes, type SchemaInput } from "./schema.ts";
+import {
+  type ChatMessage,
+  type Model,
+  type ModelEvent,
+  type ModelRequest,
+  type ModelTool,
+} from "./model.ts";
 import type { Writable } from "node:stream";
 
 /** Host metadata filled by the hello handshake (and refreshed by
@@ -259,6 +279,9 @@ interface Runtime {
   inbox: Frame[];
   inboxBytes: number;
   inboxWaiter: (() => void) | null;
+  /** In-flight served-model streams, invoke frame id → cancel handle. The
+   * pump aborts these when the host sends ModelCancel. */
+  activeStreams: Map<number, AbortController>;
   /** True while the serve loop is inside a dispatch (Rust: the loop is not
    * at a read point, so a shutdown must queue behind the in-flight reply). */
   draining: boolean;
@@ -273,6 +296,7 @@ interface Registry {
   version: string;
   tools: Tool[];
   commands: Map<string, Command>;
+  models: Model[];
   eventCodes: number[];
   interceptCodes: number[];
   eventHandlers: Map<number, EventSink>;
@@ -297,6 +321,7 @@ export class Extension {
       version,
       tools: [],
       commands: new Map(),
+      models: [],
       eventCodes: [],
       interceptCodes: [],
       eventHandlers: new Map(),
@@ -318,6 +343,21 @@ export class Extension {
     if (name !== "" && !this.reg.commands.has(name)) {
       this.reg.commands.set(name, cmd);
     }
+    return this;
+  }
+
+  /** Adds a model the host can switch to. Invalid registrations are ignored:
+   * empty name, unknown conn, or `conn: "ext"` without a stream handler.
+   * Direct-connect models need `baseUrl` (the host dials it). */
+  registerModel(m: Model): this {
+    const conn = m.conn ?? "";
+    if (m.name === "" || (conn !== CONN_DIRECT && conn !== CONN_EXT)) {
+      return this;
+    }
+    if (conn === CONN_EXT && !m.stream) {
+      return this;
+    }
+    this.reg.models.push(m);
     return this;
   }
 
@@ -393,6 +433,7 @@ export class Extension {
       inbox: [],
       inboxBytes: 0,
       inboxWaiter: null,
+      activeStreams: new Map(),
       draining: false,
       terminal: null,
     };
@@ -423,6 +464,10 @@ async function handshake(reg: Registry, rt: Runtime): Promise<void> {
   if (reg.tools.length > 0) caps |= CAP_TOOLS;
   if (reg.eventCodes.length > 0) caps |= CAP_EVENTS;
   if (reg.interceptCodes.length > 0) caps |= CAP_INTERCEPT;
+  if (reg.models.length > 0) caps |= CAP_MODELS;
+  // Unconditional: this SDK's reader accepts frames up to MAX_STREAM_PAYLOAD,
+  // letting the host send full ModelInvoke histories past the 16 MiB default.
+  caps |= CAP_LARGE_FRAMES;
 
   const hello = encodeHello({
     name: reg.name,
@@ -465,6 +510,21 @@ async function register(reg: Registry, rt: Runtime): Promise<void> {
       needsArgs: cmd.needsArgs ?? false,
     });
     await writeFrame(rt.out, TYPE_REGISTER_COMMAND, 0, 0, body);
+  }
+  for (const m of reg.models) {
+    const body = encodeRegisterModel({
+      name: m.name,
+      api: m.api ?? "",
+      baseUrl: m.baseUrl ?? "",
+      apiKey: m.apiKey ?? "",
+      preset: m.preset ?? "",
+      contextWindow: m.contextWindow ?? 0,
+      imageEnabled: m.imageEnabled ?? false,
+      thinkEnabled: m.thinkEnabled ?? false,
+      thinkLevel: m.thinkLevel ?? "",
+      conn: m.conn ?? "",
+    });
+    await writeFrame(rt.out, TYPE_REGISTER_MODEL, 0, 0, body);
   }
   if (reg.eventCodes.length > 0 || reg.interceptCodes.length > 0) {
     const body = encodeSubscribe({ events: reg.eventCodes, intercept: reg.interceptCodes });
@@ -521,12 +581,21 @@ function route(rt: Runtime, f: Frame): void {
     defer(rt, f); // the serve loop acks after the current reply
     return;
   }
+  if (type === TYPE_MODEL_CANCEL) {
+    // Cooperative cancel: abort the in-flight stream if one is running. A
+    // cancel for an idle id is inert — the host already stopped waiting.
+    if ((flags & FLAG_HAS_ID) !== 0) {
+      rt.activeStreams.get(id)?.abort();
+    }
+    return;
+  }
   switch (type) {
     case TYPE_COMMAND_INVOKED:
     case TYPE_TOOL_INVOKE:
     case TYPE_TOOL_DETAIL_INVOKE:
     case TYPE_INTERCEPT:
     case TYPE_EVENT:
+    case TYPE_MODEL_INVOKE:
     case TYPE_SESSION_META:
       defer(rt, f);
       return;
@@ -624,6 +693,8 @@ async function dispatch(reg: Registry, rt: Runtime, f: Frame): Promise<void> {
       return serveToolDetail(reg, rt, f);
     case TYPE_INTERCEPT:
       return serveIntercept(reg, rt, f);
+    case TYPE_MODEL_INVOKE:
+      return serveModel(reg, rt, f);
     case TYPE_EVENT:
       return serveEvent(reg, f);
     case TYPE_SESSION_META:
@@ -736,6 +807,103 @@ async function serveIntercept(reg: Registry, rt: Runtime, frame: Frame): Promise
     frame.header.id,
     encodeInterceptResp(resp),
   );
+}
+
+/** Runs one served-model stream: decode the invoke, call the handler with an
+ * emit callback, and close with a done / error terminal frame keyed by the
+ * invoke id. The pump keeps reading meanwhile, so a host ModelCancel aborts
+ * the handler's signal mid-stream (like Go's ctx, unlike the Rust loop). */
+async function serveModel(reg: Registry, rt: Runtime, frame: Frame): Promise<void> {
+  const inv = decodeModelInvoke(frame.body);
+  const { flags, id } = frame.header;
+  if ((flags & FLAG_HAS_ID) === 0) {
+    return; // the host cannot correlate an unkeyed stream
+  }
+  const writeEvent = (ev: ModelStreamEvent): Promise<void> =>
+    writeFrame(rt.out, TYPE_MODEL_STREAM, flags, id, encodeModelStreamEvent(ev));
+  try {
+    const model = reg.models.find(
+      (m) => m.name === inv.model && (m.conn ?? "") === CONN_EXT && m.stream,
+    );
+    if (!model || !model.stream) {
+      throw new Error(`unknown model ${inv.model}`);
+    }
+    const req = buildModelRequest(inv);
+    const ac = new AbortController();
+    rt.activeStreams.set(id, ac);
+    try {
+      const emit = async (ev: ModelEvent): Promise<void> => {
+        await writeEvent(deltaEvent(ev));
+      };
+      await model.stream(req, emit, ac.signal);
+    } finally {
+      rt.activeStreams.delete(id);
+    }
+    await writeEvent({
+      type: "done",
+      content: "",
+      reasoning: "",
+      toolCalls: EMPTY_BYTES,
+      usageJson: EMPTY_BYTES,
+      error: "",
+    });
+  } catch (e) {
+    await writeEvent({
+      type: "error",
+      content: "",
+      reasoning: "",
+      toolCalls: EMPTY_BYTES,
+      usageJson: EMPTY_BYTES,
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
+}
+
+const EMPTY_BYTES = new Uint8Array(0);
+
+/** Decodes a ModelInvoke into the author-facing request. Malformed JSON
+ * rejects with a prefixed message that surfaces in the error frame. */
+function buildModelRequest(inv: ModelInvoke): ModelRequest {
+  return {
+    model: inv.model,
+    systemPrompt: inv.systemPrompt,
+    messages: parseJsonArray(inv.messagesJson, "decode model messages") as ChatMessage[],
+    tools: parseJsonArray(inv.toolsJson, "decode model tools") as ModelTool[],
+    think: inv.think,
+  };
+}
+
+function parseJsonArray(raw: Uint8Array, what: string): unknown[] {
+  if (raw.length === 0) {
+    return [];
+  }
+  let v: unknown;
+  try {
+    v = JSON.parse(Buffer.from(raw).toString("utf8"));
+  } catch (e) {
+    throw new Error(`${what}: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  if (!Array.isArray(v)) {
+    throw new Error(`${what}: expected a JSON array`);
+  }
+  return v;
+}
+
+/** Packs one author event into a delta wire frame. tool_calls and usage are
+ * forwarded as JSON with the host's own key shapes. */
+function deltaEvent(ev: ModelEvent): ModelStreamEvent {
+  return {
+    type: "delta",
+    content: ev.content ?? "",
+    reasoning: ev.reasoning ?? "",
+    toolCalls: ev.toolCalls && ev.toolCalls.length > 0 ? jsonBytes(ev.toolCalls) : EMPTY_BYTES,
+    usageJson: ev.usage ? jsonBytes(ev.usage) : EMPTY_BYTES,
+    error: "",
+  };
+}
+
+function jsonBytes(v: unknown): Buffer {
+  return Buffer.from(JSON.stringify(v));
 }
 
 /** Dispatches one intercept request to the registered handler. A missing

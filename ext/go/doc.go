@@ -5,6 +5,7 @@
 //
 //	m := phi.New("greet", "1.0.0")
 //	m.RegisterTool(...)
+//	m.RegisterModel(ext.Model{Name: "proxy", Conn: ext.ConnExt, Stream: ...})
 //	m.Run()
 //
 // Ship a phi.yaml next to the binary under ~/.phi/extensions/<name>/.

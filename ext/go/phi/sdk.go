@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"sync"
@@ -21,8 +22,12 @@ type ExtensionAPI struct {
 	mu        sync.Mutex
 	tools     []toolReg
 	commands  []cmdReg
+	models    []ext.Model
 	events    []uint16
 	intercept []uint16
+	// activeModels cancels in-flight model streams when the host sends
+	// TypeModelCancel; the invoke frame ID is the key.
+	activeModels map[uint32]context.CancelFunc
 
 	onToolCall            func(ext.ToolCallEvent) *ext.ToolCallResult
 	onToolResult          func(ext.ToolResultEvent) *ext.ToolResultResult
@@ -64,10 +69,29 @@ type HelloInfo struct {
 // New constructs a module.
 func New(name, version string) *ExtensionAPI {
 	return &ExtensionAPI{
-		Name:    name,
-		Version: version,
-		onEvent: make(map[uint16]func(pxb.EventNotify)),
+		Name:         name,
+		Version:      version,
+		onEvent:      make(map[uint16]func(pxb.EventNotify)),
+		activeModels: make(map[uint32]context.CancelFunc),
 	}
+}
+
+// RegisterModel adds a model the host can switch to. Direct-connect models
+// (Conn "") must set BaseURL; ConnExt models must set Stream. Invalid models
+// are dropped like empty tools.
+func (extension *ExtensionAPI) RegisterModel(m ext.Model) {
+	if m.Name == "" {
+		return
+	}
+	if m.Conn == ext.ConnExt && m.Stream == nil {
+		return
+	}
+	if m.Conn != ext.ConnDirect && m.Conn != ext.ConnExt {
+		return
+	}
+	extension.mu.Lock()
+	defer extension.mu.Unlock()
+	extension.models = append(extension.models, m)
 }
 
 // Host returns metadata from the host handshake.
@@ -248,7 +272,7 @@ func (extension *ExtensionAPI) ConfirmOpts(req ext.ConfirmRequest) ext.ConfirmRe
 			extension.mu.Unlock()
 			panic(confirmStopped{})
 		case pxb.TypeToolInvoke, pxb.TypeToolDetailInvoke, pxb.TypeCommandInvoked, pxb.TypeIntercept,
-			pxb.TypeEvent, pxb.TypeSessionMeta:
+			pxb.TypeEvent, pxb.TypeSessionMeta, pxb.TypeModelInvoke, pxb.TypeModelCancel:
 			if len(extension.deferred) >= maxDeferredFrames || len(body) > maxDeferredBytes-extension.deferredBytes {
 				extension.fail(errors.New("phi: confirmation deferred request queue is full"))
 				panic(confirmStopped{})
@@ -284,7 +308,10 @@ func (extension *ExtensionAPI) run(r io.Reader, w io.Writer) (err error) {
 	extension.wr = pxb.NewWriter(w)
 	extension.rd = pxb.NewReader(r)
 
-	caps := uint32(0)
+	// CapLargeFrames is unconditional: this SDK's reader accepts frames up to
+	// MaxStreamPayload, letting the host send full ModelInvoke histories past
+	// the 16 MiB default. Hosts that predate the bit keep the old cap.
+	caps := pxb.CapLargeFrames
 	extension.mu.Lock()
 	if len(extension.commands) > 0 {
 		caps |= pxb.CapCommands
@@ -297,6 +324,9 @@ func (extension *ExtensionAPI) run(r io.Reader, w io.Writer) (err error) {
 	}
 	if len(extension.intercept) > 0 {
 		caps |= pxb.CapIntercept
+	}
+	if len(extension.models) > 0 {
+		caps |= pxb.CapModels
 	}
 	hello := pxb.EncodeHello(pxb.Hello{
 		Name: extension.Name, Version: extension.Version, Caps: caps, Protocol: pxb.ProtocolVersion,
@@ -325,6 +355,7 @@ func (extension *ExtensionAPI) run(r io.Reader, w io.Writer) (err error) {
 	}
 	tools := append([]toolReg(nil), extension.tools...)
 	cmds := append([]cmdReg(nil), extension.commands...)
+	models := append([]ext.Model(nil), extension.models...)
 	events := append([]uint16(nil), extension.events...)
 	intercept := append([]uint16(nil), extension.intercept...)
 	extension.mu.Unlock()
@@ -352,6 +383,21 @@ func (extension *ExtensionAPI) run(r io.Reader, w io.Writer) (err error) {
 			return err
 		}
 	}
+	for _, m := range models {
+		reg := pxb.RegisterModel{
+			Name: m.Name, API: m.API, BaseURL: m.BaseURL, APIKey: m.APIKey,
+			Preset: m.Preset, ThinkLevel: m.ThinkLevel, Conn: m.Conn,
+		}
+		if m.ContextWindow > 0 {
+			reg.ContextWindow = uint32(m.ContextWindow) //nolint:gosec // G115: author-supplied token count
+		}
+		reg.ImageEnabled = m.ImageEnabled
+		reg.ThinkEnabled = m.ThinkEnabled
+		body := pxb.EncodeRegisterModel(reg)
+		if err := extension.wr.Write(pxb.TypeRegisterModel, 0, 0, body); err != nil {
+			return err
+		}
+	}
 	if len(events) > 0 || len(intercept) > 0 {
 		body := pxb.EncodeSubscribe(pxb.Subscribe{Events: events, Intercept: intercept})
 		if err := extension.wr.Write(pxb.TypeSubscribe, 0, 0, body); err != nil {
@@ -370,13 +416,21 @@ func (extension *ExtensionAPI) run(r io.Reader, w io.Writer) (err error) {
 	for _, c := range cmds {
 		cmdByName[c.name] = c.def
 	}
+	modelByName := make(map[string]ext.Model, len(models))
+	for _, m := range models {
+		if m.Conn == ext.ConnExt {
+			modelByName[m.Name] = m
+		}
+	}
 
+	// Bodies are consumed synchronously within each case and never outlive
+	// the iteration, so fr.Body (which aliases the reader buffer) is used
+	// directly — no per-frame copy. ModelInvoke decodes before its goroutine.
 	for !extension.stopped() {
 		fr, err := extension.nextFrame()
 		if err != nil {
 			return err
 		}
-		body := pxb.CloneBody(fr)
 		switch fr.Type {
 		case pxb.TypeShutdown:
 			extension.write(pxb.TypeShutdownAck, 0, 0, nil)
@@ -384,7 +438,7 @@ func (extension *ExtensionAPI) run(r io.Reader, w io.Writer) (err error) {
 			extension.shutdown = true
 			extension.mu.Unlock()
 		case pxb.TypeCommandInvoked:
-			inv, err := pxb.DecodeCommandInvoked(body)
+			inv, err := pxb.DecodeCommandInvoked(fr.Body)
 			if err != nil {
 				return err
 			}
@@ -409,7 +463,7 @@ func (extension *ExtensionAPI) run(r io.Reader, w io.Writer) (err error) {
 			extension.mu.Unlock()
 			extension.write(pxb.TypeCommandResponse, fr.Flags, fr.ID, pxb.EncodeCommandResponse(resp))
 		case pxb.TypeToolInvoke:
-			inv, err := pxb.DecodeToolInvoke(body)
+			inv, err := pxb.DecodeToolInvoke(fr.Body)
 			if err != nil {
 				return err
 			}
@@ -429,7 +483,7 @@ func (extension *ExtensionAPI) run(r io.Reader, w io.Writer) (err error) {
 			}
 			extension.write(pxb.TypeToolResult, fr.Flags, fr.ID, pxb.EncodeToolResult(tr))
 		case pxb.TypeToolDetailInvoke:
-			inv, err := pxb.DecodeToolInvoke(body)
+			inv, err := pxb.DecodeToolInvoke(fr.Body)
 			if err != nil {
 				return err
 			}
@@ -443,15 +497,52 @@ func (extension *ExtensionAPI) run(r io.Reader, w io.Writer) (err error) {
 				fr.ID,
 				pxb.EncodeToolDetailResult(pxb.ToolDetailResult{Detail: detail}),
 			)
+		case pxb.TypeModelInvoke:
+			inv, err := pxb.DecodeModelInvoke(fr.Body)
+			if err != nil {
+				return err
+			}
+			if fr.Flags&pxb.FlagHasID == 0 {
+				continue // cannot correlate a stream without the invoke id
+			}
+			extension.mu.Lock()
+			ctx, cancel := context.WithCancel(context.Background())
+			m, known := modelByName[inv.Model]
+			if known {
+				extension.activeModels[fr.ID] = cancel
+			}
+			extension.mu.Unlock()
+			if !known {
+				extension.write(pxb.TypeModelStream, fr.Flags, fr.ID, pxb.EncodeModelStreamEvent(pxb.ModelStreamEvent{
+					Type: "error", Error: "unknown model " + inv.Model,
+				}))
+				cancel()
+				continue
+			}
+			// Stream handlers run off the read loop: the host may invoke while
+			// other RPCs queue, and ModelCancel frames must stay readable.
+			// Only the header fields cross over — fr.Body is stale once the
+			// loop reads again.
+			go func() {
+				defer cancel()
+				extension.runModelStream(ctx, fr.Flags, fr.ID, m, inv)
+			}()
+		case pxb.TypeModelCancel:
+			extension.mu.Lock()
+			if cancel, ok := extension.activeModels[fr.ID]; ok {
+				delete(extension.activeModels, fr.ID)
+				cancel()
+			}
+			extension.mu.Unlock()
 		case pxb.TypeIntercept:
-			req, err := pxb.DecodeInterceptReq(body)
+			req, err := pxb.DecodeInterceptReq(fr.Body)
 			if err != nil {
 				return err
 			}
 			resp := extension.handleIntercept(req)
 			extension.write(pxb.TypeInterceptResponse, fr.Flags, fr.ID, pxb.EncodeInterceptResp(resp))
 		case pxb.TypeEvent:
-			ev, err := pxb.DecodeEventNotify(body)
+			ev, err := pxb.DecodeEventNotify(fr.Body)
 			if err != nil {
 				return err
 			}
@@ -462,7 +553,7 @@ func (extension *ExtensionAPI) run(r io.Reader, w io.Writer) (err error) {
 				fn(ev)
 			}
 		case pxb.TypeSessionMeta:
-			meta, err := pxb.DecodeSessionMeta(body)
+			meta, err := pxb.DecodeSessionMeta(fr.Body)
 			if err != nil {
 				return err
 			}
@@ -479,6 +570,77 @@ func (extension *ExtensionAPI) run(r io.Reader, w io.Writer) (err error) {
 	extension.mu.Lock()
 	defer extension.mu.Unlock()
 	return extension.writeErr
+}
+
+// runModelStream drives one Model.Stream call on its own goroutine: emits map
+// to ModelStreamEvent frames echoing the invoke ID, and the return value picks
+// the terminal done/error frame. It takes the frame header fields, not the
+// Frame: the body aliases the reader buffer and is stale by the time the
+// goroutine runs.
+func (extension *ExtensionAPI) runModelStream(
+	ctx context.Context,
+	flags uint16,
+	id uint32,
+	m ext.Model,
+	inv pxb.ModelInvoke,
+) {
+	defer func() {
+		extension.mu.Lock()
+		delete(extension.activeModels, id)
+		extension.mu.Unlock()
+	}()
+	req, err := buildModelRequest(inv)
+	if err != nil {
+		extension.write(pxb.TypeModelStream, flags, id,
+			pxb.EncodeModelStreamEvent(pxb.ModelStreamEvent{Type: "error", Error: err.Error()}))
+		return
+	}
+	emit := func(ev ext.ModelEvent) error {
+		frame := pxb.ModelStreamEvent{Type: "delta", Content: ev.Content, Reasoning: ev.Reasoning}
+		if len(ev.ToolCalls) > 0 {
+			b, err := json.Marshal(ev.ToolCalls)
+			if err != nil {
+				return err
+			}
+			frame.ToolCalls = b
+		}
+		if ev.Usage != nil {
+			b, err := json.Marshal(ev.Usage)
+			if err != nil {
+				return err
+			}
+			frame.UsageJSON = b
+		}
+		extension.write(pxb.TypeModelStream, flags, id, pxb.EncodeModelStreamEvent(frame))
+		if extension.stopped() {
+			return errors.New("phi: host connection closed")
+		}
+		return nil
+	}
+	if serr := m.Stream(ctx, req, emit); serr != nil {
+		extension.write(pxb.TypeModelStream, flags, id,
+			pxb.EncodeModelStreamEvent(pxb.ModelStreamEvent{Type: "error", Error: serr.Error()}))
+		return
+	}
+	extension.write(pxb.TypeModelStream, flags, id,
+		pxb.EncodeModelStreamEvent(pxb.ModelStreamEvent{Type: "done"}))
+}
+
+// buildModelRequest decodes the neutral request payload. Malformed JSON fails
+// the stream instead of handing the handler silent empties.
+func buildModelRequest(inv pxb.ModelInvoke) (ext.ModelRequest, error) {
+	req := ext.ModelRequest{Model: inv.Model, Think: inv.Think, SystemPrompt: inv.SystemPrompt}
+	if len(inv.MessagesJSON) > 0 {
+		if err := json.Unmarshal(inv.MessagesJSON, &req.Messages); err != nil {
+			return req, fmt.Errorf("decode model messages: %w", err)
+		}
+	}
+	if len(inv.ToolsJSON) > 0 {
+		if err := json.Unmarshal(inv.ToolsJSON, &req.Tools); err != nil {
+			return req, fmt.Errorf("decode model tools: %w", err)
+		}
+	}
+	return req, nil
 }
 
 func (extension *ExtensionAPI) handleIntercept(req pxb.InterceptReq) pxb.InterceptResp {

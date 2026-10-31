@@ -190,6 +190,29 @@ func (p *Picker) SetItems(items []Item) {
 	p.refilter()
 }
 
+// State keeps a caller's place when a detail view temporarily replaces the list.
+type State struct {
+	Query      string
+	SelectedID string
+}
+
+func (p *Picker) State() State {
+	item, _ := p.selectedItem()
+	return State{Query: p.Query, SelectedID: item.ID}
+}
+
+func (p *Picker) Restore(state State) {
+	p.Query = state.Query
+	p.Cursor = len(p.Query)
+	p.refilter()
+	for i, hit := range p.filtered {
+		if p.rows()[hit.index].ID == state.SelectedID {
+			p.Selected = i
+			break
+		}
+	}
+}
+
 func (p *Picker) returnFocus(ctx *components.EventContext) {
 	if p.FocusReturn != nil {
 		ctx.RequestFocus(p.FocusReturn)
@@ -670,7 +693,7 @@ func (p *Picker) drawPrompt(panel *components.Surface, ctx components.DrawContex
 	if p.confirming {
 		// The filter is frozen while a delete is pending; its line becomes the
 		// destructive question so no extra row is needed in the box layout.
-		msg := layout.TruncateToWidth(p.cfg.ConfirmMessage, max(boxW-3, 1), ctx.Method)
+		msg := components.TruncateToWidth(p.cfg.ConfirmMessage, max(boxW-3, 1), ctx.Method)
 		panel.Print(1, y, msg, th.Destructive, ctx.Method)
 		return
 	}
@@ -686,7 +709,7 @@ func (p *Picker) drawPrompt(panel *components.Surface, ctx components.DrawContex
 	if placeholder {
 		st = th.Muted
 	}
-	panel.Print(3, y, layout.TruncateToWidth(q, avail, ctx.Method), st, ctx.Method)
+	panel.Print(3, y, components.TruncateToWidth(q, avail, ctx.Method), st, ctx.Method)
 	if !placeholder {
 		curCol := xui.StringWidth(p.Query[:min(p.Cursor, len(p.Query))], ctx.Method)
 		curCol = max(min(curCol, avail-1), 0)
@@ -712,7 +735,7 @@ func (p *Picker) drawRows(
 			}
 			msg = strings.ReplaceAll(pattern, "%q", strconv.Quote(q))
 		}
-		panel.Print(2, listY, layout.TruncateToWidth(msg, boxW-3, ctx.Method), th.Muted, ctx.Method)
+		panel.Print(2, listY, components.TruncateToWidth(msg, boxW-3, ctx.Method), th.Muted, ctx.Method)
 		return
 	}
 	for i := range visible {
@@ -756,13 +779,13 @@ func (p *Picker) drawRow(
 
 	x := 2
 	if item.Leading != "" {
-		panel.Print(x, y, layout.TruncateToWidth(item.Leading, leadW, ctx.Method), muted, ctx.Method)
+		panel.Print(x, y, components.TruncateToWidth(item.Leading, leadW, ctx.Method), muted, ctx.Method)
 	}
 	x += leadW
 
 	idSt := base
 	idSt.Bold = true
-	panel.Print(x, y, layout.TruncateToWidth(item.Primary, primW, ctx.Method), idSt, ctx.Method)
+	panel.Print(x, y, components.TruncateToWidth(item.Primary, primW, ctx.Method), idSt, ctx.Method)
 	x += primW + 2
 
 	if item.Badge != "" {
@@ -780,7 +803,7 @@ func (p *Picker) drawRow(
 		detail = "—"
 	}
 	avail := max(boxW-1-x, 1)
-	panel.Print(x, y, layout.TruncateToWidth(detail, avail, ctx.Method), base, ctx.Method)
+	panel.Print(x, y, components.TruncateToWidth(detail, avail, ctx.Method), base, ctx.Method)
 }
 
 func (p *Picker) drawHint(
@@ -806,5 +829,5 @@ func (p *Picker) drawHint(
 	y := boxH - 1
 	w := xui.StringWidth(hint, ctx.Method)
 	x := max((boxW-w)/2, 1)
-	panel.Print(x, y, layout.TruncateToWidth(hint, boxW-2, ctx.Method), th.Muted, ctx.Method)
+	panel.Print(x, y, components.TruncateToWidth(hint, boxW-2, ctx.Method), th.Muted, ctx.Method)
 }

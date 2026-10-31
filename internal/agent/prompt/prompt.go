@@ -60,7 +60,7 @@ func Build(cwd string, skillPaths []string, agentsEnabled bool, maxConcurrent in
 		panic(fmt.Sprintf("system prompt: %v", err))
 	}
 	parts := []string{buf.String()}
-	if ctx := formatProjectContext(loadProjectContextFiles(cwd, phiAgentDir())); ctx != "" {
+	if ctx := ProjectContext(cwd); ctx != "" {
 		parts = append(parts, ctx)
 	}
 	if skillBlock := skillsBlock(skillPaths); skillBlock != "" {

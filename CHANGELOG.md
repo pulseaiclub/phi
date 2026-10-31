@@ -14,6 +14,161 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   to the model context for the next turn. The transcript row is marked `· ctx`;
   a resumed session keeps the row instead of replaying it as a user message.
 
+### Fixed
+
+<!-- Released section -->
+<!-- Don't change this section unless doing release -->
+
+## [0.29.4] - 2026-10-30
+
+### Added
+
+- Shell: `!!cmd` runs the command locally like `!cmd` but also adds its output
+  to the model context for the next turn. The transcript row is marked `· ctx`;
+  a resumed session keeps the row instead of replaying it as a user message.
+
+### Fixed
+
+- TUI: long bash commands now wrap in full, with continuation lines aligned to
+  the command. Wrapping follows the available width only, so command chains are
+  no longer split after `&&`, `||` and pipes — that broke arguments mid-token
+  and misread quoted or substituted shell constructs. Sub-agent commands keep
+  their tree guide and use readable foreground text.
+- Sub-agent tool guidance now recommends waiting with only `job_id`, which
+  waits until completion and returns as soon as the result is ready, to avoid
+  repeated short waits caused by guessing task durations.
+- Terminal: upgrade xui to v0.1.9 to correctly detect synchronized output,
+  preventing input cursor flicker during animated redraws on supported terminals.
+- Models: IDs that pin a build with a four-digit suffix, such as
+  `deepseek-v4.1-flash-1017`, now match their preset instead of falling back to
+  generic defaults (no thinking, no context window, the default output limit).
+
+## [0.29.3] - 2026-10-27
+
+### Added
+
+- AI commit-message completion in `!git commit -m` uses sev's optional completion
+  hook with the staged diff and recent commit subjects; `-am` includes tracked
+  working-tree changes. Phi supplies model generation and repository rules. Suggestions use
+  the current model and fill the input for review before execution. An empty
+  index shows a staging hint instead of silently hiding completion.
+- Shell completion uses sev's command specs, flags, paths, and Git arguments,
+  with descriptions and fuzzy fallback. It works without command history.
+  The former `history.jsonl` shell-history reader, writer, and cache are removed;
+  prompt recall and session transcripts are unchanged.
+- Models: `max_tokens` sets a model's output limit. Compaction summaries use it
+  as their cap; models without it use 16384. Built-in presets for GPT-6 Astra,
+  GPT-5.6, DeepSeek V4, Kimi K3 and GLM-5.3 include their limits. See
+  [doc/models.md](doc/models.md#output-limit).
+
+### Fixed
+
+- MCP: `tools/list` is followed across pages, so a server that splits its
+  tools and returns `nextCursor` no longer loses every tool after the first
+  page. Those tools used to be reported as "not found" by `read`, `write` and
+  `ls` on `mcp://` even though the server exposed them. A server that repeats a
+  cursor, or never stops paginating, now fails with an explicit error instead of
+  hanging.
+- Windows: starting phi from a shell whose working directory is set through
+  the Win32 extended-path prefix (`\\?\C:\...`) no longer crashes at startup.
+  The per-directory session storage strips the prefix instead of building a
+  file name containing `?`, which Windows rejects; sessions for the same
+  directory keep connecting to their existing files. Extended UNC paths
+  (`\\?\UNC\server\share`) also retain the ordinary UNC session directory name,
+  including when the `UNC` marker uses lowercase or mixed case.
+- `grep` prints each file path once with compact line references, merges
+  overlapping context without repeating lines, and only reports a match-limit
+  truncation when additional matches exist.
+- `agent_wait` returns the complete sub-agent final summary instead of cutting
+  it off at 12,000 bytes, so the parent receives conclusions at the end of long
+  results. Child transcripts remain in the job logs.
+- Auto-compaction no longer saves a summary that finishes after the turn was
+  cancelled or after new messages landed while it was being written; the
+  history stays intact and compaction reports a failure instead.
+- When compaction cannot recover a context overflow, the error now also says
+  why (for example, the summary hit its token cap) instead of showing only the
+  provider's "prompt is too long".
+- Auto-compaction on long sessions with reasoning models (for example
+  DeepSeek with thinking on) no longer fails with "generation hit the token
+  cap" every few rounds. The summary output cap was 0.8 × `reserveTokens`
+  (13107), which reasoning and the ever-growing summary shared. Summaries now
+  use the model's output limit, clamped so the prompt and output fit the
+  context window, and `reserveTokens` only decides when compaction starts.
+
+## [0.29.2] - 2026-10-25
+
+### Added
+
+- Extensions can receive `ModelInvoke` frames past the 16 MiB default payload
+  cap. The Go, Rust, and TS SDKs advertise `CapLargeFrames` in the hello
+  handshake; the host then raises its send cap to `MaxStreamPayload`
+  (256 MiB), so long sessions no longer fail an ext-served model request once
+  the serialized conversation history outgrows the old limit. Extensions that
+  predate the capability keep the 16 MiB cap and fail exactly as before.
+- `/diff` opens the same searchable picker as `/branch`, showing each changed
+  file once with its modification type. Select a file to review its complete
+  changes relative to HEAD; new files are shown as additions. Escape returns
+  to the refreshed list with the filter and selection preserved. Review notes
+  are retained for each file.
+
+### Fixed
+
+- Diffs generated for file edits (`util.GenerateDiffString`) now treat a
+  trailing newline as a property of the last line. An edit that removed the
+  file's final newline was reported as the deletion of a phantom empty line,
+  with the old-side hunk range one line too long; a trailing-newline-only
+  difference now rewrites the last line with a `\ No newline at end of file`
+  marker, matching `git diff`.
+- Gemini: send `thinkingConfig` inside `generationConfig`, matching the
+  Generative Language REST schema. A top-level field made every Gemini
+  request fail with `400: Unknown name "thinkingConfig"`.
+- Rust SDK: re-export `phi::PromptTokensDetails`, so extension authors can name
+  the type of `Usage::prompt_tokens_details` and report cache traffic from
+  served models.
+
+### Changed
+
+- Go SDK: `pxb` no longer exports tagged-field plumbing (`FieldWriter`,
+  `FieldReader`, `Walk`, `ByteWriter`, `ByteReader`, `DumpType`,
+  `ReadFrameBuf`, `Magic`, the `Wire*` kind constants). None of it was usable
+  from outside the package — encoders and decoders are generated — and the
+  surviving surface now matches the Rust and TS SDKs: transport
+  (`Reader`/`Writer`/`Frame`/`WriteFrame`/`ReadFrame`/`CloneBody`), generated
+  messages, and wire constants. `ByteWriter`, `ByteReader`, and `DumpType`
+  were unreachable and are deleted outright.
+- `!` shell completion now ranks by recency only: it lists project-history
+  commands that literally start with the typed text, newest first. The TypeSafe
+  Jev judge is gone, so completion works offline and never sends shell history
+  off the machine.
+
+### Removed
+
+- TypeSafe System One support: `internal/llm/jev`, `internal/optimizer`, and
+  the `PHI_OPTIMIZER` / `TYPESAFE_API_KEY` switches are gone. `!` completion no
+  longer needs or accepts an API key.
+
+## [0.29.1] - 2026-10-22
+
+### Added
+
+- Extensions can register models (`RegisterModel`) in two connection modes:
+  direct-connect — the host dials `base_url` like a config.yaml entry — or
+  extension-served (`Conn: ext`), where the extension proxies or generates
+  every request itself and streams deltas back over PXB with cooperative
+  cancel. Extension model names shadow same-name config entries and work in
+  `/model`, sub-agent role models and the startup palette. Go and Rust SDKs
+  are supported (`phi::Model::direct` / `Model::served` in Rust); the wire is
+  documented for a future TS port.
+- The TypeScript SDK (`ext/ts`, `@pulseaiclub/phi-ext`) now supports model
+  registration too: `Extension.registerModel` with direct-connect models or
+  served ones (`conn: "ext"` + a `stream` handler). The frame pump keeps
+  reading while an async stream runs, so host `ModelCancel` aborts the
+  handler's `AbortSignal` mid-stream, like Go's `ctx`.
+- Composer recalls the last 10 submitted prompts per project with Up/Down (or
+  Ctrl+P/Ctrl+N), persisted under the project's session directory. Slash and
+  shell commands are not recorded. Off by default: set `PHI_PROMPT_HISTORY=on`
+  to enable it. When enabled, `?` lists the keys.
+
 ### Changed
 
 ### Deprecated
@@ -237,6 +392,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Find tool on Windows: patterns naming a path segment (e.g. `src/pkg/a.go`) are
+  now translated to separator-agnostic regexes instead of relying on fd's glob
+  matching, which silently missed them there. Other platforms keep using fd
+  globs unchanged.
 - Config editor: add a `>` focus marker and bold the active field label so
   keyboard navigation remains visible when selection colors disappear.
 - TUI and config editor: detect Windows Terminal's truecolor support even when
@@ -753,9 +912,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Security
 
-<!-- Released section -->
-<!-- Don't change this section unless doing release -->
-
 ## [0.25.1] - 2026-09-10
 
 ### Added
@@ -1187,7 +1343,11 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.29.0...HEAD
+[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.29.4...HEAD
+[0.29.4]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.4
+[0.29.3]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.3
+[0.29.2]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.2
+[0.29.1]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.1
 [0.29.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.0
 [0.28.9]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.9
 [0.28.8]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.8

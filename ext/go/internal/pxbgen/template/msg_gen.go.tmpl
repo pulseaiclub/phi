@@ -35,12 +35,12 @@ func Encode{{.Pub}}(msg {{.Name}}) []byte {
 	{{.PutCall}}
 {{- end}}
 {{- end}}
-	return fw.Bytes()
+	return fw.bytes()
 }
 
 func Decode{{.Pub}}(b []byte) ({{.Name}}, error) {
 	var msg {{.Name}}
-	err := Walk(b, func(tag uint16, kind uint8, fr *FieldReader) error {
+	err := walk(b, func(tag uint16, kind uint8, fr *fieldReader) error {
 		switch tag {
 {{- range .Fields}}
 		case {{.TagConst}}:
@@ -49,7 +49,7 @@ func Decode{{.Pub}}(b []byte) ({{.Name}}, error) {
 {{- end}}
 {{- end}}
 		default:
-			return fr.Skip(kind)
+			return fr.skip(kind)
 		}
 	})
 	return msg, err

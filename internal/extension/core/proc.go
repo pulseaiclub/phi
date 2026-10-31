@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -45,12 +46,14 @@ type Proc struct {
 	hello     pxb.Hello
 	cmds      []pxb.RegisterCommand
 	tools     []pxb.RegisterTool
+	models    []pxb.RegisterModel
 	events    map[uint16]struct{}
 	intercept map[uint16]struct{}
 
 	mu       sync.Mutex
 	nextID   atomic.Uint32
 	pending  map[uint32]chan frameResult
+	streams  map[uint32]*modelStream
 	closed   atomic.Bool
 	stopOnce sync.Once
 
@@ -92,6 +95,56 @@ func (p *Proc) hostSink() (HostSink, bool) {
 type frameResult struct {
 	frame pxb.Frame
 	err   error
+}
+
+// streamFrame is one ModelStreamEvent delivery or a stream-fatal error.
+type streamFrame struct {
+	ev  pxb.ModelStreamEvent
+	err error
+}
+
+// modelStream is one in-flight ModelInvoke stream. The frame channel is never
+// closed — termination is signaled via done — so a sender that fetched the
+// stream before an abandon can never send on (or close) a closed channel.
+type modelStream struct {
+	mu     sync.Mutex
+	closed bool
+	done   chan struct{}
+	ch     chan streamFrame
+}
+
+func newModelStream() *modelStream {
+	return &modelStream{
+		done: make(chan struct{}),
+		ch:   make(chan streamFrame, streamBuffer),
+	}
+}
+
+// push delivers a frame unless the stream was abandoned; it never blocks on a
+// closed target. After done is signaled, queued-but-unread frames are dropped
+// for late senders and drained by the consumer.
+func (s *modelStream) push(fr streamFrame) {
+	s.mu.Lock()
+	closed := s.closed
+	s.mu.Unlock()
+	if closed {
+		return
+	}
+	select {
+	case s.ch <- fr:
+	case <-s.done:
+	}
+}
+
+// close ends the stream once. It never blocks on a slow consumer.
+func (s *modelStream) close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return
+	}
+	s.closed = true
+	close(s.done)
 }
 
 // StartProc launches manifest.Exec and completes the PXB handshake.
@@ -152,6 +205,7 @@ func StartProc(ctx context.Context, m loader.Manifest, dir, logDir, cwd, session
 		events:    make(map[uint16]struct{}),
 		intercept: make(map[uint16]struct{}),
 		pending:   make(map[uint32]chan frameResult),
+		streams:   make(map[uint32]*modelStream),
 	}
 
 	hsCtx, cancel := context.WithTimeout(ctx, handshakeTimeout)
@@ -191,6 +245,12 @@ func (p *Proc) handshake(ctx context.Context, cwd, sessionID string) error {
 		)
 	}
 	p.hello = hello
+	// Extensions advertising CapLargeFrames accept ModelInvoke frames past the
+	// 16 MiB default — full conversation histories get big. Older extensions
+	// keep the default cap and fail exactly as before.
+	if hello.Caps&pxb.CapLargeFrames != 0 {
+		p.wr.SetMaxPayload(pxb.MaxStreamPayload)
+	}
 
 	ack := pxb.EncodeHelloAck(pxb.HelloAck{
 		Protocol:     pxb.ProtocolVersion,
@@ -225,6 +285,21 @@ func (p *Proc) handshake(ctx context.Context, cwd, sessionID string) error {
 				return err
 			}
 			p.tools = append(p.tools, rt)
+		case pxb.TypeRegisterModel:
+			rm, err := pxb.DecodeRegisterModel(body)
+			if err != nil {
+				return err
+			}
+			if rm.Name == "" {
+				return fmt.Errorf("extension %q: register model with empty name", p.Manifest.Name)
+			}
+			if rm.Conn != pxb.ConnDirect && rm.Conn != pxb.ConnExt {
+				return fmt.Errorf(
+					"extension %q: model %q: unknown conn %q (want %q or %q)",
+					p.Manifest.Name, rm.Name, rm.Conn, pxb.ConnDirect, pxb.ConnExt,
+				)
+			}
+			p.models = append(p.models, rm)
 		case pxb.TypeSubscribe:
 			sub, err := pxb.DecodeSubscribe(body)
 			if err != nil {
@@ -285,6 +360,8 @@ func (p *Proc) readLoop() {
 			}
 		}
 		switch f.Type {
+		case pxb.TypeModelStream:
+			p.deliverStream(f)
 		case pxb.TypeNotify:
 			n, err := pxb.DecodeNotify(f.Body)
 			if err != nil {
@@ -319,6 +396,166 @@ func (p *Proc) failPending(err error) {
 		delete(p.pending, id)
 	}
 }
+
+// failStreams ends every in-flight model stream on process death. Streams are
+// detached from the map under the lock; close happens outside it, so a slow
+// or stuck consumer cannot wedge the teardown. Consumers report the failure
+// themselves from drain: done with no terminal frame + a closed proc.
+func (p *Proc) failStreams() {
+	p.mu.Lock()
+	detached := make([]*modelStream, 0, len(p.streams))
+	for id, s := range p.streams {
+		detached = append(detached, s)
+		delete(p.streams, id)
+	}
+	p.mu.Unlock()
+	for _, s := range detached {
+		s.close()
+	}
+}
+
+// deliverStream routes one ModelStreamEvent to its waiting consumer. The
+// invoke frame ID is the correlation key; done/error end the stream.
+func (p *Proc) deliverStream(f pxb.Frame) {
+	if f.Flags&pxb.FlagHasID == 0 {
+		debuglog.Logf("extension %q: model stream frame without id", p.Manifest.Name)
+		return
+	}
+	p.mu.Lock()
+	s, ok := p.streams[f.ID]
+	if !ok {
+		p.mu.Unlock()
+		// Abandoned stream (cancel or consumer stop): drop quietly — the
+		// extension is allowed to keep producing until it sees the cancel.
+		return
+	}
+	ev, err := pxb.DecodeModelStreamEvent(f.Body)
+	if err != nil || ev.Type == "done" || ev.Type == "error" {
+		delete(p.streams, f.ID)
+	}
+	p.mu.Unlock()
+	if err != nil {
+		s.push(streamFrame{err: fmt.Errorf("extension %q: model stream event: %w", p.Manifest.Name, err)})
+		s.close()
+		return
+	}
+	s.push(streamFrame{ev: ev})
+	if ev.Type == "done" || ev.Type == "error" {
+		s.close()
+	}
+}
+
+// deregStream removes a stream registration (idempotent).
+func (p *Proc) deregStream(id uint32) {
+	p.mu.Lock()
+	s, ok := p.streams[id]
+	if ok {
+		delete(p.streams, id)
+	}
+	p.mu.Unlock()
+	if ok {
+		s.close()
+	}
+}
+
+// cancelModel abandons a stream and asks the extension to stop. Cancel is
+// best-effort: an extension that never reads it runs to completion and its
+// late frames are dropped, so cancellation must never kill the process.
+func (p *Proc) cancelModel(id uint32) {
+	p.deregStream(id)
+	if err := p.write(context.Background(), pxb.TypeModelCancel, pxb.FlagHasID, id, nil); err != nil {
+		debuglog.Logf("extension %q: model cancel: %v", p.Manifest.Name, err)
+	}
+}
+
+// StreamModel invokes an ext-served model (Conn "ext") and yields the
+// ModelStreamEvent frames as they arrive, correlated by the invoke frame ID.
+// Unlike RPC waits this never uses watch(): canceling the context abandons
+// the stream and sends a best-effort ModelCancel instead of terminating the
+// extension, which may be mid-flight for an unrelated request.
+func (p *Proc) StreamModel(
+	ctx context.Context,
+	req pxb.ModelInvoke,
+) iter.Seq2[pxb.ModelStreamEvent, error] {
+	return func(yield func(pxb.ModelStreamEvent, error) bool) {
+		if p == nil || p.closed.Load() {
+			yield(pxb.ModelStreamEvent{}, errors.New("extension: process closed"))
+			return
+		}
+		id := p.nextID.Add(1)
+		s := newModelStream()
+		p.mu.Lock()
+		if p.closed.Load() {
+			p.mu.Unlock()
+			yield(pxb.ModelStreamEvent{}, errors.New("extension: process closed"))
+			return
+		}
+		p.streams[id] = s
+		p.mu.Unlock()
+
+		// The invoke write is ctx-aware: a wedged extension must not turn an
+		// Esc into an unkillable turn. The writer serializes concurrent writes,
+		// so this races other RPC frames safely.
+		body := pxb.EncodeModelInvoke(req)
+		writeDone := make(chan error, 1)
+		go func() { writeDone <- p.wr.Write(pxb.TypeModelInvoke, pxb.FlagHasID, id, body) }()
+		select {
+		case <-ctx.Done():
+			p.cancelModel(id)
+			return
+		case err := <-writeDone:
+			if err != nil {
+				p.deregStream(id)
+				p.terminate()
+				yield(pxb.ModelStreamEvent{}, err)
+				return
+			}
+		}
+
+		for {
+			select {
+			case <-ctx.Done():
+				p.cancelModel(id)
+				return
+			case fr := <-s.ch:
+				if fr.err != nil {
+					yield(pxb.ModelStreamEvent{}, fr.err)
+					return
+				}
+				if !yield(fr.ev, nil) {
+					p.cancelModel(id)
+					return
+				}
+			case <-s.done:
+				// The stream was closed (terminal frame, abandon, or process
+				// death). Drain whatever already landed in the buffer — done
+				// and the last frame race through separate channels.
+				for {
+					select {
+					case fr := <-s.ch:
+						if fr.err != nil {
+							yield(pxb.ModelStreamEvent{}, fr.err)
+							return
+						}
+						if !yield(fr.ev, nil) {
+							p.cancelModel(id)
+							return
+						}
+					default:
+						if p.closed.Load() {
+							yield(pxb.ModelStreamEvent{}, errors.New("extension: process closed"))
+						}
+						return
+					}
+				}
+			}
+		}
+	}
+}
+
+// streamBuffer decouples the frame pump from the consumer so a slow turn
+// render cannot stall every RPC on this extension.
+const streamBuffer = 64
 
 func isResponseType(typ uint16) bool {
 	switch typ {
@@ -605,6 +842,7 @@ func (p *Proc) finish(graceful bool) {
 	p.stopOnce.Do(func() {
 		p.closed.Store(true)
 		p.failPending(errors.New("extension: process closed"))
+		p.failStreams()
 		if graceful {
 			// Start the kill budget before writing: the child may no longer read.
 			timer := time.AfterFunc(shutdownWait, p.kill)
@@ -654,6 +892,16 @@ func (p *Proc) Commands() []pxb.RegisterCommand {
 	}
 	out := make([]pxb.RegisterCommand, len(p.cmds))
 	copy(out, p.cmds)
+	return out
+}
+
+// Models returns models registered during handshake (copy).
+func (p *Proc) Models() []pxb.RegisterModel {
+	if p == nil {
+		return nil
+	}
+	out := make([]pxb.RegisterModel, len(p.models))
+	copy(out, p.models)
 	return out
 }
 

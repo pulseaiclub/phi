@@ -3,7 +3,8 @@
 TypeScript is a **first-class language for Phi extensions** — on par with the
 Go SDK in [`ext/go`](../go) and the Rust SDK in [`ext/rust`](../rust). Same
 PXB wire protocol on stdin/stdout, same host features (LLM tools, slash
-commands, intercepts, event subscriptions, confirm dialogs), byte-for-byte
+commands, intercepts, event subscriptions, confirm dialogs, model
+registration), byte-for-byte
 interop, and the same install flow (`phi.yaml` + an entry under
 `~/.phi/extensions/<name>/`). **Zero runtime dependencies** — the PXB wire
 codec is hand-rolled on `node:` builtins; TypeScript is a dev dependency for
@@ -17,8 +18,8 @@ against `ext/go/pxb/testdata/*.bin` (`test/golden.test.ts`).
 | Path | Role |
 |------|------|
 | `src/pxb/` | Wire protocol: frames (`codec`), tagged fields (`fields`), message codecs (`msg`), types/events (`types`) |
-| `src/phi/` | Author SDK: `Extension`, `Tool`, `Command`, `Context`, `Schema` |
-| `examples/` | Runnable extensions: `hello` (commands, intercepts, subscribe), `full` (tool, confirm, submit) |
+| `src/phi/` | Author SDK: `Extension`, `Tool`, `Command`, `Context`, `Schema`, `Model` |
+| `examples/` | Runnable extensions: `hello` (commands, intercepts, subscribe), `full` (tool, confirm, submit), `models` (direct-connect + served model registration) |
 | `test/` | Golden byte-compat + unit + end-to-end fake-host tests (`test/fixtures/probe.ts`) |
 
 ## Authoring
@@ -87,6 +88,37 @@ Command handlers get a `Context` for host interaction: `notify`, `setStatus`,
 on `confirm`, the run loop keeps servicing the pipe: host results wake the
 waiter and work frames queue in a bounded inbox, then replay in order when
 the command returns (handlers stay serial).
+
+### Models
+
+Extensions can register models the host switches to (`/model`, the palette,
+sub-agent role models). Direct-connect models are dialed by the host from
+`baseUrl`; served models (`conn: "ext"`) receive every request in a `stream`
+handler:
+
+```ts
+import { CONN_EXT, Extension } from "@pulseaiclub/phi-ext";
+
+m.registerModel({
+  name: "gw", api: "Anthropic", baseUrl: "https://gw.internal", apiKey: "k",
+  contextWindow: 272000,
+});
+m.registerModel({
+  name: "echo",
+  conn: CONN_EXT,
+  stream: async (req, emit, signal) => {
+    // Forward req.systemPrompt / req.messages / req.think upstream; emit
+    // deltas as they arrive. Return sends done, throw fails the stream.
+    // `signal` fires when the host cancels (Esc) — abort upstream work.
+    await emit({ content: "hello" });
+  },
+});
+```
+
+Deltas only — the host accumulates content and tool calls. Unlike the Rust
+SDK (whose single-threaded loop only sees `ModelCancel` between requests),
+the TS pump keeps reading while an async stream runs, so cancellation is
+live mid-stream, like Go's `ctx`.
 
 ### Manifest and install
 

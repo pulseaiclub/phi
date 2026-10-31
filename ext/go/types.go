@@ -183,6 +183,121 @@ type CommandEntry struct {
 	NeedsArgs   bool
 }
 
+// Connection methods for Model.Conn.
+const (
+	ConnDirect = ""    // host dials BaseURL itself (like a config.yaml entry)
+	ConnExt    = "ext" // Model.Stream serves each request (proxy / gateway / local)
+)
+
+// Model registers a model the host can switch to.
+type Model struct {
+	Name string
+	// Conn picks the connection method: ConnExt means Stream serves each
+	// request; empty (ConnDirect) means the host dials BaseURL itself.
+	Conn string
+	// Direct-connect fields (Conn ""). API names a wire format:
+	// "OpenAI" | "OpenAIResponses" | "Anthropic" | "Gemini"; empty is
+	// OpenAI-compatible chat completions.
+	API     string
+	BaseURL string
+	APIKey  string
+	// Preset binds a built-in model name for capabilities and request hooks
+	// (e.g. "glm-5.3-flash" for an opaque gateway route).
+	Preset string
+	// ContextWindow is the model's context window in tokens (0 disables
+	// compaction). ImageEnabled opts into image attachments. ThinkEnabled
+	// exposes thinking; ThinkLevel (off|minimal|low|medium|high|xhigh|max)
+	// defaults the level, empty keeps the preset default.
+	ContextWindow int
+	ImageEnabled  bool
+	ThinkEnabled  bool
+	ThinkLevel    string
+	// Stream serves one chat completion when Conn == ConnExt. Emit deltas and
+	// return nil to finish (the SDK sends done); return an error to fail the
+	// stream. The host may invoke concurrently — guard shared state, and
+	// respect ctx when forwarding upstream so cancellation stops work.
+	Stream func(ctx context.Context, req ModelRequest, emit func(ModelEvent) error) error
+}
+
+// ModelRequest is one chat completion on a ConnExt model. Messages and Tools
+// use the session-serialization JSON shapes; SystemPrompt is the composed
+// agent prompt (forward it as the system role).
+type ModelRequest struct {
+	Model        string
+	Think        string // off|minimal|low|medium|high|xhigh|max; "" = unset
+	SystemPrompt string
+	Messages     []ChatMessage
+	Tools        []ModelTool
+}
+
+// ChatMessage is the neutral conversation message. Role is
+// system|user|assistant|tool; ToolCallID pairs a tool result with its call.
+type ChatMessage struct {
+	Role             string         `json:"role"`
+	Content          string         `json:"content"`
+	ReasoningContent string         `json:"reasoning_content,omitempty"`
+	ToolCalls        []ToolCallSpec `json:"tool_calls,omitempty"`
+	ToolCallID       string         `json:"tool_call_id,omitempty"`
+	Images           []MessageImage `json:"images,omitempty"`
+	// ProviderState is provider-continuation state (e.g. Anthropic cache
+	// prefix). Forward it verbatim when the upstream protocol needs it.
+	ProviderState json.RawMessage `json:"provider_state,omitempty"`
+}
+
+// ToolCallSpec is a model-requested tool invocation in a request message, or
+// an emitted delta fragment (index + argument chunks) in a ModelEvent.
+type ToolCallSpec struct {
+	Index    int          `json:"index,omitempty"`
+	ID       string       `json:"id"`
+	Type     string       `json:"type"`
+	Function FunctionSpec `json:"function"`
+}
+
+// FunctionSpec names a tool and carries its JSON arguments.
+type FunctionSpec struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+// MessageImage is one base64 image on a user message.
+type MessageImage struct {
+	Data     string `json:"data"` // base64-encoded image bytes
+	MimeType string `json:"mimeType"`
+}
+
+// ModelTool is one tool schema the model may call.
+type ModelTool struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Parameters  map[string]any `json:"parameters,omitempty"`
+}
+
+// ModelEvent is one streamed delta. The host assembles the assistant message
+// from fragments, so emit increments — never the full text. Send Usage once,
+// on a delta or just before returning, for context-window accounting.
+type ModelEvent struct {
+	Content   string // text fragment
+	Reasoning string // reasoning fragment
+	// ToolCalls are OpenAI-style fragments: the first fragment for an index
+	// carries ID/Type/Name, later ones append Arguments text.
+	ToolCalls []ToolCallSpec
+	Usage     *Usage
+}
+
+// Usage mirrors the host's disjoint token buckets.
+type Usage struct {
+	CompletionTokens    int                  `json:"completion_tokens"`
+	PromptTokens        int                  `json:"prompt_tokens"`
+	TotalTokens         int                  `json:"total_tokens"`
+	PromptTokensDetails *PromptTokensDetails `json:"prompt_tokens_details,omitempty"`
+}
+
+// PromptTokensDetails splits cache traffic out of the prompt count.
+type PromptTokensDetails struct {
+	CachedTokens     int `json:"cached_tokens"`
+	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
+}
+
 // ExecResult is returned from API.Exec.
 type ExecResult struct {
 	Stdout   string

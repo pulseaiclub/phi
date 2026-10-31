@@ -92,6 +92,12 @@ func containsPath(files []ContextFile, path string) bool {
 	return false
 }
 
+// ProjectContext returns the formatted project instructions for cwd.
+func ProjectContext(cwd string) string {
+	cwd = resolveDir(cwd)
+	return formatProjectContext(loadProjectContextFiles(cwd, phiAgentDir()))
+}
+
 func formatProjectContext(files []ContextFile) string {
 	if len(files) == 0 {
 		return ""

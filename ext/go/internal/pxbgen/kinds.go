@@ -38,21 +38,21 @@ func u64Kind(method, conv, wire string, nonzero func(string) string) kind {
 
 var kinds = map[string]kind{
 	"string": {
-		put: func(constName, expr string) string { return fmt.Sprintf("fw.PutString(%s, %s)", constName, expr) },
+		put: func(constName, expr string) string { return fmt.Sprintf("fw.putString(%s, %s)", constName, expr) },
 		take: func(target string) []string {
 			return []string{"s, err := takeString(kind, fr)", target + " = s", "return err"}
 		},
 		size: func(expr string, _ bool) []string { return []string{"n += strSize(" + expr + ")"} },
 	},
 	"[]byte": {
-		put: func(constName, expr string) string { return fmt.Sprintf("fw.PutBytes(%s, %s)", constName, expr) },
+		put: func(constName, expr string) string { return fmt.Sprintf("fw.putBytes(%s, %s)", constName, expr) },
 		take: func(target string) []string {
 			return []string{"p, err := takeBytes(kind, fr)", target + " = append([]byte(nil), p...)", "return err"}
 		},
 		size: func(expr string, _ bool) []string { return []string{"n += blobSize(" + expr + ")"} },
 	},
 	"[]uint16": {
-		put: func(constName, expr string) string { return fmt.Sprintf("fw.PutU16s(%s, %s)", constName, expr) },
+		put: func(constName, expr string) string { return fmt.Sprintf("fw.putU16s(%s, %s)", constName, expr) },
 		take: func(target string) []string {
 			return []string{
 				"p, err := takeBytes(kind, fr)",
@@ -65,7 +65,7 @@ var kinds = map[string]kind{
 		},
 		size: func(expr string, _ bool) []string { return []string{"n += u16sSize(" + expr + ")"} },
 	},
-	"bool":   u64Kind("PutBool", "", "", func(expr string) string { return expr }),
-	"uint16": u64Kind("PutU16", "uint16", "u16", func(expr string) string { return expr + " > 0" }),
-	"uint32": u64Kind("PutU32", "uint32", "u32", func(expr string) string { return expr + " > 0" }),
+	"bool":   u64Kind("putBool", "", "", func(expr string) string { return expr }),
+	"uint16": u64Kind("putU16", "uint16", "u16", func(expr string) string { return expr + " > 0" }),
+	"uint32": u64Kind("putU32", "uint32", "u32", func(expr string) string { return expr + " > 0" }),
 }

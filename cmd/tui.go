@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/pulseaiclub/xui"
 
@@ -80,6 +81,16 @@ func runTUI() error {
 		return exitCode(ExitError)
 	}
 	defer ctrl.Close()
+
+	// Extension models load with the controller; they shadow same-name config
+	// entries, so the palette lists each connection once.
+	if r := ctrl.Extensions(); r != nil {
+		for _, route := range r.ExtensionModels() {
+			if !slices.Contains(modelNames, route.Reg.Name) {
+				modelNames = append(modelNames, route.Reg.Name)
+			}
+		}
+	}
 
 	model := cfg.Name
 	if cfg.Think.Enabled {
