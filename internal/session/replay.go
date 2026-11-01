@@ -32,6 +32,9 @@ func ReplaySnapshot(entries []MessageEntry, detail ToolDetail) Snapshot {
 
 func replayEntry(snap Snapshot, entry SessionMessageEntry, detail ToolDetail) Snapshot {
 	msg := entry.Message
+	if entry.Bash != nil {
+		return replayBash(snap, entry)
+	}
 	switch msg.Role {
 	case llm.RoleUser:
 		images := make([]llm.Image, 0, len(msg.Images))
@@ -52,6 +55,31 @@ func replayEntry(snap Snapshot, entry SessionMessageEntry, detail ToolDetail) Sn
 		}})
 	}
 	return snap
+}
+
+// replayBash rebuilds a user "!!cmd" row from its persisted execution. The
+// entry is a user message for the model; the transcript keeps the shell row.
+func replayBash(snap Snapshot, entry SessionMessageEntry) Snapshot {
+	b := entry.Bash
+	id := entry.GetID()
+	snap = Apply(snap, LocalBashStart{ID: id, Command: b.Command, InContext: true})
+	status := ToolDone
+	switch {
+	case b.Cancelled:
+		status = ToolCancelled
+	case b.ExitCode != 0:
+		status = ToolError
+	}
+	return Apply(snap, ToolData{Run: ToolRun{
+		ToolUseID: id,
+		Name:      "bash",
+		Status:    status,
+		Detail:    b.Command,
+		Output:    b.Output,
+		ExitCode:  b.ExitCode,
+		Local:     true,
+		InContext: true,
+	}})
 }
 
 // replayAssistant converts a persisted assistant llm.Message into a session

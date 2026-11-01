@@ -73,3 +73,25 @@ func TestActiveBashSpansMultipleLines(t *testing.T) {
 	assert.Equal(t, "for f in *; do\n  echo $f\ndone", query)
 	assert.Equal(t, 1, start)
 }
+
+func TestActiveBashSkipsTheSecondBang(t *testing.T) {
+	query, start, ok := ActiveBash("!!git st", len("!!git st"))
+
+	assert.True(t, ok, "!! enters the same command mode")
+	assert.Equal(t, "git st", query, "the command starts after both bangs")
+	assert.Equal(t, 2, start)
+}
+
+func TestActiveBashAcceptsABareDoubleBang(t *testing.T) {
+	query, start, ok := ActiveBash("!!", 2)
+
+	assert.True(t, ok, "a bare !! is still command mode")
+	assert.Empty(t, query)
+	assert.Equal(t, 2, start)
+}
+
+func TestActiveBashRejectsCursorBetweenBangs(t *testing.T) {
+	_, _, ok := ActiveBash("!!ls", 1)
+
+	assert.False(t, ok, "the second bang is not command text")
+}

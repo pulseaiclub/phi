@@ -25,6 +25,11 @@ func ActiveBash(value string, cursor int) (query string, start int, ok bool) {
 		return "", 0, false
 	}
 	start = bang + 1
+	// "!!cmd" feeds the output into the model context; the command text starts
+	// after both bangs so the completer ranks the command, not a leading "!".
+	if start < len(value) && value[start] == '!' {
+		start++
+	}
 	if cursor < start {
 		return "", 0, false
 	}

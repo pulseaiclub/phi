@@ -57,7 +57,7 @@ func NewSubmitter(
 		transcript:        transcript,
 		activity:          activity,
 		composer:          composer,
-		bash:              newBashRunner(transcript, composer, bus),
+		bash:              newBashRunner(transcript, composer, bus, ctrl),
 		commandContext:    commandContext,
 		bus:               bus,
 		permissionActive:  permissionActive,

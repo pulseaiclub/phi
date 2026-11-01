@@ -23,6 +23,7 @@ type BashRunner struct {
 	transcript *transcript.TranscriptPane
 	composer   composer.Input
 	bus        *controller.Bus
+	ctrl       *controller.EngineController
 
 	running atomic.Bool
 	mu      sync.Mutex
@@ -33,11 +34,13 @@ func newBashRunner(
 	transcript *transcript.TranscriptPane,
 	composer composer.Input,
 	bus *controller.Bus,
+	ctrl *controller.EngineController,
 ) *BashRunner {
 	return &BashRunner{
 		transcript: transcript,
 		composer:   composer,
 		bus:        bus,
+		ctrl:       ctrl,
 	}
 }
 
@@ -48,15 +51,15 @@ func (b *BashRunner) Running() bool {
 
 // HandleSubmit runs a user "!cmd". Returns true when the input was consumed.
 func (b *BashRunner) HandleSubmit(text string) bool {
-	if b == nil || !strings.HasPrefix(text, "!") {
+	if b == nil {
 		return false
 	}
-	command := strings.TrimSpace(text[1:])
-	if command == "" {
+	command, includeInContext, ok := parseBashInput(text)
+	if !ok {
 		return false
 	}
 	if b.transcript != nil && b.transcript.IsStreaming() {
-		b.showToast("Unable to use shell mode while agent is active", toast.ToastWarning, 3*time.Second)
+		b.showToast("Unable to use shell mode while agent is active", 3*time.Second)
 		return true
 	}
 	b.mu.Lock()
@@ -64,7 +67,6 @@ func (b *BashRunner) HandleSubmit(text string) bool {
 		b.mu.Unlock()
 		b.showToast(
 			"A bash command is already running. Press Esc to cancel it first.",
-			toast.ToastWarning,
 			3*time.Second,
 		)
 		return true
@@ -82,15 +84,36 @@ func (b *BashRunner) HandleSubmit(text string) bool {
 	b.SyncBorder("")
 
 	id := fmt.Sprintf("bash-%d", started.UnixNano())
-	b.transcript.ApplySession(session.LocalBashStart{ID: id, Command: command})
+	b.transcript.ApplySession(session.LocalBashStart{ID: id, Command: command, InContext: includeInContext})
 	b.transcript.Sync()
 	b.transcript.StickToBottom()
 
-	go b.run(ctx, id, command)
+	// Capture the session now: a switch while the command runs must not route
+	// its output into whichever session is open when it finishes.
+	sessionID := ""
+	if b.ctrl != nil {
+		sessionID = b.ctrl.SessionID()
+	}
+	go b.run(ctx, id, command, includeInContext, sessionID)
 	return true
 }
 
-func (b *BashRunner) run(ctx context.Context, id, command string) {
+// parseBashInput splits a "!cmd" / "!!cmd" line. "!" runs a local shell; "!!"
+// also feeds the finished output into the model context.
+func parseBashInput(text string) (command string, includeInContext, ok bool) {
+	if !strings.HasPrefix(text, "!") {
+		return "", false, false
+	}
+	includeInContext = strings.HasPrefix(text, "!!")
+	start := 1
+	if includeInContext {
+		start = 2
+	}
+	command = strings.TrimSpace(text[start:])
+	return command, includeInContext, command != ""
+}
+
+func (b *BashRunner) run(ctx context.Context, id, command string, includeInContext bool, sessionID string) {
 	defer func() {
 		b.mu.Lock()
 		b.cancel()
@@ -115,6 +138,7 @@ func (b *BashRunner) run(ctx context.Context, id, command string) {
 		OnChunk: liveOutput.Append,
 	})
 	liveOutput.Close()
+
 	if err != nil {
 		b.publishSession(session.ToolData{Run: session.ToolRun{
 			ToolUseID: id,
@@ -124,7 +148,9 @@ func (b *BashRunner) run(ctx context.Context, id, command string) {
 			Output:    result.Output,
 			Error:     err.Error(),
 			Local:     true,
+			InContext: includeInContext,
 		}})
+		b.recordContext(sessionID, includeInContext, command, result.Output, -1, false)
 		return
 	}
 	status := session.ToolDone
@@ -145,7 +171,39 @@ func (b *BashRunner) run(ctx context.Context, id, command string) {
 		Output:    outText,
 		ExitCode:  result.ExitCode,
 		Local:     true,
+		InContext: includeInContext,
 	}})
+	b.recordContext(sessionID, includeInContext, command, outText, result.ExitCode, result.Canceled)
+}
+
+// recordContext appends a "!!cmd" result to the active session so the next
+// turn sees it. Best effort: the command already ran, so a persistence failure
+// is reported as a toast rather than rewinding the UI.
+func (b *BashRunner) recordContext(
+	sessionID string,
+	includeInContext bool,
+	command, output string,
+	exitCode int,
+	cancelled bool,
+) {
+	if b == nil || !includeInContext || b.ctrl == nil {
+		return
+	}
+	// Appending mid-turn would break tool_use/tool_result pairing, so the output
+	// is dropped rather than corrupting the conversation.
+	if b.transcript != nil && b.transcript.IsStreaming() {
+		b.showToast(
+			"Shell output was not added to the conversation because the agent is busy",
+			6*time.Second,
+		)
+		return
+	}
+	if err := b.ctrl.AppendUserBash(sessionID, command, output, exitCode, cancelled); err != nil {
+		b.showToast(
+			fmt.Sprintf("Shell output was not added to the conversation: %v", err),
+			6*time.Second,
+		)
+	}
 }
 
 func (b *BashRunner) publishSession(ev session.Event) {
@@ -155,11 +213,11 @@ func (b *BashRunner) publishSession(ev session.Event) {
 	b.bus.Publish(controller.SessionEventMsg{Event: ev})
 }
 
-func (b *BashRunner) showToast(msg string, kind toast.ToastKind, d time.Duration) {
+func (b *BashRunner) showToast(msg string, d time.Duration) {
 	if b == nil {
 		return
 	}
-	b.bus.Publish(controller.ToastMsg{Message: msg, Kind: kind, Duration: d})
+	b.bus.Publish(controller.ToastMsg{Message: msg, Kind: toast.ToastWarning, Duration: d})
 }
 
 // Cancel aborts a running user "!cmd". Returns true if one was cancelled.

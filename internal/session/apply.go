@@ -46,6 +46,7 @@ func Apply(s Snapshot, ev Event) Snapshot {
 			Status:    ToolInProgress,
 			Detail:    e.Command,
 			Local:     true,
+			InContext: e.InContext,
 		}
 	case AssistantMessageUpdate:
 		m := e.Message
@@ -102,6 +103,9 @@ func Apply(s Snapshot, ev Event) Snapshot {
 			}
 			if prev.Local {
 				run.Local = true
+			}
+			if prev.InContext {
+				run.InContext = true
 			}
 			if prev.Expanded {
 				run.Expanded = true
