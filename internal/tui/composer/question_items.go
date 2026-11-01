@@ -12,6 +12,7 @@ func questionShortcutItems(promptRecall bool) []mention.Item {
 	items := []mention.Item{
 		{Path: "/", Description: "slash commands"},
 		{Path: "!", Description: "shell commands"},
+		{Path: "!!", Description: "shell command with output in context"},
 		{Path: "@", Description: "mention files"},
 		{Path: "?", Description: "shortcut help"},
 		{Path: "Esc", Description: "cancel / stop"},
