@@ -200,8 +200,10 @@ func TestCreateFromRejectsOptionLikeNames(t *testing.T) {
 	}
 
 	b.Run([]string{"--detach", "main"})
-	b.Run([]string{"fix-token", "--force"})
+	assert.False(t, called)
+	assert.Contains(t, drainToast(t, bus), "Not a branch name")
 
+	b.Run([]string{"fix-token", "--force"})
 	assert.False(t, called)
 	assert.Contains(t, drainToast(t, bus), "Not a branch name")
 }

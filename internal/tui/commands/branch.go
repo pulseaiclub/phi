@@ -88,9 +88,8 @@ func (b *BranchCommands) Show() {
 	b.OpenOverlay(branches, recent, b.SwitchTo, b.Delete)
 }
 
-// Run handles /branch, /branch <name>, and /branch <name> <base>. A name that
-// is not a branch yet is created — from HEAD, or from base when given — which
-// is how a new workstream starts without leaving phi.
+// Run handles /branch [name] [base]. A missing name is created off base, or
+// off HEAD when no base is given, so new work starts without leaving phi.
 func (b *BranchCommands) Run(args []string) {
 	switch {
 	case len(args) == 0:
@@ -107,8 +106,7 @@ func (b *BranchCommands) Run(args []string) {
 // SwitchOrCreate switches to name, creating it from HEAD when no branch carries
 // it. A remote-tracking name means the local branch that tracks it.
 func (b *BranchCommands) SwitchOrCreate(name string) {
-	if !gitx.ValidRef(name) {
-		b.toast("Not a branch name: "+strconv.Quote(name), toast.ToastWarning)
+	if b.invalidName(name) {
 		return
 	}
 	dir := b.dir()
@@ -129,12 +127,7 @@ func (b *BranchCommands) SwitchOrCreate(name string) {
 // the listed branches — the exact local or remote name, or origin/<base> when
 // only the remote side has it — so the ref git sees is always one that exists.
 func (b *BranchCommands) CreateFrom(name, base string) {
-	if !gitx.ValidRef(name) {
-		b.toast("Not a branch name: "+strconv.Quote(name), toast.ToastWarning)
-		return
-	}
-	if !gitx.ValidRef(base) {
-		b.toast("Not a branch name: "+strconv.Quote(base), toast.ToastWarning)
+	if b.invalidName(name) || b.invalidName(base) {
 		return
 	}
 	dir := b.dir()
@@ -158,6 +151,15 @@ func (b *BranchCommands) CreateFrom(name, base string) {
 		}
 		b.done("Created "+name+" from "+base, dir)
 	}()
+}
+
+// invalidName toasts and reports whether name cannot be used as a branch ref.
+func (b *BranchCommands) invalidName(name string) bool {
+	if gitx.ValidRef(name) {
+		return false
+	}
+	b.toast("Not a branch name: "+strconv.Quote(name), toast.ToastWarning)
+	return true
 }
 
 // baseRef resolves a typed base the way localTarget resolves a switch target,
