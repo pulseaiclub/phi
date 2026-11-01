@@ -36,7 +36,7 @@ func SlimTool(t ToolDefinition) string {
 	b.WriteString(t.Name)
 	if t.Description != "" {
 		b.WriteString(" — ")
-		b.WriteString(util.TruncateBytes(t.Description, 120, "…"))
+		b.WriteString(t.Description)
 	}
 	props, required := schemaProps(t.InputSchema)
 	if len(props) == 0 {
