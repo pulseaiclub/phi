@@ -11,13 +11,12 @@ import (
 	"github.com/pulseaiclub/xui"
 
 	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/components/branchlist"
 	"github.com/pulseaiclub/phi/internal/components/chat"
 	"github.com/pulseaiclub/phi/internal/components/layout"
 	"github.com/pulseaiclub/phi/internal/components/listpicker"
+	"github.com/pulseaiclub/phi/internal/components/listrows"
 	"github.com/pulseaiclub/phi/internal/components/mention"
 	"github.com/pulseaiclub/phi/internal/components/palette"
-	"github.com/pulseaiclub/phi/internal/components/sessionlist"
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/debuglog"
 	"github.com/pulseaiclub/phi/internal/session"
@@ -231,15 +230,20 @@ func (c *ComposerPane) ShowSessionList(
 	onAccept func(id string),
 	onDelete func(id string),
 ) {
-	c.ShowList(sessionlist.Items(items, currentID, time.Time{}), sessionlist.Config(), func(item listpicker.Item) {
-		if onAccept != nil {
-			onAccept(item.ID)
-		}
-	}, func(item listpicker.Item) {
-		if onDelete != nil {
-			onDelete(item.ID)
-		}
-	})
+	c.ShowList(
+		listrows.SessionItems(items, currentID, time.Time{}),
+		listrows.SessionConfig(),
+		func(item listpicker.Item) {
+			if onAccept != nil {
+				onAccept(item.ID)
+			}
+		},
+		func(item listpicker.Item) {
+			if onDelete != nil {
+				onDelete(item.ID)
+			}
+		},
+	)
 }
 
 // RefreshSessionList swaps the rows of an open session picker in place,
@@ -248,7 +252,7 @@ func (c *ComposerPane) RefreshSessionList(items []session.SessionMeta, currentID
 	if !c.listPicker.Open {
 		return
 	}
-	c.listPicker.SetItems(sessionlist.Items(items, currentID, time.Time{}))
+	c.listPicker.SetItems(listrows.SessionItems(items, currentID, time.Time{}))
 	if c.onRedraw != nil {
 		c.onRedraw()
 	}
@@ -274,7 +278,7 @@ func (c *ComposerPane) ShowBranchList(
 	if onDelete != nil {
 		onDeleteItem = func(item listpicker.Item) { onDelete(item.ID) }
 	}
-	c.ShowList(branchlist.Items(branches, recent), branchlist.Config(), func(item listpicker.Item) {
+	c.ShowList(listrows.BranchItems(branches, recent), listrows.BranchConfig(), func(item listpicker.Item) {
 		if onAccept != nil {
 			onAccept(targets[item.ID])
 		}
@@ -287,7 +291,7 @@ func (c *ComposerPane) RefreshBranchList(branches []gitx.Branch, recent []string
 	if !c.listPicker.Open {
 		return
 	}
-	c.listPicker.SetItems(branchlist.Items(branches, recent))
+	c.listPicker.SetItems(listrows.BranchItems(branches, recent))
 	if c.onRedraw != nil {
 		c.onRedraw()
 	}

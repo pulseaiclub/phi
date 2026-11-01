@@ -1,4 +1,4 @@
-package sessionlist
+package listrows
 
 import (
 	"testing"
@@ -22,9 +22,9 @@ func TestFormatRelative(t *testing.T) {
 	assert.Equal(t, "—", FormatRelative(time.Time{}, now))
 }
 
-func TestItemsMapsCurrentBadge(t *testing.T) {
+func TestSessionItemsMapsCurrentBadge(t *testing.T) {
 	now := time.Now()
-	items := Items([]session.SessionMeta{
+	items := SessionItems([]session.SessionMeta{
 		{ID: "aaaaaaaa-1111", Preview: "one", Mtime: now},
 		{ID: "bbbbbbbb-2222", Preview: "two", Mtime: now},
 	}, "bbbbbbbb-2222", now)

@@ -1,8 +1,4 @@
-// Package branchlist maps gitx.Branch rows into listpicker items.
-// A row is two columns — branch name, last commit — plus a dot for the branch
-// HEAD is on. Ordering is the product decision here: where you are, where you
-// came from, the local rest, then remotes.
-package branchlist
+package listrows
 
 import (
 	"github.com/pulseaiclub/phi/internal/components/chrome"
@@ -14,8 +10,8 @@ import (
 // Longer names elide; typing three characters filters them back into view.
 const branchColumn = 30
 
-// Config returns chrome copy for the branch picker.
-func Config() listpicker.ShowConfig {
+// BranchConfig returns chrome copy for the branch picker.
+func BranchConfig() listpicker.ShowConfig {
 	return listpicker.ShowConfig{
 		Title:          "Branches",
 		FilterHint:     "filter branches…",
@@ -28,10 +24,13 @@ func Config() listpicker.ShowConfig {
 	}
 }
 
-// Items orders branches for display and maps each one to a row.
+// BranchItems orders branches for display and maps each one to a row.
+// A row is two columns — branch name, last commit — plus a dot for the branch
+// HEAD is on. Ordering is the product decision here: where you are, where you
+// came from, the local rest, then remotes.
 // recent holds branch names in most-recently-checked-out order; names not in
 // branches are ignored.
-func Items(branches []gitx.Branch, recent []string) []listpicker.Item {
+func BranchItems(branches []gitx.Branch, recent []string) []listpicker.Item {
 	byName := make(map[string]int, len(branches))
 	for i, b := range branches {
 		byName[b.Name] = i
@@ -43,7 +42,7 @@ func Items(branches []gitx.Branch, recent []string) []listpicker.Item {
 			return
 		}
 		seen[b.Name] = true
-		out = append(out, row(b))
+		out = append(out, branchRow(b))
 	}
 	for _, b := range branches {
 		if b.Current {
@@ -68,7 +67,7 @@ func Items(branches []gitx.Branch, recent []string) []listpicker.Item {
 	return out
 }
 
-func row(b gitx.Branch) listpicker.Item {
+func branchRow(b gitx.Branch) listpicker.Item {
 	return listpicker.Item{
 		// The row's own ref is its identity: origin/feat and feat are different
 		// branches, and a delete must never land on the local namesake.

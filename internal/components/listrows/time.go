@@ -1,4 +1,4 @@
-package sessionlist
+package listrows
 
 import (
 	"fmt"
