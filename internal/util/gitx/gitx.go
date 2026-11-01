@@ -130,6 +130,19 @@ func Create(ctx context.Context, dir, name string) error {
 	return err
 }
 
+// CreateAt makes name at base and switches to it. base may be a local or
+// remote-tracking ref; both names pass ValidRef like Switch does.
+func CreateAt(ctx context.Context, dir, name, base string) error {
+	if !ValidRef(name) {
+		return fmt.Errorf("invalid branch name %q", name)
+	}
+	if !ValidRef(base) {
+		return fmt.Errorf("invalid branch name %q", base)
+	}
+	_, err := run(ctx, dir, "switch", "-c", name, base)
+	return err
+}
+
 // Delete removes local branch name. -d and never -D: git refuses to drop
 // commits that are not merged, so a mistyped row cannot destroy work.
 func Delete(ctx context.Context, dir, name string) error {

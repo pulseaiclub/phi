@@ -13,6 +13,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Shell: `!!cmd` runs the command locally like `!cmd` but also adds its output
   to the model context for the next turn. The transcript row is marked `· ctx`;
   a resumed session keeps the row instead of replaying it as a user message.
+- TUI: `/branch <name> <base>` creates and switches to a new branch off
+  `<base>` (local or remote-tracking; a short base name resolves to
+  `origin/<base>` when only the remote side has it). An unknown base refuses
+  instead of silently branching off HEAD.
 
 ### Fixed
 

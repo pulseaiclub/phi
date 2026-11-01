@@ -32,6 +32,7 @@ type BranchCommands struct {
 	Preflight func(ctx context.Context, dir string) (gitx.Status, error)
 	Switch    func(ctx context.Context, dir, ref string) error
 	Create    func(ctx context.Context, dir, name string) error
+	CreateAt  func(ctx context.Context, dir, name, base string) error
 	Remove    func(ctx context.Context, dir, name string) error
 }
 
@@ -45,6 +46,7 @@ func NewBranchCommands(bus *controller.Bus) *BranchCommands {
 		Preflight:     gitx.Preflight,
 		Switch:        gitx.Switch,
 		Create:        gitx.Create,
+		CreateAt:      gitx.CreateAt,
 		Remove:        gitx.Delete,
 	}
 }
@@ -53,7 +55,7 @@ func NewBranchCommands(bus *controller.Bus) *BranchCommands {
 func (b *BranchCommands) Register(r *CommandRegistry) {
 	r.Register(Command{
 		Name:        "branch",
-		Description: "Switch the working branch — /branch [name] creates",
+		Description: "Switch the working branch — /branch [name] [base] creates off base",
 		Slash:       true,
 		Insert:      "/branch ",
 		Run: func(_ Context, args []string) error {
@@ -86,16 +88,19 @@ func (b *BranchCommands) Show() {
 	b.OpenOverlay(branches, recent, b.SwitchTo, b.Delete)
 }
 
-// Run handles /branch and /branch <name>. A name that is not a branch yet is
-// created from HEAD, which is how a new workstream starts without leaving phi.
+// Run handles /branch, /branch <name>, and /branch <name> <base>. A name that
+// is not a branch yet is created — from HEAD, or from base when given — which
+// is how a new workstream starts without leaving phi.
 func (b *BranchCommands) Run(args []string) {
-	switch len(args) {
-	case 0:
+	switch {
+	case len(args) == 0:
 		b.Show()
-	case 1:
+	case len(args) == 1:
 		b.SwitchOrCreate(args[0])
+	case len(args) == 2:
+		b.CreateFrom(args[0], args[1])
 	default:
-		b.toast("Usage: /branch [name]", toast.ToastWarning)
+		b.toast("Usage: /branch [name] [base]", toast.ToastWarning)
 	}
 }
 
@@ -118,6 +123,58 @@ func (b *BranchCommands) SwitchOrCreate(name string) {
 		return
 	}
 	b.SwitchTo(target)
+}
+
+// CreateFrom branches name off base and switches to it. base resolves against
+// the listed branches — the exact local or remote name, or origin/<base> when
+// only the remote side has it — so the ref git sees is always one that exists.
+func (b *BranchCommands) CreateFrom(name, base string) {
+	if !gitx.ValidRef(name) {
+		b.toast("Not a branch name: "+strconv.Quote(name), toast.ToastWarning)
+		return
+	}
+	if !gitx.ValidRef(base) {
+		b.toast("Not a branch name: "+strconv.Quote(base), toast.ToastWarning)
+		return
+	}
+	dir := b.dir()
+	branches, err := b.Branches(context.Background(), dir)
+	if err != nil {
+		b.toast(err.Error(), toast.ToastError)
+		return
+	}
+	ref, ok := baseRef(branches, base)
+	if !ok {
+		b.toast("No branch "+strconv.Quote(base)+" — fetch or check the name", toast.ToastWarning)
+		return
+	}
+	if b.refuse() {
+		return
+	}
+	go func() {
+		if err := b.CreateAt(context.Background(), dir, name, ref); err != nil {
+			b.toast(err.Error(), toast.ToastError)
+			return
+		}
+		b.done("Created "+name+" from "+base, dir)
+	}()
+}
+
+// baseRef resolves a typed base the way localTarget resolves a switch target,
+// but a remote-only base stays remote: creating off origin/main must use that
+// ref, not invent a local main.
+func baseRef(branches []gitx.Branch, name string) (string, bool) {
+	for _, b := range branches {
+		if b.Name == name {
+			return name, true
+		}
+	}
+	for _, b := range branches {
+		if b.Remote && b.LocalName() == name {
+			return b.Name, true
+		}
+	}
+	return "", false
 }
 
 // localTarget resolves a typed name against the listed branches. Checking out
