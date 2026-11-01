@@ -44,7 +44,10 @@ func TestExtractTarGzRejectsTraversal(t *testing.T) {
 	require.NoError(t, err)
 	gz := gzip.NewWriter(file)
 	tarWriter := tar.NewWriter(gz)
-	require.NoError(t, tarWriter.WriteHeader(&tar.Header{Name: "../outside", Mode: 0o644, Size: 1, Typeflag: tar.TypeReg}))
+	require.NoError(
+		t,
+		tarWriter.WriteHeader(&tar.Header{Name: "../outside", Mode: 0o644, Size: 1, Typeflag: tar.TypeReg}),
+	)
 	_, err = tarWriter.Write([]byte("x"))
 	require.NoError(t, err)
 	require.NoError(t, tarWriter.Close())
@@ -56,7 +59,7 @@ func TestExtractTarGzRejectsTraversal(t *testing.T) {
 	require.NoFileExists(t, filepath.Join(dir, "outside"))
 }
 
-func TestExtractTarGzReportsCommandFailure(t *testing.T) {
+func TestExtractTarGzRejectsInvalidArchive(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	archivePath := filepath.Join(dir, "broken.tar.gz")
