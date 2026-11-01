@@ -128,9 +128,117 @@ func TestRunWithTooManyArgumentsToastsUsage(t *testing.T) {
 	b := stubBranchCommands(nil)
 	b.Bus = bus
 
-	b.Run([]string{"a", "b"})
+	b.Run([]string{"a", "b", "c"})
 
-	assert.Contains(t, drainToast(t, bus), "Usage: /branch [name]")
+	assert.Contains(t, drainToast(t, bus), "Usage: /branch [name] [base]")
+}
+
+func TestRunWithBaseCreatesFromIt(t *testing.T) {
+	bus := controller.NewBus(nil)
+	b := stubBranchCommands([]gitx.Branch{{Name: "main", Current: true}, {Name: "release-2.4"}})
+	b.Bus = bus
+	var name, base string
+	b.CreateAt = func(_ context.Context, _, n, from string) error {
+		name, base = n, from
+		return nil
+	}
+
+	b.Run([]string{"fix-token", "release-2.4"})
+	waitFor(t, bus, "Created fix-token from release-2.4")
+
+	assert.Equal(t, "fix-token", name)
+	assert.Equal(t, "release-2.4", base)
+}
+
+func TestRunWithLocalOnlyBaseStaysRemote(t *testing.T) {
+	bus := controller.NewBus(nil)
+	b := stubBranchCommands([]gitx.Branch{
+		{Name: "main", Current: true},
+		{Name: "origin/release-2.4", Remote: true},
+	})
+	b.Bus = bus
+	var bases []string
+	b.CreateAt = func(_ context.Context, _, _, from string) error {
+		bases = append(bases, from)
+		return nil
+	}
+
+	// A short name resolves to the only side that has it; the exact remote row
+	// already names the ref git needs.
+	b.Run([]string{"fix-token", "release-2.4"})
+	waitFor(t, bus, "Created fix-token")
+	b.Run([]string{"fix-token", "origin/release-2.4"})
+	waitFor(t, bus, "Created fix-token")
+
+	assert.Equal(t, []string{"origin/release-2.4", "origin/release-2.4"}, bases)
+}
+
+func TestRunWithUnknownBaseToastsInstead(t *testing.T) {
+	bus := controller.NewBus(nil)
+	b := stubBranchCommands([]gitx.Branch{{Name: "main", Current: true}})
+	b.Bus = bus
+	called := false
+	b.CreateAt = func(context.Context, string, string, string) error {
+		called = true
+		return nil
+	}
+
+	b.Run([]string{"fix-token", "relase-2.4"})
+
+	assert.False(t, called, "a typo must not branch off HEAD by accident")
+	assert.Contains(t, drainToast(t, bus), `No branch "relase-2.4"`)
+}
+
+func TestCreateFromRejectsOptionLikeNames(t *testing.T) {
+	bus := controller.NewBus(nil)
+	b := stubBranchCommands([]gitx.Branch{{Name: "main", Current: true}})
+	b.Bus = bus
+	called := false
+	b.CreateAt = func(context.Context, string, string, string) error {
+		called = true
+		return nil
+	}
+
+	b.Run([]string{"--detach", "main"})
+	assert.False(t, called)
+	assert.Contains(t, drainToast(t, bus), "Not a branch name")
+
+	b.Run([]string{"fix-token", "--force"})
+	assert.False(t, called)
+	assert.Contains(t, drainToast(t, bus), "Not a branch name")
+}
+
+func TestCreateFromRefusedWhileStreaming(t *testing.T) {
+	bus := controller.NewBus(nil)
+	b := stubBranchCommands([]gitx.Branch{{Name: "main", Current: true}, {Name: "release-2.4"}})
+	b.Bus = bus
+	b.StreamActive = func() bool { return true }
+	called := false
+	b.CreateAt = func(context.Context, string, string, string) error {
+		called = true
+		return nil
+	}
+
+	b.Run([]string{"fix-token", "release-2.4"})
+
+	assert.False(t, called, "a running reply must not be repointed at another branch")
+	assert.Contains(t, drainToast(t, bus), "Cannot switch branches")
+}
+
+func TestRunWithExistingNameLetsGitRefuse(t *testing.T) {
+	bus := controller.NewBus(nil)
+	b := stubBranchCommands([]gitx.Branch{{Name: "main", Current: true}, {Name: "release-2.4"}})
+	b.Bus = bus
+	called := false
+	b.CreateAt = func(context.Context, string, string, string) error {
+		called = true
+		return errors.New("git switch -c main: a branch named 'main' already exists")
+	}
+
+	b.Run([]string{"main", "release-2.4"})
+	waitFor(t, bus, "already exists")
+
+	assert.True(t, called, "no silent fallback to a plain switch")
 }
 
 func TestSwitchToRefusedDuringMergeOrRebase(t *testing.T) {
@@ -349,6 +457,7 @@ func stubBranchCommands(branches []gitx.Branch) *BranchCommands {
 	b.Preflight = func(context.Context, string) (gitx.Status, error) { return gitx.Status{}, nil }
 	b.Switch = func(context.Context, string, string) error { return nil }
 	b.Create = func(context.Context, string, string) error { return nil }
+	b.CreateAt = func(context.Context, string, string, string) error { return nil }
 	b.Remove = func(context.Context, string, string) error { return nil }
 	return b
 }

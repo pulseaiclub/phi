@@ -13,7 +13,7 @@ import (
 func TestBranchesListsLocalAndRemote(t *testing.T) {
 	dir := newRepo(t)
 	gitRun(t, dir, "branch", "fix/one")
-	originRef(t, dir, "origin/main", "HEAD")
+	originRef(t, dir, "origin/main")
 	gitRun(t, dir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 
 	branches, err := Branches(t.Context(), dir)
@@ -35,7 +35,7 @@ func TestBranchesListsLocalAndRemote(t *testing.T) {
 func TestBranchesUpstreamState(t *testing.T) {
 	dir := newRepo(t)
 	gitRun(t, dir, "branch", "tracked")
-	originRef(t, dir, "origin/tracked", "HEAD")
+	originRef(t, dir, "origin/tracked")
 	track(t, dir, "tracked")
 	gitRun(t, dir, "checkout", "tracked")
 	gitRun(t, dir, "commit", "--allow-empty", "-m", "local work")
@@ -53,7 +53,7 @@ func TestBranchesUpstreamState(t *testing.T) {
 func TestBranchesGoneUpstream(t *testing.T) {
 	dir := newRepo(t)
 	gitRun(t, dir, "branch", "stale")
-	originRef(t, dir, "origin/stale", "HEAD")
+	originRef(t, dir, "origin/stale")
 	track(t, dir, "stale")
 	gitRun(t, dir, "update-ref", "-d", "refs/remotes/origin/stale")
 
@@ -204,10 +204,11 @@ func newRepo(t *testing.T) string {
 	return dir
 }
 
-// originRef fabricates a remote-tracking ref pointing at rev.
-func originRef(t *testing.T, dir, name, rev string) {
+// originRef fabricates a remote-tracking ref at HEAD, the shape a fetched
+// remote branch has.
+func originRef(t *testing.T, dir, name string) {
 	t.Helper()
-	gitRun(t, dir, "update-ref", "refs/remotes/"+name, rev)
+	gitRun(t, dir, "update-ref", "refs/remotes/"+name, "HEAD")
 }
 
 // track makes branch's upstream origin/<branch>, the shape a pushed branch has.
@@ -264,6 +265,44 @@ func TestCreateSurfacesGitRefusal(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "git switch -c taken")
+}
+
+func TestCreateAtBranchesOffBaseAndSwitches(t *testing.T) {
+	dir := newRepo(t)
+	gitRun(t, dir, "branch", "base")
+	gitRun(t, dir, "checkout", "base")
+	writeFile(t, dir, "base.txt", "base\n")
+	gitRun(t, dir, "add", "base.txt")
+	gitRun(t, dir, "commit", "-m", "base work")
+	gitRun(t, dir, "checkout", "main")
+
+	require.NoError(t, CreateAt(t.Context(), dir, "new-work", "base"))
+
+	branches, err := Branches(t.Context(), dir)
+	require.NoError(t, err)
+	created := findBranch(t, branches, "new-work")
+	assert.True(t, created.Current)
+	assert.Equal(t, "base work", created.Subject, "created at base, not HEAD")
+}
+
+func TestCreateAtAcceptsRemoteTrackingBase(t *testing.T) {
+	dir := newRepo(t)
+	originRef(t, dir, "origin/release")
+
+	require.NoError(t, CreateAt(t.Context(), dir, "new-work", "origin/release"))
+
+	branches, err := Branches(t.Context(), dir)
+	require.NoError(t, err)
+	assert.True(t, findBranch(t, branches, "new-work").Current)
+}
+
+func TestCreateAtRejectsOptionLikeNames(t *testing.T) {
+	dir := newRepo(t)
+
+	err := CreateAt(t.Context(), dir, "new-work", "--orphan")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid branch name")
 }
 
 func TestDeleteRemovesTheBranch(t *testing.T) {
