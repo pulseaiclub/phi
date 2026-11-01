@@ -1,4 +1,4 @@
-package branchlist
+package listrows
 
 import (
 	"testing"
@@ -11,7 +11,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/util/gitx"
 )
 
-func TestItemsAnchorsCurrentThenRecentThenLocalThenRemote(t *testing.T) {
+func TestBranchItemsAnchorsCurrentThenRecentThenLocalThenRemote(t *testing.T) {
 	branches := []gitx.Branch{
 		{Name: "main", Current: true},
 		{Name: "fix/agent-wait", Subject: "wip"},
@@ -19,22 +19,22 @@ func TestItemsAnchorsCurrentThenRecentThenLocalThenRemote(t *testing.T) {
 		{Name: "origin/main", Remote: true},
 	}
 
-	items := Items(branches, []string{"feature/old", "main"})
+	items := BranchItems(branches, []string{"feature/old", "main"})
 
 	assert.Equal(t, []string{"main", "feature/old", "fix/agent-wait", "origin/main"}, primaries(items),
 		"current anchors the list, then recent, then local by commit date, remotes last")
 	assert.Len(t, items, 4, "no branch is listed twice")
 }
 
-func TestItemsIgnoresRecentNamesThatNoLongerExist(t *testing.T) {
+func TestBranchItemsIgnoresRecentNamesThatNoLongerExist(t *testing.T) {
 	branches := []gitx.Branch{{Name: "main", Current: true}}
 
-	items := Items(branches, []string{"deleted-branch", "main"})
+	items := BranchItems(branches, []string{"deleted-branch", "main"})
 
 	assert.Equal(t, []string{"main"}, primaries(items))
 }
 
-func TestRowsAreNameAndLastCommitOnly(t *testing.T) {
+func TestBranchRowsAreNameAndLastCommitOnly(t *testing.T) {
 	tests := []struct {
 		name    string
 		branch  gitx.Branch
@@ -74,7 +74,7 @@ func TestRowsAreNameAndLastCommitOnly(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			item := Items([]gitx.Branch{tc.branch}, nil)[0]
+			item := BranchItems([]gitx.Branch{tc.branch}, nil)[0]
 			assert.Equal(t, tc.branch.Name, item.ID,
 				"the row's own ref is its identity, so a delete cannot hit another branch")
 			assert.Equal(t, tc.branch.Name, item.Primary)
@@ -89,7 +89,7 @@ func TestRowsAreNameAndLastCommitOnly(t *testing.T) {
 // A remote row keeps its own ref as ID: accepting maps it to the tracking
 // branch downstream, while deleting it must never land on the local namesake.
 func TestRemoteRowKeepsItsOwnIdentity(t *testing.T) {
-	item := Items([]gitx.Branch{{Name: "origin/fix/one", Remote: true, Subject: "wip"}}, nil)[0]
+	item := BranchItems([]gitx.Branch{{Name: "origin/fix/one", Remote: true, Subject: "wip"}}, nil)[0]
 
 	assert.Equal(t, "origin/fix/one", item.ID)
 	assert.Equal(t, "origin/fix/one", item.Primary, "the row still says where it lives")
@@ -100,7 +100,7 @@ func TestRemoteRowKeepsItsOwnIdentity(t *testing.T) {
 // Enter after typing the query is the regression: acceptance must land on the
 // branch whose name is the query.
 func TestFilterPutsTheBranchNamedOriginMainFirst(t *testing.T) {
-	items := Items([]gitx.Branch{
+	items := BranchItems([]gitx.Branch{
 		{Name: "main", Current: true, Subject: "merge origin/main into main"},
 		{Name: "fix/guard", Subject: "wip"},
 		{Name: "origin/main", Remote: true, Subject: "chore: bump"},
@@ -111,7 +111,7 @@ func TestFilterPutsTheBranchNamedOriginMainFirst(t *testing.T) {
 		Theme:    components.DefaultTheme(),
 		OnAccept: func(item listpicker.Item) { got = item },
 	}
-	p.Show(items, Config())
+	p.Show(items, BranchConfig())
 	ctx := &components.EventContext{}
 	for _, r := range "origin/main" {
 		p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: r, Press: true})
@@ -121,8 +121,8 @@ func TestFilterPutsTheBranchNamedOriginMainFirst(t *testing.T) {
 	assert.Equal(t, "origin/main", got.Primary)
 }
 
-func TestConfigKeepsBranchNamesReadable(t *testing.T) {
-	cfg := Config()
+func TestBranchConfigKeepsBranchNamesReadable(t *testing.T) {
+	cfg := BranchConfig()
 	assert.Equal(t, "Branches", cfg.Title)
 	assert.GreaterOrEqual(t, cfg.PrimaryWidth, len("fix/agent-wait-timeout"))
 	assert.Contains(t, cfg.Hint, "switch")

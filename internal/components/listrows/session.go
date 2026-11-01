@@ -1,5 +1,4 @@
-// Package sessionlist maps session.SessionMeta rows into listpicker items.
-package sessionlist
+package listrows
 
 import (
 	"time"
@@ -9,8 +8,8 @@ import (
 	"github.com/pulseaiclub/phi/internal/session"
 )
 
-// Config returns chrome copy for the sessions picker.
-func Config() listpicker.ShowConfig {
+// SessionConfig returns chrome copy for the sessions picker.
+func SessionConfig() listpicker.ShowConfig {
 	return listpicker.ShowConfig{
 		Title:          "Sessions",
 		FilterHint:     "filter id or preview…",
@@ -21,8 +20,8 @@ func Config() listpicker.ShowConfig {
 	}
 }
 
-// Items maps session metas into generic list rows.
-func Items(list []session.SessionMeta, currentID string, now time.Time) []listpicker.Item {
+// SessionItems maps session metas into generic list rows.
+func SessionItems(list []session.SessionMeta, currentID string, now time.Time) []listpicker.Item {
 	if now.IsZero() {
 		now = time.Now()
 	}
