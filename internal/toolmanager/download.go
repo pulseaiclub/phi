@@ -25,6 +25,22 @@ func BinDir() (string, error) {
 	return project.GetDefaultProject().Global().BinDir(), nil
 }
 
+func archiveTarget(destDir, name string) (string, error) {
+	if filepath.IsAbs(name) {
+		return "", fmt.Errorf("absolute paths are not allowed")
+	}
+	dest := filepath.Clean(destDir)
+	target := filepath.Clean(filepath.Join(dest, name))
+	rel, err := filepath.Rel(dest, target)
+	if err != nil {
+		return "", err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("path escapes destination")
+	}
+	return target, nil
+}
+
 func extractTarGz(archivePath, destDir string) error {
 	file, err := os.Open(archivePath)
 	if err != nil {
@@ -48,11 +64,9 @@ func extractTarGz(archivePath, destDir string) error {
 			return fmt.Errorf("read tar entry failed: %w", err)
 		}
 
-		targetPath := filepath.Join(destDir, header.Name) //nolint:gosec // G305: path checked with HasPrefix below
-		cleanDest := filepath.Clean(destDir) + string(os.PathSeparator)
-		cleanTarget := filepath.Clean(targetPath)
-		if !strings.HasPrefix(cleanTarget, cleanDest) && cleanTarget != filepath.Clean(destDir) {
-			return fmt.Errorf("invalid tar path traversal: %q", header.Name)
+		cleanTarget, err := archiveTarget(destDir, header.Name)
+		if err != nil {
+			return fmt.Errorf("invalid tar path %q: %w", header.Name, err)
 		}
 
 		switch header.Typeflag {
@@ -90,11 +104,12 @@ func extractZip(archivePath, destDir string) error {
 	defer reader.Close()
 
 	for _, file := range reader.File {
-		targetPath := filepath.Join(destDir, file.Name) //nolint:gosec // G305: path checked with HasPrefix below
-		cleanDest := filepath.Clean(destDir) + string(os.PathSeparator)
-		cleanTarget := filepath.Clean(targetPath)
-		if !strings.HasPrefix(cleanTarget, cleanDest) && cleanTarget != filepath.Clean(destDir) {
-			return fmt.Errorf("invalid zip path traversal: %q", file.Name)
+		cleanTarget, err := archiveTarget(destDir, file.Name)
+		if err != nil {
+			return fmt.Errorf("invalid zip path %q: %w", file.Name, err)
+		}
+		if file.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("unsupported zip symlink entry: %q", file.Name)
 		}
 
 		if file.FileInfo().IsDir() {

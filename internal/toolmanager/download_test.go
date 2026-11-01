@@ -1,12 +1,57 @@
 package toolmanager
 
 import (
+	"archive/zip"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/util/githubrelease"
 )
+
+func TestArchiveTargetRejectsTraversal(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"../outside", "sub/../../outside", "/outside"} {
+		_, err := archiveTarget(t.TempDir(), name)
+		require.Error(t, err, "archiveTarget(%q) unexpectedly accepted traversal", name)
+	}
+}
+
+func TestArchiveTargetRejectsSiblingPrefix(t *testing.T) {
+	t.Parallel()
+	parent := t.TempDir()
+	dest := filepath.Join(parent, "output")
+	target, err := archiveTarget(dest, "../output-sibling/file")
+	require.Error(t, err)
+	require.Empty(t, target)
+}
+
+func TestExtractZipRejectsSymlinkEntries(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dest := filepath.Join(root, "dest")
+	require.NoError(t, os.Mkdir(dest, 0o755))
+	archivePath := filepath.Join(t.TempDir(), "malicious.zip")
+	file, err := os.Create(archivePath)
+	require.NoError(t, err)
+	writer := zip.NewWriter(file)
+	header := &zip.FileHeader{Name: "link"}
+	header.SetMode(os.ModeSymlink | 0o777)
+	link, err := writer.CreateHeader(header)
+	require.NoError(t, err)
+	_, err = link.Write([]byte("outside"))
+	require.NoError(t, err)
+	_, err = writer.Create("link/payload")
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+	require.NoError(t, file.Close())
+
+	err = extractZip(archivePath, dest)
+	require.ErrorContains(t, err, "unsupported zip symlink entry")
+	require.NoFileExists(t, filepath.Join(root, "outside", "payload"))
+}
 
 func TestFindReleaseAssetUsesCandidateOrder(t *testing.T) {
 	t.Parallel()
