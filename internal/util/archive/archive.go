@@ -79,29 +79,44 @@ func extractTarGz(archivePath, dst string) error {
 		}
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0o755); err != nil {
-				return fmt.Errorf("create extracted dir %q failed: %w", target, err)
+			if err := extractDir(target); err != nil {
+				return err
 			}
 		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				return fmt.Errorf("create parent dir for %q failed: %w", target, err)
-			}
 			//nolint:gosec // G115: archive mode is retained for extracted files.
-			out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.FileMode(header.Mode))
-			if err != nil {
-				return fmt.Errorf("create extracted file %q failed: %w", target, err)
-			}
-			//nolint:gosec // G110: release archives are downloaded from configured trusted sources.
-			_, copyErr := io.Copy(out, reader)
-			closeErr := out.Close()
-			if copyErr != nil {
-				return fmt.Errorf("write extracted file %q failed: %w", target, copyErr)
-			}
-			if closeErr != nil {
-				return fmt.Errorf("close extracted file %q failed: %w", target, closeErr)
+			if err := extractFile(target, os.FileMode(header.Mode), reader); err != nil {
+				return err
 			}
 		}
 	}
+}
+
+func extractDir(target string) error {
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		return fmt.Errorf("create extracted dir %q failed: %w", target, err)
+	}
+	return nil
+}
+
+// extractFile writes one regular archive entry; the caller owns closing src.
+func extractFile(target string, mode os.FileMode, src io.Reader) error {
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return fmt.Errorf("create parent dir for %q failed: %w", target, err)
+	}
+	out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
+	if err != nil {
+		return fmt.Errorf("create extracted file %q failed: %w", target, err)
+	}
+	//nolint:gosec // G110: release archives are downloaded from configured trusted sources.
+	_, copyErr := io.Copy(out, src)
+	closeErr := out.Close()
+	if copyErr != nil {
+		return fmt.Errorf("write extracted file %q failed: %w", target, copyErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close extracted file %q failed: %w", target, closeErr)
+	}
+	return nil
 }
 
 func extractZip(archivePath, dst string) error {
@@ -119,35 +134,21 @@ func extractZip(archivePath, dst string) error {
 			return fmt.Errorf("unsupported zip symlink entry: %q", entry.Name)
 		}
 		if entry.FileInfo().IsDir() {
-			if err := os.MkdirAll(target, 0o755); err != nil {
-				return fmt.Errorf("create extracted dir %q failed: %w", target, err)
+			if err := extractDir(target); err != nil {
+				return err
 			}
 			continue
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return fmt.Errorf("create parent dir for %q failed: %w", target, err)
 		}
 		src, err := entry.Open()
 		if err != nil {
 			return fmt.Errorf("open zip entry %q failed: %w", entry.Name, err)
 		}
-		out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, entry.Mode())
-		if err != nil {
+		if err := extractFile(target, entry.Mode(), src); err != nil {
 			_ = src.Close()
-			return fmt.Errorf("create extracted file %q failed: %w", target, err)
+			return err
 		}
-		//nolint:gosec // G110: release archives are downloaded from configured trusted sources.
-		_, copyErr := io.Copy(out, src)
-		srcCloseErr := src.Close()
-		outCloseErr := out.Close()
-		if copyErr != nil {
-			return fmt.Errorf("write extracted file %q failed: %w", target, copyErr)
-		}
-		if srcCloseErr != nil {
-			return fmt.Errorf("close zip entry %q failed: %w", entry.Name, srcCloseErr)
-		}
-		if outCloseErr != nil {
-			return fmt.Errorf("close extracted file %q failed: %w", target, outCloseErr)
+		if err := src.Close(); err != nil {
+			return fmt.Errorf("close zip entry %q failed: %w", entry.Name, err)
 		}
 	}
 	return nil
