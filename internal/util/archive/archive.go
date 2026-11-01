@@ -6,10 +6,12 @@ import (
 	"archive/zip"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -32,8 +34,12 @@ func Extract(ctx context.Context, archive, format, dst string) error {
 }
 
 func targetPath(dst, name string) (string, error) {
+	parts := strings.FieldsFunc(name, func(r rune) bool { return r == '/' || r == '\\' })
+	if slices.Contains(parts, "..") {
+		return "", errors.New("path contains a parent directory element")
+	}
 	if filepath.IsAbs(name) {
-		return "", fmt.Errorf("absolute paths are not allowed")
+		return "", errors.New("absolute paths are not allowed")
 	}
 	root := filepath.Clean(dst)
 	target := filepath.Clean(filepath.Join(root, name))
@@ -42,7 +48,7 @@ func targetPath(dst, name string) (string, error) {
 		return "", err
 	}
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-		return "", fmt.Errorf("path escapes destination")
+		return "", errors.New("path escapes destination")
 	}
 	return target, nil
 }
@@ -61,7 +67,7 @@ func extractTarGz(archivePath, dst string) error {
 	reader := tar.NewReader(gz)
 	for {
 		header, err := reader.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return nil
 		}
 		if err != nil {
@@ -76,14 +82,16 @@ func extractTarGz(archivePath, dst string) error {
 			if err := os.MkdirAll(target, 0o755); err != nil {
 				return fmt.Errorf("create extracted dir %q failed: %w", target, err)
 			}
-		case tar.TypeReg, tar.TypeRegA:
+		case tar.TypeReg:
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return fmt.Errorf("create parent dir for %q failed: %w", target, err)
 			}
+			//nolint:gosec // G115: archive mode is retained for extracted files.
 			out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.FileMode(header.Mode))
 			if err != nil {
 				return fmt.Errorf("create extracted file %q failed: %w", target, err)
 			}
+			//nolint:gosec // G110: release archives are downloaded from configured trusted sources.
 			_, copyErr := io.Copy(out, reader)
 			closeErr := out.Close()
 			if copyErr != nil {
@@ -128,6 +136,7 @@ func extractZip(archivePath, dst string) error {
 			_ = src.Close()
 			return fmt.Errorf("create extracted file %q failed: %w", target, err)
 		}
+		//nolint:gosec // G110: release archives are downloaded from configured trusted sources.
 		_, copyErr := io.Copy(out, src)
 		srcCloseErr := src.Close()
 		outCloseErr := out.Close()
