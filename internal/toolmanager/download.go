@@ -1,19 +1,16 @@
 package toolmanager
 
 import (
-	"archive/tar"
-	"archive/zip"
-	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 
 	"github.com/pulseaiclub/phi/internal/project"
+	"github.com/pulseaiclub/phi/internal/util/archive"
 	"github.com/pulseaiclub/phi/internal/util/githubrelease"
 	platformutil "github.com/pulseaiclub/phi/internal/util/platform"
 )
@@ -23,114 +20,6 @@ const compatibleReleaseLookback = 10
 // BinDir returns the default directory for downloaded tool binaries (~/.phi/bin).
 func BinDir() (string, error) {
 	return project.GetDefaultProject().Global().BinDir(), nil
-}
-
-func extractTarGz(archivePath, destDir string) error {
-	file, err := os.Open(archivePath)
-	if err != nil {
-		return fmt.Errorf("open tar.gz %q failed: %w", archivePath, err)
-	}
-	defer file.Close()
-
-	gzReader, err := gzip.NewReader(file)
-	if err != nil {
-		return fmt.Errorf("create gzip reader for %q failed: %w", archivePath, err)
-	}
-	defer gzReader.Close()
-
-	tarReader := tar.NewReader(gzReader)
-	for {
-		header, err := tarReader.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return fmt.Errorf("read tar entry failed: %w", err)
-		}
-
-		targetPath := filepath.Join(destDir, header.Name) //nolint:gosec // G305: path checked with HasPrefix below
-		cleanDest := filepath.Clean(destDir) + string(os.PathSeparator)
-		cleanTarget := filepath.Clean(targetPath)
-		if !strings.HasPrefix(cleanTarget, cleanDest) && cleanTarget != filepath.Clean(destDir) {
-			return fmt.Errorf("invalid tar path traversal: %q", header.Name)
-		}
-
-		switch header.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(cleanTarget, 0o755); err != nil {
-				return fmt.Errorf("create extracted dir %q failed: %w", cleanTarget, err)
-			}
-		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(cleanTarget), 0o755); err != nil {
-				return fmt.Errorf("create parent dir for %q failed: %w", cleanTarget, err)
-			}
-			//nolint:gosec // G115: archive mode bits fit FileMode
-			outFile, err := os.OpenFile(cleanTarget, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.FileMode(header.Mode))
-			if err != nil {
-				return fmt.Errorf("create extracted file %q failed: %w", cleanTarget, err)
-			}
-			//nolint:gosec // G110: tools come from trusted GitHub releases
-			if _, err := io.Copy(outFile, tarReader); err != nil {
-				_ = outFile.Close()
-				return fmt.Errorf("write extracted file %q failed: %w", cleanTarget, err)
-			}
-			if err := outFile.Close(); err != nil {
-				return fmt.Errorf("close extracted file %q failed: %w", cleanTarget, err)
-			}
-		}
-	}
-	return nil
-}
-
-func extractZip(archivePath, destDir string) error {
-	reader, err := zip.OpenReader(archivePath)
-	if err != nil {
-		return fmt.Errorf("open zip %q failed: %w", archivePath, err)
-	}
-	defer reader.Close()
-
-	for _, file := range reader.File {
-		targetPath := filepath.Join(destDir, file.Name) //nolint:gosec // G305: path checked with HasPrefix below
-		cleanDest := filepath.Clean(destDir) + string(os.PathSeparator)
-		cleanTarget := filepath.Clean(targetPath)
-		if !strings.HasPrefix(cleanTarget, cleanDest) && cleanTarget != filepath.Clean(destDir) {
-			return fmt.Errorf("invalid zip path traversal: %q", file.Name)
-		}
-
-		if file.FileInfo().IsDir() {
-			if err := os.MkdirAll(cleanTarget, 0o755); err != nil {
-				return fmt.Errorf("create extracted dir %q failed: %w", cleanTarget, err)
-			}
-			continue
-		}
-
-		if err := os.MkdirAll(filepath.Dir(cleanTarget), 0o755); err != nil {
-			return fmt.Errorf("create parent dir for %q failed: %w", cleanTarget, err)
-		}
-
-		rc, err := file.Open()
-		if err != nil {
-			return fmt.Errorf("open zip entry %q failed: %w", file.Name, err)
-		}
-		outFile, err := os.OpenFile(cleanTarget, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, file.Mode())
-		if err != nil {
-			_ = rc.Close()
-			return fmt.Errorf("create extracted file %q failed: %w", cleanTarget, err)
-		}
-		if _, err := io.Copy(outFile, rc); err != nil { //nolint:gosec // G110: tools come from trusted GitHub releases
-			_ = rc.Close()
-			_ = outFile.Close()
-			return fmt.Errorf("write extracted file %q failed: %w", cleanTarget, err)
-		}
-		if err := rc.Close(); err != nil {
-			_ = outFile.Close()
-			return fmt.Errorf("close zip entry %q failed: %w", file.Name, err)
-		}
-		if err := outFile.Close(); err != nil {
-			return fmt.Errorf("close extracted file %q failed: %w", cleanTarget, err)
-		}
-	}
-	return nil
 }
 
 func findBinaryRecursively(rootDir, binaryFileName string) (string, error) {
@@ -253,11 +142,11 @@ func DownloadTool(ctx context.Context, tool string) (string, error) {
 
 	switch {
 	case strings.HasSuffix(assetName, ".tar.gz"):
-		if err := extractTarGz(archivePath, extractDir); err != nil {
+		if err := archive.Extract(ctx, archivePath, "tar.gz", extractDir); err != nil {
 			return "", fmt.Errorf("failed to extract %s: %w", assetName, err)
 		}
 	case strings.HasSuffix(assetName, ".zip"):
-		if err := extractZip(archivePath, extractDir); err != nil {
+		if err := archive.Extract(ctx, archivePath, "zip", extractDir); err != nil {
 			return "", fmt.Errorf("failed to extract %s: %w", assetName, err)
 		}
 	default:

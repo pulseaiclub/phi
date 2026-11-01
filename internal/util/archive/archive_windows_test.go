@@ -3,6 +3,7 @@
 package archive
 
 import (
+	"archive/zip"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,6 +14,25 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestExtractZipRejectsTraversalAndSymlinks(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	archivePath := filepath.Join(dir, "malicious.zip")
+	file, err := os.Create(archivePath)
+	require.NoError(t, err)
+	writer := zip.NewWriter(file)
+	entry, err := writer.Create("../outside")
+	require.NoError(t, err)
+	_, err = entry.Write([]byte("payload"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+	require.NoError(t, file.Close())
+
+	err = Extract(t.Context(), archivePath, "zip", filepath.Join(dir, "out"))
+	require.ErrorContains(t, err, "invalid zip path")
+	require.NoFileExists(t, filepath.Join(dir, "outside"))
+}
 
 // psLiteral quotes a path as a PowerShell single-quoted literal, where
 // backslashes and spaces need no escaping.

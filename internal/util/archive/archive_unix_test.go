@@ -3,6 +3,8 @@
 package archive
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
 	"os"
 	"os/exec"
@@ -34,14 +36,37 @@ func TestExtractTarGzWithSpacedPaths(t *testing.T) {
 	assert.Equal(t, "payload", string(got))
 }
 
-func TestExtractTarGzReportsCommandFailure(t *testing.T) {
+func TestExtractTarGzRejectsTraversal(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	archivePath := filepath.Join(dir, "traversal.tar.gz")
+	file, err := os.Create(archivePath)
+	require.NoError(t, err)
+	gz := gzip.NewWriter(file)
+	tarWriter := tar.NewWriter(gz)
+	require.NoError(
+		t,
+		tarWriter.WriteHeader(&tar.Header{Name: "../outside", Mode: 0o644, Size: 1, Typeflag: tar.TypeReg}),
+	)
+	_, err = tarWriter.Write([]byte("x"))
+	require.NoError(t, err)
+	require.NoError(t, tarWriter.Close())
+	require.NoError(t, gz.Close())
+	require.NoError(t, file.Close())
+
+	err = Extract(t.Context(), archivePath, "tar.gz", filepath.Join(dir, "out"))
+	require.ErrorContains(t, err, "invalid tar path")
+	require.NoFileExists(t, filepath.Join(dir, "outside"))
+}
+
+func TestExtractTarGzRejectsInvalidArchive(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	archivePath := filepath.Join(dir, "broken.tar.gz")
 	require.NoError(t, os.WriteFile(archivePath, []byte("not a tar archive"), 0o644))
 
 	err := Extract(t.Context(), archivePath, "tar.gz", dir)
-	require.ErrorContains(t, err, "tar:")
+	require.Error(t, err)
 }
 
 func TestExtractHonorsCancellation(t *testing.T) {

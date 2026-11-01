@@ -18,6 +18,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - MCP: Keep full tool descriptions when inspecting tools.
 
+### Security
+
+- Archive extraction: `phi plugin install` / `update`, self-update, and tool
+  downloads unpack release archives with in-process Go readers that validate
+  every entry path before writing. Parent-directory elements (`../`, `..\`),
+  absolute paths, and paths escaping the extract directory are rejected
+  (Zip Slip, CWE-22), and zip symlink entries are refused. Extraction no
+  longer shells out to `tar` / PowerShell Expand-Archive, which trusted
+  archive paths as-is.
+
 <!-- Released section -->
 <!-- Don't change this section unless doing release -->
 
