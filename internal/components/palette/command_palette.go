@@ -10,6 +10,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/chrome"
 	"github.com/pulseaiclub/phi/internal/components/layout"
+	"github.com/pulseaiclub/phi/internal/components/textfield"
 )
 
 // PaletteCommand is one entry in the command palette.
@@ -48,9 +49,10 @@ func (c PaletteCommand) Label() string {
 type CommandPalette struct {
 	Open     bool
 	Title    string
-	Query    string
-	Cursor   int // byte offset into Query
 	Commands []PaletteCommand
+	// line is the shared single-line search buffer; Query()/SetQuery expose it.
+	line textfield.Field
+
 	Selected int
 	Theme    components.Theme
 	MaxItems int // visible rows; default 12
@@ -68,8 +70,7 @@ type CommandPalette struct {
 type paletteFrame struct {
 	Title    string
 	Commands []PaletteCommand
-	Query    string
-	Cursor   int
+	line     textfield.Field
 	Selected int
 }
 
@@ -94,12 +95,18 @@ func (p *CommandPalette) maxItems() int {
 	return p.MaxItems
 }
 
+// Query returns the search line.
+func (p *CommandPalette) Query() string { return p.line.Text() }
+
+// SetQuery replaces the search line and parks the caret at the end.
+func (p *CommandPalette) SetQuery(q string) { p.line.SetText(q) }
+
 // Show opens the palette and resets query/selection.
 func (p *CommandPalette) Show() {
 	p.Open = true
-	p.Query = ""
-	p.Cursor = 0
+	p.line.SetText("")
 	p.Selected = 0
+
 	p.stack = nil
 	if p.Title == "" {
 		p.Title = "Command Palette"
@@ -113,8 +120,7 @@ func (p *CommandPalette) Hide() {
 		p.Pop()
 	}
 	p.Open = false
-	p.Query = ""
-	p.Cursor = 0
+	p.line.SetText("")
 	if p.OnClose != nil {
 		p.OnClose()
 	}
@@ -126,15 +132,14 @@ func (p *CommandPalette) Push(title string, cmds []PaletteCommand) {
 	p.stack = append(p.stack, paletteFrame{
 		Title:    p.Title,
 		Commands: p.Commands,
-		Query:    p.Query,
-		Cursor:   p.Cursor,
+		line:     p.line,
 		Selected: p.Selected,
 	})
 	p.Title = title
 	p.Commands = cmds
-	p.Query = ""
-	p.Cursor = 0
+	p.line.SetText("")
 	p.Selected = 0
+
 	p.refilter()
 }
 
@@ -148,9 +153,9 @@ func (p *CommandPalette) Pop() bool {
 	p.stack = p.stack[:n-1]
 	p.Title = frame.Title
 	p.Commands = frame.Commands
-	p.Query = frame.Query
-	p.Cursor = frame.Cursor
+	p.line = frame.line
 	p.Selected = frame.Selected
+
 	p.refilter()
 	return true
 }
@@ -163,7 +168,8 @@ func (p *CommandPalette) returnFocus(ctx *components.EventContext) {
 
 func (p *CommandPalette) refilter() {
 	p.filtered = p.filtered[:0]
-	q := strings.TrimSpace(p.Query)
+	q := strings.TrimSpace(p.Query())
+
 	type scored struct {
 		idx   int
 		score float64
@@ -282,37 +288,29 @@ func (p *CommandPalette) Handle(ctx *components.EventContext, ev xui.Event) {
 			ctx.ConsumeAndRedraw()
 			return
 		case xui.KeyBackspace:
-			if p.Cursor > 0 {
-				_, size := utf8.DecodeLastRuneInString(p.Query[:p.Cursor])
-				p.Query = p.Query[:p.Cursor-size] + p.Query[p.Cursor:]
-				p.Cursor -= size
+			if p.line.DeleteBefore() {
 				p.Selected = 0
 				p.refilter()
 			}
 			ctx.ConsumeAndRedraw()
 			return
 		case xui.KeyLeft:
-			if p.Cursor > 0 {
-				_, size := utf8.DecodeLastRuneInString(p.Query[:p.Cursor])
-				p.Cursor -= size
-			}
+			p.line.Move(-1)
 			ctx.ConsumeAndRedraw()
 			return
 		case xui.KeyRight:
-			if p.Cursor < len(p.Query) {
-				_, size := utf8.DecodeRuneInString(p.Query[p.Cursor:])
-				p.Cursor += size
-			}
+			p.line.Move(1)
 			ctx.ConsumeAndRedraw()
 			return
 		case xui.KeyHome:
-			p.Cursor = 0
+			p.line.Home()
 			ctx.ConsumeAndRedraw()
 			return
 		case xui.KeyEnd:
-			p.Cursor = len(p.Query)
+			p.line.End()
 			ctx.ConsumeAndRedraw()
 			return
+
 		case xui.KeyRune:
 			if e.Mods.Has(xui.ModCtrl) {
 				switch e.Rune {
@@ -348,9 +346,7 @@ func (p *CommandPalette) Handle(ctx *components.EventContext, ev xui.Event) {
 				return
 			}
 			if e.Rune >= 0x20 || e.Rune == '\t' {
-				r := string(e.Rune)
-				p.Query = p.Query[:p.Cursor] + r + p.Query[p.Cursor:]
-				p.Cursor += len(r)
+				p.line.Insert(string(e.Rune))
 				p.Selected = 0
 				p.refilter()
 				ctx.ConsumeAndRedraw()
@@ -359,14 +355,11 @@ func (p *CommandPalette) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 		ctx.Consume = true
 	case xui.PasteEvent:
-		text := strings.ReplaceAll(e.Text, "\n", " ")
-		text = strings.ReplaceAll(text, "\r", " ")
-
-		p.Query = p.Query[:p.Cursor] + text + p.Query[p.Cursor:]
-		p.Cursor += len(text)
+		p.line.Insert(e.Text)
 		p.Selected = 0
 		p.refilter()
 		ctx.ConsumeAndRedraw()
+
 	case xui.MouseEvent:
 		if e.Action == xui.MousePress && e.Button == xui.MouseLeft {
 			ctx.ConsumeAndRedraw()
@@ -466,12 +459,14 @@ func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 	// Prompt: "> query"
 	promptY := 1
 	panel.Print(1, promptY, chrome.FilterPrompt, th.Foreground, ctx.Method)
-	q := p.Query
+	q := p.Query()
+
 	qx := 3
 	availQ := innerW - 2
 	availQ = max(availQ, 1)
 	panel.Print(qx, promptY, components.TruncateToWidth(q, availQ, ctx.Method), th.Foreground, ctx.Method)
-	curCol := xui.StringWidth(q[:min(p.Cursor, len(q))], ctx.Method)
+	before, _ := p.line.Split()
+	curCol := xui.StringWidth(before, ctx.Method)
 	if curCol >= availQ {
 		curCol = availQ - 1
 		curCol = max(curCol, 0)
