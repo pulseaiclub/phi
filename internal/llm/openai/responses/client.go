@@ -28,17 +28,14 @@ func responsesURL(baseURL string) string {
 	return base + responsesPath
 }
 
-func newHTTPRequest(ctx context.Context, url, apiKey string, body []byte, stream bool) (*http.Request, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+// requestHeaders returns Responses API auth headers; a streaming request
+// additionally advertises SSE.
+func requestHeaders(apiKey string, stream bool) http.Header {
+	h := http.Header{"Authorization": {"Bearer " + apiKey}}
 	if stream {
-		httpReq.Header.Set("Accept", util.ContentEventStream)
+		h.Set("Accept", util.ContentEventStream)
 	}
-	return httpReq, nil
+	return h
 }
 
 // CompactRequest POSTs a non-streaming Responses create and returns assistant text.
@@ -53,29 +50,17 @@ func CompactRequest(
 		return llm.CompactResult{}, err
 	}
 
-	httpReq, err := newHTTPRequest(ctx, responsesURL(cfg.BaseURL), cfg.APIKey, body, false)
+	raw, err := llm.PostBody(ctx, httpClient, "LLM",
+		responsesURL(cfg.BaseURL), body, requestHeaders(cfg.APIKey, false))
 	if err != nil {
 		return llm.CompactResult{}, err
-	}
-
-	httpResp, err := util.DoWithRetry(httpClient, httpReq)
-	if err != nil {
-		return llm.CompactResult{}, err
-	}
-	defer httpResp.Body.Close()
-
-	respBody, err := io.ReadAll(httpResp.Body)
-	if err != nil {
-		return llm.CompactResult{}, err
-	}
-	if httpResp.StatusCode != http.StatusOK {
-		return llm.CompactResult{}, llm.FormatAPIError("LLM", httpResp.StatusCode, respBody)
 	}
 
 	var resp compactResponse
-	if err := json.Unmarshal(respBody, &resp); err != nil {
+	if err := json.Unmarshal(raw, &resp); err != nil {
 		return llm.CompactResult{}, err
 	}
+
 	text := resp.outputText()
 	if text == "" {
 		return llm.CompactResult{}, errors.New("LLM API error: empty Responses output")
@@ -134,24 +119,13 @@ func Stream(
 			return
 		}
 
-		httpReq, err := newHTTPRequest(ctx, responsesURL(cfg.BaseURL), cfg.APIKey, body, true)
-		if err != nil {
-			yield(llm.StreamEvent{}, err)
-			return
-		}
-
-		httpResp, err := util.DoWithRetry(httpClient, httpReq)
+		httpResp, err := llm.Post(ctx, httpClient, "LLM",
+			responsesURL(cfg.BaseURL), body, requestHeaders(cfg.APIKey, true))
 		if err != nil {
 			yield(llm.StreamEvent{}, err)
 			return
 		}
 		defer httpResp.Body.Close()
-
-		if httpResp.StatusCode != http.StatusOK {
-			respBody, _ := io.ReadAll(httpResp.Body)
-			yield(llm.StreamEvent{}, llm.FormatAPIError("LLM", httpResp.StatusCode, respBody))
-			return
-		}
 
 		processStream(httpResp.Body, yield)
 	}

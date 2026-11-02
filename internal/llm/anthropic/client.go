@@ -338,23 +338,16 @@ func validateThinking(req *AnthropicRequest) error {
 	return nil
 }
 
-func newMessagesHTTPRequest(ctx context.Context, cfg llm.ModelConfig, body []byte, stream bool) (*http.Request, error) {
-	httpReq, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodPost,
-		normalizeBaseURL(cfg.BaseURL)+messagesPath,
-		bytes.NewReader(body),
-	)
-	if err != nil {
-		return nil, err
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("X-Api-Key", cfg.APIKey)
-	httpReq.Header.Set("Anthropic-Version", apiVersion)
+// messagesHeaders returns the auth/version headers for the Messages API; a
+// streaming request additionally advertises SSE.
+func messagesHeaders(cfg llm.ModelConfig, stream bool) http.Header {
+	h := http.Header{}
+	h.Set("X-Api-Key", cfg.APIKey)
+	h.Set("Anthropic-Version", apiVersion)
 	if stream {
-		httpReq.Header.Set("Accept", util.ContentEventStream)
+		h.Set("Accept", util.ContentEventStream)
 	}
-	return httpReq, nil
+	return h
 }
 
 // Stream POSTs a streaming request to the Messages API and yields normalized
@@ -378,24 +371,13 @@ func Stream(
 		}
 		input := req.nativeInput
 
-		httpReq, err := newMessagesHTTPRequest(ctx, cfg, body, true)
-		if err != nil {
-			yield(llm.StreamEvent{}, err)
-			return
-		}
-
-		httpResp, err := util.DoWithRetry(httpClient, httpReq)
+		httpResp, err := llm.Post(ctx, httpClient, "anthropic",
+			normalizeBaseURL(cfg.BaseURL)+messagesPath, body, messagesHeaders(cfg, true))
 		if err != nil {
 			yield(llm.StreamEvent{}, err)
 			return
 		}
 		defer httpResp.Body.Close()
-
-		if httpResp.StatusCode != http.StatusOK {
-			respBody, _ := io.ReadAll(httpResp.Body)
-			yield(llm.StreamEvent{}, llm.FormatAPIError("anthropic", httpResp.StatusCode, respBody))
-			return
-		}
 
 		processStream(httpResp.Body, func(ev llm.StreamEvent, err error) bool {
 			if ev.Final != nil && ev.Final.ProviderState != nil {
@@ -665,23 +647,10 @@ func CompactRequest(
 		return llm.CompactResult{}, err
 	}
 
-	httpReq, err := newMessagesHTTPRequest(ctx, cfg, body, false)
+	raw, err := llm.PostBody(ctx, httpClient, "anthropic",
+		normalizeBaseURL(cfg.BaseURL)+messagesPath, body, messagesHeaders(cfg, false))
 	if err != nil {
 		return llm.CompactResult{}, err
-	}
-
-	httpResp, err := util.DoWithRetry(httpClient, httpReq)
-	if err != nil {
-		return llm.CompactResult{}, err
-	}
-	defer httpResp.Body.Close()
-
-	respBody, err := io.ReadAll(httpResp.Body)
-	if err != nil {
-		return llm.CompactResult{}, err
-	}
-	if httpResp.StatusCode != http.StatusOK {
-		return llm.CompactResult{}, llm.FormatAPIError("anthropic", httpResp.StatusCode, respBody)
 	}
 
 	var resp struct {
@@ -691,10 +660,11 @@ func CompactRequest(
 		} `json:"content"`
 		StopReason string `json:"stop_reason"`
 	}
-	if err := json.Unmarshal(respBody, &resp); err != nil {
+	if err := json.Unmarshal(raw, &resp); err != nil {
 		return llm.CompactResult{}, err
 	}
 	var sb strings.Builder
+
 	for _, block := range resp.Content {
 		if block.Type == "text" {
 			sb.WriteString(block.Text)
