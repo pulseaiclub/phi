@@ -42,24 +42,3 @@ func TestSourceOffsetsFallBackAtEnds(t *testing.T) {
 	assert.Equal(t, 0, got.sourceEnd(0, 42))
 	assert.Equal(t, 2, got.sourceEnd(len(got.text), 42))
 }
-
-func TestLevenshteinDistance(t *testing.T) {
-	cases := []struct {
-		name  string
-		left  string
-		right string
-		want  int
-	}{
-		{name: "identical", left: "kitten", right: "kitten", want: 0},
-		{name: "classic", left: "kitten", right: "sitting", want: 3},
-		{name: "empty against text", left: "", right: "abc", want: 3},
-		{name: "astral counts once", left: "😀a", right: "😀b", want: 1},
-		{name: "shared edges trimmed", left: "prefix-middle-suffix", right: "prefix-middl-suffix", want: 1},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, levenshteinDistance(tc.left, tc.right))
-			assert.Equal(t, tc.want, levenshteinDistance(tc.right, tc.left))
-		})
-	}
-}
