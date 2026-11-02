@@ -168,7 +168,7 @@ func (e *ConfigEditor) paintRow(s *components.Surface, y int, r row, selected bo
 		style := e.valStyle(r.style, bg, selected)
 		text := r.label
 		if e.edit != nil && e.edit.key == r.key {
-			text = string(e.edit.buf)
+			text = e.edit.line.Text()
 			style = base
 			if selected {
 				style.Bg = bg
@@ -176,9 +176,11 @@ func (e *ConfigEditor) paintRow(s *components.Surface, y int, r row, selected bo
 		}
 		s.Print(x, y, components.TruncateToWidth(text, s.Size.Width-2-x, method), style, method)
 		if e.edit != nil && e.edit.key == r.key {
-			e.caretX = x + xui.StringWidth(string(e.edit.buf[:e.edit.cur]), method)
+			before, _ := e.edit.line.Split()
+			e.caretX = x + xui.StringWidth(before, method)
 			e.caretY = y
 		}
+
 	case rowNote:
 		s.Print(xNested, y, components.TruncateToWidth(r.label, s.Size.Width-2-xNested, method),
 			e.valStyle(r.style, bg, selected), method)
@@ -213,7 +215,7 @@ func (e *ConfigEditor) paintField(
 	text := r.display
 	editing := e.edit != nil && e.edit.key == r.key
 	if editing {
-		text = string(e.edit.buf)
+		text = e.edit.line.Text()
 		style = base
 		if selected {
 			style.Bg = bg
@@ -222,7 +224,8 @@ func (e *ConfigEditor) paintField(
 	avail := max(s.Size.Width-2-col, 1)
 	printed := s.Print(col, y, components.TruncateToWidth(text, avail, method), style, method)
 	if editing {
-		e.caretX = col + xui.StringWidth(string(e.edit.buf[:e.edit.cur]), method)
+		before, _ := e.edit.line.Split()
+		e.caretX = col + xui.StringWidth(before, method)
 		e.caretY = y
 		return
 	}
