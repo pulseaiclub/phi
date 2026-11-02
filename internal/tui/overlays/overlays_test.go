@@ -48,8 +48,8 @@ func TestPermissionDenyWithFeedback(t *testing.T) {
 	})
 	o.acceptPermissionOption(askOptDenyFeedback)
 	require.True(t, o.perm != nil && o.perm.feedbackMode, "expected feedback mode")
-	o.perm.feedback = "use docs instead"
-	o.resolvePermission(controller.AskReply{Feedback: o.perm.feedback})
+	o.perm.line.SetText("use docs instead")
+	o.resolvePermission(controller.AskReply{Feedback: o.perm.line.Text()})
 	r := <-reply
 	require.False(t, r.Approved)
 	require.Equal(t, "use docs instead", r.Feedback)

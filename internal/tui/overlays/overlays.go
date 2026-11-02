@@ -7,6 +7,8 @@ import (
 	"github.com/pulseaiclub/xui"
 
 	"github.com/pulseaiclub/phi/internal/components"
+	"github.com/pulseaiclub/phi/internal/components/textfield"
+
 	"github.com/pulseaiclub/phi/internal/components/chrome"
 	"github.com/pulseaiclub/phi/internal/components/layout"
 	"github.com/pulseaiclub/phi/internal/permission"
@@ -326,8 +328,7 @@ func (o *Overlays) acceptPermissionOption(opt askOption) {
 		o.resolvePermission(controller.AskReply{Approved: true, AllowPersistent: true})
 	case askOptDenyFeedback:
 		st.feedbackMode = true
-		st.feedback = ""
-		st.feedbackCur = 0
+		st.line.SetText("")
 	}
 }
 
@@ -339,33 +340,24 @@ func (o *Overlays) handlePermissionFeedbackKey(ctx *components.EventContext, e x
 	switch e.Code {
 	case xui.KeyEscape:
 		st.feedbackMode = false
-		st.feedback = ""
-		st.feedbackCur = 0
+		st.line.SetText("")
 		ctx.ConsumeAndRedraw()
 		return true
 	case xui.KeyEnter:
-		fb := strings.TrimSpace(st.feedback)
+		fb := strings.TrimSpace(st.line.Text())
 		o.resolvePermission(controller.AskReply{Feedback: fb})
 		ctx.ConsumeAndRedraw()
 		return true
 	case xui.KeyBackspace:
-		runes := []rune(st.feedback)
-		if st.feedbackCur > 0 && st.feedbackCur <= len(runes) {
-			st.feedback = string(append(runes[:st.feedbackCur-1], runes[st.feedbackCur:]...))
-			st.feedbackCur--
-		}
+		st.line.DeleteBefore()
 		ctx.ConsumeAndRedraw()
 		return true
 	case xui.KeyLeft:
-		if st.feedbackCur > 0 {
-			st.feedbackCur--
-		}
+		st.line.Move(-1)
 		ctx.ConsumeAndRedraw()
 		return true
 	case xui.KeyRight:
-		if st.feedbackCur < len([]rune(st.feedback)) {
-			st.feedbackCur++
-		}
+		st.line.Move(1)
 		ctx.ConsumeAndRedraw()
 		return true
 	case xui.KeyRune:
@@ -373,13 +365,11 @@ func (o *Overlays) handlePermissionFeedbackKey(ctx *components.EventContext, e x
 			ctx.ConsumeAndRedraw()
 			return true
 		}
-		runes := []rune(st.feedback)
-		ch := string(e.Rune)
-		st.feedback = string(append(runes[:st.feedbackCur], append([]rune(ch), runes[st.feedbackCur:]...)...))
-		st.feedbackCur++
+		st.line.Insert(string(e.Rune))
 		ctx.ConsumeAndRedraw()
 		return true
 	}
+
 	ctx.ConsumeAndRedraw()
 	return true
 }
@@ -550,8 +540,7 @@ type permAskState struct {
 	detail       string
 	selected     int
 	feedbackMode bool
-	feedback     string
-	feedbackCur  int
+	line         textfield.Field
 }
 
 type continueAskState struct {
@@ -688,11 +677,8 @@ func (st *permAskState) feedbackLines(
 	innerW int,
 	method xui.WidthMethod,
 ) []components.RichLine {
-	runes := []rune(st.feedback)
-	if st.feedbackCur > len(runes) {
-		st.feedbackCur = len(runes)
-	}
-	shown := string(runes[:st.feedbackCur]) + "▎" + string(runes[st.feedbackCur:])
+	before, after := st.line.Split()
+	shown := before + "▎" + after
 	var out []components.RichLine
 	out = append(out, components.WrapSpans([]components.Span{
 		{Text: chrome.Err + " ", Style: th.Destructive},
