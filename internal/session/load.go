@@ -112,7 +112,8 @@ func readSessionMeta(path string, e os.DirEntry) (SessionMeta, error) {
 }
 
 func truncatePreview(s string, n int) string {
-	s = util.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+
 	s = strings.TrimSpace(s)
 	return util.TruncateBytes(s, n, "…")
 }

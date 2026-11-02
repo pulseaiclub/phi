@@ -7,8 +7,6 @@ import (
 
 	"github.com/pulseaiclub/xui"
 
-	"github.com/pulseaiclub/phi/internal/util"
-
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/chrome"
 	"github.com/pulseaiclub/phi/internal/components/layout"
@@ -347,8 +345,9 @@ func (p *CommandPalette) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 		ctx.Consume = true
 	case xui.PasteEvent:
-		text := util.ReplaceAll(e.Text, "\n", " ")
-		text = util.ReplaceAll(text, "\r", " ")
+		text := strings.ReplaceAll(e.Text, "\n", " ")
+		text = strings.ReplaceAll(text, "\r", " ")
+
 		p.Query = p.Query[:p.Cursor] + text + p.Query[p.Cursor:]
 		p.Cursor += len(text)
 		p.Selected = 0
