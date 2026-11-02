@@ -27,11 +27,8 @@ type CompactionPreparation struct {
 	// It only decides when compaction starts; it does not size the summary.
 	ReserveTokens int
 	// Limits size each summary request from the model's output limit.
-	Limits OutputLimits
-	// TODO: wire into Compact / AppendCompaction so hook preserveData
-	// survives across compaction rounds (currently collected but unused).
-	PreviousPreserveData map[string]any
-	FileOps              FileOperation
+	Limits  OutputLimits
+	FileOps FileOperation
 }
 
 // PrepareCompact analyzes pathEntries and settings to decide what to
@@ -103,7 +100,6 @@ func PrepareCompact(
 
 	previousSummary := ""
 	previousFileOperations := ""
-	var previousPreserveData map[string]any
 	if preCompactionIndex >= 0 {
 		prevCompaction := pathEntries[preCompactionIndex].(session.CompactionEntry)
 		previousSummary = prevCompaction.Compaction.Summary
@@ -111,7 +107,6 @@ func PrepareCompact(
 			prevCompaction.Compaction.Details.ReadFiles,
 			prevCompaction.Compaction.Details.ModifiedFiles,
 		)
-		previousPreserveData = prevCompaction.Compaction.PreserveData
 	}
 
 	// File operations must cover every bucket the cut drops, which is the history
@@ -136,10 +131,10 @@ func PrepareCompact(
 		TokensBefore:           tokenBefore,
 		PreviousSummary:        previousSummary,
 		PreviousFileOperations: previousFileOperations,
-		PreviousPreserveData:   previousPreserveData,
 		FileOps:                *fileOps,
-		IsMidTurnCut:           cutPoint.isMidTurnCut,
-		ReserveTokens:          settings.reverseTokens,
+
+		IsMidTurnCut:  cutPoint.isMidTurnCut,
+		ReserveTokens: settings.reverseTokens,
 	}, nil
 }
 

@@ -106,7 +106,6 @@ func TestPrepareCompact_NoPreviousCompaction_SplitsByKeepRecentTokens(t *testing
 	// estimated message sizes the cut uses.
 	assert.Equal(t, 20, prep.TokensBefore)
 	assert.Empty(t, prep.PreviousSummary)
-	assert.Nil(t, prep.PreviousPreserveData)
 }
 
 // Everything fits in keepRecentTokens, so there is nothing to summarize: the
@@ -128,15 +127,15 @@ func TestPrepareCompact_UnderTokenLimit_ReturnsEmptyPreparation(t *testing.T) {
 	assert.Empty(t, prep.TurnPrefixMessages)
 }
 
-func TestPrepareCompact_WithPreviousCompaction_SetsSummaryAndPreserveData(t *testing.T) {
+func TestPrepareCompact_WithPreviousCompaction_SetsSummary(t *testing.T) {
 	entries := []session.MessageEntry{
 		session.CompactionEntry{
 			SessionBaseEntry: session.SessionBaseEntry{ID: "comp1"},
 			Compaction: session.Compaction{
-				Summary:      "old summary",
-				PreserveData: map[string]any{"k": "v"},
+				Summary: "old summary",
 			},
 		},
+
 		msgEntry("e1", llm.RoleUser, 10, 0),
 		msgEntry("e2", llm.RoleAssistant, 10, 10),
 		msgEntry("e3", llm.RoleUser, 10, 0),
@@ -151,7 +150,6 @@ func TestPrepareCompact_WithPreviousCompaction_SetsSummaryAndPreserveData(t *tes
 	assert.NoError(t, err)
 	assert.NotNil(t, prep)
 	assert.Equal(t, "old summary", prep.PreviousSummary)
-	assert.Equal(t, map[string]any{"k": "v"}, prep.PreviousPreserveData)
 	assert.Equal(t, "e3", prep.FirstKeptEntryId)
 	assert.False(t, prep.IsMidTurnCut)
 	assert.Len(t, prep.MessagesToSummarize, 2)
