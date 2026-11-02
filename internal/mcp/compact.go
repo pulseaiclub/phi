@@ -30,7 +30,7 @@ func CompactToolNames(tools []ToolDefinition) string {
 }
 
 // SlimTool renders a compact one-line schema for inspect.
-// Example: echo|message:s*  — name|param:type[*required].
+// Example: echo|env:s{dev|prod}*  — name|param:type[{enum}][*required].
 func SlimTool(t ToolDefinition) string {
 	var b strings.Builder
 	b.WriteString(t.Name)
@@ -75,6 +75,7 @@ func schemaProps(schema json.RawMessage) (map[string]string, map[string]bool) {
 	var doc struct {
 		Properties map[string]struct {
 			Type string `json:"type"`
+			Enum []any  `json:"enum"`
 		} `json:"properties"`
 		Required []string `json:"required"`
 	}
@@ -99,12 +100,46 @@ func schemaProps(schema json.RawMessage) (map[string]string, map[string]bool) {
 		case "array":
 			typ = "a"
 		}
+		// Enum values are the contract the model must satisfy, so they ride
+		// the compact summary even though descriptions do not.
+		if len(p.Enum) > 0 {
+			typ += enumHint(p.Enum)
+		}
 		props[name] = typ
 	}
 	for _, r := range doc.Required {
 		required[r] = true
 	}
 	return props, required
+}
+
+// maxEnumValues caps enum rendering so one huge enum cannot blow up the
+// compact summary; the tail is summarized as +N.
+const maxEnumValues = 8
+
+func enumHint(values []any) string {
+	shown, more := values, 0
+	if len(shown) > maxEnumValues {
+		shown, more = shown[:maxEnumValues], len(shown)-maxEnumValues
+	}
+	parts := make([]string, 0, len(shown)+1)
+	for _, v := range shown {
+		if s, ok := v.(string); ok {
+			parts = append(parts, s)
+			continue
+		}
+		// Non-string values keep their JSON form (numbers, bools, nested).
+		b, err := json.Marshal(v)
+		if err != nil {
+			parts = append(parts, fmt.Sprintf("%v", v))
+			continue
+		}
+		parts = append(parts, string(b))
+	}
+	if more > 0 {
+		parts = append(parts, fmt.Sprintf("+%d", more))
+	}
+	return "{" + strings.Join(parts, "|") + "}"
 }
 
 // FormatCallResult keeps call output bounded for the model.

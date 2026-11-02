@@ -34,6 +34,7 @@ func newFakeMCPPool(t *testing.T) *mcp.Pool {
 					"type": "object",
 					"properties": map[string]any{
 						"text": map[string]any{"type": "string"},
+						"env":  map[string]any{"type": "string", "enum": []string{"dev", "prod"}},
 					},
 					"required": []string{"text"},
 				},
@@ -60,6 +61,7 @@ func TestReadShowsMCPToolParams(t *testing.T) {
 	assert.Contains(t, res.Content, "@mcp fake/tools/echo")
 	assert.Contains(t, res.Content, "echo")
 	assert.Contains(t, res.Content, "text")
+	assert.Contains(t, res.Content, "env:s{dev|prod}")
 	assert.Equal(t, "mcp://fake/tools/echo", res.Detail)
 }
 
