@@ -77,6 +77,26 @@ func TestKillBeforeAndAfter(t *testing.T) {
 	assert.Equal(t, 0, f.Cursor())
 }
 
+func TestPeekBefore(t *testing.T) {
+	var f Field
+	_, ok := f.PeekBefore()
+	assert.False(t, ok, "empty field has no rune before the caret")
+
+	f.SetText("ab")
+	ch, ok := f.PeekBefore()
+	assert.True(t, ok, "SetText parks the caret at the end")
+	assert.Equal(t, 'b', ch)
+
+	f.Home()
+	_, ok = f.PeekBefore()
+	assert.False(t, ok, "caret at start has nothing before it")
+
+	f.Move(1)
+	ch, ok = f.PeekBefore()
+	assert.True(t, ok)
+	assert.Equal(t, 'a', ch)
+}
+
 func TestSplitAndSetText(t *testing.T) {
 	var f Field
 	f.SetText("hello")
@@ -86,7 +106,7 @@ func TestSplitAndSetText(t *testing.T) {
 	assert.Equal(t, "lo", after)
 
 	f.SetText("")
-	assert.Equal(t, "", f.Text())
+	assert.Empty(t, f.Text())
 	assert.Equal(t, 0, f.Cursor())
 }
 

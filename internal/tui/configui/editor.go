@@ -11,6 +11,7 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/listpicker"
+	"github.com/pulseaiclub/phi/internal/components/textfield"
 	"github.com/pulseaiclub/phi/internal/project"
 )
 
@@ -85,9 +86,8 @@ func New(
 func (e *ConfigEditor) Dirty() bool { return e != nil && e.dirty }
 
 type editState struct {
-	key string
-	buf []rune
-	cur int
+	key  string
+	line textfield.Field
 }
 
 // confirmState is a yes/no modal over the form.
@@ -122,11 +122,12 @@ func (e *ConfigEditor) Handle(ctx *components.EventContext, ev xui.Event) {
 		e.handleKey(ctx, ev)
 	case xui.PasteEvent:
 		if e.edit != nil {
-			e.insert(strings.NewReplacer("\n", " ", "\r", " ").Replace(ev.Text))
+			e.edit.line.Insert(ev.Text)
 			ctx.ConsumeAndRedraw()
 			return
 		}
 		ctx.Consume = true
+
 	case xui.MouseEvent:
 		e.handleMouse(ctx, ev)
 	}
@@ -539,8 +540,8 @@ func (e *ConfigEditor) handleConfirmKey(ctx *components.EventContext, k xui.KeyE
 }
 
 func (e *ConfigEditor) startEdit(key, raw string) {
-	buf := []rune(raw)
-	e.edit = &editState{key: key, buf: buf, cur: len(buf)}
+	e.edit = &editState{key: key}
+	e.edit.line.SetText(raw)
 	e.refocus(key)
 }
 
@@ -551,17 +552,18 @@ func (e *ConfigEditor) handleEditKey(ctx *components.EventContext, k xui.KeyEven
 	case xui.KeyEscape:
 		e.edit = nil
 	case xui.KeyBackspace:
-		e.deleteBefore()
+		e.edit.line.DeleteBefore()
 	case xui.KeyDelete:
-		e.deleteAt()
+		e.edit.line.DeleteAt()
 	case xui.KeyLeft:
-		e.moveCursor(-1)
+		e.edit.line.Move(-1)
 	case xui.KeyRight:
-		e.moveCursor(1)
+		e.edit.line.Move(1)
 	case xui.KeyHome:
-		e.edit.cur = 0
+		e.edit.line.Home()
 	case xui.KeyEnd:
-		e.edit.cur = len(e.edit.buf)
+		e.edit.line.End()
+
 	case xui.KeyRune:
 		if k.Mods.Has(xui.ModCtrl) {
 			e.handleEditCtrl(k.Rune)
@@ -575,7 +577,8 @@ func (e *ConfigEditor) handleEditKey(ctx *components.EventContext, k xui.KeyEven
 		if text == "" && k.Rune >= 0x20 {
 			text = string(k.Rune)
 		}
-		e.insert(text)
+		e.edit.line.Insert(text)
+
 	default:
 		ctx.Consume = true
 		return
@@ -586,58 +589,31 @@ func (e *ConfigEditor) handleEditKey(ctx *components.EventContext, k xui.KeyEven
 func (e *ConfigEditor) handleEditCtrl(r rune) {
 	switch unicode.ToLower(r) {
 	case 'a':
-		e.edit.cur = 0
+		e.edit.line.Home()
 	case 'e':
-		e.edit.cur = len(e.edit.buf)
+		e.edit.line.End()
 	case 'u':
-		e.edit.buf = append([]rune(nil), e.edit.buf[e.edit.cur:]...)
-		e.edit.cur = 0
+		e.edit.line.KillBefore()
 	case 'k':
-		e.edit.buf = e.edit.buf[:e.edit.cur]
+		e.edit.line.KillAfter()
 	case 'w':
-		for e.edit.cur > 0 && unicode.IsSpace(e.edit.buf[e.edit.cur-1]) {
-			e.deleteBefore()
+		// Rub out the word left of the caret: the space run, then the word
+		// before it, leaving earlier text intact (readline's word-rubout).
+		for {
+			ch, ok := e.edit.line.PeekBefore()
+			if !ok || !unicode.IsSpace(ch) {
+				break
+			}
+			e.edit.line.DeleteBefore()
 		}
-		for e.edit.cur > 0 && !unicode.IsSpace(e.edit.buf[e.edit.cur-1]) {
-			e.deleteBefore()
+		for {
+			ch, ok := e.edit.line.PeekBefore()
+			if !ok || unicode.IsSpace(ch) {
+				break
+			}
+			e.edit.line.DeleteBefore()
 		}
 	}
-}
-
-func (e *ConfigEditor) insert(text string) {
-	if text == "" || e.edit == nil {
-		return
-	}
-	runes := []rune(text)
-	cur := e.edit.cur
-	out := make([]rune, 0, len(e.edit.buf)+len(runes))
-	out = append(out, e.edit.buf[:cur]...)
-	out = append(out, runes...)
-	out = append(out, e.edit.buf[cur:]...)
-	e.edit.buf = out
-	e.edit.cur = cur + len(runes)
-}
-
-func (e *ConfigEditor) deleteBefore() {
-	if e.edit == nil || e.edit.cur == 0 {
-		return
-	}
-	e.edit.buf = append(e.edit.buf[:e.edit.cur-1], e.edit.buf[e.edit.cur:]...)
-	e.edit.cur--
-}
-
-func (e *ConfigEditor) deleteAt() {
-	if e.edit == nil || e.edit.cur >= len(e.edit.buf) {
-		return
-	}
-	e.edit.buf = append(e.edit.buf[:e.edit.cur], e.edit.buf[e.edit.cur+1:]...)
-}
-
-func (e *ConfigEditor) moveCursor(delta int) {
-	if e.edit == nil {
-		return
-	}
-	e.edit.cur = min(max(e.edit.cur+delta, 0), len(e.edit.buf))
 }
 
 func (e *ConfigEditor) commitEdit() {
@@ -646,7 +622,7 @@ func (e *ConfigEditor) commitEdit() {
 		return
 	}
 	key := st.key
-	value := string(st.buf)
+	value := st.line.Text()
 	if err := e.apply(key, value); err != nil {
 		e.setError(err.Error())
 		return

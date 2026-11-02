@@ -340,11 +340,11 @@ func TestShowBranchListSplitsAcceptAndDeleteIdentities(t *testing.T) {
 func TestRefreshBranchListKeepsOpenPickerInPlace(t *testing.T) {
 	c := NewComposerPane(components.DefaultTheme(), "m", "/repo")
 	c.ShowBranchList([]gitx.Branch{{Name: "main"}, {Name: "fix/x"}}, nil, nil, nil)
-	c.listPicker.Query = "fix"
+	c.listPicker.SetQuery("fix")
 
 	c.RefreshBranchList([]gitx.Branch{{Name: "main"}}, nil)
 	assert.True(t, c.listPicker.Open)
-	assert.Equal(t, "fix", c.listPicker.Query, "refresh keeps the filter")
+	assert.Equal(t, "fix", c.listPicker.Query(), "refresh keeps the filter")
 	require.Len(t, c.listPicker.Items, 1)
 	assert.Equal(t, "main", c.listPicker.Items[0].ID)
 
@@ -367,11 +367,11 @@ func TestShowSessionListRoutesDelete(t *testing.T) {
 func TestRefreshSessionListKeepsOpenPickerInPlace(t *testing.T) {
 	c := NewComposerPane(components.DefaultTheme(), "m", "/repo")
 	c.ShowSessionList([]session.SessionMeta{{ID: "a"}, {ID: "b"}}, "", nil, nil)
-	c.listPicker.Query = "a"
+	c.listPicker.SetQuery("a")
 
 	c.RefreshSessionList([]session.SessionMeta{{ID: "b"}}, "b")
 	assert.True(t, c.listPicker.Open)
-	assert.Equal(t, "a", c.listPicker.Query, "refresh keeps the filter")
+	assert.Equal(t, "a", c.listPicker.Query(), "refresh keeps the filter")
 	require.Len(t, c.listPicker.Items, 1)
 	assert.Equal(t, "b", c.listPicker.Items[0].ID)
 
