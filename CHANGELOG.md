@@ -10,6 +10,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+### Fixed
+
+### Security
+
+<!-- Released section -->
+<!-- Don't change this section unless doing release -->
+
+## [0.29.5] - 2026-11-02
+
+### Added
+
 - Shell: `!!cmd` runs the command locally like `!cmd` but also adds its output
   to the model context for the next turn. The transcript row is marked `· ctx`;
   a resumed session keeps the row instead of replaying it as a user message.
@@ -31,9 +42,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   (Zip Slip, CWE-22), and zip symlink entries are refused. Extraction no
   longer shells out to `tar` / PowerShell Expand-Archive, which trusted
   archive paths as-is.
-
-<!-- Released section -->
-<!-- Don't change this section unless doing release -->
 
 ## [0.29.4] - 2026-10-30
 
@@ -1355,7 +1363,8 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.29.4...HEAD
+[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.29.5...HEAD
+[0.29.5]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.5
 [0.29.4]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.4
 [0.29.3]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.3
 [0.29.2]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.2
