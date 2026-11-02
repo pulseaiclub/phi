@@ -239,3 +239,26 @@ func TestClosestHeader(t *testing.T) {
 	assert.Empty(t, closestHeader("UPDATE"))
 	assert.Empty(t, closestHeader("ZZZ"))
 }
+
+// TestEditDistance covers the shared Levenshtein helper, including the
+// astral-rune and shared-edge trimming behavior the fuzzy matcher relies on.
+func TestEditDistance(t *testing.T) {
+	cases := []struct {
+		name  string
+		left  string
+		right string
+		want  int
+	}{
+		{name: "identical", left: "kitten", right: "kitten", want: 0},
+		{name: "classic", left: "kitten", right: "sitting", want: 3},
+		{name: "empty against text", left: "", right: "abc", want: 3},
+		{name: "astral counts once", left: "😀a", right: "😀b", want: 1},
+		{name: "shared edges trimmed", left: "prefix-middle-suffix", right: "prefix-middl-suffix", want: 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, EditDistance(tc.left, tc.right))
+			assert.Equal(t, tc.want, EditDistance(tc.right, tc.left))
+		})
+	}
+}

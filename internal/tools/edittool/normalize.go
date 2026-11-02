@@ -97,38 +97,3 @@ func (n normText) sourceEnd(offset, fallback int) int {
 	}
 	return fallback
 }
-
-// levenshteinDistance is the edit distance over Unicode characters, with the
-// shared prefix and suffix trimmed before the rolling-array dynamic program.
-func levenshteinDistance(left, right string) int {
-	a, b := []rune(left), []rune(right)
-	if len(a) > len(b) {
-		a, b = b, a
-	}
-	for len(a) > 0 && len(b) > 0 && a[0] == b[0] {
-		a, b = a[1:], b[1:]
-	}
-	for len(a) > 0 && len(b) > 0 && a[len(a)-1] == b[len(b)-1] {
-		a, b = a[:len(a)-1], b[:len(b)-1]
-	}
-	if len(a) == 0 {
-		return len(b)
-	}
-	previous := make([]int, len(a)+1)
-	current := make([]int, len(a)+1)
-	for i := range previous {
-		previous[i] = i
-	}
-	for j := 1; j <= len(b); j++ {
-		current[0] = j
-		for i := 1; i <= len(a); i++ {
-			cost := 1
-			if a[i-1] == b[j-1] {
-				cost = 0
-			}
-			current[i] = min(min(current[i-1]+1, previous[i]+1), previous[i-1]+cost)
-		}
-		previous, current = current, previous
-	}
-	return previous[len(a)]
-}
