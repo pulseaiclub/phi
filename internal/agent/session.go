@@ -33,6 +33,7 @@ type sessionConfig struct {
 	resumePath string
 	resumeID   string
 	parentID   string
+	model      string
 }
 
 // WithCwd sets the cwd written to SessionHeader (usually process cwd).
@@ -58,6 +59,11 @@ func WithResumePath(path string) SessionOption {
 // WithResumeID resolves a session under SessionDir (mutually exclusive with WithResumePath).
 func WithResumeID(id string) SessionOption {
 	return func(c *sessionConfig) { c.resumeID = id }
+}
+
+// WithModel records the selected model in a new session header.
+func WithModel(name string) SessionOption {
+	return func(c *sessionConfig) { c.model = name }
 }
 
 // WithParentID links a new persisted session to a parent (sub-agents).
@@ -102,6 +108,7 @@ func NewSession(opts ...SessionOption) (*Session, error) {
 			session.WithSessionDir(cfg.sessionDir),
 			session.WithShouldFlush(true),
 			session.WithParent(cfg.parentID),
+			session.WithModel(cfg.model),
 		)
 		if err != nil {
 			return nil, err
@@ -144,6 +151,16 @@ func (s *Session) Cwd() string {
 		return ""
 	}
 	return s.manager.Cwd()
+}
+
+// ModelName returns the selected model recorded in the session header.
+func (s *Session) ModelName() string {
+	return s.manager.ModelName()
+}
+
+// SetModel updates the selected model in the session header.
+func (s *Session) SetModel(name string) error {
+	return s.manager.SetModel(name)
 }
 
 // Append records one or more messages.

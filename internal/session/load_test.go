@@ -50,6 +50,42 @@ func TestSessionPersistRoundTrip(t *testing.T) {
 	assert.Equal(t, messageContents(loaded.BuildContext()), messageContents(reloaded.BuildContext()))
 }
 
+func TestSessionModelPersistsWithHeader(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true), WithModel("model-a"))
+	require.NoError(t, err)
+	assert.Equal(t, "model-a", m.ModelName())
+
+	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "hello"})
+	require.NoError(t, err)
+	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "done"})
+	require.NoError(t, err)
+	require.NoError(t, m.SetModel("model-b"))
+	assert.Equal(t, "model-b", m.ModelName())
+
+	loaded, err := OpenSession(m.File())
+	require.NoError(t, err)
+	assert.Equal(t, "model-b", loaded.ModelName())
+	assert.Equal(t, messageContents(m.BuildContext()), messageContents(loaded.BuildContext()))
+
+	list, err := ListSessions(dir)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, "model-b", list[0].Model)
+}
+
+func TestSessionWithoutModelRemainsLoadable(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	require.NoError(t, err)
+	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "done"})
+	require.NoError(t, err)
+
+	loaded, err := OpenSession(m.File())
+	require.NoError(t, err)
+	assert.Empty(t, loaded.ModelName())
+}
+
 func TestSessionPersistUsageRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))

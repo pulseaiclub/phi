@@ -32,6 +32,7 @@ type SessionHeader struct {
 	Timestamp     string `json:"timestamp"`
 	Cwd           string `json:"cwd"`
 	ParentSession string `json:"parentSession,omitempty"`
+	Model         string `json:"model,omitempty"`
 }
 
 // GetType implements MessageEntry.

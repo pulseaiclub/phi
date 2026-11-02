@@ -103,6 +103,15 @@ func NewController(bus *Bus, proj *project.Project, cwd string) (*EngineControll
 	extRunner := loadExtensions(proj)
 	c.extRunner.Store(extRunner)
 	c.bindExtensionHost(extRunner)
+	if latest, err := session.ListSessions(c.sessionDir); err != nil {
+		debuglog.Logf("session: list for startup model: %v", err)
+	} else if len(latest) > 0 && latest[0].Model != "" {
+		cfg, err := resolveModelConfig(config, extRunner, latest[0].Model)
+		if err != nil {
+			return nil, fmt.Errorf("restore latest session model: %w", err)
+		}
+		c.modelCfg = cfg
+	}
 
 	jobs, err := agent.NewJobManager(proj.JobsDir(), c.modelCfg, c.modelForRole, c.Extensions)
 	if err != nil {
@@ -116,7 +125,7 @@ func NewController(bus *Bus, proj *project.Project, cwd string) (*EngineControll
 		c.mcpPool = pool
 	}
 
-	eng, err := c.openEngine(c.modelCfg, extRunner, "")
+	eng, _, err := c.openEngine(c.modelCfg, extRunner, "")
 	if err != nil {
 		return nil, err
 	}
@@ -483,6 +492,9 @@ func (c *EngineController) SetModel(name string) error {
 	defer c.modelMu.Unlock()
 	// The palette budget belongs to the session, independent of the model.
 	cfg.MaxRounds = c.modelCfg.MaxRounds
+	if err := c.engine.Session().SetModel(name); err != nil {
+		return err
+	}
 	c.engine.SetModelWithHooks(cfg, model.HooksForConfig(cfg))
 	c.modelCfg = cfg
 	return nil
@@ -597,7 +609,7 @@ func (c *EngineController) Resume(id string) (cwdWarning string, err error) {
 
 	extRunner := loadExtensions(c.proj)
 	c.swapExtensionRunner(extRunner)
-	eng, err := c.openEngine(cfg, extRunner, id)
+	eng, cfg, err := c.openEngine(cfg, extRunner, id)
 	if err != nil {
 		return "", err
 	}
@@ -623,7 +635,7 @@ func (c *EngineController) NewSession() error {
 	if err != nil {
 		return err
 	}
-	engine, err := c.openEngine(cfg, c.Extensions(), "")
+	engine, cfg, err := c.openEngine(cfg, c.Extensions(), "")
 	if err != nil {
 		return err
 	}
@@ -670,20 +682,28 @@ func (c *EngineController) openEngine(
 	cfg llm.ModelConfig,
 	extRunner *extension.Runner,
 	resumeID string,
-) (*agent.Engine, error) {
+) (*agent.Engine, llm.ModelConfig, error) {
 	opts := []agent.SessionOption{
 		agent.WithCwd(c.cwd),
 		agent.WithSessionDir(c.sessionDir),
 		agent.WithPersist(true),
+		agent.WithModel(cfg.Name),
 	}
 	if resumeID != "" {
 		opts = append(opts, agent.WithResumeID(resumeID))
 	}
 	sess, err := agent.NewSession(opts...)
 	if err != nil {
-		return nil, err
+		return nil, llm.ModelConfig{}, err
 	}
-	return agent.NewEngine(cfg, sess,
+	if name := sess.ModelName(); resumeID != "" && name != "" {
+		cfg, err = resolveModelConfig(c.proj.Config(), extRunner, name)
+		if err != nil {
+			return nil, llm.ModelConfig{}, fmt.Errorf("restore session model %q: %w", name, err)
+		}
+		cfg.MaxRounds = c.MaxRounds()
+	}
+	eng, err := agent.NewEngine(cfg, sess,
 		agent.WithGate(c.gate),
 		agent.WithAsk(c.askPermission),
 		agent.WithContinueAsk(c.askContinue),
@@ -692,6 +712,10 @@ func (c *EngineController) openEngine(
 		agent.WithMCP(c.mcpPool),
 		agent.WithHooks(model.HooksForConfig(cfg)),
 	)
+	if err != nil {
+		return nil, llm.ModelConfig{}, err
+	}
+	return eng, cfg, nil
 }
 
 func (c *EngineController) ReplaySnapshot() session.Snapshot {

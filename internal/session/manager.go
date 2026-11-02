@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -37,6 +38,7 @@ type ManagerConfig struct {
 	sessionDir  string
 	shouldFlush bool
 	parentID    string
+	model       string
 }
 
 // ManagerOption applies a mutation to ManagerConfig.
@@ -76,6 +78,14 @@ func WithParent(sessionID string) OptionFunc {
 	}
 }
 
+// WithModel records the selected model name in the session header.
+func WithModel(name string) OptionFunc {
+	return func(config ManagerConfig) ManagerConfig {
+		config.model = name
+		return config
+	}
+}
+
 // NewSessionManager creates a session rooted at sessionPath. WithSessionDir +
 // WithShouldFlush(true) enable persisting entries as JSONL.
 func NewSessionManager(sessionPath string, opt ...ManagerOption) (*Manager, error) {
@@ -91,6 +101,7 @@ func NewSessionManager(sessionPath string, opt ...ManagerOption) (*Manager, erro
 		ID:            sessionID,
 		Timestamp:     time.Now().Format("2006-01-02T15-04-05"),
 		Cwd:           sessionPath,
+		Model:         config.model,
 	}
 
 	m := &Manager{
@@ -223,6 +234,7 @@ func (sm *Manager) Fork() (*Manager, error) {
 		Timestamp:     time.Now().Format("2006-01-02T15-04-05"),
 		Cwd:           sm.cwd,
 		ParentSession: parentID,
+		Model:         sm.entries[0].(SessionHeader).Model,
 	}
 	copied := make([]MessageEntry, 0, len(sm.entries))
 	copied = append(copied, header)
@@ -264,6 +276,74 @@ func (sm *Manager) Fork() (*Manager, error) {
 	}
 	dst.flushed = true
 	return dst, nil
+}
+
+// ModelName returns the selected model recorded in the session header.
+func (sm *Manager) ModelName() string {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	return sm.entries[0].(SessionHeader).Model
+}
+
+// SetModel updates the selected model. A persisted header is replaced through
+// an atomic rename; appending another header would make the file unreadable.
+func (sm *Manager) SetModel(name string) error {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	header := sm.entries[0].(SessionHeader)
+	if header.Model == name {
+		return nil
+	}
+	header.Model = name
+	if sm.flushed {
+		if err := sm.rewriteHeader(header); err != nil {
+			return err
+		}
+	}
+	sm.entries[0] = header
+	return nil
+}
+
+func (sm *Manager) rewriteHeader(header SessionHeader) error {
+	data, err := os.ReadFile(sm.sessionFile)
+	if err != nil {
+		return fmt.Errorf("session: read before model update: %w", err)
+	}
+	line, err := json.Marshal(header)
+	if err != nil {
+		return fmt.Errorf("session: encode model update: %w", err)
+	}
+	if i := bytes.IndexByte(data, '\n'); i >= 0 {
+		data = data[i+1:]
+	} else {
+		data = nil
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(sm.sessionFile), ".session-model-*.jsonl")
+	if err != nil {
+		return fmt.Errorf("session: create model update: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	info, err := os.Stat(sm.sessionFile)
+	if err == nil {
+		err = tmp.Chmod(info.Mode().Perm())
+	}
+	if err == nil {
+		_, err = tmp.Write(append(line, '\n'))
+	}
+	if err == nil {
+		_, err = tmp.Write(data)
+	}
+	if closeErr := tmp.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return fmt.Errorf("session: write model update: %w", err)
+	}
+	if err := os.Rename(tmpName, sm.sessionFile); err != nil {
+		return fmt.Errorf("session: replace model header: %w", err)
+	}
+	return nil
 }
 
 // AppendCompaction adds a compaction entry as a new leaf and returns its ID.
