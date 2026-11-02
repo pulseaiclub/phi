@@ -115,13 +115,13 @@ func (p *Picker) maxItems() int {
 	return p.MaxItems
 }
 
-// Show opens the picker with items. cfg supplies titles/empty copy.
 // Query returns the filter line.
 func (p *Picker) Query() string { return p.line.Text() }
 
 // SetQuery replaces the filter line and parks the caret at the end.
 func (p *Picker) SetQuery(q string) { p.line.SetText(q) }
 
+// Show opens the picker with items. cfg supplies titles/empty copy.
 func (p *Picker) Show(items []Item, cfg ShowConfig) {
 	p.Open = true
 	p.Items = append([]Item(nil), items...)
