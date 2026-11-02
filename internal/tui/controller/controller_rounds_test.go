@@ -91,7 +91,6 @@ func TestModelLifecycle(t *testing.T) {
 	ctrl := newRoundsController(t, "http://127.0.0.1:9", 3)
 	home := os.Getenv("HOME")
 	cwd := ctrl.cwd
-	proj := ctrl.proj
 	flush := func() {
 		require.NoError(t, ctrl.engine.Session().Append(llm.Message{Role: llm.RoleUser, Content: "hello"}))
 		require.NoError(t, ctrl.engine.Session().Append(llm.Message{Role: llm.RoleAssistant, Content: "done"}))
@@ -115,7 +114,7 @@ func TestModelLifecycle(t *testing.T) {
 	assert.Equal(t, "secondary", ctrl.ModelName())
 
 	ctrl.Close()
-	proj, err = project.Discover(cwd)
+	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
 	t.Setenv("HOME", home)
 	restarted, err := NewController(NewBus(nil), proj, cwd)
