@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"iter"
 	"net/http"
 	"strings"
@@ -191,17 +190,14 @@ func chatCompletionsURL(baseURL string) string {
 	return baseURL + chatCompletionsPath
 }
 
-func newChatRequest(ctx context.Context, url, apiKey string, body []byte, stream bool) (*http.Request, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+// chatHeaders returns chat-completions auth headers; a streaming request
+// additionally advertises SSE.
+func chatHeaders(apiKey string, stream bool) http.Header {
+	h := http.Header{"Authorization": {"Bearer " + apiKey}}
 	if stream {
-		httpReq.Header.Set("Accept", util.ContentEventStream)
+		h.Set("Accept", util.ContentEventStream)
 	}
-	return httpReq, nil
+	return h
 }
 
 // NewCompactRequest builds a summary request with the streaming reasoning settings.
@@ -227,23 +223,10 @@ func CompactRequest(
 		return llm.CompactResult{}, err
 	}
 
-	httpReq, err := newChatRequest(ctx, chatCompletionsURL(cfg.BaseURL), cfg.APIKey, body, false)
+	raw, err := llm.PostBody(ctx, httpClient, "LLM",
+		chatCompletionsURL(cfg.BaseURL), body, chatHeaders(cfg.APIKey, false))
 	if err != nil {
 		return llm.CompactResult{}, err
-	}
-
-	httpResp, err := util.DoWithRetry(httpClient, httpReq)
-	if err != nil {
-		return llm.CompactResult{}, err
-	}
-	defer httpResp.Body.Close()
-
-	respBody, err := io.ReadAll(httpResp.Body)
-	if err != nil {
-		return llm.CompactResult{}, err
-	}
-	if httpResp.StatusCode != http.StatusOK {
-		return llm.CompactResult{}, llm.FormatAPIError("LLM", httpResp.StatusCode, respBody)
 	}
 
 	var resp struct {
@@ -252,9 +235,10 @@ func CompactRequest(
 			FinishReason string      `json:"finish_reason"`
 		} `json:"choices"`
 	}
-	if err := json.Unmarshal(respBody, &resp); err != nil {
+	if err := json.Unmarshal(raw, &resp); err != nil {
 		return llm.CompactResult{}, err
 	}
+
 	if len(resp.Choices) == 0 {
 		return llm.CompactResult{}, errors.New("LLM API error: empty choices")
 	}
@@ -278,26 +262,16 @@ func StreamChatCompletion(
 			return
 		}
 
-		httpReq, err := newChatRequest(ctx, chatCompletionsURL(cfg.BaseURL), cfg.APIKey, body, true)
-		if err != nil {
-			yield(llm.StreamEvent{}, err)
-			return
-		}
-
-		httpResp, err := util.DoWithRetry(httpClient, httpReq)
+		httpResp, err := llm.Post(ctx, httpClient, "LLM",
+			chatCompletionsURL(cfg.BaseURL), body, chatHeaders(cfg.APIKey, true))
 		if err != nil {
 			yield(llm.StreamEvent{}, err)
 			return
 		}
 		defer httpResp.Body.Close()
 
-		if httpResp.StatusCode != http.StatusOK {
-			respBody, _ := io.ReadAll(httpResp.Body)
-			yield(llm.StreamEvent{}, llm.FormatAPIError("LLM", httpResp.StatusCode, respBody))
-			return
-		}
-
 		var usage llm.Usage
+
 		acc := newStreamAccumulator()
 
 		for data, parseErr := range util.ParseDataStream(httpResp.Body) {

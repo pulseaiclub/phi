@@ -302,11 +302,14 @@ func getURL(model, baseURL, apiKey string, stream bool) string {
 	return u.String()
 }
 
-func setGeminiAuth(req *http.Request, baseURL, apiKey string) {
-	req.Header.Set("Content-Type", "application/json")
+// geminiHeaders returns auth headers; only Vertex endpoints take a bearer
+// token, API-key endpoints pass the key in the URL.
+func geminiHeaders(baseURL, apiKey string) http.Header {
+	h := http.Header{}
 	if apiKey != "" && strings.Contains(strings.ToLower(baseURL), "aiplatform.googleapis.com") {
-		req.Header.Set("Authorization", "Bearer "+apiKey)
+		h.Set("Authorization", "Bearer "+apiKey)
 	}
+	return h
 }
 
 func Stream(
@@ -322,29 +325,14 @@ func Stream(
 			return
 		}
 
-		httpReq, err := http.NewRequestWithContext(
-			ctx,
-			http.MethodPost,
-			getURL(config.Name, config.BaseURL, config.APIKey, true),
-			bytes.NewReader(body),
-		)
-		if err != nil {
-			yield(llm.StreamEvent{}, err)
-			return
-		}
-		setGeminiAuth(httpReq, config.BaseURL, config.APIKey)
-
-		httpResp, err := util.DoWithRetry(client, httpReq)
+		httpResp, err := llm.Post(ctx, client, "gemini",
+			getURL(config.Name, config.BaseURL, config.APIKey, true), body,
+			geminiHeaders(config.BaseURL, config.APIKey))
 		if err != nil {
 			yield(llm.StreamEvent{}, err)
 			return
 		}
 		defer httpResp.Body.Close()
-		if httpResp.StatusCode != http.StatusOK {
-			raw, _ := io.ReadAll(httpResp.Body)
-			yield(llm.StreamEvent{}, llm.FormatAPIError("gemini", httpResp.StatusCode, raw))
-			return
-		}
 		processStream(httpResp.Body, yield)
 	}
 }
@@ -466,29 +454,14 @@ func CompactRequest(
 	if err != nil {
 		return llm.CompactResult{}, err
 	}
-	request, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodPost,
-		getURL(cfg.Name, cfg.BaseURL, cfg.APIKey, false),
-		bytes.NewReader(body),
-	)
+	raw, err := llm.PostBody(ctx, client, "gemini",
+		getURL(cfg.Name, cfg.BaseURL, cfg.APIKey, false), body,
+		geminiHeaders(cfg.BaseURL, cfg.APIKey))
 	if err != nil {
 		return llm.CompactResult{}, err
-	}
-	setGeminiAuth(request, cfg.BaseURL, cfg.APIKey)
-	httpResp, err := util.DoWithRetry(client, request)
-	if err != nil {
-		return llm.CompactResult{}, err
-	}
-	defer httpResp.Body.Close()
-	raw, err := io.ReadAll(httpResp.Body)
-	if err != nil {
-		return llm.CompactResult{}, err
-	}
-	if httpResp.StatusCode != http.StatusOK {
-		return llm.CompactResult{}, llm.FormatAPIError("gemini", httpResp.StatusCode, raw)
 	}
 	var resp chunk
+
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		return llm.CompactResult{}, err
 	}
