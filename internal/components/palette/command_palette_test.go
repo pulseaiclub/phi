@@ -103,8 +103,7 @@ func TestCommandPaletteNestedSubmenu(t *testing.T) {
 	require.Equal(t, "Command Palette", p.Title)
 	require.Empty(t, p.stack)
 	// Enter submenu again and pick Dark
-	p.Query = ""
-	p.Cursor = 0
+	p.SetQuery("")
 	p.Selected = 0
 	p.refilter()
 	for _, r := range "theme" {

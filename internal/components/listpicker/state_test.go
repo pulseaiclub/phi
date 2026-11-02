@@ -19,7 +19,7 @@ func TestRestoreStateAfterRowsChange(t *testing.T) {
 	p.Restore(state)
 	assert.Equal(t, state, p.State())
 	assert.Equal(t, 0, p.Selected)
-	assert.Equal(t, len(state.Query), p.Cursor)
+	assert.Equal(t, state.Query, p.Query())
 
 	p.Show([]Item{{ID: "c", Primary: "file-c"}}, ShowConfig{})
 	p.Restore(state)

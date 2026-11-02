@@ -8,13 +8,13 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/pulseaiclub/xui"
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/chrome"
 	"github.com/pulseaiclub/phi/internal/components/layout"
+	"github.com/pulseaiclub/phi/internal/components/textfield"
 )
 
 // Item is one row. Callers own domain mapping (sessions, extensions, …).
@@ -75,10 +75,11 @@ type ShowConfig struct {
 // call.
 type Picker struct {
 	Open     bool
-	Query    string
-	Cursor   int
 	Items    []Item
 	Selected int
+	// line is the shared single-line filter buffer; Query()/SetQuery expose it.
+	line textfield.Field
+
 	Theme    components.Theme
 	MaxItems int
 	Width    int
@@ -115,14 +116,20 @@ func (p *Picker) maxItems() int {
 }
 
 // Show opens the picker with items. cfg supplies titles/empty copy.
+// Query returns the filter line.
+func (p *Picker) Query() string { return p.line.Text() }
+
+// SetQuery replaces the filter line and parks the caret at the end.
+func (p *Picker) SetQuery(q string) { p.line.SetText(q) }
+
 func (p *Picker) Show(items []Item, cfg ShowConfig) {
 	p.Open = true
 	p.Items = append([]Item(nil), items...)
 	p.cfg = normalizeConfig(cfg)
 	p.hintSet = cfg.Hint != ""
-	p.Query = ""
-	p.Cursor = 0
+	p.line.SetText("")
 	p.Selected = 0
+
 	p.scroll = 0
 	p.refilter()
 	p.selectPreferred()
@@ -171,9 +178,9 @@ func normalizeConfig(cfg ShowConfig) ShowConfig {
 // Hide closes the picker.
 func (p *Picker) Hide() {
 	p.Open = false
-	p.Query = ""
-	p.Cursor = 0
+	p.line.SetText("")
 	p.filtered = nil
+
 	p.commandMode = false
 	p.confirming = false
 	if p.OnClose != nil {
@@ -197,13 +204,13 @@ type State struct {
 
 func (p *Picker) State() State {
 	item, _ := p.selectedItem()
-	return State{Query: p.Query, SelectedID: item.ID}
+	return State{Query: p.Query(), SelectedID: item.ID}
 }
 
 func (p *Picker) Restore(state State) {
-	p.Query = state.Query
-	p.Cursor = len(p.Query)
+	p.SetQuery(state.Query)
 	p.refilter()
+
 	for i, hit := range p.filtered {
 		if p.rows()[hit.index].ID == state.SelectedID {
 			p.Selected = i
@@ -259,7 +266,8 @@ func (p *Picker) refilter() {
 	if commands {
 		p.cmdItems = p.commandRows()
 	}
-	q := strings.ToLower(strings.TrimSpace(p.Query))
+	q := strings.ToLower(strings.TrimSpace(p.Query()))
+
 	if commands {
 		// Anything after the name is an operand, not a filter: `!fetch origin`
 		// must keep offering fetch.
@@ -342,10 +350,12 @@ func (p *Picker) commandRows() []Item {
 // after it. ok is false for ordinary filtering: no Commands configured, or a
 // line that does not open with CommandPrefix.
 func (p *Picker) commandQuery() (name, args string, ok bool) {
-	if len(p.Commands) == 0 || !strings.HasPrefix(p.Query, CommandPrefix) {
+	q := p.Query()
+	if len(p.Commands) == 0 || !strings.HasPrefix(q, CommandPrefix) {
 		return "", "", false
 	}
-	name, args, _ = strings.Cut(p.Query[len(CommandPrefix):], " ")
+	name, args, _ = strings.Cut(q[len(CommandPrefix):], " ")
+
 	return name, strings.TrimSpace(args), true
 }
 
@@ -360,15 +370,15 @@ func (p *Picker) commandByName(name string) (Command, bool) {
 
 // clearQuery empties the filter line and hands the rows back to the caller.
 func (p *Picker) clearQuery() {
-	p.Query = ""
-	p.Cursor = 0
+	p.line.SetText("")
+
 	p.Selected = 0
 	p.scroll = 0
 	p.refilter()
 }
 
 func (p *Picker) selectPreferred() {
-	if strings.TrimSpace(p.Query) != "" {
+	if strings.TrimSpace(p.Query()) != "" {
 		return
 	}
 	rows := p.rows()
@@ -428,8 +438,7 @@ func (p *Picker) runCommand(cmd Command) {
 }
 
 func (p *Picker) insert(text string) {
-	p.Query = p.Query[:p.Cursor] + text + p.Query[p.Cursor:]
-	p.Cursor += len(text)
+	p.line.Insert(text)
 	p.Selected = 0
 	p.refilter()
 }
@@ -446,11 +455,9 @@ func (p *Picker) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 		p.handleKey(ctx, e)
 	case xui.PasteEvent:
-		text := strings.ReplaceAll(e.Text, "\n", " ")
-		text = strings.ReplaceAll(text, "\r", " ")
-
-		p.insert(text)
+		p.insert(e.Text)
 		ctx.ConsumeAndRedraw()
+
 	case xui.MouseEvent:
 		if e.Action == xui.MousePress && e.Button == xui.MouseLeft {
 			ctx.ConsumeAndRedraw()
@@ -485,32 +492,24 @@ func (p *Picker) handleKey(ctx *components.EventContext, e xui.KeyEvent) {
 		}
 		ctx.ConsumeAndRedraw()
 	case xui.KeyBackspace:
-		if p.Cursor > 0 {
-			_, size := utf8.DecodeLastRuneInString(p.Query[:p.Cursor])
-			p.Query = p.Query[:p.Cursor-size] + p.Query[p.Cursor:]
-			p.Cursor -= size
+		if p.line.DeleteBefore() {
 			p.Selected = 0
 			p.refilter()
 		}
 		ctx.ConsumeAndRedraw()
 	case xui.KeyLeft:
-		if p.Cursor > 0 {
-			_, size := utf8.DecodeLastRuneInString(p.Query[:p.Cursor])
-			p.Cursor -= size
-		}
+		p.line.Move(-1)
 		ctx.ConsumeAndRedraw()
 	case xui.KeyRight:
-		if p.Cursor < len(p.Query) {
-			_, size := utf8.DecodeRuneInString(p.Query[p.Cursor:])
-			p.Cursor += size
-		}
+		p.line.Move(1)
 		ctx.ConsumeAndRedraw()
 	case xui.KeyHome:
-		p.Cursor = 0
+		p.line.Home()
 		ctx.ConsumeAndRedraw()
 	case xui.KeyEnd:
-		p.Cursor = len(p.Query)
+		p.line.End()
 		ctx.ConsumeAndRedraw()
+
 	case xui.KeyRune:
 		if e.Mods.Has(xui.ModCtrl) {
 			switch e.Rune {
@@ -699,8 +698,9 @@ func (p *Picker) drawPrompt(panel *components.Surface, ctx components.DrawContex
 	}
 	panel.Print(1, y, chrome.FilterPrompt, th.Foreground, ctx.Method)
 	avail := max(boxW-5, 1)
-	q := p.Query
+	q := p.Query()
 	placeholder := false
+
 	if q == "" {
 		q = p.cfg.FilterHint
 		placeholder = true
@@ -711,8 +711,10 @@ func (p *Picker) drawPrompt(panel *components.Surface, ctx components.DrawContex
 	}
 	panel.Print(3, y, components.TruncateToWidth(q, avail, ctx.Method), st, ctx.Method)
 	if !placeholder {
-		curCol := xui.StringWidth(p.Query[:min(p.Cursor, len(p.Query))], ctx.Method)
+		before, _ := p.line.Split()
+		curCol := xui.StringWidth(before, ctx.Method)
 		curCol = max(min(curCol, avail-1), 0)
+
 		panel.Cursor = &components.Point{X: 3 + curCol, Y: y}
 	} else {
 		panel.Cursor = &components.Point{X: 3, Y: y}
@@ -728,7 +730,7 @@ func (p *Picker) drawRows(
 	const listY = 2
 	if len(p.filtered) == 0 {
 		msg := p.cfg.Empty
-		if q := strings.TrimSpace(p.Query); q != "" {
+		if q := strings.TrimSpace(p.Query()); q != "" {
 			pattern := p.cfg.EmptyFilter
 			if p.commandMode {
 				pattern = p.cfg.EmptyCommand
