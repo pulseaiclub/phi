@@ -75,6 +75,7 @@ func readSessionMeta(path string, e os.DirEntry) (SessionMeta, error) {
 	// Session files can grow; allow large lines for tool payloads.
 	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 
+	models := make(map[string]string)
 	lineNo := 0
 	for sc.Scan() {
 		lineNo++
@@ -94,11 +95,21 @@ func readSessionMeta(path string, e os.DirEntry) (SessionMeta, error) {
 			meta.ID = e.ID
 			meta.Timestamp = e.Timestamp
 			meta.Cwd = e.Cwd
-			meta.Model = e.Model
 		case SessionMessageEntry:
 			if e.Message.Role == llm.RoleUser && strings.TrimSpace(e.Message.Content) != "" {
 				meta.Preview = truncatePreview(e.Message.Content, 72)
 			}
+		}
+		if _, header := entry.(SessionHeader); !header {
+			name := ""
+			if parent := entry.GetParent(); parent != nil {
+				name = models[*parent]
+			}
+			if change, ok := entry.(ModelChangeEntry); ok {
+				name = change.Model
+			}
+			models[entry.GetID()] = name
+			meta.Model = name
 		}
 	}
 	if meta.ID != "" {
@@ -289,6 +300,12 @@ func decodeEntryLine(raw []byte, lineNo int) (MessageEntry, error) {
 			return nil, fmt.Errorf("session: line %d message: %w", lineNo, err)
 		}
 		return m, nil
+	case EntryModelChange:
+		var change ModelChangeEntry
+		if err := json.Unmarshal(raw, &change); err != nil {
+			return nil, fmt.Errorf("session: line %d model change: %w", lineNo, err)
+		}
+		return change, nil
 	case EntryCompaction:
 		var c CompactionEntry
 		if err := json.Unmarshal(raw, &c); err != nil {

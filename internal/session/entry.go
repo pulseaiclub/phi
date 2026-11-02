@@ -19,9 +19,10 @@ type EntryType string
 
 // EntryType values stored in the JSON "type" discriminant.
 const (
-	EntrySession    = "EntrySession"
-	EntryMessage    = "EntryMessage"
-	EntryCompaction = "EntryCompaction"
+	EntrySession     = "EntrySession"
+	EntryMessage     = "EntryMessage"
+	EntryCompaction  = "EntryCompaction"
+	EntryModelChange = "EntryModelChange"
 )
 
 // SessionHeader is the root entry of a session file.
@@ -32,7 +33,6 @@ type SessionHeader struct {
 	Timestamp     string `json:"timestamp"`
 	Cwd           string `json:"cwd"`
 	ParentSession string `json:"parentSession,omitempty"`
-	Model         string `json:"model,omitempty"`
 }
 
 // GetType implements MessageEntry.
@@ -87,6 +87,21 @@ func (s SessionMessageEntry) GetID() string { return s.ID }
 
 // GetParent implements MessageEntry.
 func (s SessionMessageEntry) GetParent() *string { return s.ParentID }
+
+// ModelChangeEntry records a model selection on one conversation branch.
+type ModelChangeEntry struct {
+	SessionBaseEntry
+	Model string `json:"model"`
+}
+
+// GetType implements MessageEntry.
+func (ModelChangeEntry) GetType() string { return EntryModelChange }
+
+// GetID implements MessageEntry.
+func (e ModelChangeEntry) GetID() string { return e.ID }
+
+// GetParent implements MessageEntry.
+func (e ModelChangeEntry) GetParent() *string { return e.ParentID }
 
 // Compaction is the data attached to a compaction entry.
 type Compaction struct {
