@@ -252,7 +252,7 @@ func TestEditKeyPromptUsesNoCLIValues(t *testing.T) {
 	focus(t, e, modelKey(0, fKey))
 	press(e, xui.KeyEnter, 0)
 	require.NotNil(t, e.edit)
-	assert.Equal(t, "key-a", string(e.edit.buf), "editing starts from the stored value")
+	assert.Equal(t, "key-a", e.edit.line.Text(), "editing starts from the stored value")
 
 	press(e, xui.KeyEscape, 0)
 	assert.Nil(t, e.edit)
@@ -392,7 +392,7 @@ func TestBashRulesInheritUntilEdited(t *testing.T) {
 	// Editing one rule materializes the whole list, built-ins included.
 	press(e, xui.KeyEnter, 0)
 	require.NotNil(t, e.edit)
-	assert.Equal(t, e.listItems(keyPermBashAllow)[0], string(e.edit.buf))
+	assert.Equal(t, e.listItems(keyPermBashAllow)[0], e.edit.line.Text())
 	press(e, xui.KeyEnd, 0)
 	typeRune(e, 'x')
 	press(e, xui.KeyEnter, 0)

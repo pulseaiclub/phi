@@ -20,6 +20,14 @@ func (f *Field) Text() string { return string(f.buf) }
 // Cursor is the rune index the caret sits at.
 func (f *Field) Cursor() int { return f.cur }
 
+// PeekBefore returns the rune left of the caret, if any.
+func (f *Field) PeekBefore() (rune, bool) {
+	if f.cur == 0 {
+		return 0, false
+	}
+	return f.buf[f.cur-1], true
+}
+
 // SetText replaces the contents and parks the caret at the end.
 func (f *Field) SetText(text string) {
 	f.buf = []rune(text)
