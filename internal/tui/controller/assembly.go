@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync/atomic"
@@ -170,7 +171,7 @@ func (a *Assembly) RoleModel(role job.Role) string {
 // name clears the override; the name must exist in config or extensions.
 func (a *Assembly) SetRoleModel(role job.Role, name string) error {
 	if a == nil {
-		return fmt.Errorf("no controller assembly")
+		return errors.New("no controller assembly")
 	}
 	name = strings.TrimSpace(name)
 	if name == "" {
