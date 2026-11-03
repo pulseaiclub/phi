@@ -15,7 +15,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/composer"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
-	"github.com/pulseaiclub/phi/internal/util/gitx"
 )
 
 // TestEditorAppliesBranchLabel removed: it constructed an Editor with a nil vx
@@ -73,16 +72,15 @@ func branchEditor(t *testing.T) *Editor {
 	e.commands = builtins.Registry
 	builtins.Bind(
 		nil,
-		func() commands.Context { return commands.NewContext(bus, nil) },
+		commands.NewContext(bus, nil),
 		nil,
 		nil,
-		func(branches []gitx.Branch, recent []string, onAccept, onDelete func(name string)) {
-			e.composer.ShowBranchList(branches, recent, onAccept, onDelete)
-		},
+		e.composer.ShowBranchList,
 		e.composer.RefreshBranchList,
-		func() string { return dir },
+		dir,
 		func() bool { return false },
 	)
+
 	return e
 }
 

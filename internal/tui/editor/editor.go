@@ -141,8 +141,9 @@ func NewEditor(
 		e.footer.Activity(),
 		e.composer,
 		e.bus,
-		func() commands.Context { return cmdCtx },
+		cmdCtx,
 		e.overlays.PermissionActive,
+
 		e.overlays.ContinueActive,
 		e.overlays.ConfirmActive,
 		e.overlays.ResolvePermission,
@@ -151,12 +152,12 @@ func NewEditor(
 	)
 	builtins.Bind(
 		e.submitter,
-		func() commands.Context { return cmdCtx },
+		cmdCtx,
 		e.showSessionList,
 		e.composer.RefreshSessionList,
 		e.composer.ShowBranchList,
 		e.composer.RefreshBranchList,
-		e.workingDir,
+		e.cwd,
 		e.submitter.StreamActive,
 	)
 
@@ -380,9 +381,6 @@ func (e *Editor) addPendingRef(ref chat.Ref) {
 func (e *Editor) showSessionList(items []session.SessionMeta, currentID string) {
 	e.composer.ShowSessionList(items, currentID, e.sessions.Accept, e.sessions.Delete)
 }
-
-// workingDir is the stable process working directory handed to the pickers.
-func (e *Editor) workingDir() string { return e.cwd }
 
 // Draw renders the editor surface for the given draw context.
 func (e *Editor) Draw(ctx components.DrawContext) components.Surface {

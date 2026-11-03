@@ -303,7 +303,7 @@ func TestSwitchToReportsFailureAndSuccess(t *testing.T) {
 	bus := controller.NewBus(nil)
 	b := stubBranchCommands(nil)
 	b.Bus = bus
-	b.Dir = func() string { return "/repo" }
+	b.Dir = "/repo"
 
 	var switched []string
 	b.Switch = func(_ context.Context, _, ref string) error {
@@ -450,7 +450,7 @@ func TestDeleteRefusedWhileStreaming(t *testing.T) {
 
 func stubBranchCommands(branches []gitx.Branch) *BranchCommands {
 	b := NewBranchCommands(nil)
-	b.Dir = func() string { return "/repo" }
+	b.Dir = "/repo"
 	b.CurrentBranch = func(context.Context, string) string { return "" }
 	b.Branches = func(context.Context, string) ([]gitx.Branch, error) { return branches, nil }
 	b.Recent = func(context.Context, string) ([]string, error) { return []string{"fix/x"}, nil }
