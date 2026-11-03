@@ -381,7 +381,8 @@ func closestFragment(content, pattern string) (string, int, float64) {
 		norm := normalizeText(line).text
 		if norm != "" {
 			denominator := max(len(pattern), len(norm), 1)
-			score := float64(levenshteinDistance(pattern, norm)) / float64(denominator)
+			score := float64(sloppy.EditDistance(pattern, norm)) / float64(denominator)
+
 			ranked = append(ranked, rankedLine{text: line, offset: offset, norm: norm, score: score})
 			sort.SliceStable(ranked, func(i, j int) bool { return ranked[i].score < ranked[j].score })
 			if len(ranked) > 3 {
@@ -407,7 +408,8 @@ func closestFragment(content, pattern string) (string, int, float64) {
 				}
 				candidate := line.norm[start : start+width]
 				denominator := max(len(pattern), len(candidate), 1)
-				score := float64(levenshteinDistance(pattern, candidate)) / float64(denominator)
+				score := float64(sloppy.EditDistance(pattern, candidate)) / float64(denominator)
+
 				if score >= best.score {
 					continue
 				}

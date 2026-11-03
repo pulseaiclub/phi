@@ -206,30 +206,45 @@ func badHeader(line string) (headerDiag, bool) {
 func closestHeader(name string) string {
 	best, bestDistance := "", 3
 	for _, word := range headerWords {
-		if d := editDistance(strings.ToUpper(name), word); d < bestDistance {
+		if d := EditDistance(strings.ToUpper(name), word); d < bestDistance {
 			best, bestDistance = word, d
 		}
 	}
 	return best
 }
 
-// editDistance is the Levenshtein distance between two ASCII words.
-func editDistance(a, b string) int {
-	prev := make([]int, len(b)+1)
-	curr := make([]int, len(b)+1)
-	for j := range prev {
-		prev[j] = j
+// EditDistance is the Levenshtein distance over Unicode characters, with the
+// shared prefix and suffix trimmed before the rolling-array dynamic program.
+// edittool's fuzzy matcher and the header "did you mean" hints share it.
+func EditDistance(left, right string) int {
+	a, b := []rune(left), []rune(right)
+	if len(a) > len(b) {
+		a, b = b, a
 	}
-	for i := 1; i <= len(a); i++ {
-		curr[0] = i
-		for j := 1; j <= len(b); j++ {
+	for len(a) > 0 && len(b) > 0 && a[0] == b[0] {
+		a, b = a[1:], b[1:]
+	}
+	for len(a) > 0 && len(b) > 0 && a[len(a)-1] == b[len(b)-1] {
+		a, b = a[:len(a)-1], b[:len(b)-1]
+	}
+	if len(a) == 0 {
+		return len(b)
+	}
+	previous := make([]int, len(a)+1)
+	current := make([]int, len(a)+1)
+	for i := range previous {
+		previous[i] = i
+	}
+	for j := 1; j <= len(b); j++ {
+		current[0] = j
+		for i := 1; i <= len(a); i++ {
 			cost := 1
 			if a[i-1] == b[j-1] {
 				cost = 0
 			}
-			curr[j] = min(min(curr[j-1]+1, prev[j]+1), prev[j-1]+cost)
+			current[i] = min(min(current[i-1]+1, previous[i]+1), previous[i-1]+cost)
 		}
-		prev, curr = curr, prev
+		previous, current = current, previous
 	}
-	return prev[len(b)]
+	return previous[len(a)]
 }

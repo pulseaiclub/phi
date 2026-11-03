@@ -595,7 +595,7 @@ func closestDesiredSpan(content, stated string) ([2]int, bool) {
 			strings.HasSuffix(statedNorm, current) || strings.HasSuffix(current, statedNorm)
 		score := 1.0
 		if current != "" && !affix && float64(abs(len(statedNorm)-len(current)))/float64(denominator) <= 0.35 {
-			score = float64(levenshteinDistance(statedNorm, current)) / float64(denominator)
+			score = float64(sloppy.EditDistance(statedNorm, current)) / float64(denominator)
 		}
 		scores = append(scores, scored{index: index, score: score})
 	}

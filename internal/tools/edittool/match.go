@@ -448,7 +448,8 @@ func fuzzyOccurrences(content, pattern string, allowPunctuation bool) []occurren
 			if !signatureMatch && (!allowPunctuation || !differsByOnePunctuationInsertion(pattern, text)) {
 				continue
 			}
-			distance := levenshteinDistance(pattern, text)
+			distance := sloppy.EditDistance(pattern, text)
+
 			if distance > limit {
 				continue
 			}
