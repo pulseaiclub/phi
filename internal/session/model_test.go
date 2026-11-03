@@ -115,15 +115,6 @@ func TestModelSelectionFollowsBranchAndSurvivesCompaction(t *testing.T) {
 	loaded, err = OpenSession(m.File())
 	require.NoError(t, err)
 	assert.Equal(t, "initial", loaded.ModelName())
-	list, err := ListSessions(dir)
-	require.NoError(t, err)
-	require.Len(t, list, 2)
-	models := make(map[string]string)
-	for _, meta := range list {
-		models[meta.ID] = meta.Model
-	}
-	assert.Equal(t, "initial", models[m.ID()])
-	assert.Equal(t, "fork-model", models[fork.ID()])
 }
 
 func TestModelChangeInSessionWithoutAssistant(t *testing.T) {

@@ -10,12 +10,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- TUI: Press Ctrl+S in the model picker to apply the highlighted model and save
+  it as the global default. Enter switches only the current session.
+
 ### Fixed
 
 - TUI: Persist the selected model with each session. Resuming restores that
   session's model, while new sessions inherit the most recently selected one.
   Model changes are append-only records; forks inherit the model on their
-  selected branch without rewriting existing conversation logs.
+  selected branch without rewriting existing conversation logs. Startup uses
+  the configured default without scanning past sessions.
 
 ### Security
 

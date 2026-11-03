@@ -23,7 +23,6 @@ type SessionMeta struct {
 	Cwd       string
 	Mtime     time.Time
 	Preview   string // truncated last user text
-	Model     string
 }
 
 // ListSessions returns session files under dir, newest mtime first.
@@ -75,7 +74,6 @@ func readSessionMeta(path string, e os.DirEntry) (SessionMeta, error) {
 	// Session files can grow; allow large lines for tool payloads.
 	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 
-	models := make(map[string]string)
 	lineNo := 0
 	for sc.Scan() {
 		lineNo++
@@ -99,17 +97,6 @@ func readSessionMeta(path string, e os.DirEntry) (SessionMeta, error) {
 			if e.Message.Role == llm.RoleUser && strings.TrimSpace(e.Message.Content) != "" {
 				meta.Preview = truncatePreview(e.Message.Content, 72)
 			}
-		}
-		if _, header := entry.(SessionHeader); !header {
-			name := ""
-			if parent := entry.GetParent(); parent != nil {
-				name = models[*parent]
-			}
-			if change, ok := entry.(ModelChangeEntry); ok {
-				name = change.Model
-			}
-			models[entry.GetID()] = name
-			meta.Model = name
 		}
 	}
 	if meta.ID != "" {

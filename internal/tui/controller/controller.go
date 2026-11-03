@@ -103,15 +103,6 @@ func NewController(bus *Bus, proj *project.Project, cwd string) (*EngineControll
 	extRunner := loadExtensions(proj)
 	c.extRunner.Store(extRunner)
 	c.bindExtensionHost(extRunner)
-	if latest, err := session.ListSessions(c.sessionDir); err != nil {
-		debuglog.Logf("session: list for startup model: %v", err)
-	} else if len(latest) > 0 && latest[0].Model != "" {
-		cfg, err := resolveModelConfig(config, extRunner, latest[0].Model)
-		if err != nil {
-			return nil, fmt.Errorf("restore latest session model: %w", err)
-		}
-		c.modelCfg = cfg
-	}
 
 	jobs, err := agent.NewJobManager(proj.JobsDir(), c.modelCfg, c.modelForRole, c.Extensions)
 	if err != nil {
@@ -466,6 +457,11 @@ func (c *EngineController) askExtConfirm(req ext.ConfirmRequest) ext.ConfirmRepl
 		c.publish(OverlayMsg{Kind: OverlayExtConfirmDismiss})
 	})
 	return ext.ConfirmReply{OK: r.OK}
+}
+
+// SaveDefaultModel changes the global default without rewriting any session.
+func (c *EngineController) SaveDefaultModel(name string) error {
+	return project.SetDefaultModel(c.proj.Global(), name)
 }
 
 func (c *EngineController) SetModel(name string) error {

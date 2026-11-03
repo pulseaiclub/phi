@@ -15,6 +15,67 @@ func parseConfigFile(path string) (*Config, error) {
 	return parseConfigFileWithEnv(path, false)
 }
 
+func TestSetDefaultModel(t *testing.T) {
+	global := GlobalLayout{root: t.TempDir()}
+	path := global.ConfigFile()
+	require.NoError(t, os.WriteFile(path, []byte(configDocFixture), 0o600))
+	t.Setenv("PHI_API_KEY", "environment-key-must-not-be-saved")
+	t.Setenv("PHI_BASE_URL", "https://env.example/v1")
+	t.Setenv("PHI_MODEL", "environment-model")
+
+	expected, err := ReadConfigDoc(path)
+	require.NoError(t, err)
+	expected.Models[0].Default = false
+	expected.Models[1].Default = true
+	require.NoError(t, SetDefaultModel(global, "model-b"))
+	saved, err := ReadConfigDoc(path)
+	require.NoError(t, err)
+	assert.Equal(t, expected, saved, "only the default flags should change")
+	backup, err := os.ReadFile(path + ".bak")
+	require.NoError(t, err)
+	assert.Equal(t, configDocFixture, string(backup))
+	loaded, err := parseConfigFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "model-b", loaded.Model().Name)
+	envConfig, err := parseConfigFileWithEnv(path, true)
+	require.NoError(t, err)
+	assert.Equal(t, "environment-model", envConfig.Model().Name, "environment overrides still take precedence")
+}
+
+func TestSetDefaultModelFailurePreservesConfig(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		config string
+		model  string
+		err    string
+	}{
+		{"unknown model", configDocFixture, "extension-only", "add it with phi config"},
+		{"missing file", "", "environment-only", "add it with phi config"},
+		{"invalid yaml", "models: [", "model-b", "parse"},
+		{"missing api key", "models:\n  - name: model-b\n", "model-b", "missing api_key"},
+		{"backup failure", configDocFixture, "model-b", "backup config"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			global := GlobalLayout{root: t.TempDir()}
+			path := global.ConfigFile()
+			if tc.config != "" {
+				require.NoError(t, os.WriteFile(path, []byte(tc.config), 0o600))
+			}
+			if tc.name == "backup failure" {
+				require.NoError(t, os.Mkdir(path+".bak", 0o700))
+			}
+			require.ErrorContains(t, SetDefaultModel(global, tc.model), tc.err)
+			if tc.config == "" {
+				assert.NoFileExists(t, path)
+				return
+			}
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+			assert.Equal(t, tc.config, string(data))
+		})
+	}
+}
+
 const configDocFixture = `models:
   - name: model-a
     api_key: key-a

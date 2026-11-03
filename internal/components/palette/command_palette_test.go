@@ -69,6 +69,53 @@ func TestFuzzyMatch(t *testing.T) {
 	require.False(t, ok, "zzz should not match")
 }
 
+func TestCommandPaletteSaveFilteredSelection(t *testing.T) {
+	saved := ""
+	success := false
+	p := &CommandPalette{Commands: []PaletteCommand{
+		{ID: "other", Verb: "other", OnSave: func() bool { saved = "other"; return true }},
+		{ID: "target", Verb: "target", OnSave: func() bool { saved = "target"; return success }},
+	}}
+	p.Show()
+	for _, r := range "target" {
+		p.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyRune, Rune: r, Press: true})
+	}
+	require.Len(t, p.filtered, 1)
+	ctx := &components.EventContext{}
+	saveKey := xui.KeyEvent{Code: xui.KeyRune, Rune: 's', Mods: xui.ModCtrl, Press: true}
+	p.Handle(ctx, saveKey)
+	require.Equal(t, "target", saved)
+	require.True(t, p.Open, "failed saves must leave the selection available for retry")
+	require.True(t, ctx.Consume)
+	success = true
+	p.Handle(&components.EventContext{}, saveKey)
+	require.False(t, p.Open)
+}
+
+func TestCommandPaletteSaveIgnoresUnavailableActions(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		commands []PaletteCommand
+	}{
+		{"empty", nil},
+		{"ordinary command", []PaletteCommand{{ID: "theme", Verb: "theme"}}},
+		{"disabled", []PaletteCommand{{ID: "disabled", Disabled: true, OnSave: func() bool {
+			require.Fail(t, "disabled save must not run")
+			return true
+		}}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &CommandPalette{Commands: tc.commands}
+			p.Show()
+			p.Handle(&components.EventContext{}, xui.KeyEvent{
+				Code: xui.KeyRune, Rune: 's', Mods: xui.ModCtrl, Press: true,
+			})
+			require.True(t, p.Open)
+			require.Empty(t, p.Query)
+		})
+	}
+}
+
 func TestCommandPaletteNestedSubmenu(t *testing.T) {
 	picked := ""
 	p := &CommandPalette{

@@ -92,7 +92,6 @@ func TestSessionModelChangesAppendOnly(t *testing.T) {
 	require.Len(t, list, 1)
 	assert.Equal(t, m.ID(), list[0].ID)
 	assert.Equal(t, "hello", list[0].Preview)
-	assert.Equal(t, "model-b", list[0].Model)
 }
 
 func TestSessionWithoutModelRemainsLoadable(t *testing.T) {

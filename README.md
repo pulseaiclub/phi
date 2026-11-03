@@ -562,7 +562,8 @@ Per-role model defaults (optional) under `agents.models` pick which configured
 model name each role uses when spawned. Omitted roles inherit the parent
 session model. Switch for the current session only via
 settings → agents → models → explore|review|worker (same session-only semantics
-as settings → model; does not write `config.yaml`).
+as Enter in settings → model; does not write `config.yaml`). In the model
+picker, Ctrl+S also saves the highlighted model as the global default.
 
 Sub-agents themselves use a **role** (`explore` default | `review` | `worker`):
 

@@ -118,7 +118,10 @@ func TestModelLifecycle(t *testing.T) {
 	restarted, err := NewController(NewBus(nil), proj, cwd)
 	require.NoError(t, err)
 	defer restarted.Close()
-	assert.Equal(t, "secondary", restarted.ModelName())
+	assert.Equal(t, "primary", restarted.ModelName(), "startup must use the configured default")
+	_, err = restarted.Resume(secondID)
+	require.NoError(t, err)
+	assert.Equal(t, "secondary", restarted.ModelName(), "resume must restore only the selected session's model")
 }
 
 func TestMaxRoundsConcurrentRoleSnapshot(t *testing.T) {
