@@ -78,7 +78,7 @@ func TestEnsureSearchToolsAttemptsAllDownloads(t *testing.T) {
 			downloaded = append(downloaded, tool)
 		case <-time.After(time.Second):
 			close(release)
-			<-result
+			<-result //nolint:errcheck // goroutine error is irrelevant on this fail path
 			require.Fail(t, "downloads did not start concurrently")
 		}
 	}
