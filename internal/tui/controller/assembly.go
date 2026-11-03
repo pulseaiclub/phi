@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync/atomic"
@@ -185,7 +186,25 @@ func (a *Assembly) SetRoleModel(role job.Role, name string) error {
 	return nil
 }
 
+// Close shuts the assembled collaborators down: jobs first (they may still
+// call into extensions), then the MCP pool, then extension subprocesses.
+func (a *Assembly) Close() {
+	if a == nil {
+		return
+	}
+	if a.jobs != nil {
+		_ = a.jobs.Close(context.Background())
+	}
+	if a.mcp != nil {
+		_ = a.mcp.Close()
+	}
+	if prev := a.SwapExt(nil); prev != nil {
+		prev.Close()
+	}
+}
+
 // EngineOptions returns the agent.Engine options shared by every entrypoint:
+
 // gate, extensions, MCP pool, and — when enabled — the job manager. Extra
 // options append after the shared ones.
 func (a *Assembly) EngineOptions(
