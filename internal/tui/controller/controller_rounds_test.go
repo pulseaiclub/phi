@@ -47,9 +47,10 @@ func TestMaxRoundsLifecycle(t *testing.T) {
 			checkBudget := func(t *testing.T) {
 				t.Helper()
 				assert.Equal(t, 2, ctrl.MaxRounds(), "palette getter must retain session override")
-				assert.Equal(t, 2, ctrl.modelForRole(job.RoleExplore).MaxRounds)
+				assert.Equal(t, 2, ctrl.asm.modelForRole(job.RoleExplore).MaxRounds)
 				require.NoError(t, ctrl.SetRoleModel("worker", "secondary"))
-				assert.Equal(t, 2, ctrl.modelForRole(job.RoleWorker).MaxRounds)
+				assert.Equal(t, 2, ctrl.asm.modelForRole(job.RoleWorker).MaxRounds)
+
 				before := requests.Load()
 				asked := 0
 				ctrl.engine.SetContinueAsk(func(_ context.Context, budget int) (bool, error) {
@@ -129,7 +130,7 @@ func TestMaxRoundsConcurrentRoleSnapshot(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Go(func() {
 		for range 1000 {
-			assert.Positive(t, ctrl.modelForRole(job.RoleExplore).MaxRounds)
+			assert.Positive(t, ctrl.asm.modelForRole(job.RoleExplore).MaxRounds)
 			assert.Positive(t, ctrl.MaxRounds())
 		}
 	})

@@ -14,14 +14,13 @@ import (
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/agent"
-	"github.com/pulseaiclub/phi/internal/extension"
-	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/project/model"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
+	"github.com/pulseaiclub/phi/internal/tui/controller"
 	"github.com/pulseaiclub/phi/internal/util"
 )
 
@@ -71,25 +70,27 @@ func runHeadless(opts runOptions) error {
 	// Ask stays nil: in headless mode any Ask decision is denied, so no
 	// approval UI is ever reachable (Ask≡Deny even if the config mode
 	// does not fold Ask).
-	extRunner := loadRunExtensions(bs)
-	if extRunner != nil {
-		defer extRunner.Close()
+	//
+	// Extensions, the MCP pool, sub-agent jobs, and role→model resolution
+	// come from the same Assembly kernel the TUI uses; only the gate, ask
+	// hooks, and session options are headless-specific.
+	asm, err := controller.NewAssembly(bs.Proj, controller.AssemblyOpts{
+		ParentModel: func() llm.ModelConfig { return bs.Config.Model() },
+		Warn:        func(msg string) { fmt.Fprintln(os.Stderr, "warning:", msg) },
+		BuildJobs:   bs.Config.Agents.Enabled,
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "phi run:", err)
+		return exitCode(ExitUsage)
 	}
-	// Load the pool before tool selection so an explicit --tools list still
-	// gets MCP-aware ls/read/write.
-	var mcpPool *mcp.Pool
-	if pool, err := mcp.LoadPool(bs.Proj.MCPConfigFile()); err != nil {
-		fmt.Fprintln(os.Stderr, "warning: mcp:", err)
-	} else if pool != nil {
-		mcpPool = pool
-		defer func() { _ = pool.Close() }()
-	}
-	engineOpts := []agent.EngineOption{
-		agent.WithGate(bs.Gate),
-		agent.WithExtensions(extRunner),
-	}
+	defer asm.Close()
+
+	engineOpts := asm.EngineOptions(bs.Gate, bs.Config.Agents.Enabled,
+		agent.WithHooks(model.HooksForConfig(bs.Config.Model())))
 	if opts.builtinTools != "" {
-		selected, err := selectBuiltinTools(opts.builtinTools, mcpPool)
+		// Load the pool before tool selection so an explicit --tools list
+		// still gets MCP-aware ls/read/write.
+		selected, err := selectBuiltinTools(opts.builtinTools, asm.MCP())
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "phi run:", err)
 			return exitCode(ExitUsage)
@@ -98,38 +99,6 @@ func runHeadless(opts runOptions) error {
 	}
 	if opts.maxRounds > 0 {
 		engineOpts = append(engineOpts, agent.WithMaxRounds(opts.maxRounds))
-	}
-	primary := bs.Config.Model()
-	engineOpts = append(engineOpts, agent.WithHooks(model.HooksForConfig(primary)))
-	if mcpPool != nil {
-		engineOpts = append(engineOpts, agent.WithMCP(mcpPool))
-	}
-	if bs.Config.Agents.Enabled {
-		parent := bs.Config.Model()
-		jobs, jobErr := agent.NewJobManager(bs.Proj.JobsDir(), parent, func(role job.Role) llm.ModelConfig {
-			m := bs.Config.Agents.Models
-			var name string
-			switch job.NormalizeRole(string(role)) {
-			case job.RoleReview:
-				name = m.Review
-			case job.RoleWorker:
-				name = m.Worker
-			default:
-				name = m.Explore
-			}
-			if cfg, ok := bs.Config.FindModel(name); ok {
-				return cfg
-			}
-			return parent
-		}, func() *extension.Runner {
-			return extRunner
-		})
-		if jobErr != nil {
-			fmt.Fprintln(os.Stderr, "phi run:", jobErr)
-			return exitCode(ExitUsage)
-		}
-		defer func() { _ = jobs.Close(context.Background()) }()
-		engineOpts = append(engineOpts, agent.WithJobs(jobs))
 	}
 
 	sessionOpts := []agent.SessionOption{
@@ -167,26 +136,6 @@ func runHeadless(opts runOptions) error {
 	}
 
 	return exitCode(runLoop(runCtx, engine, opts))
-}
-
-// loadRunExtensions discovers user + project extensions for headless `phi run`.
-// Failures are non-fatal (fail-open). Warnings go to stderr as a one-line hint.
-func loadRunExtensions(bs *runBootstrap) *extension.Runner {
-	if bs == nil || bs.Proj == nil {
-		return nil
-	}
-	r, warns, err := extension.Load(bs.Proj.Global().ExtensionsDir(), bs.Proj.ExtensionsDir())
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "warning: extensions:", err)
-		return nil
-	}
-	if n := len(warns); n > 0 {
-		fmt.Fprintf(os.Stderr, "warning: extensions: %d warning(s) while loading\n", n)
-		for _, w := range warns {
-			fmt.Fprintln(os.Stderr, "  ", w.String())
-		}
-	}
-	return r
 }
 
 // runLoop consumes the same engine.Loop the TUI uses — no second loop is
