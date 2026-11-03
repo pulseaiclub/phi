@@ -84,7 +84,7 @@ func TestPickerRanksFilterHits(t *testing.T) {
 			p.Show(tc.items, ShowConfig{})
 			ctx := &components.EventContext{}
 			typeQuery(p, ctx, tc.query)
-			require.Equal(t, tc.query, p.Query)
+			require.Equal(t, tc.query, p.Query())
 
 			assert.Equal(t, tc.want, p.primaryOrder())
 			assert.Equal(t, 0, p.Selected, "the best match sits under the cursor")
@@ -231,7 +231,7 @@ func TestPickerConfirmSwallowsOtherKeys(t *testing.T) {
 	}
 	assert.Zero(t, deleted)
 	assert.Equal(t, 0, p.Selected)
-	assert.Empty(t, p.Query)
+	assert.Empty(t, p.Query())
 
 	// Still armed: enter confirms rather than accepting the (unmoved) row.
 	p.OnAccept = func(Item) { t.Error("accept must not fire while armed") }
@@ -260,7 +260,7 @@ func TestPickerCtrlXWithoutOnDeleteStaysFilter(t *testing.T) {
 
 	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: 'x', Mods: xui.ModCtrl, Press: true})
 	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: 'y', Press: true})
-	assert.Equal(t, "y", p.Query, "without OnDelete, y stays an ordinary filter rune")
+	assert.Equal(t, "y", p.Query(), "without OnDelete, y stays an ordinary filter rune")
 }
 
 func TestPickerSetItemsKeepsQueryAndClamps(t *testing.T) {
@@ -274,17 +274,17 @@ func TestPickerSetItemsKeepsQueryAndClamps(t *testing.T) {
 	for _, r := range "a" {
 		p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: r, Press: true})
 	}
-	require.Equal(t, "a", p.Query)
+	require.Equal(t, "a", p.Query())
 
 	// Drop the matched row; the filter stays, selection clamps, Empty shows.
 	// ("b b" carries no 'a', so the stale query matches nothing.)
 	p.SetItems([]Item{{ID: "b", Primary: "b"}})
-	assert.Equal(t, "a", p.Query)
+	assert.Equal(t, "a", p.Query())
 	assert.Empty(t, p.filtered)
 	assert.True(t, p.Open)
 
 	// Clearing the filter by hand still works afterwards.
-	p.Query = ""
+	p.SetQuery("")
 	p.refilter()
 	assert.Len(t, p.filtered, 1)
 }
@@ -352,7 +352,7 @@ func TestPickerCommandKeepOpenReturnsToRows(t *testing.T) {
 	assert.True(t, ran)
 	assert.True(t, p.Open, "KeepOpen keeps the overlay up")
 	assert.False(t, p.commandMode)
-	assert.Empty(t, p.Query, "the line is consumed, not left as a filter")
+	assert.Empty(t, p.Query(), "the line is consumed, not left as a filter")
 	assert.Equal(t, []string{"beta"}, p.primaryOrder())
 }
 
@@ -442,14 +442,16 @@ func TestPickerCommandDrawChrome(t *testing.T) {
 	assert.Contains(t, text, "fetch remotes")
 	assert.Contains(t, text, "⏎ run")
 
-	p.Query = CommandPrefix + "checkout"
+	p.SetQuery(CommandPrefix + "checkout")
 	p.refilter()
 	text = draw()
+
 	assert.Contains(t, text, "!checkout", "a name wider than the item column is not cut")
 	assert.Contains(t, text, "switch branch")
 
-	p.Query = CommandPrefix + "zzz"
+	p.SetQuery(CommandPrefix + "zzz")
 	p.refilter()
+
 	assert.Contains(t, draw(), "No command matches", "the empty copy is command-specific")
 }
 
