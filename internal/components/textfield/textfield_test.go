@@ -86,8 +86,8 @@ func TestSplitAndSetText(t *testing.T) {
 	assert.Equal(t, "lo", after)
 
 	f.SetText("")
-	assert.Equal(t, "", f.Text())
-	assert.Equal(t, 0, f.Cursor())
+	assert.Empty(t, f.Text())
+	assert.Zero(t, f.Cursor())
 }
 
 func TestCopiesStayIndependent(t *testing.T) {
