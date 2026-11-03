@@ -10,12 +10,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- TUI: Press Ctrl+S in the model picker to apply the highlighted model and save
+  it as the global default. Enter switches only the current session.
+
 ### Fixed
 
 - MCP: `read mcp://<server>/tools/<tool>` now includes enum values in the
   compact parameter summary (`env:s{dev|prod}`), so the model sees the valid
   choices instead of guessing a value the server rejects. Long enums cap at
   8 values with a `+N` tail.
+- TUI: Persist the selected model with each session. Resuming restores that
+  session's model, while new sessions inherit the most recently selected one.
+  Model changes are append-only records; forks inherit the model on their
+  selected branch without rewriting existing conversation logs. Startup uses
+  the configured default without scanning past sessions.
 
 ### Security
 

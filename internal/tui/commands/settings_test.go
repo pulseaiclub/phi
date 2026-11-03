@@ -64,6 +64,12 @@ func TestSetModelUpdatesFooterContextWindow(t *testing.T) {
 	assert.Equal(t, "big-model", comp.name)
 	assert.Equal(t, 1_000_000, foot.window)
 	assert.Equal(t, 1_000_000, ctrl.ContextWindow())
+
+	s.setModel("small-model")
+	require.Equal(t, 192000, foot.window)
+	require.True(t, s.saveModel("big-model"))
+	assert.Equal(t, "big-model", comp.name)
+	assert.Equal(t, 1_000_000, foot.window)
 }
 
 // Every settings picker marks the live value with the shared dot, so the

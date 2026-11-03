@@ -43,7 +43,7 @@ func (s *SettingsCommands) Register(r *CommandRegistry) {
 	r.Register(Command{
 		Name: "settings-model",
 		Build: func(_ Context) palette.PaletteCommand {
-			return buildModelPalette(s.setModel, s.ModelNames, s.modelName())
+			return buildModelPalette(s.setModel, s.saveModel, s.ModelNames, s.modelName())
 		},
 	})
 	r.Register(Command{
@@ -116,9 +116,29 @@ func (s *SettingsCommands) currentTheme() string {
 }
 
 func (s *SettingsCommands) setModel(name string) {
-	if err := s.Ctrl.SetModel(name); err != nil {
+	if err := s.applyModel(name); err != nil {
 		publishToast(s.Bus, err.Error(), toast.ToastError, 3*time.Second)
 		return
+	}
+	publishToast(s.Bus, "Model: "+name, toast.ToastSuccess, 2*time.Second)
+}
+
+func (s *SettingsCommands) saveModel(name string) bool {
+	if err := s.Ctrl.SaveDefaultModel(name); err != nil {
+		publishToast(s.Bus, err.Error(), toast.ToastError, 4*time.Second)
+		return false
+	}
+	if err := s.applyModel(name); err != nil {
+		publishToast(s.Bus, "Default saved; model switch failed: "+err.Error(), toast.ToastError, 4*time.Second)
+		return false
+	}
+	publishToast(s.Bus, "Default model: "+name, toast.ToastSuccess, 3*time.Second)
+	return true
+}
+
+func (s *SettingsCommands) applyModel(name string) error {
+	if err := s.Ctrl.SetModel(name); err != nil {
+		return err
 	}
 	if s.Composer != nil {
 		s.Composer.SetModelLabel(name, string(s.Ctrl.ThinkLevel()))
@@ -126,7 +146,7 @@ func (s *SettingsCommands) setModel(name string) {
 	if s.Footer != nil {
 		s.Footer.SetContextWindow(s.Ctrl.ContextWindow())
 	}
-	publishToast(s.Bus, "Model: "+name, toast.ToastSuccess, 2*time.Second)
+	return nil
 }
 
 func (s *SettingsCommands) applyTheme(name string) {
@@ -263,10 +283,15 @@ func buildDebugPalette(set func(bool)) palette.PaletteCommand {
 	}
 }
 
-func buildModelPalette(onModel func(string), modelNames []string, current string) palette.PaletteCommand {
+func buildModelPalette(
+	onModel func(string),
+	onSave func(string) bool,
+	modelNames []string,
+	current string,
+) palette.PaletteCommand {
 	models := make([]palette.PaletteCommand, 0, len(modelNames))
 	for _, name := range modelNames {
-		models = append(models, palette.PaletteCommand{
+		cmd := palette.PaletteCommand{
 			ID:   "model-" + name,
 			Verb: chrome.CurrentMarker(name == current) + name,
 			Run: func() {
@@ -274,7 +299,12 @@ func buildModelPalette(onModel func(string), modelNames []string, current string
 					onModel(name)
 				}
 			},
-		})
+		}
+		if onSave != nil {
+			cmd.Shortcut = "Ctrl+S default"
+			cmd.OnSave = func() bool { return onSave(name) }
+		}
+		models = append(models, cmd)
 	}
 	return palette.PaletteCommand{
 		ID:           "settings-model",

@@ -288,6 +288,12 @@ func decodeEntryLine(raw []byte, lineNo int) (MessageEntry, error) {
 			return nil, fmt.Errorf("session: line %d message: %w", lineNo, err)
 		}
 		return m, nil
+	case EntryModelChange:
+		var change ModelChangeEntry
+		if err := json.Unmarshal(raw, &change); err != nil {
+			return nil, fmt.Errorf("session: line %d model change: %w", lineNo, err)
+		}
+		return change, nil
 	case EntryCompaction:
 		var c CompactionEntry
 		if err := json.Unmarshal(raw, &c); err != nil {

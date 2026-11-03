@@ -10,6 +10,19 @@ IDs also supply connection defaults; gateway aliases need `base_url` and `api`.
 Explicit fields override defaults. The configured model ID is sent unchanged.
 Source of truth: [`internal/project/model`](../internal/project/model/).
 
+## Model selection and defaults
+
+In the TUI model picker, Enter switches the current session. Ctrl+S applies the
+highlighted model and saves it as the global default using `models[].default`
+in `~/.phi/config.yaml`, the same setting as `phi config` → `use by default`.
+Only models already in that file can be saved as defaults; add extension-only
+or environment-only models with `phi config` first.
+
+Startup uses the configured default with the usual environment overrides; it
+does not scan past sessions. Resuming a session restores its selected branch's
+model, and a new session in the same process inherits the current selection.
+Sessions without model records retain the current model on resume.
+
 ## Gateway aliases and preset bindings
 
 Matching is case-insensitive and accepts routing prefixes, build suffixes and

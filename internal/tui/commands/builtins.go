@@ -47,6 +47,7 @@ func NewBuiltinRegistry(
 		Bus:      bus,
 	}
 	sessions := NewSessionCommands(ctrl, tr, ft, bus, ext.Sync)
+	sessions.Composer = composer
 	branches := NewBranchCommands(bus)
 	settings := &SettingsCommands{
 		Ctrl:       ctrl,

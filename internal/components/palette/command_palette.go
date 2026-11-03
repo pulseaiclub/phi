@@ -26,6 +26,8 @@ type PaletteCommand struct {
 	// KeepOpen leaves the palette open after Run (when not using Submenu).
 	KeepOpen bool
 	Run      func()
+	// OnSave handles Ctrl+S for the highlighted entry; success closes the picker.
+	OnSave func() bool
 }
 
 // Label returns the fuzzy-searchable label (noun + verb + keywords).
@@ -314,6 +316,18 @@ func (p *CommandPalette) Handle(ctx *components.EventContext, ev xui.Event) {
 		case xui.KeyRune:
 			if e.Mods.Has(xui.ModCtrl) {
 				switch e.Rune {
+				case 's', 'S':
+					if p.Selected >= 0 && p.Selected < len(p.filtered) {
+						cmd := p.Commands[p.filtered[p.Selected]]
+						if cmd.OnSave != nil {
+							if !cmd.Disabled && cmd.OnSave() {
+								p.Hide()
+								p.returnFocus(ctx)
+							}
+							ctx.ConsumeAndRedraw()
+						}
+					}
+					return
 				case 'n', 'N':
 					if p.Selected < len(p.filtered)-1 {
 						p.Selected++

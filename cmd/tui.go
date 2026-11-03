@@ -36,7 +36,6 @@ func runTUI() error {
 		fmt.Fprintln(os.Stderr, "or set PHI_MODEL and PHI_API_KEY.")
 		return exitCode(ExitUsage)
 	}
-	cfg := proj.Config().Model()
 
 	// Download fd/rg in the background so a cold install does not block the
 	// first TUI frame. Failures stay non-fatal (tools fall back to PATH).
@@ -92,9 +91,9 @@ func runTUI() error {
 		}
 	}
 
-	model := cfg.Name
-	if cfg.Think.Enabled {
-		model = fmt.Sprintf("%s::%s", model, string(cfg.Think.Mode))
+	model := ctrl.ModelName()
+	if think := ctrl.ThinkLevel(); think != "off" && think != "" {
+		model = fmt.Sprintf("%s::%s", model, think)
 	}
 
 	ui := editor.NewEditor(
@@ -105,8 +104,8 @@ func runTUI() error {
 		th,
 		cwd,
 		model,
-		cfg.SkillPaths,
-		cfg.ContextWindow,
+		proj.Config().SkillPaths,
+		ctrl.ContextWindow(),
 		modelNames,
 	)
 	redraw.Bind(ui.RequestRedraw)
