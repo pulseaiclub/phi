@@ -5,8 +5,6 @@ package clipboard
 import (
 	"os"
 	"strings"
-
-	"github.com/pulseaiclub/phi/internal/util"
 )
 
 func readClipboardImagePlatform() (Image, error) {
@@ -18,7 +16,8 @@ func readClipboardImagePlatform() (Image, error) {
 	_ = tmpFile.Close()
 	defer os.Remove(path)
 
-	psQuoted := util.ReplaceAll(path, "'", "''")
+	psQuoted := strings.ReplaceAll(path, "'", "''")
+
 	psScript := "Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; " +
 		"$path = '" + psQuoted + "'; $img = [System.Windows.Forms.Clipboard]::GetImage(); " +
 		"if ($img) { $img.Save($path, [System.Drawing.Imaging.ImageFormat]::Png); Write-Output 'ok' } else { Write-Output 'empty' }"

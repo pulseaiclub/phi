@@ -15,7 +15,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/chrome"
 	"github.com/pulseaiclub/phi/internal/components/layout"
-	"github.com/pulseaiclub/phi/internal/util"
 )
 
 // Item is one row. Callers own domain mapping (sessions, extensions, …).
@@ -447,8 +446,9 @@ func (p *Picker) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 		p.handleKey(ctx, e)
 	case xui.PasteEvent:
-		text := util.ReplaceAll(e.Text, "\n", " ")
-		text = util.ReplaceAll(text, "\r", " ")
+		text := strings.ReplaceAll(e.Text, "\n", " ")
+		text = strings.ReplaceAll(text, "\r", " ")
+
 		p.insert(text)
 		ctx.ConsumeAndRedraw()
 	case xui.MouseEvent:

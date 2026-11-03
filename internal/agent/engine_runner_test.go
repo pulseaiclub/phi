@@ -13,8 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/util"
-
 	"github.com/pulseaiclub/phi/internal/agent"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
@@ -36,9 +34,9 @@ func textOnlySSEServer(reply string) *httptest.Server {
 
 func jsonMarshalDelta(content string) string {
 	// Keep tiny and stable for tests; escape is enough for plain ASCII replies.
-	content = util.ReplaceAll(content, `\`, `\\`)
-	content = util.ReplaceAll(content, `"`, `\"`)
-	content = util.ReplaceAll(content, "\n", `\n`)
+	content = strings.ReplaceAll(content, `\`, `\\`)
+	content = strings.ReplaceAll(content, `"`, `\"`)
+	content = strings.ReplaceAll(content, "\n", `\n`)
 	return `{"choices":[{"delta":{"role":"assistant","content":"` + content + `"}}]}`
 }
 

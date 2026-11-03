@@ -2,13 +2,12 @@ package clipboard
 
 import (
 	"strings"
-
-	"github.com/pulseaiclub/phi/internal/util"
 )
 
 // splitLines splits on LF (normalizing CRLF) and drops empty lines.
 func splitLines(s string) []string {
-	s = util.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+
 	if s == "" {
 		return nil
 	}
