@@ -9,7 +9,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/chrome"
 	"github.com/pulseaiclub/phi/internal/components/status"
-	"github.com/pulseaiclub/phi/internal/util"
 )
 
 const bashToolName = "bash"
@@ -204,7 +203,8 @@ func bashBodyLines(output string, th components.Theme, width int, method xui.Wid
 	if output == "" {
 		return nil
 	}
-	text := strings.TrimRight(util.ReplaceAll(output, "\r", ""), "\n")
+	text := strings.TrimRight(strings.ReplaceAll(output, "\r", ""), "\n")
+
 	fg := th.Foreground
 	fg.Dim = true
 	spans := []components.Span{{Text: text + "\n", Style: fg}}

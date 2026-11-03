@@ -13,7 +13,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
-	"github.com/pulseaiclub/phi/internal/util"
 )
 
 // ToolCanceledResult is returned to the model when a user cancels a tool call.
@@ -396,7 +395,8 @@ func appendExtContext(content, ctx string) string {
 	if ctx == "" {
 		return content
 	}
-	escaped := util.ReplaceAll(ctx, extContextClose, "</ext_context\u200b>")
+	escaped := strings.ReplaceAll(ctx, extContextClose, "</ext_context\u200b>")
+
 	block := extContextOpen + "\n" + escaped + "\n" + extContextClose
 	if content == "" {
 		return block

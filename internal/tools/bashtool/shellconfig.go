@@ -20,8 +20,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/pulseaiclub/phi/internal/util"
 )
 
 // shellConfig describes how to launch the resolved shell.
@@ -127,7 +125,8 @@ var wslBashRe = regexp.MustCompile(`^[a-z]:\\windows\\(?:system32|sysnative)\\ba
 // isLegacyWslBashPath reports whether path is Windows' legacy WSL bash shim,
 // which doesn't handle "-c" arguments well.
 func isLegacyWslBashPath(path string) bool {
-	normalized := strings.ToLower(util.ReplaceAll(path, "/", `\`))
+	normalized := strings.ToLower(strings.ReplaceAll(path, "/", `\`))
+
 	return wslBashRe.MatchString(normalized)
 }
 

@@ -8,8 +8,6 @@ import (
 	"os"
 	"strings"
 	"time"
-
-	"github.com/pulseaiclub/phi/internal/util"
 )
 
 func isWaylandSession() bool {
@@ -125,7 +123,8 @@ func readClipboardImageViaPowerShell() (Image, error) {
 		return Image{}, ErrUnavailable
 	}
 
-	psQuoted := util.ReplaceAll(winPathStr, "'", "''")
+	psQuoted := strings.ReplaceAll(winPathStr, "'", "''")
+
 	psScript := fmt.Sprintf(
 		"Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; "+
 			"$path = '%s'; $img = [System.Windows.Forms.Clipboard]::GetImage(); "+
