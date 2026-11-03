@@ -13,6 +13,7 @@ import (
 // SessionCommands owns /sessions and /new UI side effects.
 type SessionCommands struct {
 	Ctrl       *controller.EngineController
+	Composer   BuiltinComposer
 	Transcript *transcript.TranscriptPane
 	Footer     *footer.FooterChrome
 	Bus        *controller.Bus
@@ -124,6 +125,7 @@ func (s *SessionCommands) resume(id string) {
 	// The resumed session carries its own last usage; without this the footer
 	// keeps showing the counts of the session we just left.
 	s.Footer.UpdateTokenDisplay(snap.LastUsage())
+	s.refreshModel()
 	msg := "Resumed " + shortSessionID(s.Ctrl.SessionID())
 	if warn != "" {
 		publishToast(s.Bus, msg+" · "+warn, toast.ToastWarning, 4*time.Second)
@@ -185,9 +187,19 @@ func (s *SessionCommands) NewSession() {
 	s.Transcript.ResetSubagents()
 	s.Footer.ClearTokenDisplay()
 	s.Footer.Activity().Apply(controller.ActivityIdle)
+	s.refreshModel()
 	s.Transcript.Sync()
 	s.Transcript.StickToBottom()
 	publishToast(s.Bus, "New session "+shortSessionID(s.Ctrl.SessionID()), toast.ToastSuccess, 3*time.Second)
+}
+
+func (s *SessionCommands) refreshModel() {
+	if s.Composer != nil {
+		s.Composer.SetModelLabel(s.Ctrl.ModelName(), string(s.Ctrl.ThinkLevel()))
+	}
+	if s.Footer != nil {
+		s.Footer.SetContextWindow(s.Ctrl.ContextWindow())
+	}
 }
 
 func shortSessionID(id string) string {

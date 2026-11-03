@@ -21,7 +21,6 @@ const (
 	keyPermMode        = "perm.mode"
 	keyPermWorkspace   = "perm.workspace_only_writes"
 	keyPermTimeout     = "perm.ask_timeout_sec"
-	keyPermDangerous   = "perm.dangerously_allow_all"
 	keyPermBashDefault = "perm.bash.default"
 	keyPermBashAllow   = "perm.bash.allow"
 	keyPermBashDeny    = "perm.bash.deny"
@@ -218,6 +217,7 @@ var (
 		opt(string(permission.ModeReadonly), "readonly", "deny writes, keep reads"),
 		opt(string(permission.ModeAutopilot), "autopilot", "fold ask to allow"),
 		opt(string(permission.ModeHeadlessStrict), "headless-strict", "fold ask to deny"),
+		opt(string(permission.ModeAllowAll), "allow-all", "skip all permission checks"),
 	}
 	bashDefaultOptions = []option{
 		opt("", "auto", "policy default (ask)"),
@@ -245,7 +245,6 @@ func (e *ConfigEditor) build() {
 	e.addField(e.fieldRow(fieldSpec{
 		key: keyPermTimeout, label: "ask timeout", kind: kindInt, placeholder: strconv.Itoa(defaultTimeout()),
 	}))
-	e.addField(e.fieldRow(fieldSpec{key: keyPermDangerous, label: "allow everything", kind: kindBool}))
 	e.addSection("Bash", "")
 	e.addField(e.fieldRow(fieldSpec{
 		key: keyPermBashDefault, label: "default", kind: kindChoice, options: bashDefaultOptions,
@@ -514,13 +513,17 @@ func (e *ConfigEditor) rawFor(key string) string {
 	case keyMaxRounds:
 		return intString(e.doc.MaxRounds)
 	case keyPermMode:
-		return permString(e.doc, func(p *project.PermDoc) string { return p.Mode })
+		return permString(e.doc, func(p *project.PermDoc) string {
+			// The deprecated bool reads as the mode it migrates to.
+			if p.Mode == "" && p.DangerouslyAllowAll != nil && *p.DangerouslyAllowAll {
+				return string(permission.ModeAllowAll)
+			}
+			return p.Mode
+		})
 	case keyPermWorkspace:
 		return triString(permBool(e.doc, func(p *project.PermDoc) *bool { return p.WorkspaceOnlyWrites }))
 	case keyPermTimeout:
 		return intString(permInt(e.doc, func(p *project.PermDoc) *int { return p.AskTimeoutSec }))
-	case keyPermDangerous:
-		return triString(permBool(e.doc, func(p *project.PermDoc) *bool { return p.DangerouslyAllowAll }))
 	case keyPermBashDefault:
 		return bashString(e.doc, func(b *project.BashDoc) string { return b.Default })
 	case keyAgentsEnabled:
@@ -559,7 +562,10 @@ func (e *ConfigEditor) apply(key, value string) error {
 		}
 		e.doc.MaxRounds = rounds
 	case keyPermMode:
-		perms(e.doc).Mode = strings.TrimSpace(value)
+		p := perms(e.doc)
+		p.Mode = strings.TrimSpace(value)
+		// Saving a mode supersedes the deprecated key.
+		p.DangerouslyAllowAll = nil
 	case keyPermWorkspace:
 		on, err := parseTri(value)
 		if err != nil {
@@ -572,12 +578,6 @@ func (e *ConfigEditor) apply(key, value string) error {
 			return err
 		}
 		perms(e.doc).AskTimeoutSec = secs
-	case keyPermDangerous:
-		on, err := parseTri(value)
-		if err != nil {
-			return err
-		}
-		perms(e.doc).DangerouslyAllowAll = on
 	case keyPermBashDefault:
 		bash(e.doc).Default = value
 	case keyAgentsEnabled:

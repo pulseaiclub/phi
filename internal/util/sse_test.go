@@ -170,7 +170,8 @@ func TestParseDataStreamNoErrorAfterBreak(t *testing.T) {
 	// yield again after it returned false would panic in a range-over-func.
 	body := &errAfterReader{r: strings.NewReader("data: one\n"), err: errors.New("boom")}
 	calls := 0
-	for range ParseDataStream(body) {
+	for _, err := range ParseDataStream(body) {
+		require.NoError(t, err)
 		calls++
 		break
 	}

@@ -128,3 +128,24 @@ func splitFirstJSONL(b []byte) []byte {
 	}
 	return b
 }
+
+func TestSessionModelSelectionAdvancesCursor(t *testing.T) {
+	sess, err := NewSession(WithModel("initial"))
+	require.NoError(t, err)
+	assert.Equal(t, "initial", sess.ModelName())
+	require.NotEmpty(t, sess.LastID(), "the initial model is a session entry")
+	require.NoError(t, sess.AddUser("hello"))
+	before := sess.LastID()
+	context := sess.BuildContext()
+	require.NoError(t, sess.SetModel("next"))
+	assert.NotEqual(t, before, sess.LastID(), "compaction must detect model changes while summarizing")
+	assert.Equal(t, sess.manager.LeafID(), sess.LastID())
+	assert.Equal(t, context, sess.BuildContext(), "model selection must not add an LLM message")
+	leaf, count := sess.LastID(), sess.Len()
+	require.NoError(t, sess.SetModel("next"))
+	assert.Equal(t, leaf, sess.LastID())
+	assert.Equal(t, count, sess.Len())
+	require.NoError(t, sess.AddUser("continue"))
+	assert.Equal(t, "next", sess.ModelName())
+	require.Len(t, sess.BuildContext(), 2)
+}

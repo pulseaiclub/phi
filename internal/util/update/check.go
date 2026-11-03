@@ -45,7 +45,7 @@ type CheckOptions struct {
 
 // SkipCheck reports whether env vars disable network version checks.
 func SkipCheck() bool {
-	return os.Getenv("PHI_SKIP_VERSION_CHECK") != "" || os.Getenv("PHI_OFFLINE") != ""
+	return os.Getenv("PHI_SKIP_VERSION_CHECK") != ""
 }
 
 // Check returns info about a newer release, using a cached result when fresh.

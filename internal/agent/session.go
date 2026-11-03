@@ -33,6 +33,7 @@ type sessionConfig struct {
 	resumePath string
 	resumeID   string
 	parentID   string
+	model      string
 }
 
 // WithCwd sets the cwd written to SessionHeader (usually process cwd).
@@ -58,6 +59,11 @@ func WithResumePath(path string) SessionOption {
 // WithResumeID resolves a session under SessionDir (mutually exclusive with WithResumePath).
 func WithResumeID(id string) SessionOption {
 	return func(c *sessionConfig) { c.resumeID = id }
+}
+
+// WithModel records the initial model selection in a new session.
+func WithModel(name string) SessionOption {
+	return func(c *sessionConfig) { c.model = name }
 }
 
 // WithParentID links a new persisted session to a parent (sub-agents).
@@ -94,26 +100,22 @@ func NewSession(opts ...SessionOption) (*Session, error) {
 		return &Session{manager: m, lastID: m.LeafID()}, nil
 	}
 
-	if cfg.persist {
-		if cfg.sessionDir == "" {
-			return nil, errors.New("agent: SessionDir required when Persist is true")
-		}
-		m, err := session.NewSessionManager(cfg.cwd,
-			session.WithSessionDir(cfg.sessionDir),
-			session.WithShouldFlush(true),
-			session.WithParent(cfg.parentID),
-		)
-		if err != nil {
-			return nil, err
-		}
-		return &Session{manager: m}, nil
+	if cfg.persist && cfg.sessionDir == "" {
+		return nil, errors.New("agent: SessionDir required when Persist is true")
 	}
-
-	return &Session{manager: session.NewManager(cfg.cwd)}, nil
+	m, err := session.NewSessionManager(cfg.cwd,
+		session.WithSessionDir(cfg.sessionDir),
+		session.WithShouldFlush(cfg.persist),
+		session.WithParent(cfg.parentID),
+		session.WithModel(cfg.model),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &Session{manager: m, lastID: m.LeafID()}, nil
 }
 
-// Fork creates a new Session that shares the same underlying manager state
-// but starts from the current leaf, allowing independent conversation branches.
+// Fork copies the selected branch into an independent persisted session.
 func (s *Session) Fork() (*Session, error) {
 	fork, err := s.manager.Fork()
 	if err != nil {
@@ -144,6 +146,22 @@ func (s *Session) Cwd() string {
 		return ""
 	}
 	return s.manager.Cwd()
+}
+
+// ModelName returns the latest model selection on the current branch.
+func (s *Session) ModelName() string {
+	return s.manager.ModelName()
+}
+
+// SetModel appends a model selection and advances the session cursor.
+func (s *Session) SetModel(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.manager.SetModel(name); err != nil {
+		return err
+	}
+	s.lastID = s.manager.LeafID()
+	return nil
 }
 
 // Append records one or more messages.
@@ -219,6 +237,9 @@ func (s *Session) BuildContext() []llm.Message {
 	msgs := make([]llm.Message, 0, len(entries))
 	var compactionID string
 	for _, entry := range entries {
+		if parent := entry.GetParent(); parent != nil && *parent == compactionID {
+			compactionID = ""
+		}
 		switch entry.GetType() {
 		case session.EntryCompaction:
 			m := entry.(session.CompactionEntry)
@@ -229,9 +250,6 @@ func (s *Session) BuildContext() []llm.Message {
 			})
 		case session.EntryMessage:
 			m := entry.(session.SessionMessageEntry)
-			if m.ParentID != nil && *m.ParentID == compactionID {
-				compactionID = ""
-			}
 			msg := m.Message
 			if compactionID != "" {
 				// Retained messages were generated before the summary replaced their prefix.

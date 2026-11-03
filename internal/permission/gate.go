@@ -43,6 +43,9 @@ func NewGate(policy Policy, workspace string) (Gate, error) {
 	if mode == "" {
 		mode = ModeInteractive
 	}
+	if mode == ModeAllowAll {
+		return AllowAll{}, nil
+	}
 	return &modeGate{
 		mode:  mode,
 		inner: &staticGate{Workspace: workspace, workspaceReal: resolved, rules: rules},
@@ -101,7 +104,7 @@ func (g *staticGate) subjects(req Request) (subjectSet, string) {
 	return subjectSet{env: env, subjects: out}, ""
 }
 
-// AllowAll is a Gate that always allows (tests / nil-policy fallback).
+// AllowAll is a Gate that always allows (ModeAllowAll, tests, nil-policy fallback).
 type AllowAll struct{}
 
 // Check always returns Allow.

@@ -249,14 +249,16 @@ func applyPermissions(p *permission.Policy, raw *PermDoc) error {
 	if raw.Mode != "" {
 		p.Mode = permission.Mode(raw.Mode)
 	}
+	// Deprecated dangerously_allow_all folds into the mode; an explicit
+	// permissions.mode wins over it.
+	if raw.DangerouslyAllowAll != nil && *raw.DangerouslyAllowAll && raw.Mode == "" {
+		p.Mode = permission.ModeAllowAll
+	}
 	if raw.WorkspaceOnlyWrites != nil {
 		p.WorkspaceOnlyWrites = *raw.WorkspaceOnlyWrites
 	}
 	if raw.AskTimeoutSec != nil && *raw.AskTimeoutSec > 0 {
 		p.AskTimeoutSec = *raw.AskTimeoutSec
-	}
-	if raw.DangerouslyAllowAll != nil {
-		p.DangerouslyAllowAll = *raw.DangerouslyAllowAll
 	}
 	if b := raw.Bash; b != nil {
 		if b.Default != "" {
@@ -295,22 +297,6 @@ func expandAllHome(paths []string) []string {
 		out[i] = expandHome(path)
 	}
 	return out
-}
-
-func countIndent(line string) int {
-	n := 0
-	for _, r := range line {
-		switch r {
-		case ' ':
-			n++
-		case '\t':
-			n += 2
-		default:
-			return n / 2
-		}
-	}
-	// Treat 2 spaces as one indent level for our hand-rolled parser.
-	return n / 2
 }
 
 func parseDecision(val string, def permission.Decision) permission.Decision {
@@ -367,57 +353,19 @@ func firstEnv(keys ...string) string {
 	return ""
 }
 
-// SetDangerouslyAllowAll persists permissions.dangerously_allow_all in config.yaml
-// ("Allow All for Every Session"). Best-effort rewrite of that key.
-func SetDangerouslyAllowAll(global GlobalLayout, enabled bool) error {
+// SetPermissionMode persists permissions.mode in config.yaml ("Allow All for
+// Every Session" writes allow-all). A deprecated dangerously_allow_all key is
+// dropped on save; the loader already folded it into the mode.
+func SetPermissionMode(global GlobalLayout, mode permission.Mode) error {
 	path := global.ConfigFile()
-	data, err := os.ReadFile(path)
-	if err != nil && !os.IsNotExist(err) {
+	doc, err := ReadConfigDoc(path)
+	if err != nil {
 		return err
 	}
-	lines := []string{}
-	if len(data) > 0 {
-		lines = strings.Split(string(data), "\n")
+	if doc.Permissions == nil {
+		doc.Permissions = &PermDoc{}
 	}
-	val := "false"
-	if enabled {
-		val = "true"
-	}
-	inPerm := false
-	found := false
-	out := make([]string, 0, len(lines)+2)
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		indent := countIndent(line)
-		if indent == 0 && strings.HasPrefix(trimmed, "permissions:") {
-			inPerm = true
-			out = append(out, line)
-			continue
-		}
-		if indent == 0 && trimmed != "" && !strings.HasPrefix(trimmed, "#") {
-			if inPerm && !found {
-				out = append(out, "  dangerously_allow_all: "+val)
-				found = true
-			}
-			inPerm = false
-		}
-		if inPerm && indent == 1 && strings.HasPrefix(trimmed, "dangerously_allow_all:") {
-			out = append(out, "  dangerously_allow_all: "+val)
-			found = true
-			continue
-		}
-		out = append(out, line)
-	}
-	if inPerm && !found {
-		out = append(out, "  dangerously_allow_all: "+val)
-		found = true
-	}
-	if !found {
-		if len(out) > 0 && out[len(out)-1] != "" {
-			out = append(out, "")
-		}
-		out = append(out, "permissions:", "  dangerously_allow_all: "+val)
-	}
-	//nolint:gosec // G306: config.yaml is meant to be user-readable
-	return os.WriteFile(path, []byte(strings.Join(out, "\n")+"\n"), 0o644)
+	doc.Permissions.Mode = string(mode)
+	doc.Permissions.DangerouslyAllowAll = nil
+	return doc.Save(path)
 }

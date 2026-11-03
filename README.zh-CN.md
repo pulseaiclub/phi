@@ -194,7 +194,7 @@ agents:
   enabled: true           # 默认；设为 false 可禁用 agent_* 子代理工具
 
 permissions:
-  mode: interactive       # interactive | readonly | autopilot | headless-strict
+  mode: interactive       # interactive | readonly | autopilot | headless-strict | allow-all
   bash:
     default: ask          # ask | allow | deny
     allow:
@@ -233,7 +233,7 @@ permissions:
 
 ## 交互模式
 
-`phi`（或 `phi tui`）启动 TUI：上方是对话记录，底部是编辑器，底部状态栏显示
+`phi` 启动 TUI：上方是对话记录，底部是编辑器，底部状态栏显示
 当前活动。有新版发布时，状态栏会提示类似 `0.2.0 available · phi update`。
 
 助手输出按 Markdown（CommonMark/GFM）渲染：标题、强调、删除线、链接、引用、
@@ -309,11 +309,11 @@ HEAD 新建一个。敲名字本身就是「新建分支」的全部流程，比
 
 | 命令 | 说明 |
 | ------------------ | --------------------------------------------- |
-| `phi` / `phi tui` | 启动交互式 TUI |
+| `phi` | 启动交互式 TUI |
 | `phi run -p "…"` | 以无头模式运行一个代理循环（见下文） |
 | `phi update` | 下载并安装最新的 GitHub 发布版本 |
 | `phi update --check` | 只查询最新版本，不安装 |
-| `phi sessions list` | 列出当前目录的持久化会话 |
+| `phi sessions` | 列出当前目录的持久化会话 |
 | `/sessions` | 列出当前目录的会话（TUI 内） |
 | `/branch` | 切换工作分支 — 见 [切换分支](#切换分支) |
 | `/new` | 开启一个全新的空会话（TUI 内） |
@@ -329,7 +329,7 @@ HEAD 新建一个。敲名字本身就是「新建分支」的全部流程，比
 会话会按工作目录自动持久化到 `~/.phi/session/<encoded-cwd>/`，以 JSONL 轨迹
 记录。
 
-- `phi sessions list` —— 列出当前目录的会话 id、修改时间和预览
+- `phi sessions` —— 列出当前目录的会话 id、修改时间和预览
 - TUI 内 `/sessions` —— 同上，在应用内查看
 - `/new` —— 开启全新会话（新 id、空对话记录）
 - `phi run --session <id>` / `phi run --continue-last` —— 无头模式恢复会话
@@ -417,10 +417,11 @@ Instructions the agent should follow when this skill is relevant.
 | `readonly` | 拒绝写入 / bash；只读工具仍可用。 |
 | `autopilot` | 把 `ask` 折叠为 allow，无人值守运行。 |
 | `headless-strict` | 把 `ask` 折叠为 deny（`phi run` 使用）。 |
+| `allow-all` | 跳过所有权限检查。 |
 
 按工具的规则：`bash.default` / `bash.allow` / `bash.deny`（精确命令前缀匹配）。
-全局键：`workspace_only_writes`
-（默认 true）、`ask_timeout_sec` 和 `dangerously_allow_all`（默认 false）。
+全局键：`workspace_only_writes`（默认 true）和 `ask_timeout_sec`。
+已弃用的 `dangerously_allow_all: true` 仍按 `mode: allow-all` 加载。
 
 在 TUI 中，审批对话框会替换编辑器，提供批准、带反馈地拒绝、或对本次会话 /
 所有会话全部允许等选项。面板的 设置 → 权限 条目可切换会话级绕过。

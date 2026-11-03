@@ -16,12 +16,12 @@ const bootstrapDownloadTimeout = 5 * time.Minute
 
 // HeadlessGate builds the permission gate for non-interactive entrypoints.
 // An empty policy mode defaults to headless-strict so Ask decisions fold to
-// Deny (Ask≡Deny); dangerously_allow_all is honored exactly like the TUI.
+// Deny (Ask≡Deny); allow-all skips the gate exactly like the TUI bypass.
 func HeadlessGate(policy permission.Policy) (permission.Gate, error) {
 	if policy.Mode == "" {
 		policy.Mode = permission.ModeHeadlessStrict
 	}
-	if policy.DangerouslyAllowAll {
+	if policy.Mode == permission.ModeAllowAll {
 		return permission.AllowAll{}, nil
 	}
 	return permission.NewGate(policy, permission.WorkspaceRoot())
@@ -51,7 +51,7 @@ func loadRunBootstrap(ctx context.Context, sessionDirOverride string, yolo bool)
 	}
 	policy := proj.Config().Permissions
 	if yolo {
-		policy.DangerouslyAllowAll = true
+		policy.Mode = permission.ModeAllowAll
 	}
 	gate, err := HeadlessGate(policy)
 	if err != nil {

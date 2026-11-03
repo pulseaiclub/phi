@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -48,6 +49,61 @@ func TestSessionPersistRoundTrip(t *testing.T) {
 	reloaded, err := OpenSession(path)
 	require.NoError(t, err)
 	assert.Equal(t, messageContents(loaded.BuildContext()), messageContents(reloaded.BuildContext()))
+}
+
+func TestSessionModelChangesAppendOnly(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true), WithModel("model-a"))
+	require.NoError(t, err)
+	assert.Equal(t, "model-a", m.ModelName())
+
+	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "hello"})
+	require.NoError(t, err)
+	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "done"})
+	require.NoError(t, err)
+	before, err := os.ReadFile(m.File())
+	require.NoError(t, err)
+	var header map[string]any
+	require.NoError(t, json.Unmarshal(bytes.SplitN(before, []byte("\n"), 2)[0], &header))
+	assert.NotContains(t, header, "model", "new headers contain no mutable model state")
+
+	require.NoError(t, m.SetModel("model-b"))
+	assert.Equal(t, "model-b", m.ModelName())
+	after, err := os.ReadFile(m.File())
+	require.NoError(t, err)
+	require.True(t, bytes.HasPrefix(after, before), "existing records must remain byte-for-byte intact")
+	var change ModelChangeEntry
+	require.NoError(t, json.Unmarshal(bytes.TrimSpace(after[len(before):]), &change))
+	assert.Equal(t, "EntryModelChange", change.Type)
+	assert.Equal(t, "model-b", change.Model)
+	require.NoError(t, m.SetModel("model-b"))
+	unchanged, err := os.ReadFile(m.File())
+	require.NoError(t, err)
+	assert.Equal(t, after, unchanged, "selecting the same model must not add a record")
+
+	loaded, err := OpenSession(m.File())
+	require.NoError(t, err)
+	assert.Equal(t, "model-b", loaded.ModelName())
+	assert.Len(t, ReplaySnapshot(loaded.BuildContext(), nil).Messages, 2, "model changes are not transcript messages")
+	assert.Equal(t, messageContents(m.BuildContext()), messageContents(loaded.BuildContext()))
+
+	list, err := ListSessions(dir)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, m.ID(), list[0].ID)
+	assert.Equal(t, "hello", list[0].Preview)
+}
+
+func TestSessionWithoutModelRemainsLoadable(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	require.NoError(t, err)
+	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "done"})
+	require.NoError(t, err)
+
+	loaded, err := OpenSession(m.File())
+	require.NoError(t, err)
+	assert.Empty(t, loaded.ModelName())
 }
 
 func TestSessionPersistUsageRoundTrip(t *testing.T) {

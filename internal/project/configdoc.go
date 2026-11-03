@@ -44,9 +44,11 @@ type ModelDoc struct {
 
 // PermDoc is the permissions block.
 type PermDoc struct {
-	Mode                string   `yaml:"mode,omitempty"`
-	WorkspaceOnlyWrites *bool    `yaml:"workspace_only_writes,omitempty"`
-	AskTimeoutSec       *int     `yaml:"ask_timeout_sec,omitempty"`
+	Mode                string `yaml:"mode,omitempty"`
+	WorkspaceOnlyWrites *bool  `yaml:"workspace_only_writes,omitempty"`
+	AskTimeoutSec       *int   `yaml:"ask_timeout_sec,omitempty"`
+	// DangerouslyAllowAll is deprecated: mode: allow-all replaces it. The
+	// loader still honors it; saves write the mode form.
 	DangerouslyAllowAll *bool    `yaml:"dangerously_allow_all,omitempty"`
 	Bash                *BashDoc `yaml:"bash,omitempty"`
 	// Rules are evaluated in strictest-first tiers: a configured deny outranks
@@ -104,6 +106,32 @@ func ReadConfigDoc(path string) (*ConfigDoc, error) {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 	return doc, nil
+}
+
+// SetDefaultModel reuses the config editor's default flag and save path.
+// Read the document from disk so environment overrides never get persisted.
+func SetDefaultModel(global GlobalLayout, name string) error {
+	path := global.ConfigFile()
+	doc, err := ReadConfigDoc(path)
+	if err != nil {
+		return err
+	}
+	index := -1
+	for i, m := range doc.Models {
+		if m.Name == name {
+			index = i
+		}
+	}
+	if index < 0 {
+		return fmt.Errorf("model %q is not in %s; add it with phi config before saving it as default", name, path)
+	}
+	for i := range doc.Models {
+		doc.Models[i].Default = i == index
+	}
+	if err := doc.Validate(); err != nil {
+		return fmt.Errorf("cannot save default model %q: %w", name, err)
+	}
+	return doc.Save(path)
 }
 
 // Validate reports whether doc is safe to write. It does not mutate doc: a

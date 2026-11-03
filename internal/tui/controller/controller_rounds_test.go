@@ -17,6 +17,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/agent"
 	"github.com/pulseaiclub/phi/internal/extension/loader"
 	"github.com/pulseaiclub/phi/internal/job"
+	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/project"
 )
 
@@ -84,6 +85,43 @@ func TestMaxRoundsLifecycle(t *testing.T) {
 			assert.Equal(t, initial, ctrl.proj.Config().MaxRounds, "session override must not alter config")
 		})
 	}
+}
+
+func TestModelLifecycle(t *testing.T) {
+	ctrl := newRoundsController(t, "http://127.0.0.1:9", 3)
+	cwd := ctrl.cwd
+	flush := func() {
+		require.NoError(t, ctrl.engine.Session().Append(llm.Message{Role: llm.RoleUser, Content: "hello"}))
+		require.NoError(t, ctrl.engine.Session().Append(llm.Message{Role: llm.RoleAssistant, Content: "done"}))
+	}
+
+	require.NoError(t, ctrl.SetModel("primary"))
+	firstID := ctrl.SessionID()
+	flush()
+	require.NoError(t, ctrl.NewSession())
+	secondID := ctrl.SessionID()
+	require.NoError(t, ctrl.SetModel("secondary"))
+	flush()
+
+	_, err := ctrl.Resume(firstID)
+	require.NoError(t, err)
+	assert.Equal(t, "primary", ctrl.ModelName())
+	_, err = ctrl.Resume(secondID)
+	require.NoError(t, err)
+	assert.Equal(t, "secondary", ctrl.ModelName())
+	require.NoError(t, ctrl.NewSession())
+	assert.Equal(t, "secondary", ctrl.ModelName())
+
+	ctrl.Close()
+	proj, err := project.Discover(cwd)
+	require.NoError(t, err)
+	restarted, err := NewController(NewBus(nil), proj, cwd)
+	require.NoError(t, err)
+	defer restarted.Close()
+	assert.Equal(t, "primary", restarted.ModelName(), "startup must use the configured default")
+	_, err = restarted.Resume(secondID)
+	require.NoError(t, err)
+	assert.Equal(t, "secondary", restarted.ModelName(), "resume must restore only the selected session's model")
 }
 
 func TestMaxRoundsConcurrentRoleSnapshot(t *testing.T) {

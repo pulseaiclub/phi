@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -37,6 +38,7 @@ type ManagerConfig struct {
 	sessionDir  string
 	shouldFlush bool
 	parentID    string
+	model       string
 }
 
 // ManagerOption applies a mutation to ManagerConfig.
@@ -72,6 +74,14 @@ func WithSessionDir(sessionDir string) OptionFunc {
 func WithParent(sessionID string) OptionFunc {
 	return func(config ManagerConfig) ManagerConfig {
 		config.parentID = sessionID
+		return config
+	}
+}
+
+// WithModel records the initial model selection as an EntryModelChange entry.
+func WithModel(name string) OptionFunc {
+	return func(config ManagerConfig) ManagerConfig {
+		config.model = name
 		return config
 	}
 }
@@ -112,6 +122,9 @@ func NewSessionManager(sessionPath string, opt ...ManagerOption) (*Manager, erro
 		fileTimestamp := time.Now().Format("2006-01-02T15-04-05")
 		m.sessionFile = filepath.Join(config.sessionDir, fmt.Sprintf("%s_%s.jsonl", fileTimestamp, m.sessionID))
 	}
+	if err := m.SetModel(config.model); err != nil {
+		return nil, err
+	}
 	return m, nil
 }
 
@@ -130,6 +143,11 @@ func (sm *Manager) GetBranch(fromID string) []MessageEntry {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
+	return sm.getBranch(fromID)
+}
+
+// getBranch requires sm.mu to be held.
+func (sm *Manager) getBranch(fromID string) []MessageEntry {
 	var message []MessageEntry
 
 	current := sm.byIDs[fromID]
@@ -145,8 +163,8 @@ func (sm *Manager) GetBranch(fromID string) []MessageEntry {
 }
 
 // BuildContext returns the conversation path from the current leaf to the
-// root, oldest first, with compaction applied (compaction entry plus messages
-// kept after it).
+// root, oldest first, with compaction applied. Model selections stay as state
+// entries for projection; ModelName resolves them independently of compaction.
 func (sm *Manager) BuildContext() []MessageEntry {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -209,8 +227,7 @@ func (sm *Manager) AppendBash(command, output string, exitCode int, cancelled bo
 	return entry.ID, nil
 }
 
-// Fork creates a new Manager that shares the same session entries
-// but starts from the current leaf, allowing independent conversation branches.
+// Fork copies the selected branch into an independent persisted session.
 func (sm *Manager) Fork() (*Manager, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -224,12 +241,18 @@ func (sm *Manager) Fork() (*Manager, error) {
 		Cwd:           sm.cwd,
 		ParentSession: parentID,
 	}
-	copied := make([]MessageEntry, 0, len(sm.entries))
+	var branch []MessageEntry
+	if sm.leafID != nil {
+		branch = sm.getBranch(*sm.leafID)
+	}
+	copied := make([]MessageEntry, 0, len(branch)+1)
 	copied = append(copied, header)
-	copied = append(copied, sm.entries[1:]...)
+	for _, entry := range slices.Backward(branch) {
+		copied = append(copied, entry)
+	}
 
 	byIDs := make(map[string]MessageEntry, len(copied))
-	for _, entry := range copied {
+	for _, entry := range copied[1:] {
 		byIDs[entry.GetID()] = entry
 	}
 
@@ -266,6 +289,55 @@ func (sm *Manager) Fork() (*Manager, error) {
 	return dst, nil
 }
 
+// ModelName returns the latest model selection on the current branch.
+func (sm *Manager) ModelName() string {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	return sm.modelName()
+}
+
+// modelName requires sm.mu to be held. Compaction limits message context,
+// but model selection may live anywhere on the selected branch.
+func (sm *Manager) modelName() string {
+	for id := sm.leafID; id != nil; {
+		entry, ok := sm.byIDs[*id]
+		if !ok {
+			break
+		}
+		if change, ok := entry.(ModelChangeEntry); ok {
+			return change.Model
+		}
+		id = entry.GetParent()
+	}
+	return ""
+}
+
+// SetModel appends a model selection without modifying existing records.
+func (sm *Manager) SetModel(name string) error {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	if sm.modelName() == name {
+		return nil
+	}
+	entry := ModelChangeEntry{
+		SessionBaseEntry: SessionBaseEntry{
+			Type:      EntryModelChange,
+			ID:        sm.generateID(),
+			ParentID:  sm.leafID,
+			Timestamp: time.Now(),
+		},
+		Model: name,
+	}
+	if err := sm.appendEntry(entry); err != nil {
+		// A failed selection must remain retryable and agree with the active engine.
+		sm.entries = sm.entries[:len(sm.entries)-1]
+		delete(sm.byIDs, entry.ID)
+		sm.leafID = entry.ParentID
+		return fmt.Errorf("session: append model change %q: %w", name, err)
+	}
+	return nil
+}
+
 // AppendCompaction adds a compaction entry as a new leaf and returns its ID.
 func (sm *Manager) AppendCompaction(compaction Compaction) (string, error) {
 	sm.mu.Lock()
@@ -299,7 +371,7 @@ func (sm *Manager) appendEntry(entry MessageEntry) error {
 	if msgEntry, ok := entry.(SessionMessageEntry); ok && msgEntry.Message.Role == llm.RoleAssistant {
 		sm.hasAssistantMsg = true
 	}
-	if !sm.hasAssistantMsg {
+	if !sm.hasAssistantMsg && !sm.flushed {
 		return nil
 	}
 	return sm.flush(entry)
@@ -379,8 +451,8 @@ func generateSessionID() string {
 
 // buildSessionContext returns the entries that form the LLM context for the
 // branch ending at leafId, oldest first: a compaction entry (if any) followed
-// by the messages retained after it. Everything summarized by the newest
-// compaction never reaches the output, so the walk stops at the retained
+// by messages and model selections retained after it. Summarized entries
+// never reach the output, so the walk stops at the retained
 // tail instead of draining the whole branch.
 func buildSessionContext(
 	entries []MessageEntry,
@@ -446,7 +518,7 @@ func buildSessionContext(
 		start = compactionIdx - 1 // dangling FirstKeptEntryID: keep nothing below
 	}
 	for i := start; i >= 0; i-- {
-		if i == compactionIdx || up[i].GetType() != EntryMessage {
+		if i == compactionIdx || (up[i].GetType() != EntryMessage && up[i].GetType() != EntryModelChange) {
 			continue
 		}
 		messages = append(messages, up[i])

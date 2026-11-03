@@ -11,16 +11,16 @@ optimized version bounds the work by the *output*.
 ## Data model
 
 Entries form a tree linked by parent ID. A conversation branch is the chain
-from its leaf back to the first message (the session header sits at
+from its leaf back to the first node (the session header sits at
 `entries[0]` but is not part of the message chain).
 
 ```
-root message ── m1 ── … ── F ── … ── C ── … ── leaf
+root entry ── m1 ── … ── F ── … ── C ── … ── leaf
 ```
 
 - `C` is the newest **compaction entry**: an LLM-written summary of the
-  history below it, stored as a normal tree node whose parent is the last
-  message at compaction time.
+  history below it, stored as a normal tree node whose parent is the current
+  leaf at compaction time.
 - `F` (`C.Compaction.FirstKeptEntryID`) marks the retention boundary: the
   compaction summarized everything below `F`; from `F` upward messages stay
   verbatim. When a compaction happens, the session is cut somewhere in the
@@ -36,6 +36,16 @@ The context produced for a branch is, oldest first:
 
 Older compaction entries are never re-emitted; only the newest one leads.
 Without any compaction the context is simply the whole branch.
+
+Model selections are append-only `EntryModelChange` nodes with an ID, parent ID,
+timestamp, and configured model name. The initial selection uses the same
+record type; new headers contain no model state. `ModelName` walks the selected
+branch back to its latest model change, including history below a compaction
+boundary. A branch without a model-change record has no stored model selection.
+
+Retained model-change nodes pass through the entry projection but contribute
+no LLM messages or transcript rows. Forks copy the selected branch, including
+its model history, so unrelated branches cannot affect the restored model.
 
 ## Original implementation
 

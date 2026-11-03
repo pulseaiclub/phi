@@ -199,7 +199,7 @@ agents:
     worker: coding-model
 
 permissions:
-  mode: interactive       # interactive | readonly | autopilot | headless-strict
+  mode: interactive       # interactive | readonly | autopilot | headless-strict | allow-all
   bash:
     default: ask          # ask | allow | deny
     allow:
@@ -244,7 +244,7 @@ Provider routing uses the explicit `api` field (`OpenAI` / `Anthropic` /
 
 ## Interactive mode
 
-`phi` (or `phi tui`) starts the TUI: a chat transcript on top, an editor at
+`phi` starts the TUI: a chat transcript on top, an editor at
 the bottom, and a footer with the current activity. When a newer release is
 available, the footer shows a hint like `0.2.0 available · phi update`.
 
@@ -338,11 +338,11 @@ unfinished.
 
 | Command            | Description                                   |
 | ------------------ | --------------------------------------------- |
-| `phi` / `phi tui`  | Start the interactive TUI                     |
+| `phi`              | Start the interactive TUI                     |
 | `phi run -p "…"`   | Run one agent loop headlessly (see below)     |
 | `phi update`       | Download and install the latest GitHub release |
 | `phi update --check` | Query the latest release without installing |
-| `phi sessions list`| List persisted sessions for this directory    |
+| `phi sessions`     | List persisted sessions for this directory    |
 | `/sessions`        | List sessions for this directory (TUI)        |
 | `/branch`          | Switch the working branch — see [Branch switching](#branch-switching) |
 | `/new`             | Start a fresh empty session (TUI)             |
@@ -359,7 +359,7 @@ with `Esc` without touching an in-flight agent turn.
 Sessions persist automatically per working directory under
 `~/.phi/session/<encoded-cwd>/` as JSONL trajectories.
 
-- `phi sessions list` — list session id, mtime, and preview for the current
+- `phi sessions` — list session id, mtime, and preview for the current
   directory
 - `/sessions` in the TUI — same, in-app
 - `/new` — start a fresh session (new id, empty transcript)
@@ -456,14 +456,15 @@ Modes:
 | `readonly`         | Deny writes / bash; read tools still work.          |
 | `autopilot`        | Fold `ask` → allow, run unattended.                 |
 | `headless-strict`  | Fold `ask` → deny (used by `phi run`).              |
+| `allow-all`        | Skip every permission check.                        |
 
 Per-tool rules: `bash.default` / `bash.allow` / `bash.deny` (regexes against
 the command). `permissions.rules` adds your own rules by tool, kind, command,
 path, or workspace scope; they are evaluated strictest-first (`deny` > `ask` >
 `allow`), so a rule can tighten a policy but never loosen one. Global keys:
-`workspace_only_writes` (default true), `ask_timeout_sec`, and
-`dangerously_allow_all` (default false). Full semantics and examples:
-[doc/permissions.md](doc/permissions.md).
+`workspace_only_writes` (default true) and `ask_timeout_sec`. The deprecated
+`dangerously_allow_all: true` still loads as `mode: allow-all`. Full semantics
+and examples: [doc/permissions.md](doc/permissions.md).
 
 In the TUI, an approval dialog replaces the editor with options to approve,
 deny with feedback, or allow all for the session / for every session. The
@@ -562,7 +563,8 @@ Per-role model defaults (optional) under `agents.models` pick which configured
 model name each role uses when spawned. Omitted roles inherit the parent
 session model. Switch for the current session only via
 settings → agents → models → explore|review|worker (same session-only semantics
-as settings → model; does not write `config.yaml`).
+as Enter in settings → model; does not write `config.yaml`). In the model
+picker, Ctrl+S then Y/Enter also saves the highlighted model as the global default.
 
 Sub-agents themselves use a **role** (`explore` default | `review` | `worker`):
 

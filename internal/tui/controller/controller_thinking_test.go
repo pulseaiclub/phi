@@ -19,6 +19,13 @@ import (
 	"github.com/pulseaiclub/phi/internal/session"
 )
 
+func TestNewSessionRetainsThinking(t *testing.T) {
+	ctrl := newThinkingTestController(t, setupThinkingTest(t, llm.OpenAI, "http://127.0.0.1:9"))
+	require.NoError(t, ctrl.SetThinkLevel(llm.Low))
+	require.NoError(t, ctrl.NewSession())
+	assert.Equal(t, llm.Low, ctrl.ThinkLevel())
+}
+
 func TestModelSwitchUsesConfiguredThinking(t *testing.T) {
 	requests := make(chan map[string]any, 4)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

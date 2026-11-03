@@ -16,7 +16,6 @@ var updateCommand = cli.Command{
 	Desc: "install the latest release",
 	Long: `Environment:
   PHI_SKIP_VERSION_CHECK  skip startup version checks in the TUI
-  PHI_OFFLINE             same as PHI_SKIP_VERSION_CHECK
   GITHUB_TOKEN            optional; raises GitHub API rate limits`,
 	Flags: []cli.Flag{
 		cli.Bool("check", "", "query the latest release without installing"),

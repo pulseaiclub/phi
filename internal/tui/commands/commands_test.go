@@ -284,7 +284,7 @@ func TestCommandRegistry_BuildPalette(t *testing.T) {
 	r.Register(Command{
 		Name: "settings-model",
 		Build: func(Context) palette.PaletteCommand {
-			return buildModelPalette(func(name string) { model = name }, []string{"gpt"}, "gpt")
+			return buildModelPalette(func(name string) { model = name }, nil, []string{"gpt"}, "gpt")
 		},
 	})
 	r.Register(Command{

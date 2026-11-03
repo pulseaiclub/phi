@@ -109,9 +109,11 @@ func TestSessionNativeCompaction(t *testing.T) {
 	}}}
 	require.NoError(t, sess.Append(llm.Message{Role: llm.RoleAssistant, ProviderState: state}))
 	keep := sess.LastID()
+	require.NoError(t, sess.SetModel("before-compaction"))
 	require.NoError(t, sess.AppendCompaction(session.Compaction{
 		Summary: "summary", FirstKeptEntryID: keep,
 	}))
+	require.NoError(t, sess.SetModel("after-compaction"))
 	require.NoError(t, sess.Append(llm.Message{Role: llm.RoleAssistant, ProviderState: state}))
 	resumed, err := NewSession(WithResumePath(sess.File()))
 	require.NoError(t, err)
