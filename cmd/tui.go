@@ -8,22 +8,12 @@ import (
 
 	"github.com/pulseaiclub/xui"
 
-	cli "github.com/pulseaiclub/pli"
-
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 	"github.com/pulseaiclub/phi/internal/tui/editor"
 )
-
-var tuiCommand = cli.Command{
-	Name: "tui",
-	Desc: "start the interactive TUI",
-	Run: func(_ []string, _ cli.Flags) error {
-		return runTUI()
-	},
-}
 
 // runTUI starts the interactive terminal UI (default entrypoint).
 func runTUI() error {

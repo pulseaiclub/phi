@@ -8,6 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Removed
+
+- CLI: dropped `phi tui` (pure alias of `phi`), the `PHI_OFFLINE` env var
+  (self-documented duplicate of `PHI_SKIP_VERSION_CHECK`), and the duplicate
+  `phi sessions list` binding (`phi sessions` already lists).
+
 ### Changed
 
 - Permissions: `permissions.mode: allow-all` replaces the boolean
