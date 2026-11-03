@@ -13,7 +13,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/components/chat"
 	"github.com/pulseaiclub/phi/internal/components/listpicker"
-	"github.com/pulseaiclub/phi/internal/components/palette"
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/session/shellhist"
@@ -27,7 +26,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/pathutil"
 	"github.com/pulseaiclub/phi/internal/tui/submit"
 	"github.com/pulseaiclub/phi/internal/tui/transcript"
-	"github.com/pulseaiclub/phi/internal/util/gitx"
 	"github.com/pulseaiclub/phi/internal/util/update"
 	"github.com/pulseaiclub/phi/internal/version"
 )
@@ -99,41 +97,24 @@ func NewEditor(
 	e.transcript.SetUsageCallback(e.footer.UpdateTokenDisplay)
 	e.footer.BindComposer(e.composer)
 	e.footer.SetLabelContext(e.transcript.Snapshot)
-	e.footer.SetLiveJobs(func() int { return e.ctrl.LiveJobCount() })
+	e.footer.SetLiveJobs(e.ctrl.LiveJobCount)
 	e.overlays = overlays.NewOverlays(
 		theme,
 		e.footer.Activity(),
 		e.composer,
-		func() { e.App.RequestFocus(e) },
-		func() { e.composer.FocusChat() },
+		e.focusSelf,
+		e.composer.FocusChat,
 	)
-	e.transcript.SetCopyHandlers(
-		e.bus,
-		func(text string) bool {
-			return e.vx.CopyToClipboard(text) == nil
-		},
-	)
+	e.transcript.SetCopyHandlers(e.bus, e.copyToClipboard)
 	e.diff = diffpane.New(e.theme, cwd,
-		func(text string) {
-			e.Publish(controller.SubmitMsg{Text: text})
-		},
-		func(text string) bool {
-			return e.vx.CopyToClipboard(text) == nil
-		},
-		func(msg string) {
-			e.Publish(controller.ToastMsg{Message: msg, Kind: toast.ToastSuccess, Duration: 2 * time.Second})
-		},
+		e.publishSubmit,
+		e.copyToClipboard,
+		e.publishToast,
 	)
 
 	e.code = codepane.New(e.theme, cwd,
-		func(ref chat.Ref) {
-			// The pane's own toast reports the add; this only fills the composer.
-			e.composer.AddPendingRef(ref)
-			e.composer.FocusChat()
-		},
-		func(msg string) {
-			e.Publish(controller.ToastMsg{Message: msg, Kind: toast.ToastSuccess, Duration: 2 * time.Second})
-		},
+		e.addPendingRef,
+		e.publishToast,
 	)
 
 	builtins := commands.NewBuiltinRegistry(
@@ -152,9 +133,7 @@ func NewEditor(
 	e.extCmds = builtins.Ext
 	e.composer.OnPaletteOpen = builtins.Ext.RefreshPalette
 
-	cmdCtx := commands.NewContext(e.bus, func(title string, cmds []palette.PaletteCommand) {
-		e.composer.PushPalette(title, cmds)
-	})
+	cmdCtx := commands.NewContext(e.bus, e.composer.PushPalette)
 	e.submitter = submit.NewSubmitter(
 		e.ctrl,
 		e.commands,
@@ -173,15 +152,11 @@ func NewEditor(
 	builtins.Bind(
 		e.submitter,
 		func() commands.Context { return cmdCtx },
-		func(items []session.SessionMeta, currentID string) {
-			e.composer.ShowSessionList(items, currentID, e.sessions.Accept, e.sessions.Delete)
-		},
+		e.showSessionList,
 		e.composer.RefreshSessionList,
-		func(branches []gitx.Branch, recent []string, onAccept, onDelete func(name string)) {
-			e.composer.ShowBranchList(branches, recent, onAccept, onDelete)
-		},
+		e.composer.ShowBranchList,
 		e.composer.RefreshBranchList,
-		func() string { return e.cwd },
+		e.workingDir,
 		e.submitter.StreamActive,
 	)
 
@@ -192,16 +167,16 @@ func NewEditor(
 		e.cwd,
 		e.bus,
 		e.drainBus,
-		func() { e.vx.QueueRefresh() },
-		func() bool { return e.ctrl.ImageEnabled() },
+		e.vx.QueueRefresh,
+		e.ctrl.ImageEnabled,
 		e.blocksComposer,
 		e.overlays.HandlePermissionKey,
 		e.overlays.HandleContinueKey,
 		e.overlays.HandleConfirmKey,
 		e.handleCopyKey,
-		func() { e.App.RequestFocus(e) },
-		func(w components.Widget) { e.App.RequestFocus(w) },
-		func() { e.ctrl.Close() },
+		e.focusSelf,
+		e.App.RequestFocus,
+		e.ctrl.Close,
 	)
 
 	e.extCmds.Sync()
@@ -371,6 +346,43 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 func (e *Editor) handleCopyKey(ctx *components.EventContext, ke xui.KeyEvent) bool {
 	return e.transcript.HandleCopyKey(ctx, ke)
 }
+
+// focusSelf returns keyboard focus to the editor itself; full-screen overlays
+// keep keys away from the composer while open.
+func (e *Editor) focusSelf() { e.App.RequestFocus(e) }
+
+// publishSubmit feeds diff-review edits through the normal submit path.
+func (e *Editor) publishSubmit(text string) {
+	e.Publish(controller.SubmitMsg{Text: text})
+}
+
+// publishToast is the panes' success-toast callback: it hops to the bus so the
+// toast renders on the UI goroutine.
+func (e *Editor) publishToast(msg string) {
+	e.Publish(controller.ToastMsg{Message: msg, Kind: toast.ToastSuccess, Duration: 2 * time.Second})
+}
+
+// copyToClipboard adapts xui's error-returning copy to the panes' bool
+// contract.
+func (e *Editor) copyToClipboard(text string) bool {
+	return e.vx.CopyToClipboard(text) == nil
+}
+
+// addPendingRef drops a code-viewer reference into the composer and refocuses
+// chat; the pane's own toast reports the add.
+func (e *Editor) addPendingRef(ref chat.Ref) {
+	e.composer.AddPendingRef(ref)
+	e.composer.FocusChat()
+}
+
+// showSessionList opens the session picker bound to the session commands'
+// accept/delete handlers.
+func (e *Editor) showSessionList(items []session.SessionMeta, currentID string) {
+	e.composer.ShowSessionList(items, currentID, e.sessions.Accept, e.sessions.Delete)
+}
+
+// workingDir is the stable process working directory handed to the pickers.
+func (e *Editor) workingDir() string { return e.cwd }
 
 // Draw renders the editor surface for the given draw context.
 func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
