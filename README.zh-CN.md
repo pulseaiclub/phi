@@ -233,7 +233,7 @@ permissions:
 
 ## 交互模式
 
-`phi`（或 `phi tui`）启动 TUI：上方是对话记录，底部是编辑器，底部状态栏显示
+`phi` 启动 TUI：上方是对话记录，底部是编辑器，底部状态栏显示
 当前活动。有新版发布时，状态栏会提示类似 `0.2.0 available · phi update`。
 
 助手输出按 Markdown（CommonMark/GFM）渲染：标题、强调、删除线、链接、引用、
@@ -309,11 +309,11 @@ HEAD 新建一个。敲名字本身就是「新建分支」的全部流程，比
 
 | 命令 | 说明 |
 | ------------------ | --------------------------------------------- |
-| `phi` / `phi tui` | 启动交互式 TUI |
+| `phi` | 启动交互式 TUI |
 | `phi run -p "…"` | 以无头模式运行一个代理循环（见下文） |
 | `phi update` | 下载并安装最新的 GitHub 发布版本 |
 | `phi update --check` | 只查询最新版本，不安装 |
-| `phi sessions list` | 列出当前目录的持久化会话 |
+| `phi sessions` | 列出当前目录的持久化会话 |
 | `/sessions` | 列出当前目录的会话（TUI 内） |
 | `/branch` | 切换工作分支 — 见 [切换分支](#切换分支) |
 | `/new` | 开启一个全新的空会话（TUI 内） |
@@ -329,7 +329,7 @@ HEAD 新建一个。敲名字本身就是「新建分支」的全部流程，比
 会话会按工作目录自动持久化到 `~/.phi/session/<encoded-cwd>/`，以 JSONL 轨迹
 记录。
 
-- `phi sessions list` —— 列出当前目录的会话 id、修改时间和预览
+- `phi sessions` —— 列出当前目录的会话 id、修改时间和预览
 - TUI 内 `/sessions` —— 同上，在应用内查看
 - `/new` —— 开启全新会话（新 id、空对话记录）
 - `phi run --session <id>` / `phi run --continue-last` —— 无头模式恢复会话

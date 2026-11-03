@@ -244,7 +244,7 @@ Provider routing uses the explicit `api` field (`OpenAI` / `Anthropic` /
 
 ## Interactive mode
 
-`phi` (or `phi tui`) starts the TUI: a chat transcript on top, an editor at
+`phi` starts the TUI: a chat transcript on top, an editor at
 the bottom, and a footer with the current activity. When a newer release is
 available, the footer shows a hint like `0.2.0 available · phi update`.
 
@@ -338,11 +338,11 @@ unfinished.
 
 | Command            | Description                                   |
 | ------------------ | --------------------------------------------- |
-| `phi` / `phi tui`  | Start the interactive TUI                     |
+| `phi`              | Start the interactive TUI                     |
 | `phi run -p "…"`   | Run one agent loop headlessly (see below)     |
 | `phi update`       | Download and install the latest GitHub release |
 | `phi update --check` | Query the latest release without installing |
-| `phi sessions list`| List persisted sessions for this directory    |
+| `phi sessions`     | List persisted sessions for this directory    |
 | `/sessions`        | List sessions for this directory (TUI)        |
 | `/branch`          | Switch the working branch — see [Branch switching](#branch-switching) |
 | `/new`             | Start a fresh empty session (TUI)             |
@@ -359,7 +359,7 @@ with `Esc` without touching an in-flight agent turn.
 Sessions persist automatically per working directory under
 `~/.phi/session/<encoded-cwd>/` as JSONL trajectories.
 
-- `phi sessions list` — list session id, mtime, and preview for the current
+- `phi sessions` — list session id, mtime, and preview for the current
   directory
 - `/sessions` in the TUI — same, in-app
 - `/new` — start a fresh session (new id, empty transcript)

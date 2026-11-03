@@ -36,11 +36,10 @@ func buildRoot() *cli.Command {
 		Name: "phi",
 		Desc: "terminal coding agent",
 		Long: `phi                start the interactive TUI
-phi tui            start the interactive TUI
 phi config         edit the meta config in a terminal UI
 phi update         install the latest release (see 'phi update --help')
 phi run -p "..."   run one agent loop headlessly (see 'phi run --help')
-phi sessions list  list persisted sessions for this directory
+phi sessions       list persisted sessions for this directory
 phi mcp …          manage MCP servers (see 'phi mcp --help')
 phi plugin …          install/list/update/remove extensions (see 'phi plugin --help')`,
 	}
@@ -51,7 +50,6 @@ phi plugin …          install/list/update/remove extensions (see 'phi plugin -
 		return runTUI()
 	}
 	r.Add(
-		&tuiCommand,
 		&runCommand,
 		&sessionsCommand,
 		&mcpCommand,
