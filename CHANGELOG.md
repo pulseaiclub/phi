@@ -8,6 +8,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+
+- Permissions: `permissions.mode: allow-all` replaces the boolean
+  `dangerously_allow_all`; the old key still loads as `allow-all` and is
+  dropped on the next save. `phi run --yolo` maps to the same mode.
+  The TUI approval dialog's "Allow All for Every Session" now writes
+  `permissions.mode` instead of hand-editing one YAML line.
+
 ### Added
 
 - TUI: The model picker shows Ctrl+S once in the bottom border. Press it, then

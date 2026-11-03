@@ -199,7 +199,7 @@ agents:
     worker: coding-model
 
 permissions:
-  mode: interactive       # interactive | readonly | autopilot | headless-strict
+  mode: interactive       # interactive | readonly | autopilot | headless-strict | allow-all
   bash:
     default: ask          # ask | allow | deny
     allow:
@@ -456,14 +456,15 @@ Modes:
 | `readonly`         | Deny writes / bash; read tools still work.          |
 | `autopilot`        | Fold `ask` → allow, run unattended.                 |
 | `headless-strict`  | Fold `ask` → deny (used by `phi run`).              |
+| `allow-all`        | Skip every permission check.                        |
 
 Per-tool rules: `bash.default` / `bash.allow` / `bash.deny` (regexes against
 the command). `permissions.rules` adds your own rules by tool, kind, command,
 path, or workspace scope; they are evaluated strictest-first (`deny` > `ask` >
 `allow`), so a rule can tighten a policy but never loosen one. Global keys:
-`workspace_only_writes` (default true), `ask_timeout_sec`, and
-`dangerously_allow_all` (default false). Full semantics and examples:
-[doc/permissions.md](doc/permissions.md).
+`workspace_only_writes` (default true) and `ask_timeout_sec`. The deprecated
+`dangerously_allow_all: true` still loads as `mode: allow-all`. Full semantics
+and examples: [doc/permissions.md](doc/permissions.md).
 
 In the TUI, an approval dialog replaces the editor with options to approve,
 deny with feedback, or allow all for the session / for every session. The
