@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/pulseaiclub/phi/internal/agent"
@@ -32,7 +33,11 @@ type Assembly struct {
 
 	jobs *job.Manager
 
-	overrides map[job.Role]string // session-only role → model name
+	// overrides maps sub-agent role → session-only model name. Guarded by
+	// overridesMu: the palette writes on the UI goroutine while job
+	// goroutines read through modelForRole.
+	overridesMu sync.RWMutex
+	overrides   map[job.Role]string
 
 	parentModel func() llm.ModelConfig // fallback for roles without an override
 	warn        func(string)           // non-fatal problem reporter
@@ -168,6 +173,8 @@ func (a *Assembly) RoleModel(role job.Role) string {
 	if a == nil {
 		return ""
 	}
+	a.overridesMu.RLock()
+	defer a.overridesMu.RUnlock()
 	return a.overrides[role]
 }
 
@@ -179,6 +186,8 @@ func (a *Assembly) SetRoleModel(role job.Role, name string) error {
 	}
 	name = strings.TrimSpace(name)
 	if name == "" {
+		a.overridesMu.Lock()
+		defer a.overridesMu.Unlock()
 		delete(a.overrides, role)
 		return nil
 	}
@@ -187,6 +196,8 @@ func (a *Assembly) SetRoleModel(role job.Role, name string) error {
 			return fmt.Errorf("unknown model %q", name)
 		}
 	}
+	a.overridesMu.Lock()
+	defer a.overridesMu.Unlock()
 	a.overrides[role] = name
 	return nil
 }
@@ -240,8 +251,8 @@ func (a *Assembly) modelForRole(role job.Role) llm.ModelConfig {
 	}
 	role = job.NormalizeRole(string(role))
 	parent := a.parentModel()
+	name := a.roleOverride(role)
 
-	name := a.overrides[role]
 	if name == "" {
 		return parent
 	}
@@ -259,6 +270,14 @@ func (a *Assembly) modelForRole(role job.Role) llm.ModelConfig {
 	}
 	a.warnf("agents: unknown role model %q for %s; using parent", name, role)
 	return parent
+}
+
+// roleOverride snapshots one override under the lock; modelForRole runs on
+// job goroutines while the palette writes.
+func (a *Assembly) roleOverride(role job.Role) string {
+	a.overridesMu.RLock()
+	defer a.overridesMu.RUnlock()
+	return a.overrides[role]
 }
 
 func (a *Assembly) warnf(format string, args ...any) {
