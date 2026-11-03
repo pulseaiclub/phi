@@ -116,9 +116,10 @@ func TestGenerateCommitMessageRejectsTruncatedStream(t *testing.T) {
 func TestCompletionClientRoutesCurrentExtensions(t *testing.T) {
 	runner := loadResolveModelRunner(t)
 	ctrl := &EngineController{modelCfg: llm.ModelConfig{Name: "echo"}}
-	ctrl.extRunner.Store(runner)
+	ctrl.asm = &Assembly{}
+	ctrl.asm.ext.Store(runner)
 	assert.IsType(t, &extmodel.Client{}, newCompletionClient(ctrl.modelSnapshot(), ctrl.Extensions(), "rules"))
-	ctrl.extRunner.Store(nil)
+	ctrl.asm.ext.Store(nil)
 	assert.IsType(t, &llmclient.Client{}, newCompletionClient(ctrl.modelSnapshot(), ctrl.Extensions(), "rules"))
 }
 

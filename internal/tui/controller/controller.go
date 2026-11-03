@@ -20,7 +20,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/project/model"
@@ -45,17 +44,16 @@ type EngineController struct {
 	cwd        string
 	modelMu    sync.RWMutex // Protect model snapshots read by background jobs.
 	modelCfg   llm.ModelConfig
-	// roleModels maps sub-agent role → model name. Empty → inherit modelCfg.
-	roleModels map[job.Role]string
-	jobs       *job.Manager
-	unsubJobs  func()
+
+	// asm holds the environment-derived engine collaborators (extension
+	// runner, MCP pool, sub-agent jobs, role models); see assembly.go.
+	asm       *Assembly
+	unsubJobs func()
 
 	gate          permission.Gate
 	askTimeoutSec int
 	allowAll      atomic.Bool
 	agentsEnabled atomic.Bool
-	extRunner     atomic.Pointer[extension.Runner]
-	mcpPool       *mcp.Pool
 
 	lastJobProgress sync.Map // job slot key → last published signature
 }
@@ -83,40 +81,24 @@ func NewController(bus *Bus, proj *project.Project, cwd string) (*EngineControll
 		sessionDir:    proj.SessionDir(),
 		askTimeoutSec: defaultAskTimeoutSec,
 		modelCfg:      config.Model(),
-		roleModels:    make(map[job.Role]string),
 	}
 	// TUI defaults to bypass; palette → settings → permissions toggles it.
 	c.allowAll.Store(true)
 
 	c.initGate(config.Permissions)
 	c.agentsEnabled.Store(config.Agents.Enabled)
-	if s := config.Agents.Models.Explore; s != "" {
-		c.roleModels[job.RoleExplore] = s
-	}
-	if s := config.Agents.Models.Review; s != "" {
-		c.roleModels[job.RoleReview] = s
-	}
-	if s := config.Agents.Models.Worker; s != "" {
-		c.roleModels[job.RoleWorker] = s
-	}
 
-	extRunner := loadExtensions(proj)
-	c.extRunner.Store(extRunner)
-	c.bindExtensionHost(extRunner)
-
-	jobs, err := agent.NewJobManager(proj.JobsDir(), c.modelCfg, c.modelForRole, c.Extensions)
+	asm, err := NewAssembly(proj, AssemblyOpts{
+		RoleModels:  roleModelsFromConfig(config),
+		ParentModel: c.modelSnapshot,
+	})
 	if err != nil {
 		return nil, err
 	}
-	c.jobs = jobs
+	c.asm = asm
+	c.bindExtensionHost(asm.Ext())
 
-	if pool, err := mcp.LoadPool(proj.MCPConfigFile()); err != nil {
-		debuglog.Logf("mcp: load: %v", err)
-	} else {
-		c.mcpPool = pool
-	}
-
-	eng, _, err := c.openEngine(c.modelCfg, extRunner, "")
+	eng, _, err := c.openEngine(c.modelCfg, "")
 	if err != nil {
 		return nil, err
 	}
@@ -126,8 +108,25 @@ func NewController(bus *Bus, proj *project.Project, cwd string) (*EngineControll
 	return c, nil
 }
 
+// roleModelsFromConfig reads the agents.*.model overrides from config.
+func roleModelsFromConfig(config *project.Config) map[job.Role]string {
+	overrides := make(map[job.Role]string)
+	m := config.Agents.Models
+	for role, name := range map[job.Role]string{
+		job.RoleExplore: m.Explore,
+		job.RoleReview:  m.Review,
+		job.RoleWorker:  m.Worker,
+	} {
+		if name != "" {
+			overrides[role] = name
+		}
+	}
+	return overrides
+}
+
 func (c *EngineController) startJobProgress() {
-	ch, cancel := c.jobs.Subscribe()
+	ch, cancel := c.asm.Jobs().Subscribe()
+
 	c.unsubJobs = cancel
 	go func() {
 		for p := range ch {
@@ -189,28 +188,6 @@ func (c *EngineController) SetAgentsEnabled(v bool) {
 // AgentsEnabled reports whether sub-agent (agent_*) tools are registered.
 func (c *EngineController) AgentsEnabled() bool { return c.agentsEnabled.Load() }
 
-func (c *EngineController) modelForRole(role job.Role) llm.ModelConfig {
-	role = job.NormalizeRole(string(role))
-	name := c.roleModels[role]
-	if name == "" {
-		return c.modelSnapshot()
-	}
-	if route, ok := c.Extensions().LookupModel(name); ok {
-		m, err := extensionModelConfig(route, c.proj.Config(), c.MaxRounds())
-		if err != nil {
-			debuglog.Logf("agents: extension role model %q: %v; using parent", name, err)
-			return c.modelSnapshot()
-		}
-		return m
-	}
-	if m, ok := c.proj.Config().FindModel(name); ok {
-		m.MaxRounds = c.MaxRounds()
-		return m
-	}
-	debuglog.Logf("agents: unknown role model %q for %s; using parent", name, role)
-	return c.modelSnapshot()
-}
-
 // RoleModel returns the session-only model name for a sub-agent role.
 // Empty means the role inherits the parent model.
 func (c *EngineController) RoleModel(role string) string {
@@ -218,7 +195,7 @@ func (c *EngineController) RoleModel(role string) string {
 	if err != nil {
 		return ""
 	}
-	return c.roleModels[r]
+	return c.asm.RoleModel(r)
 }
 
 // SetRoleModel sets the session-only model name for a sub-agent role.
@@ -228,37 +205,25 @@ func (c *EngineController) SetRoleModel(role, name string) error {
 	if err != nil {
 		return err
 	}
-	name = strings.TrimSpace(name)
-	if name == "" {
-		delete(c.roleModels, r)
-		return nil
-	}
-	if _, ok := c.proj.Config().FindModel(name); !ok {
-		if _, ok := c.Extensions().LookupModel(name); !ok {
-			return fmt.Errorf("unknown model %q", name)
-		}
-	}
-	c.roleModels[r] = name
-	return nil
+	return c.asm.SetRoleModel(r, name)
 }
 
 func (c *EngineController) engineJobs() *job.Manager {
 	if !c.agentsEnabled.Load() {
 		return nil
 	}
-	return c.jobs
+	return c.asm.Jobs()
 }
 
 func (c *EngineController) Extensions() *extension.Runner {
-	return c.extRunner.Load()
+	return c.asm.Ext()
 }
 
 func (c *EngineController) ReloadExtensions() (loaded int, warns []loader.Warning, err error) {
-	r, warns, err := extension.Load(c.proj.Global().ExtensionsDir(), c.proj.ExtensionsDir())
+	r, warns, err := c.asm.LoadExtensions()
 	if err != nil {
 		return 0, warns, err
 	}
-	logExtensionWarnings(warns)
 	c.swapExtensionRunner(r)
 	c.engine.SetExtensions(r)
 	if r == nil {
@@ -268,7 +233,7 @@ func (c *EngineController) ReloadExtensions() (loaded int, warns []loader.Warnin
 }
 
 func (c *EngineController) swapExtensionRunner(r *extension.Runner) {
-	if prev := c.extRunner.Swap(r); prev != nil {
+	if prev := c.asm.SwapExt(r); prev != nil {
 		prev.Close()
 	}
 	c.bindExtensionHost(r)
@@ -282,7 +247,8 @@ func (c *EngineController) ListExtensions() ([]loader.Discovered, []loader.Warni
 
 // ReloadExtension hot-reloads a single extension by name.
 func (c *EngineController) ReloadExtension(name string) error {
-	r := c.extRunner.Load()
+	r := c.asm.Ext()
+
 	if r == nil {
 		return errors.New("no extension runner loaded")
 	}
@@ -291,7 +257,8 @@ func (c *EngineController) ReloadExtension(name string) error {
 
 // UnloadExtension unloads a single extension by name.
 func (c *EngineController) UnloadExtension(name string) error {
-	r := c.extRunner.Load()
+	r := c.asm.Ext()
+
 	if r == nil {
 		return errors.New("no extension runner loaded")
 	}
@@ -300,29 +267,12 @@ func (c *EngineController) UnloadExtension(name string) error {
 
 // ListExtensionStates returns all extension states.
 func (c *EngineController) ListExtensionStates() map[string]extension.FiberState {
-	r := c.extRunner.Load()
+	r := c.asm.Ext()
+
 	if r == nil {
 		return nil
 	}
 	return r.ListExtensions()
-}
-
-// loadExtensions discovers ~/.phi/extensions and <cwd>/.phi/extensions.
-// Load errors are non-fatal (fail-open: no extensions).
-func loadExtensions(proj *project.Project) *extension.Runner {
-	r, warns, err := extension.Load(proj.Global().ExtensionsDir(), proj.ExtensionsDir())
-	if err != nil {
-		debuglog.Logf("extension: load failed: %v", err)
-		return nil
-	}
-	logExtensionWarnings(warns)
-	return r
-}
-
-func logExtensionWarnings(warns []loader.Warning) {
-	for _, w := range warns {
-		debuglog.Logf("extension: %s", w.String())
-	}
 }
 
 func (c *EngineController) bindExtensionHost(r *extension.Runner) {
@@ -379,7 +329,7 @@ func (c *EngineController) SyncExtensionTools() {
 	if c.engine == nil {
 		return
 	}
-	c.engine.SetExtensions(c.Extensions())
+	c.engine.SetExtensions(c.asm.Ext())
 }
 
 func (c *EngineController) askTimeout() time.Duration {
@@ -582,7 +532,7 @@ func (c *EngineController) SessionDir() string {
 }
 
 func (c *EngineController) LiveJobCount() int {
-	return c.jobs.LiveCount()
+	return c.asm.Jobs().LiveCount()
 }
 
 func (c *EngineController) SessionFile() string {
@@ -603,9 +553,8 @@ func (c *EngineController) Resume(id string) (cwdWarning string, err error) {
 		return "", err
 	}
 
-	extRunner := loadExtensions(c.proj)
-	c.swapExtensionRunner(extRunner)
-	eng, cfg, err := c.openEngine(cfg, extRunner, id)
+	c.swapExtensionRunner(c.asm.ReloadExtensions())
+	eng, cfg, err := c.openEngine(cfg, id)
 	if err != nil {
 		return "", err
 	}
@@ -631,7 +580,7 @@ func (c *EngineController) NewSession() error {
 	if err != nil {
 		return err
 	}
-	engine, cfg, err := c.openEngine(cfg, c.Extensions(), "")
+	engine, cfg, err := c.openEngine(cfg, "")
 	if err != nil {
 		return err
 	}
@@ -676,7 +625,6 @@ func (c *EngineController) resolveModel() (llm.ModelConfig, error) {
 
 func (c *EngineController) openEngine(
 	cfg llm.ModelConfig,
-	extRunner *extension.Runner,
 	resumeID string,
 ) (*agent.Engine, llm.ModelConfig, error) {
 	opts := []agent.SessionOption{
@@ -693,21 +641,17 @@ func (c *EngineController) openEngine(
 		return nil, llm.ModelConfig{}, err
 	}
 	if name := sess.ModelName(); resumeID != "" && name != "" {
-		cfg, err = resolveModelConfig(c.proj.Config(), extRunner, name)
+		cfg, err = resolveModelConfig(c.proj.Config(), c.asm.Ext(), name)
 		if err != nil {
 			return nil, llm.ModelConfig{}, fmt.Errorf("restore session model %q: %w", name, err)
 		}
 		cfg.MaxRounds = c.MaxRounds()
 	}
-	eng, err := agent.NewEngine(cfg, sess,
-		agent.WithGate(c.gate),
+	eng, err := agent.NewEngine(cfg, sess, c.asm.EngineOptions(c.gate, c.agentsEnabled.Load(),
 		agent.WithAsk(c.askPermission),
 		agent.WithContinueAsk(c.askContinue),
-		agent.WithJobs(c.engineJobs()),
-		agent.WithExtensions(extRunner),
-		agent.WithMCP(c.mcpPool),
 		agent.WithHooks(model.HooksForConfig(cfg)),
-	)
+	)...)
 	if err != nil {
 		return nil, llm.ModelConfig{}, err
 	}
@@ -748,12 +692,12 @@ func (c *EngineController) Close() {
 	c.sessionShutdown("quit", c.SessionID())
 	c.Cancel()
 	c.unsubJobs()
-	_ = c.jobs.Close(context.Background())
-	if c.mcpPool != nil {
-		_ = c.mcpPool.Close()
-		c.mcpPool = nil
+	_ = c.asm.Jobs().Close(context.Background())
+
+	if pool := c.asm.MCP(); pool != nil {
+		_ = pool.Close()
 	}
-	if prev := c.extRunner.Swap(nil); prev != nil {
+	if prev := c.asm.SwapExt(nil); prev != nil {
 		prev.Close()
 	}
 }
