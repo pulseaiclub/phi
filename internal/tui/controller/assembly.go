@@ -40,30 +40,31 @@ type Assembly struct {
 
 // AssemblyOpts tunes NewAssembly.
 type AssemblyOpts struct {
-	// RoleModels seeds session-only role overrides (the TUI palette edits
-	// them live). Nil means "config only".
-	RoleModels map[job.Role]string
-	// ParentModel supplies the fallback model and the MaxRounds budget for
-	// roles without an override. It is called from job goroutines, so it must
-	// be safe for concurrent use. Nil falls back to the config default model.
+	// ParentModel supplies the fallback model and the session round budget
+	// for roles without an override. It is called from job goroutines, so it
+	// must be safe for concurrent use. Nil falls back to the config default
+	// model.
 	ParentModel func() llm.ModelConfig
 	// Warn reports non-fatal assembly problems (load failures, unknown role
 	// models). Nil logs to the debug log.
 	Warn func(string)
+	// BuildJobs controls whether the sub-agent job manager (and its jobs
+	// directory) is created. The TUI always builds: SetAgentsEnabled can turn
+	// sub-agents on mid-session. Headless passes config.Agents.Enabled so a
+	// disabled run never touches the jobs directory.
+	BuildJobs bool
 }
 
-// NewAssembly loads extensions and the MCP pool (fail-open: nil) and builds
-// the sub-agent job manager from the project config. proj must be non-nil
-// with a loaded config.
+// NewAssembly loads extensions and the MCP pool (fail-open: nil), seeds the
+// role→model overrides from the config's agents.*.model entries, and — when
+// opts.BuildJobs — builds the sub-agent job manager. proj must be non-nil
+// with a loaded config. On error everything loaded so far is closed.
 func NewAssembly(proj *project.Project, opts AssemblyOpts) (*Assembly, error) {
 	a := &Assembly{
 		proj:        proj,
-		overrides:   opts.RoleModels,
+		overrides:   roleModelsFromConfig(proj.Config()),
 		parentModel: opts.ParentModel,
 		warn:        opts.Warn,
-	}
-	if a.overrides == nil {
-		a.overrides = make(map[job.Role]string)
 	}
 	if a.parentModel == nil {
 		a.parentModel = func() llm.ModelConfig { return proj.Config().Model() }
@@ -79,11 +80,14 @@ func NewAssembly(proj *project.Project, opts AssemblyOpts) (*Assembly, error) {
 		a.mcp = pool
 	}
 
-	jobs, err := agent.NewJobManager(proj.JobsDir(), a.parentModel(), a.modelForRole, a.Ext)
-	if err != nil {
-		return nil, err
+	if opts.BuildJobs {
+		jobs, err := agent.NewJobManager(proj.JobsDir(), a.parentModel(), a.modelForRole, a.Ext)
+		if err != nil {
+			a.Close()
+			return nil, err
+		}
+		a.jobs = jobs
 	}
-	a.jobs = jobs
 	return a, nil
 }
 
@@ -205,7 +209,6 @@ func (a *Assembly) Close() {
 }
 
 // EngineOptions returns the agent.Engine options shared by every entrypoint:
-
 // gate, extensions, MCP pool, and — when enabled — the job manager. Extra
 // options append after the shared ones.
 func (a *Assembly) EngineOptions(
@@ -227,7 +230,10 @@ func (a *Assembly) EngineOptions(
 }
 
 // modelForRole resolves a sub-agent's model: session override first, then
-// extension-routed models, then config, falling back to the live parent.
+// extension-routed models, then config, falling back to the live parent. The
+// session round budget travels with the parent: whichever MaxRounds the
+// current run carries governs every role model, in the TUI and headless
+// alike.
 func (a *Assembly) modelForRole(role job.Role) llm.ModelConfig {
 	if a == nil {
 		return llm.ModelConfig{}

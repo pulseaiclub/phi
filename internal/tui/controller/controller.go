@@ -91,8 +91,8 @@ func NewController(bus *Bus, proj *project.Project, cwd string) (*EngineControll
 	c.agentsEnabled.Store(config.Agents.Enabled)
 
 	asm, err := NewAssembly(proj, AssemblyOpts{
-		RoleModels:  roleModelsFromConfig(config),
 		ParentModel: c.modelSnapshot,
+		BuildJobs:   true,
 	})
 	if err != nil {
 		return nil, err

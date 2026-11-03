@@ -77,6 +77,7 @@ func runHeadless(opts runOptions) error {
 	asm, err := controller.NewAssembly(bs.Proj, controller.AssemblyOpts{
 		ParentModel: func() llm.ModelConfig { return bs.Config.Model() },
 		Warn:        func(msg string) { fmt.Fprintln(os.Stderr, "warning:", msg) },
+		BuildJobs:   bs.Config.Agents.Enabled,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "phi run:", err)
