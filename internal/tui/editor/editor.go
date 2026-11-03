@@ -35,6 +35,10 @@ import (
 // Draw drains and Update applies. Agent lifecycle lives in controller.EngineController;
 // session→widget projection lives in TranscriptPane (Mapper/SubagentStore).
 //
+// Transport rules: UI→domain is direct calls (NewEditor wires method values,
+// never anonymous forwarding closures; signature adapters are named Editor
+// methods). Any-goroutine→UI is bus.Publish. See doc/tui.md "Transport rules".
+//
 // cmd constructs Bus/Controller/App and passes them into NewEditor, which builds
 // builtins via commands.NewBuiltinRegistry. Editor does not create
 // controller.EngineController or fetch the project singleton.
