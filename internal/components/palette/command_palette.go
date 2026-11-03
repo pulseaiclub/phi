@@ -26,7 +26,8 @@ type PaletteCommand struct {
 	// KeepOpen leaves the palette open after Run (when not using Submenu).
 	KeepOpen bool
 	Run      func()
-	// OnSave handles Ctrl+S for the highlighted entry; success closes the picker.
+	// OnSave handles Ctrl+S for the highlighted entry after confirmation;
+	// success closes the picker.
 	OnSave func() bool
 }
 
@@ -60,11 +61,12 @@ type CommandPalette struct {
 	// FocusReturn is focused when the palette closes (typically the tui input).
 	FocusReturn components.Widget
 
-	filtered []int // indices into Commands
-	stack    []paletteFrame
+	filtered       []int // indices into Commands
+	stack          []paletteFrame
+	saveConfirming bool
 }
 
-// paletteFrame is one nested picker page under the current view.
+// paletteFrame is a nested picker page under the current view.
 type paletteFrame struct {
 	Title    string
 	Commands []PaletteCommand
@@ -101,6 +103,7 @@ func (p *CommandPalette) Show() {
 	p.Cursor = 0
 	p.Selected = 0
 	p.stack = nil
+	p.saveConfirming = false
 	if p.Title == "" {
 		p.Title = "Command Palette"
 	}
@@ -115,6 +118,7 @@ func (p *CommandPalette) Hide() {
 	p.Open = false
 	p.Query = ""
 	p.Cursor = 0
+	p.saveConfirming = false
 	if p.OnClose != nil {
 		p.OnClose()
 	}
@@ -123,6 +127,7 @@ func (p *CommandPalette) Hide() {
 // Push replaces the current list with a nested picker (e.g. Select Theme).
 // Escape pops back to the previous page.
 func (p *CommandPalette) Push(title string, cmds []PaletteCommand) {
+	p.saveConfirming = false
 	p.stack = append(p.stack, paletteFrame{
 		Title:    p.Title,
 		Commands: p.Commands,
@@ -140,6 +145,7 @@ func (p *CommandPalette) Push(title string, cmds []PaletteCommand) {
 
 // Pop restores the previous picker page. Returns false if already at the root.
 func (p *CommandPalette) Pop() bool {
+	p.saveConfirming = false
 	n := len(p.stack)
 	if n == 0 {
 		return false
@@ -236,6 +242,10 @@ func (p *CommandPalette) Handle(ctx *components.EventContext, ev xui.Event) {
 		if !e.Press {
 			return
 		}
+		if p.saveConfirming {
+			p.handleSaveConfirmKey(ctx, e)
+			return
+		}
 		// Ctrl+K toggles closed (same binding that opens it).
 		if e.Mods.Has(xui.ModCtrl) && e.Code == xui.KeyRune && (e.Rune == 'k' || e.Rune == 'K') {
 			p.Hide()
@@ -319,11 +329,8 @@ func (p *CommandPalette) Handle(ctx *components.EventContext, ev xui.Event) {
 				case 's', 'S':
 					if p.Selected >= 0 && p.Selected < len(p.filtered) {
 						cmd := p.Commands[p.filtered[p.Selected]]
-						if cmd.OnSave != nil {
-							if !cmd.Disabled && cmd.OnSave() {
-								p.Hide()
-								p.returnFocus(ctx)
-							}
+						if !cmd.Disabled && cmd.OnSave != nil {
+							p.saveConfirming = true
 							ctx.ConsumeAndRedraw()
 						}
 					}
@@ -359,6 +366,10 @@ func (p *CommandPalette) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 		ctx.Consume = true
 	case xui.PasteEvent:
+		if p.saveConfirming {
+			ctx.ConsumeAndRedraw()
+			return
+		}
 		text := strings.ReplaceAll(e.Text, "\n", " ")
 		text = strings.ReplaceAll(text, "\r", " ")
 
@@ -372,6 +383,30 @@ func (p *CommandPalette) Handle(ctx *components.EventContext, ev xui.Event) {
 			ctx.ConsumeAndRedraw()
 		}
 	}
+}
+
+// handleSaveConfirmKey drives the two-stage default-save action. The selected
+// command stays fixed until the user answers the question.
+func (p *CommandPalette) handleSaveConfirmKey(ctx *components.EventContext, e xui.KeyEvent) {
+	plainRune := func(r rune) bool {
+		return e.Code == xui.KeyRune && !e.Mods.Has(xui.ModCtrl) && !e.Mods.Has(xui.ModAlt) && e.Rune == r
+	}
+	confirm := e.Code == xui.KeyEnter || plainRune('y') || plainRune('Y')
+	cancel := e.Code == xui.KeyEscape || plainRune('n') || plainRune('N')
+	switch {
+	case confirm:
+		p.saveConfirming = false
+		if p.Selected >= 0 && p.Selected < len(p.filtered) {
+			cmd := p.Commands[p.filtered[p.Selected]]
+			if !cmd.Disabled && cmd.OnSave != nil && cmd.OnSave() {
+				p.Hide()
+				p.returnFocus(ctx)
+			}
+		}
+	case cancel:
+		p.saveConfirming = false
+	}
+	ctx.ConsumeAndRedraw()
 }
 
 // Draw renders the overlay dim layer and the bordered palette panel with
@@ -453,30 +488,45 @@ func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 			panel.SetCell(x, y, xui.Cell{Char: " ", Width: 1, Style: fillStyle})
 		}
 	}
-	layout.DrawRoundedBorder(&panel, layout.BorderRounded, th.Border, nil, nil, nil, nil, ctx.Method)
+	borderSt := th.Border
+	titleSt := chrome.PanelTitle(th)
+	if p.saveConfirming {
+		borderSt = chrome.ModalBorder(th)
+		titleSt.Fg = borderSt.Fg
+		titleSt.Bold = true
+	}
+	layout.DrawRoundedBorder(&panel, layout.BorderRounded, borderSt, nil, nil, nil, nil, ctx.Method)
 
 	// Centered title on top border.
 	title := " " + p.title() + " "
 	tw := xui.StringWidth(title, ctx.Method)
 	tx := (boxW - tw) / 2
 	tx = max(tx, 1)
-	titleSt := chrome.PanelTitle(th)
 	panel.Print(tx, 0, title, titleSt, ctx.Method)
 
 	// Prompt: "> query"
 	promptY := 1
-	panel.Print(1, promptY, chrome.FilterPrompt, th.Foreground, ctx.Method)
 	q := p.Query
 	qx := 3
 	availQ := innerW - 2
 	availQ = max(availQ, 1)
-	panel.Print(qx, promptY, components.TruncateToWidth(q, availQ, ctx.Method), th.Foreground, ctx.Method)
-	curCol := xui.StringWidth(q[:min(p.Cursor, len(q))], ctx.Method)
-	if curCol >= availQ {
-		curCol = availQ - 1
-		curCol = max(curCol, 0)
+	if p.saveConfirming {
+		message := components.TruncateToWidth(
+			"Apply this model and save as global default?",
+			max(innerW-1, 1),
+			ctx.Method,
+		)
+		panel.Print(1, promptY, message, chrome.DecisionPrimary(th), ctx.Method)
+	} else {
+		panel.Print(1, promptY, chrome.FilterPrompt, th.Foreground, ctx.Method)
+		panel.Print(qx, promptY, components.TruncateToWidth(q, availQ, ctx.Method), th.Foreground, ctx.Method)
+		curCol := xui.StringWidth(q[:min(p.Cursor, len(q))], ctx.Method)
+		if curCol >= availQ {
+			curCol = availQ - 1
+			curCol = max(curCol, 0)
+		}
+		panel.Cursor = &components.Point{X: qx + curCol, Y: promptY}
 	}
-	panel.Cursor = &components.Point{X: qx + curCol, Y: promptY}
 
 	padL := 1
 	listY := 2
@@ -540,6 +590,19 @@ func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 			}
 		}
 	}
+	if p.saveAvailable() {
+		hint := chrome.ListHintExtra("switch", "ctrl+s save default")
+		short := " ctrl+s save default "
+		if p.saveConfirming {
+			hint = " y/enter save" + chrome.Sep + "n/esc cancel "
+			short = " y save" + chrome.Sep + "n cancel "
+		}
+		if xui.StringWidth(hint, ctx.Method) > boxW-2 {
+			hint = short
+		}
+		x := max((boxW-xui.StringWidth(hint, ctx.Method))/2, 1)
+		panel.Print(x, boxH-1, components.TruncateToWidth(hint, boxW-2, ctx.Method), th.Muted, ctx.Method)
+	}
 
 	out := components.Surface{Size: components.Size{Width: maxW, Height: maxH}, Widget: p}
 	ox := (maxW - boxW) / 2
@@ -556,6 +619,18 @@ func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 		Z:       10,
 	}}
 	return out
+}
+
+func (p *CommandPalette) saveAvailable() bool {
+	if p.saveConfirming {
+		return true
+	}
+	for _, cmd := range p.Commands {
+		if !cmd.Disabled && cmd.OnSave != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func categoryWidth(cmds []PaletteCommand, method xui.WidthMethod) int {

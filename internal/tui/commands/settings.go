@@ -301,7 +301,6 @@ func buildModelPalette(
 			},
 		}
 		if onSave != nil {
-			cmd.Shortcut = "Ctrl+S default"
 			cmd.OnSave = func() bool { return onSave(name) }
 		}
 		models = append(models, cmd)

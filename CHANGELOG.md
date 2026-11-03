@@ -10,8 +10,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-- TUI: Press Ctrl+S in the model picker to apply the highlighted model and save
-  it as the global default. Enter switches only the current session.
+- TUI: The model picker shows Ctrl+S once in the bottom border. Press it, then
+  Y/Enter to apply the highlighted model and save it as the global default;
+  N/Esc cancels in place, like the sessions picker's delete confirmation.
+  Enter outside confirmation switches only the current session.
 
 ### Fixed
 
