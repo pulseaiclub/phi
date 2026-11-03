@@ -9,6 +9,9 @@ const (
 	ModeReadonly       Mode = "readonly"
 	ModeAutopilot      Mode = "autopilot"
 	ModeHeadlessStrict Mode = "headless-strict"
+	// ModeAllowAll skips every permission check; a policy with this mode never
+	// reaches a gate (NewGate returns AllowAll).
+	ModeAllowAll Mode = "allow-all"
 )
 
 // Decision is the gate outcome before optional Ask folding.
@@ -70,7 +73,6 @@ type Policy struct {
 	BashDeny            []string // regex
 	SensitivePathDeny   []string // path prefixes
 	WorkspaceOnlyReads  bool     // if true, out-of-workspace reads deny
-	DangerouslyAllowAll bool     // skip all permission checks
 	// Rules are extra rules from config (see RuleSpec.Compile). They are filed
 	// by decision into the same tiers as the built-ins and run after them, so
 	// they can tighten a policy but never soften a built-in deny.

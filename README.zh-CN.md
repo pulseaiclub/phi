@@ -194,7 +194,7 @@ agents:
   enabled: true           # 默认；设为 false 可禁用 agent_* 子代理工具
 
 permissions:
-  mode: interactive       # interactive | readonly | autopilot | headless-strict
+  mode: interactive       # interactive | readonly | autopilot | headless-strict | allow-all
   bash:
     default: ask          # ask | allow | deny
     allow:
@@ -417,10 +417,11 @@ Instructions the agent should follow when this skill is relevant.
 | `readonly` | 拒绝写入 / bash；只读工具仍可用。 |
 | `autopilot` | 把 `ask` 折叠为 allow，无人值守运行。 |
 | `headless-strict` | 把 `ask` 折叠为 deny（`phi run` 使用）。 |
+| `allow-all` | 跳过所有权限检查。 |
 
 按工具的规则：`bash.default` / `bash.allow` / `bash.deny`（精确命令前缀匹配）。
-全局键：`workspace_only_writes`
-（默认 true）、`ask_timeout_sec` 和 `dangerously_allow_all`（默认 false）。
+全局键：`workspace_only_writes`（默认 true）和 `ask_timeout_sec`。
+已弃用的 `dangerously_allow_all: true` 仍按 `mode: allow-all` 加载。
 
 在 TUI 中，审批对话框会替换编辑器，提供批准、带反馈地拒绝、或对本次会话 /
 所有会话全部允许等选项。面板的 设置 → 权限 条目可切换会话级绕过。

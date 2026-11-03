@@ -158,10 +158,10 @@ func (c *EngineController) initGate(policy permission.Policy) {
 	if policy.Mode == "" {
 		policy.Mode = permission.ModeInteractive
 	}
-	if policy.DangerouslyAllowAll {
+	if policy.Mode == permission.ModeAllowAll {
 		c.allowAll.Store(true)
 	}
-	// Do not clear allowAll when config omits dangerously_allow_all — TUI defaults
+	// Do not clear allowAll when config does not pin a mode — the TUI defaults
 	// to bypass, and the palette toggle must survive SetModel / re-init.
 	var inner permission.Gate
 	inner, err := permission.NewGate(policy, permission.WorkspaceRoot())
@@ -425,7 +425,7 @@ func (c *EngineController) askPermission(
 		c.allowAll.Store(true)
 	}
 	if r.AllowPersistent {
-		_ = project.SetDangerouslyAllowAll(c.proj.Global(), true)
+		_ = project.SetPermissionMode(c.proj.Global(), permission.ModeAllowAll)
 	}
 	return permission.AskResult{Approved: r.Approved, Feedback: r.Feedback}, nil
 }

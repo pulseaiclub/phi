@@ -31,6 +31,7 @@ Modes fold `ask` decisions; they are not rules and cannot be overridden by one.
 | `readonly`        | deny; allowlisted bash still runs, `agent_spawn` always denies |
 | `autopilot`       | deny — same as headless-strict today                          |
 | `headless-strict` | deny (`phi run`)                                             |
+| `allow-all`       | skip every permission check (replaces `dangerously_allow_all`) |
 
 ## Evaluation order
 

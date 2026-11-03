@@ -44,9 +44,11 @@ type ModelDoc struct {
 
 // PermDoc is the permissions block.
 type PermDoc struct {
-	Mode                string   `yaml:"mode,omitempty"`
-	WorkspaceOnlyWrites *bool    `yaml:"workspace_only_writes,omitempty"`
-	AskTimeoutSec       *int     `yaml:"ask_timeout_sec,omitempty"`
+	Mode                string `yaml:"mode,omitempty"`
+	WorkspaceOnlyWrites *bool  `yaml:"workspace_only_writes,omitempty"`
+	AskTimeoutSec       *int   `yaml:"ask_timeout_sec,omitempty"`
+	// DangerouslyAllowAll is deprecated: mode: allow-all replaces it. The
+	// loader still honors it; saves write the mode form.
 	DangerouslyAllowAll *bool    `yaml:"dangerously_allow_all,omitempty"`
 	Bash                *BashDoc `yaml:"bash,omitempty"`
 	// Rules are evaluated in strictest-first tiers: a configured deny outranks

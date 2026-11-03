@@ -112,9 +112,9 @@ func TestHeadlessGateDefaultsToStrict(t *testing.T) {
 	assert.Equal(t, permission.Allow, dec)
 }
 
-func TestHeadlessGateDangerouslyAllowAll(t *testing.T) {
+func TestHeadlessGateAllowAll(t *testing.T) {
 	policy := permission.DefaultPolicy()
-	policy.DangerouslyAllowAll = true
+	policy.Mode = permission.ModeAllowAll
 	gate, err := HeadlessGate(policy)
 	require.NoError(t, err)
 
@@ -125,7 +125,9 @@ func TestHeadlessGateDangerouslyAllowAll(t *testing.T) {
 	assert.Equal(t, permission.Allow, dec)
 }
 
-func TestLoadRunBootstrapYolo(t *testing.T) {
+// loadRunBootstrap goes through the GetDefaultProject singleton (sync.Once),
+// so the yolo and legacy-key cases share one test and run in order.
+func TestLoadRunBootstrapModes(t *testing.T) {
 	p, pathDir := testProject(t)
 	// Stub search tools on PATH so EnsureSearchTools does not hit the network.
 	for _, name := range []string{"fd", "rg"} {
@@ -134,20 +136,35 @@ func TestLoadRunBootstrapYolo(t *testing.T) {
 	}
 	cfgPath := p.Global().ConfigFile()
 	require.NoError(t, os.MkdirAll(filepath.Dir(cfgPath), 0o755))
+
+	allowCheck := func(gate permission.Gate) {
+		dec, _ := gate.Check(t.Context(), permission.Request{
+			Kind:    permission.KindExec,
+			Command: "rm -rf /",
+		})
+		assert.Equal(t, permission.Allow, dec)
+	}
+
+	// --yolo overrides the configured mode for this run only.
 	require.NoError(t, os.WriteFile(cfgPath, []byte(`models:
   - name: m
     api_key: k
 permissions:
   mode: headless-strict
 `), 0o644))
-
 	bs, err := loadRunBootstrap(t.Context(), "", true)
 	require.NoError(t, err)
 	require.NotNil(t, bs.Gate)
+	allowCheck(bs.Gate)
 
-	dec, _ := bs.Gate.Check(t.Context(), permission.Request{
-		Kind:    permission.KindExec,
-		Command: "pip install numpy",
-	})
-	assert.Equal(t, permission.Allow, dec)
+	// The deprecated dangerously_allow_all key folds into mode: allow-all.
+	require.NoError(t, os.WriteFile(cfgPath, []byte(`models:
+  - name: m
+    api_key: k
+permissions:
+  dangerously_allow_all: true
+`), 0o644))
+	bs, err = loadRunBootstrap(t.Context(), "", false)
+	require.NoError(t, err)
+	allowCheck(bs.Gate)
 }
