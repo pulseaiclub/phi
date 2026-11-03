@@ -77,12 +77,12 @@ func NewBuiltinRegistry(
 // Bind attaches late UI collaborators (Submitter, pickers, stream guard).
 func (b *Builtin) Bind(
 	submitter extSubmitter,
-	commandCtx func() Context,
+	commandCtx Context,
 	openPicker func(items []session.SessionMeta, currentID string),
 	refreshPicker func(items []session.SessionMeta, currentID string),
 	openBranchPicker func(branches []gitx.Branch, recent []string, onAccept, onDelete func(name string)),
 	refreshBranchPicker func(branches []gitx.Branch, recent []string),
-	cwd func() string,
+	cwd string,
 	streamActive func() bool,
 ) {
 	b.Ext.Submitter = submitter

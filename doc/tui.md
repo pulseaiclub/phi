@@ -133,6 +133,24 @@ toast) run inline — no pane state needs a lock.
 | Batch pass | `SessionEventMsg`, `JobProgressMsg` | `TranscriptPane` → optional `Sync` + footer token refresh |
 | Per-msg | everything else | `Editor.Update` → domain handler |
 
+### Transport rules
+
+How data crosses the UI/domain boundary — one rule per direction:
+
+1. **UI goroutine → domain: direct calls.** Wiring sites pass method values
+   (`e.ctrl.ImageEnabled`, `e.overlays.ResolvePermission`), never anonymous
+   forwarding closures. When a callback needs two calls or a signature
+   adapter, it becomes a named `Editor` method (`publishToast`,
+   `copyToClipboard`) so the wiring reads as a table of collaborators.
+2. **Any goroutine → UI: `bus.Publish`.** Engine events, job progress,
+   background checks publish `Msg`s; the UI goroutine applies them in `Drain`.
+3. **Widgets stay dumb.** `internal/components` take narrow func fields /
+   interfaces; they never import domain packages. The binding happens once,
+   in `NewEditor`, as method values.
+4. **Immutable collaborators go by value.** Single-creation handles
+   (`commands.Context`, working directory) are constructor parameters, not
+   accessor funcs — a `func() X` implies it can change or is computed.
+
 ### Message routing
 
 | `controller.Msg` | Handler |

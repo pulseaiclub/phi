@@ -23,8 +23,9 @@ type Submitter struct {
 	composer   composer.Input
 	bash       *BashRunner
 
-	commandContext func() commands.Context
-	bus            *controller.Bus
+	commandContext commands.Context
+
+	bus *controller.Bus
 
 	permissionActive  func() bool
 	continueActive    func() bool
@@ -43,7 +44,7 @@ func NewSubmitter(
 	activity *controller.ActivityHandler,
 	composer composer.Input,
 	bus *controller.Bus,
-	commandContext func() commands.Context,
+	commandContext commands.Context,
 	permissionActive func() bool,
 	continueActive func() bool,
 	confirmActive func() bool,
@@ -235,7 +236,7 @@ func (s *Submitter) dispatchSlash(text string) bool {
 	if s.commands == nil || s.commandContext == nil {
 		return false
 	}
-	return s.commands.DispatchSlash(text, s.commandContext())
+	return s.commands.DispatchSlash(text, s.commandContext)
 }
 
 func (s *Submitter) incompleteSlash(text string) (string, bool) {

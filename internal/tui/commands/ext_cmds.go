@@ -38,7 +38,7 @@ type ExtCommands struct {
 	Footer     extFooter
 	Submitter  extSubmitter
 	Bus        *controller.Bus
-	CommandCtx func() Context
+	CommandCtx Context
 
 	gen     atomic.Uint64
 	running atomic.Bool
@@ -63,11 +63,7 @@ func (h *ExtCommands) Sync() {
 
 // RefreshPalette rebuilds commands from live settings without resyncing extensions.
 func (h *ExtCommands) RefreshPalette() {
-	var ctx Context
-	if h.CommandCtx != nil {
-		ctx = h.CommandCtx()
-	}
-	h.Composer.SetPaletteCommands(h.Registry.BuildPalette(ctx))
+	h.Composer.SetPaletteCommands(h.Registry.BuildPalette(h.CommandCtx))
 }
 
 func (h *ExtCommands) slashCommand(name, desc string, needsArgs bool) Command {

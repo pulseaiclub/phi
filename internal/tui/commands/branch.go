@@ -15,7 +15,8 @@ import (
 type BranchCommands struct {
 	Bus *controller.Bus
 	// Dir is the directory git runs in (the agent's working directory).
-	Dir func() string
+	Dir string
+
 	// OpenOverlay opens the branch picker (wired by Builtin.Bind).
 	OpenOverlay func(branches []gitx.Branch, recent []string, onAccept, onDelete func(name string))
 	// RefreshOverlay swaps rows into the open picker (wired by Builtin.Bind).
@@ -328,10 +329,7 @@ func (b *BranchCommands) done(msg, dir string) {
 }
 
 func (b *BranchCommands) dir() string {
-	if b.Dir != nil {
-		return b.Dir()
-	}
-	return ""
+	return b.Dir
 }
 
 func (b *BranchCommands) publish(m controller.Msg) {
