@@ -12,8 +12,9 @@ Source of truth: [`internal/project/model`](../internal/project/model/).
 
 ## Model selection and defaults
 
-In the TUI model picker, Enter switches the current session. Ctrl+S applies the
-highlighted model and saves it as the global default using `models[].default`
+In the TUI model picker, Enter switches the current session. Ctrl+S opens an
+in-place confirmation: Y/Enter applies the highlighted model and saves it as
+the global default; N/Esc returns to the picker. The default uses `models[].default`
 in `~/.phi/config.yaml`, the same setting as `phi config` → `use by default`.
 Only models already in that file can be saved as defaults; add extension-only
 or environment-only models with `phi config` first.
