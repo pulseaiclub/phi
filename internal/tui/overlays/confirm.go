@@ -64,6 +64,9 @@ func (o *Overlays) beginExtConfirm(msg controller.OverlayMsg) {
 	if o.cont != nil {
 		o.resolveContinue(controller.ContinueReply{})
 	}
+	if o.err != nil {
+		o.resolveError(controller.ErrorReply{})
+	}
 	if o.composer != nil {
 		o.composer.HideCompleters()
 		o.composer.HidePalette()

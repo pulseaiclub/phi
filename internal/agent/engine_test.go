@@ -545,6 +545,143 @@ func TestLoopOverflowRejectsBlankSummary(t *testing.T) {
 	}
 }
 
+// stubChatClient supplies deterministic streams and records the context sent to
+// each request. Compact is unused by these loop tests.
+type stubChatClient struct {
+	streams []func(context.Context, []llm.Message) iter.Seq2[llm.StreamEvent, error]
+	calls   [][]llm.Message
+}
+
+func (c *stubChatClient) Stream(ctx context.Context, messages []llm.Message) iter.Seq2[llm.StreamEvent, error] {
+	c.calls = append(c.calls, append([]llm.Message(nil), messages...))
+	stream := c.streams[0]
+	c.streams = c.streams[1:]
+	return stream(ctx, messages)
+}
+
+func (*stubChatClient) Compact(context.Context, llm.CompactRequest) (llm.CompactResult, error) {
+	return llm.CompactResult{}, errors.New("stubChatClient: Compact is not used")
+}
+
+func stubMessageStream(message llm.Message) func(context.Context, []llm.Message) iter.Seq2[llm.StreamEvent, error] {
+	return func(_ context.Context, _ []llm.Message) iter.Seq2[llm.StreamEvent, error] {
+		return func(yield func(llm.StreamEvent, error) bool) {
+			yield(llm.StreamEvent{Type: llm.StreamEventTypeDone, Final: &message}, nil)
+		}
+	}
+}
+
+func stubErrorStream(err error) func(context.Context, []llm.Message) iter.Seq2[llm.StreamEvent, error] {
+	return func(_ context.Context, _ []llm.Message) iter.Seq2[llm.StreamEvent, error] {
+		return func(yield func(llm.StreamEvent, error) bool) {
+			yield(llm.StreamEvent{}, err)
+		}
+	}
+}
+
+func runLoop(t *testing.T, engine *Engine, ctx context.Context, prompt string, opts LoopOpts) error {
+	t.Helper()
+	for _, err := range engine.Loop(ctx, prompt, opts) {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func TestLoopResumeDoesNotAppendUserMessage(t *testing.T) {
+	sess, err := NewSession(WithCwd(t.TempDir()))
+	require.NoError(t, err)
+	client := &stubChatClient{streams: []func(context.Context, []llm.Message) iter.Seq2[llm.StreamEvent, error]{
+		stubErrorStream(errors.New("first attempt failed")),
+		stubMessageStream(llm.Message{Role: llm.RoleAssistant, Content: "recovered"}),
+	}}
+	engine, err := NewEngine(llm.ModelConfig{Name: "stub"}, sess, WithTools([]tooldef.Tool{}))
+	require.NoError(t, err)
+	engine.client = client
+
+	var appended int
+	require.ErrorContains(t, runLoop(t, engine, t.Context(), "try this", LoopOpts{
+		OnPromptAppended: func() { appended++ },
+	}), "first attempt failed")
+	require.Equal(t, 1, appended)
+	require.NoError(t, runLoop(t, engine, t.Context(), "try this", LoopOpts{
+		Resume:           true,
+		OnPromptAppended: func() { appended++ },
+	}))
+	require.Equal(t, 1, appended, "resume must not call the append callback")
+
+	messages := sess.BuildContext()
+	var users int
+	for _, message := range messages {
+		if message.Role == llm.RoleUser {
+			users++
+		}
+	}
+	require.Equal(t, 1, users)
+	require.Equal(t, "try this", messages[0].Content)
+	require.Len(t, client.calls, 2)
+	require.Equal(t, messages[:1], client.calls[1])
+}
+
+func TestLoopResumeReusesCompletedToolResult(t *testing.T) {
+	sess, err := NewSession(WithCwd(t.TempDir()))
+	require.NoError(t, err)
+	var runs atomic.Int32
+	client := &stubChatClient{streams: []func(context.Context, []llm.Message) iter.Seq2[llm.StreamEvent, error]{
+		stubMessageStream(llm.Message{
+			Role: llm.RoleAssistant,
+			ToolCalls: []llm.ToolCall{
+				{ID: "call_1", Type: "function", Function: llm.Function{Name: "count", Arguments: `{}`}},
+			},
+		}),
+		stubErrorStream(errors.New("second attempt failed")),
+		stubMessageStream(llm.Message{Role: llm.RoleAssistant, Content: "recovered"}),
+	}}
+	engine, err := NewEngine(
+		llm.ModelConfig{Name: "stub"}, sess,
+		WithGate(permission.AllowAll{}),
+		WithTools([]tooldef.Tool{countingTool(&runs)}),
+	)
+	require.NoError(t, err)
+	engine.client = client
+
+	require.ErrorContains(t, runLoop(t, engine, t.Context(), "run it", LoopOpts{}), "second attempt failed")
+	require.NoError(t, runLoop(t, engine, t.Context(), "run it", LoopOpts{Resume: true}))
+	require.Equal(t, int32(1), runs.Load(), "resume must not replay the completed tool call")
+
+	messages := sess.BuildContext()
+	require.Len(t, messages, 4)
+	require.Equal(t, llm.RoleUser, messages[0].Role)
+	require.Equal(t, llm.RoleAssistant, messages[1].Role)
+	require.Equal(t, llm.RoleTool, messages[2].Role)
+	require.Equal(t, "ok", messages[2].Content)
+	require.Equal(t, llm.RoleAssistant, messages[3].Role)
+	require.Len(t, client.calls, 3)
+	require.Equal(t, messages[:3], client.calls[2])
+}
+
+func TestLoopCanceledBeforeStartDoesNotAppendOrCallback(t *testing.T) {
+	sess, err := NewSession(WithCwd(t.TempDir()))
+	require.NoError(t, err)
+	client := &stubChatClient{streams: []func(context.Context, []llm.Message) iter.Seq2[llm.StreamEvent, error]{
+		stubMessageStream(llm.Message{Role: llm.RoleAssistant, Content: "unreachable"}),
+	}}
+	engine, err := NewEngine(llm.ModelConfig{Name: "stub"}, sess, WithTools([]tooldef.Tool{}))
+	require.NoError(t, err)
+	engine.client = client
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	called := false
+	require.NoError(t, runLoop(t, engine, ctx, "do not start", LoopOpts{
+		OnPromptAppended: func() { called = true },
+	}))
+	require.False(t, called)
+	require.Empty(t, sess.BuildContext())
+	require.Empty(t, client.calls)
+}
+
 // fakeCompactClient drives runCompact without a server; Stream is unused.
 type fakeCompactClient struct {
 	compact func(ctx context.Context) error

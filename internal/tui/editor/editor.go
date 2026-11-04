@@ -107,6 +107,7 @@ func NewEditor(
 		e.composer,
 		e.focusSelf,
 		e.composer.FocusChat,
+		e.handleErrorReply,
 	)
 	e.transcript.SetCopyHandlers(e.bus, e.copyToClipboard)
 	e.diff = diffpane.New(e.theme, cwd,
@@ -149,9 +150,11 @@ func NewEditor(
 
 		e.overlays.ContinueActive,
 		e.overlays.ConfirmActive,
+		e.overlays.ErrorActive,
 		e.overlays.ResolvePermission,
 		e.overlays.ResolveContinue,
 		e.overlays.ResolveConfirm,
+		e.overlays.ResolveError,
 	)
 	builtins.Bind(
 		e.submitter,
@@ -177,6 +180,7 @@ func NewEditor(
 		e.overlays.HandlePermissionKey,
 		e.overlays.HandleContinueKey,
 		e.overlays.HandleConfirmKey,
+		e.overlays.HandleErrorKey,
 		e.handleCopyKey,
 		e.focusSelf,
 		e.App.RequestFocus,
@@ -205,6 +209,24 @@ func (e *Editor) Update(m controller.Msg) {
 		e.composer.ApplyBashSuggestions(msg)
 	case controller.OverlayMsg:
 		e.overlays.Apply(msg)
+	case controller.LoopStartedMsg:
+		if e.ctrl.CurrentLoop(msg.Gen) {
+			e.overlays.ResolveError(controller.ErrorReply{})
+			e.footer.Activity().Apply(controller.ActivityWaiting)
+		}
+	case controller.LoopFinishedMsg:
+		if !e.ctrl.CurrentLoop(msg.Gen) {
+			return
+		}
+		e.transcript.ApplySession(session.CancelStreaming{})
+		e.transcript.Sync()
+		e.footer.Activity().Apply(controller.ActivityIdle)
+		if msg.Cancelled {
+			e.footer.Activity().Apply(controller.ActivityCancelled)
+		}
+		if msg.ErrorText != "" {
+			e.overlays.Apply(controller.OverlayMsg{Kind: controller.OverlayErrorAsk, ErrorText: msg.ErrorText})
+		}
 	case controller.FooterMsg:
 		e.footer.Apply(msg)
 	case controller.ToastMsg:
@@ -248,6 +270,9 @@ func (e *Editor) drainBus() {
 	for _, m := range batch {
 		switch msg := m.(type) {
 		case controller.SessionEventMsg:
+			if msg.Gen != 0 && !e.ctrl.CurrentLoop(msg.Gen) {
+				continue
+			}
 			agentEvent = true
 			e.transcript.ApplySession(msg.Event)
 		case controller.JobProgressMsg:
@@ -370,6 +395,28 @@ func (e *Editor) publishToast(msg string) {
 // contract.
 func (e *Editor) copyToClipboard(text string) bool {
 	return e.vx.CopyToClipboard(text) == nil
+}
+
+// handleErrorReply performs the error dialog's Retry/Copy side effects. It
+// runs on the UI goroutine as the overlay resolves.
+func (e *Editor) handleErrorReply(r controller.ErrorReply, text string) {
+	switch {
+	case r.Retry:
+		e.footer.Activity().Apply(controller.ActivityWaiting)
+		if !e.ctrl.RetryLastPrompt() {
+			e.footer.Activity().Apply(controller.ActivityIdle)
+			e.toast.Show("Nothing to retry", toast.ToastWarning, 2*time.Second)
+		}
+	case r.Copy:
+		if text == "" {
+			return
+		}
+		if e.copyToClipboard(text) {
+			e.toast.Show("Copied to clipboard", toast.ToastSuccess, 2*time.Second)
+		} else {
+			e.toast.Show("Clipboard unavailable", toast.ToastError, 2*time.Second)
+		}
+	}
 }
 
 // addPendingRef drops a code-viewer reference into the composer and refocuses

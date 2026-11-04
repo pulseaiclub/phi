@@ -35,9 +35,12 @@ type EngineController struct {
 	engine *agent.Engine
 	proj   *project.Project
 
-	streamMu     sync.Mutex
-	streamCancel context.CancelFunc
-	streamGen    int
+	streamMu       sync.Mutex
+	streamCancel   context.CancelFunc
+	streamGen      int
+	lastPrompt     LastPrompt
+	promptAppended bool
+	retryReady     bool
 
 	bus *Bus
 
@@ -619,7 +622,7 @@ func (c *EngineController) Resume(id string) (cwdWarning string, err error) {
 // NewSession starts a brand-new persisted session. Caller must ensure no agent
 // stream / local bash is in flight.
 func (c *EngineController) NewSession() error {
-	prevID, err := c.beginSessionSwitch("new", "", false)
+	prevID, err := c.beginSessionSwitch("new", "", true)
 	if err != nil {
 		return err
 	}
@@ -718,26 +721,56 @@ func (c *EngineController) ReplaySnapshot() session.Snapshot {
 }
 
 func (c *EngineController) StartPrompt(text string, pendingSkills []string, images []llm.Image) {
-	ctx, cancel := context.WithCancel(context.Background())
 	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	c.lastPrompt = LastPrompt{
+		Text:   text,
+		Skills: append([]string(nil), pendingSkills...),
+		Images: append([]llm.Image(nil), images...),
+	}
+	c.promptAppended = false
+	c.startPromptLocked()
+}
+
+func (c *EngineController) startPromptLocked() {
 	if c.streamCancel != nil {
 		c.streamCancel()
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	c.streamCancel = cancel
 	c.streamGen++
-	gen := c.streamGen
-	c.streamMu.Unlock()
+	c.retryReady = false
+	c.publish(LoopStartedMsg{Gen: c.streamGen})
+	go c.runLoop(ctx, c.streamGen, c.engine, c.lastPrompt, c.promptAppended)
+}
 
-	go c.runLoop(ctx, gen, text, pendingSkills, images)
+// RetryLastPrompt resumes a failed turn without appending its user message again.
+func (c *EngineController) RetryLastPrompt() bool {
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	if !c.retryReady {
+		return false
+	}
+	c.startPromptLocked()
+	return true
 }
 
 func (c *EngineController) Cancel() {
 	c.streamMu.Lock()
-	cancel := c.streamCancel
-	c.streamMu.Unlock()
-	if cancel != nil {
-		cancel()
+	defer c.streamMu.Unlock()
+	if c.streamCancel != nil {
+		c.streamCancel()
 	}
+	// Invalidate queued completion messages as well as the running request.
+	c.streamGen++
+	c.retryReady = false
+}
+
+// CurrentLoop reports whether a queued loop result still belongs to this request.
+func (c *EngineController) CurrentLoop(gen int) bool {
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	return c.streamGen == gen
 }
 
 func (c *EngineController) Close() {
@@ -798,13 +831,6 @@ func (c *EngineController) publishSessionEffects(out ext.SessionEffects) {
 	})
 }
 
-func (c *EngineController) alive(gen int) bool {
-	c.streamMu.Lock()
-	ok := c.streamGen == gen
-	c.streamMu.Unlock()
-	return ok
-}
-
 func (c *EngineController) waitOrDone(ctx context.Context, gen int, d time.Duration) bool {
 	timer := time.NewTimer(d)
 	defer timer.Stop()
@@ -813,57 +839,69 @@ func (c *EngineController) waitOrDone(ctx context.Context, gen int, d time.Durat
 		return false
 	case <-timer.C:
 	}
-	return c.alive(gen)
+	return c.CurrentLoop(gen)
 }
 
 func (c *EngineController) publish(m Msg) {
 	c.bus.Publish(m)
 }
 
-func (c *EngineController) publishLoopError(gen int, errText string) {
-	if !c.alive(gen) {
+func (c *EngineController) finishLoop(ctx context.Context, gen int, err error) {
+	c.streamMu.Lock()
+	if c.streamGen != gen {
+		c.streamMu.Unlock()
 		return
 	}
-	c.publish(SessionEventMsg{Event: session.AssistantMessageUpdate{Message: session.Message{
-		ID:    fmt.Sprintf("assistant-error-%d", time.Now().UnixNano()),
-		State: session.StateError,
-		Text:  errText,
-		Content: []session.ContentBlock{
-			{Type: session.BlockText, Text: errText},
-		},
-	}}})
+	// Only cancellation of this request is silent. Provider timeouts remain errors.
+	cancelled := ctx.Err() != nil || errors.Is(err, context.Canceled)
+	errText := ""
+	if err != nil && !cancelled {
+		errText = err.Error()
+	}
+	c.retryReady = errText != ""
+	c.streamMu.Unlock()
+	c.publish(LoopFinishedMsg{Gen: gen, ErrorText: errText, Cancelled: cancelled})
 }
 
-func (c *EngineController) runLoop(
-	ctx context.Context,
-	gen int,
-	prompt string,
-	pendingSkills []string,
-	images []llm.Image,
-) {
+func (c *EngineController) runLoop(ctx context.Context, gen int, engine *agent.Engine, prompt LastPrompt, resume bool) {
 	if !c.waitOrDone(ctx, gen, 120*time.Millisecond) {
 		return
 	}
-	c.publish(FooterMsg{Kind: FooterSetActivity, Activity: ActivityStreaming})
-
-	if c.engine == nil {
-		c.publishLoopError(gen, "agent not configured")
+	var loopErr error
+	// Publish completion only after the iterator's cleanup (including AgentEnd)
+	// has finished, so Retry cannot start while the failed turn is unwinding.
+	defer func() { c.finishLoop(ctx, gen, loopErr) }()
+	if engine == nil {
+		loopErr = errors.New("agent not configured")
 		return
 	}
-
-	for ev, err := range c.engine.Loop(ctx, prompt, agent.LoopOpts{
-		PendingSkills: pendingSkills,
-		Images:        images,
+	for ev, err := range engine.Loop(ctx, prompt.Text, agent.LoopOpts{
+		PendingSkills: prompt.Skills,
+		Images:        prompt.Images,
+		Resume:        resume,
+		OnPromptAppended: func() {
+			c.streamMu.Lock()
+			defer c.streamMu.Unlock()
+			if c.streamGen == gen {
+				c.promptAppended = true
+			}
+		},
 	}) {
-		if !c.alive(gen) {
+		if !c.CurrentLoop(gen) {
 			return
 		}
 		if err != nil {
-			c.publishLoopError(gen, err.Error())
+			loopErr = err
 			return
 		}
 		if ev != nil {
-			c.publish(SessionEventMsg{Event: ev})
+			// Partial model output remains ordinary transcript content; the error
+			// itself is shown once by the completion dialog.
+			if update, ok := ev.(session.AssistantMessageUpdate); ok && update.Message.State == session.StateError {
+				update.Message.State = session.StateCancelled
+				ev = update
+			}
+			c.publish(SessionEventMsg{Event: ev, Gen: gen})
 		}
 	}
 }

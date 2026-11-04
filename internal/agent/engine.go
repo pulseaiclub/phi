@@ -301,6 +301,12 @@ type LoopOpts struct {
 	PendingSkills []string
 	// Images are base64 attachments from the composer pending queue.
 	Images []llm.Image
+	// Resume continues inference from the current session without appending a
+	// new user message or running user-input preparation hooks.
+	Resume bool
+	// OnPromptAppended is called synchronously after the initial user message
+	// is appended successfully. It is not called for resumed loops.
+	OnPromptAppended func()
 }
 
 // Loop appends the user prompt and runs inference + tool rounds until the
@@ -316,33 +322,48 @@ type LoopOpts struct {
 //     context, and retry the stream. A second overflow fails closed.
 func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) iter.Seq2[session.Event, error] {
 	return func(yield func(session.Event, error) bool) {
-		// The extension runner is nil-safe (nil = disabled), so calls are
-		// unconditional no-ops when no extensions are loaded.
-		content, handled := engine.extensions.EmitUserInput(prompt)
-		if handled {
+		if err := ctx.Err(); err != nil {
 			return
 		}
-		if instr := pendingSkillsInstruction(engine.modelCfg.SkillPaths, opts.PendingSkills); instr != "" {
-			if content == "" {
-				content = instr
-			} else {
-				content = instr + "\n\n" + content
+
+		var content string
+		if !opts.Resume {
+			// The extension runner is nil-safe (nil = disabled), so calls are
+			// unconditional no-ops when no extensions are loaded.
+			var handled bool
+			content, handled = engine.extensions.EmitUserInput(prompt)
+			if handled {
+				return
+			}
+			if instr := pendingSkillsInstruction(engine.modelCfg.SkillPaths, opts.PendingSkills); instr != "" {
+				if content == "" {
+					content = instr
+				} else {
+					content = instr + "\n\n" + content
+				}
+			}
+			rewritten, extra := engine.extensions.EmitBeforeAgentStart(content)
+			content = rewritten
+			if extra != "" {
+				content = content + "\n\n" + extra
 			}
 		}
-		rewritten, extra := engine.extensions.EmitBeforeAgentStart(content)
-		content = rewritten
-		if extra != "" {
-			content = content + "\n\n" + extra
-		}
+
 		engine.extensions.EmitAgentStart()
 		defer engine.extensions.EmitAgentEnd()
-		if err := engine.session.Append(llm.Message{
-			Role:    llm.RoleUser,
-			Content: content,
-			Images:  append([]llm.Image(nil), opts.Images...),
-		}); err != nil {
-			yield(nil, err)
-			return
+
+		if !opts.Resume {
+			if err := engine.session.Append(llm.Message{
+				Role:    llm.RoleUser,
+				Content: content,
+				Images:  append([]llm.Image(nil), opts.Images...),
+			}); err != nil {
+				yield(nil, err)
+				return
+			}
+			if opts.OnPromptAppended != nil {
+				opts.OnPromptAppended()
+			}
 		}
 
 		toolRounds := 0
