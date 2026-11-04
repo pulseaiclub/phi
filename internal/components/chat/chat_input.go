@@ -640,7 +640,7 @@ func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 
 	borderSt := c.BorderStyle
 	if borderSt == (xui.Style{}) {
-		borderSt = xui.Style{Fg: xui.IndexedColor(244)}
+		borderSt = xui.Style{Fg: xui.IndexedColor(250)}
 	}
 	textSt := c.TextStyle
 	if textSt == (xui.Style{}) {
