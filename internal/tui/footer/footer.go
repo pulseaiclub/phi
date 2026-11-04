@@ -1,7 +1,6 @@
 package footer
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/pulseaiclub/xui"
@@ -32,7 +31,6 @@ type FooterChrome struct {
 
 	composer     labelComposer
 	labelContext func() session.Snapshot
-	liveJobs     func() int
 }
 
 // NewFooterChrome builds footer chrome with a fresh spinner and activity handler.
@@ -67,11 +65,6 @@ func (f *FooterChrome) BindComposer(c labelComposer) {
 // SetLabelContext supplies snap for activity status labels.
 func (f *FooterChrome) SetLabelContext(fn func() session.Snapshot) {
 	f.labelContext = fn
-}
-
-// SetLiveJobs supplies live sub-agent job count for the footer row.
-func (f *FooterChrome) SetLiveJobs(fn func() int) {
-	f.liveJobs = fn
 }
 
 // AdvanceTick drives spinner animation during active work.
@@ -191,7 +184,7 @@ func (f *FooterChrome) activityStatusLabel(msg string) layout.BorderLabel {
 	return layout.BorderLabel{Spans: spans}
 }
 
-// Draw renders the bottom footer row (extension status, jobs, update hint).
+// Draw renders the bottom footer row (extension status and update hint).
 // Activity/spinner live on the composer status slot, not here.
 func (f *FooterChrome) Draw(ctx components.DrawContext, width int) components.Surface {
 	footer := components.NewSurface(width, 1, nil)
@@ -199,15 +192,6 @@ func (f *FooterChrome) Draw(ctx components.DrawContext, width int) components.Su
 	var parts []string
 	if hs := strings.TrimSpace(f.hookStatus); hs != "" {
 		parts = append(parts, hs)
-	}
-	if f.liveJobs != nil {
-		if n := f.liveJobs(); n > 0 {
-			jobBit := fmt.Sprintf("%d job", n)
-			if n != 1 {
-				jobBit += "s"
-			}
-			parts = append(parts, jobBit)
-		}
 	}
 	msg := strings.Join(parts, " · ")
 

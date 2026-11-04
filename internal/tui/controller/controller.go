@@ -581,10 +581,6 @@ func (c *EngineController) SessionDir() string {
 	return c.sessionDir
 }
 
-func (c *EngineController) LiveJobCount() int {
-	return c.jobs.LiveCount()
-}
-
 func (c *EngineController) SessionFile() string {
 	return c.engine.SessionFile()
 }
