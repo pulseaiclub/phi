@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+<!-- Released section -->
+<!-- Don't change this section unless doing release -->
+
+## [0.29.6] - 2026-11-04
+
 ### Removed
 
 - TUI: removed the live sub-agent job count from the bottom footer.
@@ -44,11 +49,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   Model changes are append-only records; forks inherit the model on their
   selected branch without rewriting existing conversation logs. Startup uses
   the configured default without scanning past sessions.
-
-### Security
-
-<!-- Released section -->
-<!-- Don't change this section unless doing release -->
 
 ## [0.29.5] - 2026-11-02
 
@@ -1396,7 +1396,8 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.29.5...HEAD
+[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.29.6...HEAD
+[0.29.6]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.6
 [0.29.5]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.5
 [0.29.4]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.4
 [0.29.3]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.3
