@@ -117,7 +117,7 @@ func findCoalesceSession(pending []Msg, te SessionEventMsg) (int, bool) {
 	if _, ok := te.Event.(session.AssistantMessageUpdate); ok {
 		for i := range slices.Backward(pending) {
 			prev, ok := pending[i].(SessionEventMsg)
-			if !ok {
+			if !ok || prev.Gen != te.Gen {
 				continue
 			}
 			if _, ok := prev.Event.(session.AssistantMessageUpdate); ok {
@@ -132,7 +132,7 @@ func findCoalesceSession(pending []Msg, te SessionEventMsg) (int, bool) {
 	}
 	for i := range slices.Backward(pending) {
 		prev, ok := pending[i].(SessionEventMsg)
-		if !ok {
+		if !ok || prev.Gen != te.Gen {
 			continue
 		}
 		prevTD, ok := prev.Event.(session.ToolData)

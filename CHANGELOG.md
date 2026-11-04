@@ -14,6 +14,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - Dark theme: composer and panel borders brightened (ANSI 244 → 250) so the
   box edge reads solid instead of a faint hairline on dark backgrounds.
+- Agent/model loop errors now open a modal error dialog (Retry / Copy to
+  Clipboard / Dismiss) instead of appending a red "Error:" block to the
+  transcript. Retry resumes the failed turn without duplicating the user
+  message; Esc dismisses. Manual cancellation does not open an error dialog,
+  and interrupted streams release the composer. Error actions stay visible
+  when long messages must be clipped to fit the terminal.
 
 ### Added
 

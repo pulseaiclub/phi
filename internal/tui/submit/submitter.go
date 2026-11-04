@@ -30,9 +30,11 @@ type Submitter struct {
 	permissionActive  func() bool
 	continueActive    func() bool
 	confirmActive     func() bool
+	errorActive       func() bool
 	resolvePermission func(controller.AskReply)
 	resolveContinue   func(controller.ContinueReply)
 	resolveConfirm    func(controller.ExtConfirmReply)
+	resolveError      func(controller.ErrorReply)
 }
 
 // NewSubmitter builds a Submitter from explicit collaborators (no *Editor back-pointer).
@@ -48,9 +50,11 @@ func NewSubmitter(
 	permissionActive func() bool,
 	continueActive func() bool,
 	confirmActive func() bool,
+	errorActive func() bool,
 	resolvePermission func(controller.AskReply),
 	resolveContinue func(controller.ContinueReply),
 	resolveConfirm func(controller.ExtConfirmReply),
+	resolveError func(controller.ErrorReply),
 ) *Submitter {
 	return &Submitter{
 		ctrl:              ctrl,
@@ -64,9 +68,11 @@ func NewSubmitter(
 		permissionActive:  permissionActive,
 		continueActive:    continueActive,
 		confirmActive:     confirmActive,
+		errorActive:       errorActive,
 		resolvePermission: resolvePermission,
 		resolveContinue:   resolveContinue,
 		resolveConfirm:    resolveConfirm,
+		resolveError:      resolveError,
 	}
 }
 
@@ -188,6 +194,9 @@ func (s *Submitter) Cancel() {
 	if s.resolveConfirm != nil && s.confirmActive != nil && s.confirmActive() {
 		s.resolveConfirm(controller.ExtConfirmReply{})
 	}
+	if s.resolveError != nil && s.errorActive != nil && s.errorActive() {
+		s.resolveError(controller.ErrorReply{})
+	}
 	if s.bash.Cancel() {
 		return
 	}
@@ -215,7 +224,8 @@ func (s *Submitter) IsBusy() bool {
 func (s *Submitter) StreamActive() bool {
 	if s.IsBusy() ||
 		(s.permissionActive != nil && s.permissionActive()) ||
-		(s.continueActive != nil && s.continueActive()) {
+		(s.continueActive != nil && s.continueActive()) ||
+		(s.errorActive != nil && s.errorActive()) {
 		return true
 	}
 	switch s.activity.Current {

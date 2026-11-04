@@ -24,11 +24,13 @@ type Overlays struct {
 	perm     *permAskState
 	cont     *continueAskState
 	confirm  *confirmAskState
+	err      *errorAskState
 	activity *controller.ActivityHandler
 	composer overlayComposer
 
-	focusEditor func()
-	focusChat   func()
+	focusEditor    func()
+	focusChat      func()
+	onErrorResolve func(controller.ErrorReply, string)
 }
 
 // NewOverlays builds overlay state handlers.
@@ -37,13 +39,15 @@ func NewOverlays(
 	activity *controller.ActivityHandler,
 	composer overlayComposer,
 	focusEditor, focusChat func(),
+	onErrorResolve func(controller.ErrorReply, string),
 ) *Overlays {
 	return &Overlays{
-		theme:       theme,
-		activity:    activity,
-		composer:    composer,
-		focusEditor: focusEditor,
-		focusChat:   focusChat,
+		theme:          theme,
+		activity:       activity,
+		composer:       composer,
+		focusEditor:    focusEditor,
+		focusChat:      focusChat,
+		onErrorResolve: onErrorResolve,
 	}
 }
 
@@ -56,7 +60,7 @@ func (o *Overlays) SetTheme(th components.Theme) {
 
 // Active reports whether a modal overlay is showing.
 func (o *Overlays) Active() bool {
-	return o != nil && (o.perm != nil || o.cont != nil || o.confirm != nil)
+	return o != nil && (o.perm != nil || o.cont != nil || o.confirm != nil || o.err != nil)
 }
 
 // BlocksComposer reports whether composer input should be disabled.
@@ -92,6 +96,10 @@ func (o *Overlays) Apply(msg controller.OverlayMsg) {
 		o.beginExtConfirm(msg)
 	case controller.OverlayExtConfirmDismiss:
 		o.dismissExtConfirm()
+	case controller.OverlayErrorAsk:
+		o.beginErrorAsk(msg)
+	case controller.OverlayErrorDismiss:
+		o.dismissError()
 	}
 }
 
@@ -129,6 +137,9 @@ func (o *Overlays) PreferredBottomHeight(width int, method xui.WidthMethod) (hei
 	if o.confirm != nil {
 		return o.confirm.preferredAskHeight(), true
 	}
+	if o.err != nil {
+		return o.err.preferredAskHeight(width, method), true
+	}
 	return 0, false
 }
 
@@ -146,6 +157,9 @@ func (o *Overlays) DrawBottom(ctx components.DrawContext, width, height int) (co
 	if o.confirm != nil {
 		return o.drawExtConfirm(ctx, width, height), true
 	}
+	if o.err != nil {
+		return o.drawError(ctx, width, height), true
+	}
 	return components.Surface{}, false
 }
 
@@ -158,6 +172,9 @@ func (o *Overlays) beginPermissionAsk(msg controller.OverlayMsg) {
 	}
 	if o.confirm != nil {
 		o.resolveExtConfirm(controller.ExtConfirmReply{})
+	}
+	if o.err != nil {
+		o.resolveError(controller.ErrorReply{})
 	}
 	if o.composer != nil {
 		o.composer.HideCompleters()
@@ -213,6 +230,9 @@ func (o *Overlays) beginContinueAsk(msg controller.OverlayMsg) {
 	}
 	if o.confirm != nil {
 		o.resolveExtConfirm(controller.ExtConfirmReply{})
+	}
+	if o.err != nil {
+		o.resolveError(controller.ErrorReply{})
 	}
 	if o.composer != nil {
 		o.composer.HideCompleters()

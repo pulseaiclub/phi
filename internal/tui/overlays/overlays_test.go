@@ -12,7 +12,7 @@ import (
 )
 
 func testOverlays(activity *controller.ActivityHandler) *Overlays {
-	return NewOverlays(components.DefaultTheme(), activity, nil, nil, nil)
+	return NewOverlays(components.DefaultTheme(), activity, nil, nil, nil, nil)
 }
 
 func TestResolvePermissionSendsReply(t *testing.T) {

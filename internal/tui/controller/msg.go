@@ -26,9 +26,26 @@ type CancelStreamMsg struct{}
 func (CancelStreamMsg) isMsg() {}
 
 // SessionEventMsg carries a session model event from the agent pipeline.
-type SessionEventMsg struct{ Event session.Event }
+type SessionEventMsg struct {
+	Event session.Event
+	Gen   int // zero for events not owned by a request
+}
 
 func (SessionEventMsg) isMsg() {}
+
+// LoopStartedMsg marks a background submission as pending on the UI thread.
+type LoopStartedMsg struct{ Gen int }
+
+func (LoopStartedMsg) isMsg() {}
+
+// LoopFinishedMsg ends the current stream before optionally showing an error.
+type LoopFinishedMsg struct {
+	Gen       int
+	ErrorText string
+	Cancelled bool
+}
+
+func (LoopFinishedMsg) isMsg() {}
 
 // FooterKind discriminates variants of FooterMsg.
 type FooterKind int
@@ -118,6 +135,8 @@ const (
 	OverlayContinueDismiss
 	OverlayExtConfirm
 	OverlayExtConfirmDismiss
+	OverlayErrorAsk
+	OverlayErrorDismiss
 )
 
 // OverlayMsg drives permission / continue / extension-confirm UI.
@@ -141,6 +160,9 @@ type OverlayMsg struct {
 	No           string
 	Danger       bool
 	ConfirmReply chan ExtConfirmReply
+
+	// Loop-error dialog
+	ErrorText string
 }
 
 func (OverlayMsg) isMsg() {}
