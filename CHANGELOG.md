@@ -12,6 +12,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- Splash sphere gradient now follows the active theme (brand identity color), so
+  a theme switch repaints the hero. The Dark theme keeps its curated teal.
 - Dark theme: composer and panel borders brightened (ANSI 244 → 250) so the
   box edge reads solid instead of a faint hairline on dark backgrounds.
 - Agent/model loop errors now open a modal error dialog (Retry / Copy to
