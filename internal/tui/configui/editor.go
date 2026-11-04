@@ -671,7 +671,9 @@ func (e *ConfigEditor) fetchModels() {
 		defer cancel()
 		ids, err := e.list(ctx, baseURL, apiKey, api, name)
 		e.fetchMu.Lock()
-		e.fetch = fetchState{done: true, index: index, name: name, ids: ids, err: err}
+		// Keep active set until pollFetch consumes the result. This closes the
+		// window where a completed result is waiting but another fetch can start.
+		e.fetch = fetchState{active: true, done: true, index: index, name: name, ids: ids, err: err}
 		e.fetchMu.Unlock()
 		if e.redraw != nil {
 			e.redraw()
