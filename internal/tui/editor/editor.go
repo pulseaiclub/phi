@@ -101,7 +101,6 @@ func NewEditor(
 	e.transcript.SetUsageCallback(e.footer.UpdateTokenDisplay)
 	e.footer.BindComposer(e.composer)
 	e.footer.SetLabelContext(e.transcript.Snapshot)
-	e.footer.SetLiveJobs(e.ctrl.LiveJobCount)
 	e.overlays = overlays.NewOverlays(
 		theme,
 		e.footer.Activity(),

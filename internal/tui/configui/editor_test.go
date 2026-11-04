@@ -736,7 +736,11 @@ func TestFetchDiscardedWhenModelMoves(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
+	fetchStarted := make(chan struct{})
+	releaseFetch := make(chan struct{})
 	list := ModelLister(func(_ context.Context, _, _, _, _ string) ([]string, error) {
+		close(fetchStarted)
+		<-releaseFetch
 		return []string{"alpha", "beta"}, nil
 	})
 	e := New(doc, filepath.Join(home, ".phi", "config.yaml"), filepath.Join(home, ".phi", "skills"),
@@ -747,8 +751,25 @@ func TestFetchDiscardedWhenModelMoves(t *testing.T) {
 	// longer match, and the picker must not open for the wrong model.
 	focus(t, e, modelKey(0, fName))
 	e.fetchModels()
-	require.True(t, e.fetch.active)
+	require.Eventually(t, func() bool {
+		select {
+		case <-fetchStarted:
+			return true
+		default:
+			return false
+		}
+	}, time.Second, time.Millisecond)
+	e.fetchMu.Lock()
+	active := e.fetch.active
+	e.fetchMu.Unlock()
+	require.True(t, active)
 
+	// Delete model 0 (default promotion keeps model 1 as the new default).
+	e.deleteModel(0)
+	require.Len(t, doc.Models, 1)
+	assert.Equal(t, "model-b", doc.Models[0].Name)
+
+	close(releaseFetch)
 	// Drain the background fetch synchronously: it only touches fetchMu state.
 	require.Eventually(t, func() bool {
 		e.fetchMu.Lock()
@@ -756,11 +777,6 @@ func TestFetchDiscardedWhenModelMoves(t *testing.T) {
 		e.fetchMu.Unlock()
 		return done
 	}, time.Second, time.Millisecond)
-
-	// Delete model 0 (default promotion keeps model 1 as the new default).
-	e.deleteModel(0)
-	require.Len(t, doc.Models, 1)
-	assert.Equal(t, "model-b", doc.Models[0].Name)
 
 	e.pollFetch()
 	assert.False(t, e.picker.Open, "picker must not open for a model that moved")

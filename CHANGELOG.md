@@ -10,6 +10,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Removed
 
+- TUI: removed the live sub-agent job count from the bottom footer.
 - CLI: dropped `phi tui` (pure alias of `phi`), the `PHI_OFFLINE` env var
   (self-documented duplicate of `PHI_SKIP_VERSION_CHECK`), and the duplicate
   `phi sessions list` binding (`phi sessions` already lists).
@@ -31,6 +32,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- TUI: A finished model-list fetch stays pending until the config editor
+  applies it, so pressing `f` again reports "already fetching models…" instead
+  of starting a second request that overwrites the first result.
 - MCP: `read mcp://<server>/tools/<tool>` now includes enum values in the
   compact parameter summary (`env:s{dev|prod}`), so the model sees the valid
   choices instead of guessing a value the server rejects. Long enums cap at

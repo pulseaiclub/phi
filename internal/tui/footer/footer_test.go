@@ -29,23 +29,15 @@ func (s *stubComposer) ClearBottomLeftLabel() {
 	s.set = false
 }
 
-func TestDrawCombinesParts(t *testing.T) {
+func TestDrawExtensionStatus(t *testing.T) {
 	f := NewFooterChrome(components.DefaultTheme(), 0)
 	f.SetExtensionStatus(" review ")
-	f.SetLiveJobs(func() int { return 2 })
 	f.Activity().Apply(controller.ActivityCancelled)
 
 	row := components.SurfaceText(f.Draw(components.DrawContext{Method: xui.WidthUnicode}, 40))
-	assert.Contains(t, row, "review · 2 jobs")
+	assert.Contains(t, row, "review")
+	assert.NotContains(t, row, "job")
 	assert.NotContains(t, row, "Stopped")
-}
-
-func TestDrawSingleJobSingular(t *testing.T) {
-	f := NewFooterChrome(components.DefaultTheme(), 0)
-	f.SetLiveJobs(func() int { return 1 })
-
-	row := components.SurfaceText(f.Draw(components.DrawContext{Method: xui.WidthUnicode}, 40))
-	assert.Contains(t, row, "1 job")
 }
 
 func TestDrawEmptyFooter(t *testing.T) {
