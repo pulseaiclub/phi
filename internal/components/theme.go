@@ -61,9 +61,10 @@ func DarkTheme() Theme {
 		Accent:      xui.Style{Fg: xui.RGBColor(0xc4, 0x8a, 0xd9), Underline: true},
 		Warning:     xui.Style{Fg: xui.RGBColor(0xe5, 0xc0, 0x7b)},
 		Destructive: xui.Style{Fg: xui.RGBColor(0xe0, 0x6c, 0x75)},
-		// One gray step under the Muted(245) chrome labels it frames; 240 read
-		// as a hairline.
-		Border:      xui.Style{Fg: xui.IndexedColor(244)},
+		// Bright silver (250): the composer frame must read as a solid line,
+		// not a hairline — it intentionally sits above the dimmed Muted(245)
+		// labels it frames.
+		Border:      xui.Style{Fg: xui.IndexedColor(250)},
 		ToolName:    info,
 		SelectionBg: xui.Style{Bg: xui.RGBColor(0x2a, 0x3f, 0x5f)},
 		SelectionFg: xui.Style{Fg: xui.RGBColor(0xf0, 0xf3, 0xf8), Bold: true},

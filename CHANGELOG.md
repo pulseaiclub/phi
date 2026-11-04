@@ -12,6 +12,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- Dark theme: composer and panel borders brightened (ANSI 244 → 250) so the
+  box edge reads solid instead of a faint hairline on dark backgrounds.
+
 ### Added
 
 ### Fixed
