@@ -325,6 +325,24 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 		if err := ctx.Err(); err != nil {
 			return
 		}
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		next := yield
+		stopped := false
+		// Helpers may emit cleanup events after a consumer stops. Never send
+		// those back into an exited range body, and cancel any remaining work.
+		// Executor serializes concurrent tool emits and joins before returning.
+		yield = func(ev session.Event, err error) bool {
+			if stopped {
+				return false
+			}
+			if !next(ev, err) {
+				stopped = true
+				cancel()
+				return false
+			}
+			return true
+		}
 
 		var content string
 		if !opts.Resume {

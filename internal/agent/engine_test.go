@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/llm"
@@ -680,6 +681,44 @@ func TestLoopCanceledBeforeStartDoesNotAppendOrCallback(t *testing.T) {
 	require.False(t, called)
 	require.Empty(t, sess.BuildContext())
 	require.Empty(t, client.calls)
+}
+
+func TestLoopStopsAfterConsumerCancelsDuringPartialStreamError(t *testing.T) {
+	sess, err := NewSession(WithCwd(t.TempDir()))
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	client := &stubChatClient{streams: []func(context.Context, []llm.Message) iter.Seq2[llm.StreamEvent, error]{
+		func(_ context.Context, _ []llm.Message) iter.Seq2[llm.StreamEvent, error] {
+			return func(yield func(llm.StreamEvent, error) bool) {
+				if !yield(llm.StreamEvent{
+					Type:  llm.StreamEventTypeDelta,
+					Delta: llm.StreamDelta{ReasoningContent: "thinking"},
+				}, nil) {
+					return
+				}
+				cancel()
+				yield(llm.StreamEvent{}, errors.New("provider stopped"))
+			}
+		},
+	}}
+	engine, err := NewEngine(llm.ModelConfig{Name: "stub"}, sess, WithTools([]tooldef.Tool{}))
+	require.NoError(t, err)
+	engine.client = client
+
+	var events int
+	engine.Loop(ctx, "stop this", LoopOpts{})(func(event session.Event, err error) bool {
+		events++
+		assert.NoError(t, err)
+		if ctx.Err() != nil {
+			update, ok := event.(session.AssistantMessageUpdate)
+			assert.True(t, ok)
+			assert.Equal(t, session.StateError, update.Message.State)
+			return false
+		}
+		return true
+	})
+	require.Equal(t, 2, events, "consumer must not be called again after returning false")
 }
 
 // fakeCompactClient drives runCompact without a server; Stream is unused.

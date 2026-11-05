@@ -30,6 +30,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Cancelling an agent response with Esc after partial thinking or text no longer
+  panics when the provider reports an error during cancellation. Cleanup events
+  from compaction and tool batches also stop reaching an exited consumer.
+
 ### Security
 
 <!-- Released section -->
