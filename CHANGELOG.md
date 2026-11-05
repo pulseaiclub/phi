@@ -12,6 +12,21 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+### Added
+
+### Fixed
+
+### Security
+
+<!-- Released section -->
+<!-- Don't change this section unless doing release -->
+
+## [0.29.7] - 2026-11-05
+
+### Removed
+
+### Changed
+
 - Splash sphere gradient now follows the active theme (brand identity color), so
   a theme switch repaints the hero. The Dark theme keeps its curated teal.
 - Dark theme: composer and panel borders brightened (ANSI 244 → 250) so the
@@ -35,9 +50,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   from compaction and tool batches also stop reaching an exited consumer.
 
 ### Security
-
-<!-- Released section -->
-<!-- Don't change this section unless doing release -->
 
 ## [0.29.6] - 2026-11-04
 
@@ -1424,7 +1436,8 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.29.6...HEAD
+[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.29.7...HEAD
+[0.29.7]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.7
 [0.29.6]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.6
 [0.29.5]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.5
 [0.29.4]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.4
