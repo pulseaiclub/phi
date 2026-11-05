@@ -16,6 +16,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Extension confirmation dialogs restore the prior activity, so idle slash
+  commands remain idle after confirmation.
+
 ### Security
 
 <!-- Released section -->
