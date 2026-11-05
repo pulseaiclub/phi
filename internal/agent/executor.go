@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -56,7 +57,6 @@ func (e *Executor) SetMeta(sessionID, cwd string) {
 	}
 	e.sessionID = sessionID
 	e.cwd = cwd
-	e.ext.SetMeta(sessionID, cwd)
 }
 
 // Run executes tool calls and yields ToolData updates via emit.
@@ -190,19 +190,30 @@ func (e *Executor) runOne(
 		return e.toolMessage(call.ID, errText), false, ""
 	}
 
+	executionID := ""
+	if e.ext != nil {
+		executionID = rand.Text()
+	}
 	e.ext.EmitToolExecutionStart(call.Function.Name, call.ID, args)
 
 	// ExtensionPre → Gate → Run → ExtensionPost. Pre runs before permission Ask
 	// so org policy can deny without prompting the user.
 	var preContext string
-	newArgs, blocked, reason, ctxText := e.ext.PreTool(ctx, call.Function.Name, call.ID, args)
+	newArgs, blocked, reason, ctxText := e.ext.PreTool(
+		ctx,
+		call.Function.Name,
+		call.ID,
+		args,
+		executionID,
+		tool.Permission,
+	)
 	preContext = ctxText
 	if blocked {
 		if reason == "" {
 			reason = "tool execution denied by extension"
 		}
 		reason = appendExtContext(reason, preContext)
-		e.ext.EmitToolExecutionEnd(call.Function.Name, call.ID, true)
+		e.ext.EmitToolExecutionEnd(call.Function.Name, call.ID, true, executionID)
 		return e.rejectResult(call, detail, reason, emit), false, ""
 	}
 	if len(newArgs) > 0 {
@@ -217,7 +228,7 @@ func (e *Executor) runOne(
 	}
 
 	if msg, rejected := e.checkPermission(ctx, call, args, detail, emit); rejected {
-		e.ext.EmitToolExecutionEnd(call.Function.Name, call.ID, true)
+		e.ext.EmitToolExecutionEnd(call.Function.Name, call.ID, true, executionID)
 		return msg, false, ""
 	}
 
@@ -230,7 +241,7 @@ func (e *Executor) runOne(
 	)
 	if err != nil {
 		if ctx.Err() != nil {
-			e.ext.EmitToolExecutionEnd(call.Function.Name, call.ID, true)
+			e.ext.EmitToolExecutionEnd(call.Function.Name, call.ID, true, executionID)
 			return e.cancelResult(call, emit), false, ""
 		}
 		errText = err.Error()
@@ -270,7 +281,7 @@ func (e *Executor) runOne(
 		content = newContent
 		output = newContent
 	}
-	e.ext.EmitToolExecutionEnd(call.Function.Name, call.ID, err != nil)
+	e.ext.EmitToolExecutionEnd(call.Function.Name, call.ID, err != nil, executionID)
 
 	modelContent := appendExtContext(content, joinExtContexts(preContext, postContext))
 

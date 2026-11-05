@@ -5,18 +5,21 @@ import (
 	"encoding/json"
 )
 
-// ToolCallEvent is emitted before Gate for each tool invocation.
+// ToolCallEvent is emitted before Gate. tool_call can rewrite arguments;
+// tool_prepare runs after every rewrite and can add context or veto execution.
 type ToolCallEvent struct {
-	ToolName   string
-	ToolCallID string
-	Input      json.RawMessage
+	ExecutionID string   // host-generated identity for one execution, independent of model call IDs
+	Paths       []string // declared targets, with local paths resolved against the execution directory
+	ToolName    string
+	ToolCallID  string
+	Input       json.RawMessage
 }
 
 // ToolCallResult may block or rewrite tool input.
 type ToolCallResult struct {
 	Block   bool
 	Reason  string
-	Input   json.RawMessage // optional rewrite; empty keeps current
+	Input   json.RawMessage // tool_call only: optional rewrite; empty keeps current
 	Context string          // injected into model tool result only
 }
 
@@ -46,9 +49,10 @@ type ToolExecutionStartEvent struct {
 }
 
 type ToolExecutionEndEvent struct {
-	ToolName   string
-	ToolCallID string
-	IsError    bool
+	ExecutionID string
+	ToolName    string
+	ToolCallID  string
+	IsError     bool
 }
 
 // SessionStartEvent is emitted when a session becomes active.

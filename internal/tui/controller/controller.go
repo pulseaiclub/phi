@@ -341,6 +341,7 @@ func (c *EngineController) bindExtensionHost(r *extension.Runner) {
 		cwd = c.proj.Root()
 	}
 	r.Bind(ext.HostOpts{
+		HostRequest: c.extensionHostRequest,
 		UI: extension.BusUI{
 			NotifyFn: func(message, kind string) {
 				toastKind := toast.ToastSuccess
@@ -643,6 +644,9 @@ func (c *EngineController) NewSession() error {
 }
 
 func (c *EngineController) beginSessionSwitch(reason, targetID string, cancelStream bool) (prevID string, err error) {
+	if c.jobs != nil && c.jobs.LiveCount() > 0 {
+		return "", errors.New("cannot switch sessions while sub-agents are running; wait for or cancel the jobs")
+	}
 	if c.sessionDir == "" {
 		return "", errors.New("session directory not configured")
 	}

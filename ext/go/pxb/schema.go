@@ -166,17 +166,19 @@ type ToolResultMsg struct {
 
 // InterceptReq is host→ext for a blocking decision point.
 type InterceptReq struct {
-	Event      uint16 `pxb:"1"`
-	ToolName   string `pxb:"2"`
-	ToolCallID string `pxb:"3"`
-	Input      []byte `pxb:"4"`
-	Content    string `pxb:"5"`
-	IsError    bool   `pxb:"6"`
-	ErrText    string `pxb:"7"`
-	Prompt     string `pxb:"8"`
-	Reason     string `pxb:"9"`
-	TargetID   string `pxb:"10"`
-	TurnIndex  uint32 `pxb:"11"`
+	Event       uint16 `pxb:"1"`
+	ToolName    string `pxb:"2"`
+	ToolCallID  string `pxb:"3"`
+	Input       []byte `pxb:"4"`
+	Content     string `pxb:"5"`
+	IsError     bool   `pxb:"6"`
+	ErrText     string `pxb:"7"`
+	Prompt      string `pxb:"8"`
+	Reason      string `pxb:"9"`
+	TargetID    string `pxb:"10"`
+	TurnIndex   uint32 `pxb:"11"`
+	PathsJSON   []byte `pxb:"12"`
+	ExecutionID string `pxb:"13"`
 }
 
 // InterceptResp is ext→host.
@@ -208,6 +210,7 @@ type EventNotify struct {
 	SessionID         string `pxb:"9"`
 	PreviousSessionID string `pxb:"10"`
 	TargetSessionID   string `pxb:"11"`
+	ExecutionID       string `pxb:"12"`
 }
 
 // NotifyMsg is ext→host UI toast/status.

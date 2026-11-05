@@ -1,0 +1,75 @@
+package controller
+
+import (
+	"context"
+	"errors"
+
+	ext "github.com/pulseaiclub/phi/ext/go"
+	"github.com/pulseaiclub/phi/ext/go/pxb"
+)
+
+// ExtHostRequestMsg keeps extension requests on the UI goroutine, which owns
+// the session and picker. Dismiss only closes the matching timed-out picker.
+type ExtHostRequestMsg struct {
+	Context context.Context
+	Request pxb.HostRequest
+	Reply   chan pxb.HostResult
+	Dismiss bool
+}
+
+func (ExtHostRequestMsg) isMsg() {}
+
+func (c *EngineController) extensionHostRequest(req pxb.HostRequest) pxb.HostResult {
+	ctx, cancel := context.WithTimeout(context.Background(), c.askTimeout())
+	defer cancel()
+	reply := make(chan pxb.HostResult, 1)
+	msg := ExtHostRequestMsg{Context: ctx, Request: req, Reply: reply}
+	c.publish(msg)
+	select {
+	case r := <-reply:
+		return r
+	case <-ctx.Done():
+		msg.Dismiss = true
+		c.publish(msg)
+		return pxb.HostResult{Error: ctx.Err().Error()}
+	}
+}
+
+func (c *EngineController) SessionTurns() []ext.SessionTurn {
+	if c.engine == nil || c.engine.Session() == nil {
+		return nil
+	}
+	var turns []ext.SessionTurn
+	for _, msg := range c.engine.Session().UserTurns() {
+		turns = append(turns, ext.SessionTurn{EntryID: msg.ID, Text: msg.Message.Content, Timestamp: msg.Timestamp})
+	}
+	return turns
+}
+
+func (c *EngineController) RewindSession(req ext.RewindRequest) (string, error) {
+	if c.engine == nil || req.SessionID != c.SessionID() {
+		return "", errors.New("session changed; reopen the turn picker")
+	}
+	if c.jobs != nil && c.jobs.LiveCount() > 0 {
+		return "", errors.New("cannot rewind while sub-agents are running; wait for or cancel the jobs")
+	}
+	if req.ValidateOnly {
+		for _, turn := range c.SessionTurns() {
+			if turn.EntryID == req.EntryID {
+				return "", nil
+			}
+		}
+		return "", errors.New("selected turn is no longer on the current branch; reopen the turn picker")
+	}
+	text, err := c.engine.Session().RewindTo(req.EntryID)
+	if err != nil {
+		return "", err
+	}
+	c.streamMu.Lock()
+	c.retryReady = false
+	c.lastPrompt = LastPrompt{}
+	c.promptAppended = false
+	c.streamGen++
+	c.streamMu.Unlock()
+	return text, nil
+}

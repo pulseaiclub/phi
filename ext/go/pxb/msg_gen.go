@@ -824,17 +824,19 @@ func DecodeToolResult(b []byte) (ToolResultMsg, error) {
 
 // InterceptReq field tags.
 const (
-	fInterceptReqEvent      uint16 = 1
-	fInterceptReqToolName   uint16 = 2
-	fInterceptReqToolCallID uint16 = 3
-	fInterceptReqInput      uint16 = 4
-	fInterceptReqContent    uint16 = 5
-	fInterceptReqIsError    uint16 = 6
-	fInterceptReqErrText    uint16 = 7
-	fInterceptReqPrompt     uint16 = 8
-	fInterceptReqReason     uint16 = 9
-	fInterceptReqTargetID   uint16 = 10
-	fInterceptReqTurnIndex  uint16 = 11
+	fInterceptReqEvent       uint16 = 1
+	fInterceptReqToolName    uint16 = 2
+	fInterceptReqToolCallID  uint16 = 3
+	fInterceptReqInput       uint16 = 4
+	fInterceptReqContent     uint16 = 5
+	fInterceptReqIsError     uint16 = 6
+	fInterceptReqErrText     uint16 = 7
+	fInterceptReqPrompt      uint16 = 8
+	fInterceptReqReason      uint16 = 9
+	fInterceptReqTargetID    uint16 = 10
+	fInterceptReqTurnIndex   uint16 = 11
+	fInterceptReqPathsJSON   uint16 = 12
+	fInterceptReqExecutionID uint16 = 13
 )
 
 // sizeInterceptReq is the exact wire size of msg.
@@ -851,6 +853,8 @@ func sizeInterceptReq(msg InterceptReq) int {
 	n += strSize(msg.Reason)
 	n += strSize(msg.TargetID)
 	n += u64FieldSize
+	n += blobSize(msg.PathsJSON)
+	n += strSize(msg.ExecutionID)
 	return n
 }
 
@@ -871,6 +875,8 @@ func EncodeInterceptReq(msg InterceptReq) []byte {
 	fw.putString(fInterceptReqReason, msg.Reason)
 	fw.putString(fInterceptReqTargetID, msg.TargetID)
 	fw.putU32(fInterceptReqTurnIndex, msg.TurnIndex)
+	fw.putBytes(fInterceptReqPathsJSON, msg.PathsJSON)
+	fw.putString(fInterceptReqExecutionID, msg.ExecutionID)
 	return fw.bytes()
 }
 
@@ -921,6 +927,14 @@ func DecodeInterceptReq(b []byte) (InterceptReq, error) {
 		case fInterceptReqTurnIndex:
 			v, err := takeU64(kind, fr)
 			msg.TurnIndex = uint32(v) //nolint:gosec // G115: u32 by protocol
+			return err
+		case fInterceptReqPathsJSON:
+			p, err := takeBytes(kind, fr)
+			msg.PathsJSON = append([]byte(nil), p...)
+			return err
+		case fInterceptReqExecutionID:
+			s, err := takeString(kind, fr)
+			msg.ExecutionID = s
 			return err
 		default:
 			return fr.skip(kind)
@@ -1056,6 +1070,7 @@ const (
 	fEventNotifySessionID         uint16 = 9
 	fEventNotifyPreviousSessionID uint16 = 10
 	fEventNotifyTargetSessionID   uint16 = 11
+	fEventNotifyExecutionID       uint16 = 12
 )
 
 // sizeEventNotify is the exact wire size of msg.
@@ -1072,6 +1087,7 @@ func sizeEventNotify(msg EventNotify) int {
 	n += strSize(msg.SessionID)
 	n += strSize(msg.PreviousSessionID)
 	n += strSize(msg.TargetSessionID)
+	n += strSize(msg.ExecutionID)
 	return n
 }
 
@@ -1092,6 +1108,7 @@ func EncodeEventNotify(msg EventNotify) []byte {
 	fw.putString(fEventNotifySessionID, msg.SessionID)
 	fw.putString(fEventNotifyPreviousSessionID, msg.PreviousSessionID)
 	fw.putString(fEventNotifyTargetSessionID, msg.TargetSessionID)
+	fw.putString(fEventNotifyExecutionID, msg.ExecutionID)
 	return fw.bytes()
 }
 
@@ -1142,6 +1159,10 @@ func DecodeEventNotify(b []byte) (EventNotify, error) {
 		case fEventNotifyTargetSessionID:
 			s, err := takeString(kind, fr)
 			msg.TargetSessionID = s
+			return err
+		case fEventNotifyExecutionID:
+			s, err := takeString(kind, fr)
+			msg.ExecutionID = s
 			return err
 		default:
 			return fr.skip(kind)

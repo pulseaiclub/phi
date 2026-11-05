@@ -30,6 +30,7 @@ type ExtensionAPI struct {
 	activeModels map[uint32]context.CancelFunc
 
 	onToolCall            func(ext.ToolCallEvent) *ext.ToolCallResult
+	onToolPrepare         func(ext.ToolCallEvent) *ext.ToolCallResult
 	onToolResult          func(ext.ToolResultEvent) *ext.ToolResultResult
 	onBeforeAgentStart    func(ext.BeforeAgentStartEvent) *ext.BeforeAgentStartResult
 	onSessionBeforeSwitch func(ext.SessionBeforeSwitchEvent) *ext.SessionBeforeSwitchResult
@@ -127,6 +128,15 @@ func (extension *ExtensionAPI) OnToolCall(fn func(ext.ToolCallEvent) *ext.ToolCa
 	defer extension.mu.Unlock()
 	extension.onToolCall = fn
 	extension.intercept = appendUnique(extension.intercept, pxb.EvToolCall)
+}
+
+// OnToolPrepare runs after all argument rewrites, before the permission gate.
+// It may veto execution but must not return replacement input.
+func (extension *ExtensionAPI) OnToolPrepare(fn func(ext.ToolCallEvent) *ext.ToolCallResult) {
+	extension.mu.Lock()
+	defer extension.mu.Unlock()
+	extension.onToolPrepare = fn
+	extension.intercept = appendUnique(extension.intercept, pxb.EvToolPrepare)
 }
 
 // OnToolResult registers a post-tool intercept.
@@ -236,13 +246,21 @@ func (extension *ExtensionAPI) Confirm(title, message string) bool {
 
 // ConfirmOpts is Confirm with labels / danger styling.
 func (extension *ExtensionAPI) ConfirmOpts(req ext.ConfirmRequest) ext.ConfirmReply {
+	res, _ := extension.hostCall("confirm", req)
+	return ext.ConfirmReply{OK: res.OK}
+}
+
+func (extension *ExtensionAPI) hostCall(method string, arg any) (pxb.HostResult, error) {
 	if extension.wr == nil || extension.rd == nil || extension.stopped() {
-		return ext.ConfirmReply{}
+		return pxb.HostResult{}, errors.New("phi: host is not connected")
 	}
-	payload, _ := json.Marshal(req)
+	payload, err := json.Marshal(arg)
+	if err != nil {
+		return pxb.HostResult{}, err
+	}
 	id := extension.nextHostID.Add(1)
 	extension.write(pxb.TypeHostRequest, pxb.FlagHasID, id, pxb.EncodeHostRequest(pxb.HostRequest{
-		Method: "confirm", Arg: string(payload),
+		Method: method, Arg: string(payload),
 	}))
 	if extension.stopped() {
 		panic(confirmStopped{})
@@ -264,7 +282,10 @@ func (extension *ExtensionAPI) ConfirmOpts(req ext.ConfirmRequest) ext.ConfirmRe
 				extension.fail(err)
 				panic(confirmStopped{})
 			}
-			return ext.ConfirmReply{OK: res.OK}
+			if res.Error != "" {
+				return res, errors.New(res.Error)
+			}
+			return res, nil
 		case pxb.TypeShutdown:
 			extension.write(pxb.TypeShutdownAck, 0, 0, nil)
 			extension.mu.Lock()
@@ -645,12 +666,19 @@ func buildModelRequest(inv pxb.ModelInvoke) (ext.ModelRequest, error) {
 
 func (extension *ExtensionAPI) handleIntercept(req pxb.InterceptReq) pxb.InterceptResp {
 	switch req.Event {
-	case pxb.EvToolCall:
-		if extension.onToolCall == nil {
+	case pxb.EvToolCall, pxb.EvToolPrepare:
+		handler := extension.onToolCall
+		if req.Event == pxb.EvToolPrepare {
+			handler = extension.onToolPrepare
+		}
+		if handler == nil {
 			return pxb.InterceptResp{}
 		}
-		r := extension.onToolCall(ext.ToolCallEvent{
+		var paths []string
+		_ = json.Unmarshal(req.PathsJSON, &paths)
+		r := handler(ext.ToolCallEvent{
 			ToolName: req.ToolName, ToolCallID: req.ToolCallID, Input: req.Input,
+			Paths: paths, ExecutionID: req.ExecutionID,
 		})
 		if r == nil {
 			return pxb.InterceptResp{}

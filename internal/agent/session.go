@@ -282,3 +282,18 @@ func (s *Session) AddUser(text string) error {
 		Content: text,
 	})
 }
+
+func (s *Session) UserTurns() []session.SessionMessageEntry { return s.manager.UserTurns() }
+
+func (s *Session) RewindTo(entryID string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	text, err := s.manager.RewindTo(entryID)
+	if err != nil {
+		return "", err
+	}
+	s.lastID = s.manager.LeafID()
+	s.contextCacheValid = false
+	s.contextCache = nil
+	return text, nil
+}

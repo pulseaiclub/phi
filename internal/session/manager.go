@@ -299,7 +299,11 @@ func (sm *Manager) ModelName() string {
 // modelName requires sm.mu to be held. Compaction limits message context,
 // but model selection may live anywhere on the selected branch.
 func (sm *Manager) modelName() string {
-	for id := sm.leafID; id != nil; {
+	return sm.modelNameAt(sm.leafID)
+}
+
+func (sm *Manager) modelNameAt(leaf *string) string {
+	for id := leaf; id != nil; {
 		entry, ok := sm.byIDs[*id]
 		if !ok {
 			break

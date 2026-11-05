@@ -156,6 +156,7 @@ func NewEditor(
 		e.overlays.ResolveConfirm,
 		e.overlays.ResolveError,
 	)
+	e.submitter.SetCommandBusy(e.extCmds.Running)
 	builtins.Bind(
 		e.submitter,
 		cmdCtx,
@@ -199,6 +200,8 @@ func (e *Editor) Publish(m controller.Msg) {
 // Update applies one message on the UI goroutine.
 func (e *Editor) Update(m controller.Msg) {
 	switch msg := m.(type) {
+	case controller.ExtHostRequestMsg:
+		e.applyExtensionRequest(msg)
 	case controller.SubmitMsg:
 		e.submitter.Submit(msg.Text)
 	case controller.CancelStreamMsg:

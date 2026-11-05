@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	ext "github.com/pulseaiclub/phi/ext/go"
 	"github.com/pulseaiclub/phi/ext/go/pxb"
 )
 
@@ -18,6 +19,29 @@ import (
 type testSink struct {
 	notify  func(pxb.NotifyMsg)
 	hostReq func(id uint32, hasID bool, req pxb.HostRequest)
+}
+
+func TestRunnerForwardsHostRequests(t *testing.T) {
+	rd, wr := io.Pipe()
+	defer rd.Close()
+	defer wr.Close()
+	p := &Proc{wr: pxb.NewWriter(wr)}
+	r := NewRunner(t.TempDir())
+	requests := make(chan pxb.HostRequest, 1)
+	r.Bind(ext.HostOpts{HostRequest: func(req pxb.HostRequest) pxb.HostResult {
+		requests <- req
+		return pxb.HostResult{OK: true, Body: "1"}
+	}})
+	req := pxb.HostRequest{Method: "select", Arg: `{"title":"Pick","items":[{"label":"first"},{"label":"second"}]}`}
+	r.handleHostRequest(p, 42, true, req, nil, nil)
+	frame, err := pxb.NewReader(rd).Read()
+	require.NoError(t, err)
+	require.Equal(t, pxb.TypeHostResult, frame.Type)
+	require.Equal(t, uint32(42), frame.ID)
+	require.Equal(t, req, <-requests)
+	result, err := pxb.DecodeHostResult(frame.Body)
+	require.NoError(t, err)
+	require.Equal(t, pxb.HostResult{OK: true, Body: "1"}, result)
 }
 
 func (s testSink) Notify(n pxb.NotifyMsg) {

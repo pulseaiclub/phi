@@ -230,7 +230,7 @@ func (s procSink) HostRequest(id uint32, hasID bool, req pxb.HostRequest) {
 	s.runner.handleHostRequest(s.proc, id, hasID, req, s.ui, s.sendUser)
 }
 
-func (*Runner) handleHostRequest(
+func (r *Runner) handleHostRequest(
 	p *Proc,
 	id uint32,
 	hasID bool,
@@ -264,6 +264,15 @@ func (*Runner) handleHostRequest(
 			}
 		}()
 	default:
+		if request := r.hostOpts().HostRequest; request != nil {
+			go func() {
+				res := request(req)
+				if hasID {
+					p.ReplyHost(id, res)
+				}
+			}()
+			return
+		}
 		debuglog.Logf("extension: unknown host request %q", req.Method)
 		if hasID {
 			p.ReplyHost(id, pxb.HostResult{OK: false, Error: "unknown method"})
@@ -416,33 +425,48 @@ func (r *Runner) RunCommand(name, args string) (CommandOutcome, error) {
 	return CommandOutcome{}, fmt.Errorf("extension: command %q not found", name)
 }
 
-// PreTool runs tool_call handlers serially. First block wins; input rewrites chain.
+// PreTool runs all tool_call rewrites, then tool_prepare handlers against the
+// final arguments. Both phases can block execution before the permission gate.
 func (r *Runner) PreTool(
 	ctx context.Context,
 	toolName, toolCallID string,
 	input json.RawMessage,
+	executionID string,
+	declarations ...tooldef.Permission,
 ) (json.RawMessage, bool, string, string) {
 	if r == nil {
 		return input, false, "", ""
 	}
-	ev := ext.ToolCallEvent{ToolName: toolName, ToolCallID: toolCallID, Input: input}
+	ev := ext.ToolCallEvent{ToolName: toolName, ToolCallID: toolCallID, Input: input, ExecutionID: executionID}
+	cwd, _ := tooldef.Cwd(ctx)
 	var contexts []string
-	for _, h := range r.handlers(ext.EventToolCall) {
-		if ctx.Err() != nil {
-			break
-		}
-		res := callToolCall(h, ev, r.context())
-		if res == nil {
-			continue
-		}
-		if len(res.Input) > 0 {
-			ev.Input = res.Input
-		}
-		if res.Context != "" {
-			contexts = append(contexts, res.Context)
-		}
-		if res.Block {
-			return ev.Input, true, res.Reason, util.TruncateBytes(strings.Join(contexts, "\n"), maxContextBytes, "")
+	for _, event := range []string{ext.EventToolCall, ext.EventToolPrepare} {
+		for _, h := range r.handlers(event) {
+			if ctx.Err() != nil {
+				return ev.Input, true, ctx.Err().Error(), ""
+			}
+			// Resolve the current args after earlier interceptors' rewrites. This
+			// only reads the declaration; the executor still gates the final args.
+			if len(declarations) > 0 && declarations[0] != nil {
+				req, _ := declarations[0](ev.Input, cwd)
+				ev.Paths = req.Paths
+			}
+			res := callToolCall(h, ev, r.context())
+			if res == nil {
+				continue
+			}
+			if len(res.Input) > 0 {
+				if event == ext.EventToolPrepare {
+					return ev.Input, true, "tool_prepare cannot rewrite arguments; use tool_call for transformations", ""
+				}
+				ev.Input = res.Input
+			}
+			if res.Context != "" {
+				contexts = append(contexts, res.Context)
+			}
+			if res.Block {
+				return ev.Input, true, res.Reason, util.TruncateBytes(strings.Join(contexts, "\n"), maxContextBytes, "")
+			}
 		}
 	}
 	return ev.Input, false, "", util.TruncateBytes(strings.Join(contexts, "\n"), maxContextBytes, "")
@@ -565,10 +589,10 @@ func (r *Runner) EmitToolExecutionStart(toolName, id string, args json.RawMessag
 	)
 }
 
-func (r *Runner) EmitToolExecutionEnd(toolName, id string, isError bool) {
+func (r *Runner) EmitToolExecutionEnd(toolName, id string, isError bool, executionID string) {
 	r.emitNotify(
 		ext.EventToolExecutionEnd,
-		ext.ToolExecutionEndEvent{ToolName: toolName, ToolCallID: id, IsError: isError},
+		ext.ToolExecutionEndEvent{ToolName: toolName, ToolCallID: id, IsError: isError, ExecutionID: executionID},
 	)
 }
 

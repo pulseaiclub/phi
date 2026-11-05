@@ -23,6 +23,7 @@ const (
 	EntryMessage     = "EntryMessage"
 	EntryCompaction  = "EntryCompaction"
 	EntryModelChange = "EntryModelChange"
+	EntryLeaf        = "EntryLeaf"
 )
 
 // SessionHeader is the root entry of a session file.
@@ -56,6 +57,14 @@ type SessionBaseEntry struct {
 	ParentID  *string   `json:"parentID"` // null for root entries
 	Timestamp time.Time `json:"timestamp"`
 }
+
+// LeafEntry persists a branch cursor without deleting abandoned history.
+// ParentID is the desired leaf, including nil for an empty conversation.
+type LeafEntry struct{ SessionBaseEntry }
+
+func (LeafEntry) GetType() string      { return EntryLeaf }
+func (e LeafEntry) GetID() string      { return e.ID }
+func (e LeafEntry) GetParent() *string { return e.ParentID }
 
 // SessionMessageEntry wraps an LLM message as a session tree node.
 // Usage lives here (not on llm.Message, whose Usage is json:"-" and so is

@@ -180,6 +180,7 @@ pub enum Event {
     TurnStopping,
     SessionCompact,
     PaneAction,
+    ToolPrepare,
     Unknown(u16),
 }
 
@@ -204,6 +205,7 @@ impl Event {
             14 => Self::TurnStopping,
             15 => Self::SessionCompact,
             16 => Self::PaneAction,
+            17 => Self::ToolPrepare,
             other => Self::Unknown(other),
         }
     }
@@ -226,6 +228,7 @@ impl Event {
             Self::TurnStopping => 14,
             Self::SessionCompact => 15,
             Self::PaneAction => 16,
+            Self::ToolPrepare => 17,
             Self::Unknown(v) => v,
         }
     }
@@ -249,6 +252,7 @@ impl Event {
             Self::TurnStopping => "turn_stopping",
             Self::SessionCompact => "session_compact",
             Self::PaneAction => "pane_action",
+            Self::ToolPrepare => "tool_prepare",
             Self::Unknown(_) => "",
         }
     }
@@ -273,6 +277,7 @@ impl Event {
             "turn_stopping" => Self::TurnStopping,
             "session_compact" => Self::SessionCompact,
             "pane_action" => Self::PaneAction,
+            "tool_prepare" => Self::ToolPrepare,
             _ => Self::Unknown(0),
         }
     }
@@ -295,7 +300,7 @@ mod tests {
 
     #[test]
     fn event_name_and_code_roundtrip() {
-        for code in 1..=16 {
+        for code in 1..=17 {
             let ev = Event::from_code(code);
             assert_eq!(ev.code(), code);
             assert_eq!(Event::from_name(ev.name()), ev);

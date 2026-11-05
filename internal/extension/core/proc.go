@@ -698,7 +698,8 @@ func (p *Proc) CallToolDetail(ctx context.Context, name string, args json.RawMes
 // CallCommand runs a slash command.
 func (p *Proc) CallCommand(ctx context.Context, name, args string) (pxb.CommandResponse, error) {
 	body := pxb.EncodeCommandInvoked(pxb.CommandInvoked{Name: name, Args: args})
-	f, err := p.rpc(ctx, pxb.TypeCommandInvoked, body, pxb.TypeCommandResponse)
+	// Interactive commands can wait through several host dialogs.
+	f, err := p.rpcWait(ctx, pxb.TypeCommandInvoked, body, pxb.TypeCommandResponse, rpcTimeoutMax)
 	if err != nil {
 		return pxb.CommandResponse{}, err
 	}
@@ -981,16 +982,31 @@ func (p *Proc) registerInterceptShims(api *ext.API) {
 			api.On(event, handler)
 		}
 	}
-	on(pxb.EvToolCall, ext.EventToolCall, func(ev ext.ToolCallEvent, _ *ext.Context) *ext.ToolCallResult {
-		resp, err := p.Intercept(context.Background(), pxb.InterceptReq{
-			Event: pxb.EvToolCall, ToolName: ev.ToolName, ToolCallID: ev.ToolCallID, Input: ev.Input,
+	for _, event := range []struct {
+		code uint16
+		name string
+	}{
+		{pxb.EvToolCall, ext.EventToolCall}, {pxb.EvToolPrepare, ext.EventToolPrepare},
+	} {
+		on(event.code, event.name, func(ev ext.ToolCallEvent, _ *ext.Context) *ext.ToolCallResult {
+			paths, _ := json.Marshal(ev.Paths)
+			resp, err := p.Intercept(context.Background(), pxb.InterceptReq{
+				Event: event.code, ToolName: ev.ToolName, ToolCallID: ev.ToolCallID, Input: ev.Input,
+				PathsJSON: paths, ExecutionID: ev.ExecutionID,
+			})
+			if err != nil {
+				if event.code == pxb.EvToolPrepare {
+					return &ext.ToolCallResult{
+						Block:  true,
+						Reason: fmt.Sprintf("extension %q: tool_prepare failed: %v", p.Manifest.Name, err),
+					}
+				}
+				debuglog.Logf("extension %q: %s intercept: %v", p.Manifest.Name, event.name, err)
+				return nil
+			}
+			return &ext.ToolCallResult{Block: resp.Block, Reason: resp.Reason, Input: resp.Input, Context: resp.Context}
 		})
-		if err != nil {
-			debuglog.Logf("extension %q: tool_call intercept: %v", p.Manifest.Name, err)
-			return nil
-		}
-		return &ext.ToolCallResult{Block: resp.Block, Reason: resp.Reason, Input: resp.Input, Context: resp.Context}
-	})
+	}
 	on(pxb.EvToolResult, ext.EventToolResult, func(ev ext.ToolResultEvent, _ *ext.Context) *ext.ToolResultResult {
 		resp, err := p.Intercept(context.Background(), pxb.InterceptReq{
 			Event: pxb.EvToolResult, ToolName: ev.ToolName, ToolCallID: ev.ToolCallID,
@@ -1098,10 +1114,11 @@ func (p *Proc) registerEventShims(api *ext.API) {
 	})
 	on(pxb.EvToolExecEnd, ext.EventToolExecutionEnd, func(ev ext.ToolExecutionEndEvent, _ *ext.Context) {
 		p.Emit(pxb.EventNotify{
-			Event:      pxb.EvToolExecEnd,
-			ToolName:   ev.ToolName,
-			ToolCallID: ev.ToolCallID,
-			IsError:    ev.IsError,
+			Event:       pxb.EvToolExecEnd,
+			ExecutionID: ev.ExecutionID,
+			ToolName:    ev.ToolName,
+			ToolCallID:  ev.ToolCallID,
+			IsError:     ev.IsError,
 		})
 	})
 }

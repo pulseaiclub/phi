@@ -505,3 +505,42 @@ func TestExecutorMixedBatchStaysSequential(t *testing.T) {
 	assert.Equal(t, "A", msgs[0].Content)
 	assert.Equal(t, "B", msgs[1].Content)
 }
+
+func TestChildEnginePreservesParentMetaAndResolvesToolTargets(t *testing.T) {
+	r := loadExt(t, `package main
+import (
+  "fmt"
+  "github.com/pulseaiclub/phi/ext/go"
+  "github.com/pulseaiclub/phi/ext/go/phi"
+)
+func main() {
+  m := phi.New("test", "0.0.1")
+  m.OnToolCall(func(ev ext.ToolCallEvent) *ext.ToolCallResult {
+    host := m.Host()
+    return &ext.ToolCallResult{Context: host.SessionID + "|" + host.Cwd + "|" + fmt.Sprint(ev.Paths)}
+  })
+  _ = m.Run()
+}
+`)
+	parentSession, err := NewSession(WithCwd(t.TempDir()))
+	require.NoError(t, err)
+	_, err = NewEngine(llm.ModelConfig{Name: "test"}, parentSession, WithExtensions(r))
+	require.NoError(t, err)
+	childSession, err := NewSession(WithCwd(t.TempDir()))
+	require.NoError(t, err)
+	child, err := NewEngine(
+		llm.ModelConfig{Name: "test"},
+		childSession,
+		WithExtensions(r),
+		WithOmitExtensionTools(true),
+	)
+	require.NoError(t, err)
+	child.SetExtensions(r)
+	msgs, _, _ := child.executor.Run(t.Context(), []llm.ToolCall{{
+		ID: "child-write", Function: llm.Function{Name: "write", Arguments: `{"path":"child.txt","content":"ok"}`},
+	}}, func(session.ToolData) bool { return true })
+	require.Len(t, msgs, 1)
+	assert.Contains(t, msgs[0].Content, parentSession.ID()+"|"+parentSession.Cwd())
+	assert.Contains(t, msgs[0].Content, filepath.Join(childSession.Cwd(), "child.txt"))
+	assert.FileExists(t, filepath.Join(childSession.Cwd(), "child.txt"))
+}
