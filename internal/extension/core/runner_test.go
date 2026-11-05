@@ -25,11 +25,13 @@ func TestPrepareRunsAfterEveryRewrite(t *testing.T) {
 	r := NewRunner("")
 	first, observe := handBuiltFiber("a-observe")
 	last, rewrite := handBuiltFiber("z-rewrite")
+	cwd := t.TempDir()
 	var phases []string
 	observe.On(ext.EventToolPrepare, func(ev ext.ToolCallEvent, _ *ext.Context) *ext.ToolCallResult {
 		phases = append(phases, "prepare")
 		assert.JSONEq(t, `"b"`, string(ev.Input))
 		assert.Equal(t, "execution", ev.ExecutionID)
+		assert.Equal(t, []string{filepath.Join(cwd, "b")}, ev.Paths)
 		return nil
 	})
 	rewrite.On(ext.EventToolCall, func(ext.ToolCallEvent, *ext.Context) *ext.ToolCallResult {
@@ -42,11 +44,6 @@ func TestPrepareRunsAfterEveryRewrite(t *testing.T) {
 		Kind:  permission.KindWrite,
 		Paths: func(path string) ([]string, error) { return []string{path}, nil },
 	}))
-	cwd := t.TempDir()
-	observe.On(ext.EventToolPrepare, func(ev ext.ToolCallEvent, _ *ext.Context) *ext.ToolCallResult {
-		assert.Equal(t, []string{filepath.Join(cwd, "b")}, ev.Paths)
-		return nil
-	})
 	input, blocked, _, _ := r.PreTool(
 		tooldef.WithCwd(t.Context(), cwd),
 		"write",
@@ -60,7 +57,7 @@ func TestPrepareRunsAfterEveryRewrite(t *testing.T) {
 	assert.Equal(t, []string{"rewrite", "prepare"}, phases)
 }
 
-func TestPrepareRejectsArgumentChangesAndTransportFailures(t *testing.T) {
+func TestPrepareRejectsArgumentChanges(t *testing.T) {
 	r := NewRunner("")
 	f, api := handBuiltFiber("prepare")
 	api.On(ext.EventToolPrepare, func(ext.ToolCallEvent, *ext.Context) *ext.ToolCallResult {
@@ -71,13 +68,16 @@ func TestPrepareRejectsArgumentChangesAndTransportFailures(t *testing.T) {
 	require.True(t, blocked)
 	assert.Contains(t, reason, "cannot rewrite")
 	assert.JSONEq(t, `"original"`, string(input))
-	r = NewRunner("")
-	f, api = handBuiltFiber("closed")
+}
+
+func TestPrepareRejectsTransportFailures(t *testing.T) {
+	r := NewRunner("")
+	f, api := handBuiltFiber("closed")
 	p := &Proc{intercept: map[uint16]struct{}{pxb.EvToolPrepare: {}}}
 	p.closed.Store(true)
 	p.registerInterceptShims(api)
 	r.AddFiber(f)
-	_, blocked, reason, _ = r.PreTool(t.Context(), "write", "write", nil, "execution")
+	_, blocked, reason, _ := r.PreTool(t.Context(), "write", "write", nil, "execution")
 	assert.True(t, blocked)
 	assert.Contains(t, reason, "tool_prepare failed")
 }

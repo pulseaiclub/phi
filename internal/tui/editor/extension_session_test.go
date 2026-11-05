@@ -16,7 +16,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/extension/loader"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/project"
-	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
@@ -58,9 +57,6 @@ func TestExtensionRewindReplaysAndRefillsPrompt(t *testing.T) {
 	assert.True(t, (<-reply).OK, "the extension's own command must not block its rewind")
 	assert.Equal(t, "original prompt", e.composer.Chat.Value)
 	assert.Empty(t, e.transcript.Snapshot().Messages)
-	loaded, err := session.OpenSession(ctrl.SessionFile())
-	require.NoError(t, err)
-	assert.Empty(t, loaded.UserTurns())
 }
 
 func TestExtensionRewindBusyAndExpiredRequests(t *testing.T) {

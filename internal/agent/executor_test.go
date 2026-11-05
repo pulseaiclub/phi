@@ -535,6 +535,7 @@ func main() {
 		WithOmitExtensionTools(true),
 	)
 	require.NoError(t, err)
+	// Exercise rebindTools as well as construction with the shared runner.
 	child.SetExtensions(r)
 	msgs, _, _ := child.executor.Run(t.Context(), []llm.ToolCall{{
 		ID: "child-write", Function: llm.Function{Name: "write", Arguments: `{"path":"child.txt","content":"ok"}`},

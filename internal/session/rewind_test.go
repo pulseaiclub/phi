@@ -56,6 +56,23 @@ func TestRewindPersistsAndBranches(t *testing.T) {
 	assert.Empty(t, list[0].Preview)
 }
 
+func TestRewindPreservesCurrentModelAcrossResume(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewSessionManager(dir, WithShouldFlush(true), WithSessionDir(dir), WithModel("model-a"))
+	require.NoError(t, err)
+	user, err := m.Append(llm.Message{Role: llm.RoleUser, Content: "prompt"})
+	require.NoError(t, err)
+	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "reply"})
+	require.NoError(t, err)
+	require.NoError(t, m.SetModel("model-b"))
+	_, err = m.RewindTo(user)
+	require.NoError(t, err)
+	assert.Equal(t, "model-b", m.ModelName())
+	loaded, err := OpenSession(m.File())
+	require.NoError(t, err)
+	assert.Equal(t, "model-b", loaded.ModelName())
+}
+
 func TestRewindBeforeCompactionAndRejectsNonUser(t *testing.T) {
 	m := NewManager(t.TempDir())
 	user, err := m.Append(llm.Message{Role: llm.RoleUser, Content: "before compaction"})
