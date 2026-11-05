@@ -25,6 +25,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `phi config`: model entries now expose `max_tokens`, including preset defaults
+  and editable overrides.
+
 ### Fixed
 
 ### Security
