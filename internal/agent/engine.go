@@ -90,7 +90,6 @@ func NewEngine(model llm.ModelConfig, sess *Session, opts ...EngineOption) (*Eng
 	engine.baseTools = cfg.tools
 	if !engine.omitExtTools {
 		engine.extensions.SetBaseTools(engine.buildCoreTools(engine.baseTools))
-		engine.extensions.SetMeta(engine.SessionID(), engine.SessionCwd())
 	}
 	toolList := engine.buildToolList(engine.baseTools)
 	engine.client = engine.newChatClient(toolList)

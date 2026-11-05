@@ -176,7 +176,19 @@ func (sm *Manager) BuildContext() []MessageEntry {
 }
 
 // Append adds a message as a new leaf and returns its entry ID.
-func (sm *Manager) Append(msg llm.Message, rawInput ...string) (string, error) {
+func (sm *Manager) Append(msg llm.Message) (string, error) {
+	return sm.appendMessage(msg, nil)
+}
+
+// AppendUser records original input alongside the model-facing user message.
+func (sm *Manager) AppendUser(msg llm.Message, rawInput string) (string, error) {
+	if msg.Role != llm.RoleUser {
+		return "", fmt.Errorf("session: AppendUser requires role %q, got %q", llm.RoleUser, msg.Role)
+	}
+	return sm.appendMessage(msg, &rawInput)
+}
+
+func (sm *Manager) appendMessage(msg llm.Message, rawInput *string) (string, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -187,11 +199,9 @@ func (sm *Manager) Append(msg llm.Message, rawInput ...string) (string, error) {
 			ParentID:  sm.leafID,
 			Timestamp: time.Now(),
 		},
-		Message: msg,
-		Usage:   msg.Usage,
-	}
-	if msg.Role == llm.RoleUser && len(rawInput) > 0 {
-		entry.RawInput = &rawInput[0]
+		Message:  msg,
+		Usage:    msg.Usage,
+		RawInput: rawInput,
 	}
 	if err := sm.appendEntry(entry); err != nil {
 		return "", err

@@ -59,18 +59,23 @@ func TestRewindPersistsAndBranches(t *testing.T) {
 func TestRewindOriginalInputSurvivesReload(t *testing.T) {
 	for _, tc := range []struct {
 		name string
-		raw  []string
 		want string
 	}{
-		{"original", []string{"  user text\n"}, "  user text\n"},
-		{"empty", []string{""}, ""},
-		{"legacy", nil, "processed text"},
+		{"original", "  user text\n"},
+		{"empty", ""},
+		{"legacy", "processed text"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			m, err := NewSessionManager(dir, WithShouldFlush(true), WithSessionDir(dir))
 			require.NoError(t, err)
-			user, err := m.Append(llm.Message{Role: llm.RoleUser, Content: "processed text"}, tc.raw...)
+			msg := llm.Message{Role: llm.RoleUser, Content: "processed text"}
+			var user string
+			if tc.name == "legacy" {
+				user, err = m.Append(msg)
+			} else {
+				user, err = m.AppendUser(msg, tc.want)
+			}
 			require.NoError(t, err)
 			_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "reply"})
 			require.NoError(t, err)
@@ -113,10 +118,13 @@ func TestRewindBeforeCompactionAndRejectsNonUser(t *testing.T) {
 	require.Len(t, m.UserTurns(), 1)
 	leaf := m.LeafID()
 	for _, id := range []string{assistant, bash, compact, "missing"} {
+		require.ErrorContains(t, m.CanRewindTo(id), "user message")
 		_, err := m.RewindTo(id)
 		require.ErrorContains(t, err, "user message")
 		assert.Equal(t, leaf, m.LeafID())
 	}
+	require.NoError(t, m.CanRewindTo(user))
+	assert.Equal(t, leaf, m.LeafID())
 	_, err = m.RewindTo(user)
 	require.NoError(t, err)
 	assert.Empty(t, m.BuildContext())

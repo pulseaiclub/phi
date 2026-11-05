@@ -57,11 +57,11 @@ func main() {
 	require.Len(t, r.Loaded(), 1)
 
 	input := json.RawMessage(`{"command":"echo phi-deny"}`)
-	_, blocked, reason, _ := r.PreTool(t.Context(), "bash", "1", input, "execution-1")
+	_, blocked, reason, _ := r.PreTool(t.Context(), "bash", "1", input, "execution-1", nil)
 	assert.True(t, blocked)
 	assert.Equal(t, "blocked by extension", reason)
 
-	_, blocked, _, _ = r.PreTool(t.Context(), "bash", "2", json.RawMessage(`{"command":"echo ok"}`), "execution-2")
+	_, blocked, _, _ = r.PreTool(t.Context(), "bash", "2", json.RawMessage(`{"command":"echo ok"}`), "execution-2", nil)
 	assert.False(t, blocked)
 }
 

@@ -16,7 +16,7 @@ func (sm *Manager) UserTurns() []SessionMessageEntry {
 		return turns
 	}
 	for _, entry := range sm.getBranch(*sm.leafID) {
-		if msg, ok := entry.(SessionMessageEntry); ok && msg.Message.Role == llm.RoleUser && msg.Bash == nil {
+		if msg, ok := userTurn(entry); ok {
 			turns = append(turns, msg)
 		}
 	}
@@ -29,46 +29,72 @@ func (sm *Manager) UserTurns() []SessionMessageEntry {
 func (sm *Manager) RewindTo(entryID string) (string, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	if sm.leafID != nil {
-		for _, entry := range sm.getBranch(*sm.leafID) {
-			if entry.GetID() != entryID {
-				continue
+	msg, err := sm.rewindTarget(entryID)
+	if err != nil {
+		return "", err
+	}
+	base := SessionBaseEntry{
+		Type:      EntryLeaf,
+		ID:        sm.generateID(),
+		ParentID:  msg.ParentID,
+		Timestamp: time.Now(),
+	}
+	var marker MessageEntry = LeafEntry{base}
+	leaf := msg.ParentID
+	if current := sm.modelName(); current != sm.modelNameAt(msg.ParentID) {
+		base.Type = EntryModelChange
+		marker = ModelChangeEntry{SessionBaseEntry: base, Model: current}
+		leaf = &base.ID
+	}
+	if sm.config.shouldFlush {
+		if !sm.flushed {
+			if err := sm.flushAllEntries(); err != nil {
+				return "", err
 			}
-			msg, ok := entry.(SessionMessageEntry)
-			if !ok || msg.Message.Role != llm.RoleUser || msg.Bash != nil {
-				break
-			}
-			base := SessionBaseEntry{
-				Type:      EntryLeaf,
-				ID:        sm.generateID(),
-				ParentID:  msg.ParentID,
-				Timestamp: time.Now(),
-			}
-			var marker MessageEntry = LeafEntry{base}
-			leaf := msg.ParentID
-			if current := sm.modelName(); current != sm.modelNameAt(msg.ParentID) {
-				base.Type = EntryModelChange
-				marker = ModelChangeEntry{SessionBaseEntry: base, Model: current}
-				leaf = &base.ID
-			}
-			if sm.config.shouldFlush {
-				if !sm.flushed {
-					if err := sm.flushAllEntries(); err != nil {
-						return "", err
-					}
-					sm.flushed = true
-				}
-				if err := sm.appendFile(marker); err != nil {
-					return "", err
-				}
-			}
-			sm.entries = append(sm.entries, marker)
-			if marker.GetType() == EntryModelChange {
-				sm.byIDs[base.ID] = marker
-			}
-			sm.leafID = leaf
-			return msg.UserInput(), nil
+			sm.flushed = true
+		}
+		if err := sm.appendFile(marker); err != nil {
+			return "", err
 		}
 	}
-	return "", fmt.Errorf("session: %q is not a user message on the current branch; select a current turn", entryID)
+	sm.entries = append(sm.entries, marker)
+	if marker.GetType() == EntryModelChange {
+		sm.byIDs[base.ID] = marker
+	}
+	sm.leafID = leaf
+	return msg.UserInput(), nil
+}
+
+// CanRewindTo validates the target without changing the active branch.
+func (sm *Manager) CanRewindTo(entryID string) error {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	_, err := sm.rewindTarget(entryID)
+	return err
+}
+
+// rewindTarget requires sm.mu; RewindTo rechecks even after a successful preflight.
+func (sm *Manager) rewindTarget(entryID string) (SessionMessageEntry, error) {
+	for id := sm.leafID; id != nil; {
+		entry := sm.byIDs[*id]
+		if entry == nil {
+			break
+		}
+		if *id == entryID {
+			if msg, ok := userTurn(entry); ok {
+				return msg, nil
+			}
+			break
+		}
+		id = entry.GetParent()
+	}
+	return SessionMessageEntry{}, fmt.Errorf(
+		"session: %q is not a user message on the current branch; select a current turn",
+		entryID,
+	)
+}
+
+func userTurn(entry MessageEntry) (SessionMessageEntry, bool) {
+	msg, ok := entry.(SessionMessageEntry)
+	return msg, ok && msg.Message.Role == llm.RoleUser && msg.Bash == nil
 }

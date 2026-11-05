@@ -64,7 +64,14 @@ func TestPrepareRejectsArgumentChanges(t *testing.T) {
 		return &ext.ToolCallResult{Input: json.RawMessage(`"changed"`)}
 	})
 	r.AddFiber(f)
-	input, blocked, reason, _ := r.PreTool(t.Context(), "write", "write", json.RawMessage(`"original"`), "execution")
+	input, blocked, reason, _ := r.PreTool(
+		t.Context(),
+		"write",
+		"write",
+		json.RawMessage(`"original"`),
+		"execution",
+		nil,
+	)
 	require.True(t, blocked)
 	assert.Contains(t, reason, "cannot rewrite")
 	assert.JSONEq(t, `"original"`, string(input))
@@ -77,7 +84,7 @@ func TestPrepareRejectsTransportFailures(t *testing.T) {
 	p.closed.Store(true)
 	p.registerInterceptShims(api)
 	r.AddFiber(f)
-	_, blocked, reason, _ := r.PreTool(t.Context(), "write", "write", nil, "execution")
+	_, blocked, reason, _ := r.PreTool(t.Context(), "write", "write", nil, "execution", nil)
 	assert.True(t, blocked)
 	assert.Contains(t, reason, "tool_prepare failed")
 }

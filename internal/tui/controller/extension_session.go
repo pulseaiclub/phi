@@ -52,16 +52,11 @@ func (c *EngineController) RewindSession(req ext.RewindRequest) (string, error) 
 	if c.engine == nil || req.SessionID != c.SessionID() {
 		return "", errors.New("session changed; reopen the turn picker")
 	}
-	if c.jobs != nil && c.jobs.LiveCount() > 0 {
-		return "", errors.New("cannot rewind while sub-agents are running; wait for or cancel the jobs")
+	if err := c.refuseWhileJobsLive("rewind"); err != nil {
+		return "", err
 	}
 	if req.ValidateOnly {
-		for _, turn := range c.SessionTurns() {
-			if turn.EntryID == req.EntryID {
-				return "", nil
-			}
-		}
-		return "", errors.New("selected turn is no longer on the current branch; reopen the turn picker")
+		return "", c.engine.Session().CanRewindTo(req.EntryID)
 	}
 	text, err := c.engine.Session().RewindTo(req.EntryID)
 	if err != nil {

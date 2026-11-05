@@ -91,7 +91,7 @@ func (s *Submitter) Submit(text string) {
 	if s.commandBusy != nil && s.commandBusy() {
 		s.bus.Publish(
 			controller.ToastMsg{
-				Message:  "An extension command is already running",
+				Message:  commands.ExtensionCommandBusyMessage,
 				Kind:     toast.ToastWarning,
 				Duration: 3 * time.Second,
 			},

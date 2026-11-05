@@ -432,7 +432,7 @@ func (r *Runner) PreTool(
 	toolName, toolCallID string,
 	input json.RawMessage,
 	executionID string,
-	declarations ...tooldef.Permission,
+	perm tooldef.Permission,
 ) (json.RawMessage, bool, string, string) {
 	if r == nil {
 		return input, false, "", ""
@@ -447,8 +447,8 @@ func (r *Runner) PreTool(
 			}
 			// Resolve the current args after earlier interceptors' rewrites. This
 			// only reads the declaration; the executor still gates the final args.
-			if len(declarations) > 0 && declarations[0] != nil {
-				req, _ := declarations[0](ev.Input, cwd)
+			if perm != nil {
+				req, _ := perm(ev.Input, cwd)
 				ev.Paths = req.Paths
 			}
 			res := callToolCall(h, ev, r.context())

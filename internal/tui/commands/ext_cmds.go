@@ -14,6 +14,9 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
+// ExtensionCommandBusyMessage is shared by submit and slash-command guards.
+const ExtensionCommandBusyMessage = "An extension command is already running"
+
 // extComposer updates the palette command list.
 type extComposer interface {
 	SetPaletteCommands([]palette.PaletteCommand)
@@ -74,7 +77,7 @@ func (h *ExtCommands) slashCommand(name, desc string, needsArgs bool) Command {
 		NeedsArgs:   needsArgs,
 		Run: func(ctx Context, args []string) error {
 			if !h.running.CompareAndSwap(false, true) {
-				ctx.Toast("An extension command is already running", toast.ToastWarning, 3*time.Second)
+				ctx.Toast(ExtensionCommandBusyMessage, toast.ToastWarning, 3*time.Second)
 				return nil
 			}
 			text := strings.TrimSpace(strings.Join(args, " "))

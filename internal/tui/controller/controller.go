@@ -643,9 +643,16 @@ func (c *EngineController) NewSession() error {
 	return nil
 }
 
-func (c *EngineController) beginSessionSwitch(reason, targetID string, cancelStream bool) (prevID string, err error) {
+func (c *EngineController) refuseWhileJobsLive(action string) error {
 	if c.jobs != nil && c.jobs.LiveCount() > 0 {
-		return "", errors.New("cannot switch sessions while sub-agents are running; wait for or cancel the jobs")
+		return fmt.Errorf("cannot %s while sub-agents are running; wait for or cancel the jobs", action)
+	}
+	return nil
+}
+
+func (c *EngineController) beginSessionSwitch(reason, targetID string, cancelStream bool) (prevID string, err error) {
+	if err := c.refuseWhileJobsLive("switch sessions"); err != nil {
+		return "", err
 	}
 	if c.sessionDir == "" {
 		return "", errors.New("session directory not configured")
