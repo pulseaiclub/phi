@@ -2,6 +2,7 @@ package splash
 
 import (
 	"math"
+	"slices"
 
 	"github.com/pulseaiclub/xui"
 
@@ -14,9 +15,9 @@ const sphereCharset = " .:-=+*#%@"
 // paletteLen is how many color steps a gradient is sampled into.
 const paletteLen = 64
 
-// sphereStops is the sphere gradient: stops[0] is the dim end, the last stop the
-// bright end.
-var sphereStops = []rgb{{0, 45, 55}, {0, 190, 175}, {150, 255, 235}}
+// defaultSphereStops is the fallback gradient when the theme carries no usable
+// color: dim end first, bright end last.
+var defaultSphereStops = []rgb{{0, 45, 55}, {0, 190, 175}, {150, 255, 235}}
 
 type rgb struct{ r, g, b uint8 }
 
@@ -65,8 +66,11 @@ type Sphere struct {
 	Time   float64
 	// Fast speeds noise scroll (1.8x when true, else 1x).
 	Fast bool
+	// Theme tints the gradient; the zero Theme and Dark keep the curated teal.
+	Theme components.Theme
 
 	noise  glowNoise
+	stops  []rgb
 	colors []xui.Color
 }
 
@@ -80,8 +84,11 @@ func (o *Sphere) ensure() {
 	if o.noise.seed == 0 {
 		o.noise = newGlowNoise(2654435761)
 	}
-	if len(o.colors) == 0 {
-		o.colors = buildPalette(sphereStops)
+	// Rebuild only on an actual theme change: the palette is 64 colors and
+	// Draw runs every animation frame.
+	if stops := sphereStops(o.Theme); !slices.Equal(stops, o.stops) {
+		o.stops = stops
+		o.colors = buildPalette(stops)
 	}
 }
 

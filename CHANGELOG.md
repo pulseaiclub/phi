@@ -12,15 +12,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
-- Dark theme: composer and panel borders brightened (ANSI 244 → 250) so the
-  box edge reads solid instead of a faint hairline on dark backgrounds.
-- Agent/model loop errors now open a modal error dialog (Retry / Copy to
-  Clipboard / Dismiss) instead of appending a red "Error:" block to the
-  transcript. Retry resumes the failed turn without duplicating the user
-  message; Esc dismisses. Manual cancellation does not open an error dialog,
-  and interrupted streams release the composer. Error actions stay visible
-  when long messages must be clipped to fit the terminal.
-
 ### Added
 
 - Go extensions can open selection pickers, query user turns on the current
@@ -38,6 +29,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- Released section -->
 <!-- Don't change this section unless doing release -->
+
+## [0.29.7] - 2026-11-05
+
+### Removed
+
+### Changed
+
+- Splash sphere gradient now follows the active theme (brand identity color), so
+  a theme switch repaints the hero. The Dark theme keeps its curated teal.
+- Dark theme: composer and panel borders brightened (ANSI 244 → 250) so the
+  box edge reads solid instead of a faint hairline on dark backgrounds.
+- Agent/model loop errors now open a modal error dialog (Retry / Copy to
+  Clipboard / Dismiss) instead of appending a red "Error:" block to the
+  transcript. Retry resumes the failed turn without duplicating the user
+  message; Esc dismisses. Manual cancellation does not open an error dialog,
+  and interrupted streams release the composer. Error actions stay visible
+  when long messages must be clipped to fit the terminal.
+
+### Added
+
+- `phi config`: model entries now expose `max_tokens`, including preset defaults
+  and editable overrides.
+
+### Fixed
+
+- Cancelling an agent response with Esc after partial thinking or text no longer
+  panics when the provider reports an error during cancellation. Cleanup events
+  from compaction and tool batches also stop reaching an exited consumer.
+
+### Security
 
 ## [0.29.6] - 2026-11-04
 
@@ -1424,7 +1445,8 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.29.6...HEAD
+[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.29.7...HEAD
+[0.29.7]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.7
 [0.29.6]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.6
 [0.29.5]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.5
 [0.29.4]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.4

@@ -42,6 +42,7 @@ const (
 	fURL   = "base_url"
 	fAPI   = "api"
 	fCtx   = "context_window"
+	fMax   = "max_tokens"
 	fImage = "image_enabled"
 	fThink = "think_level"
 	fDeflt = "default"
@@ -336,6 +337,7 @@ func modelSpecs(cfg llm.ModelConfig) []fieldSpec {
 		{key: fURL, label: "base url", kind: kindText, placeholder: baseURL},
 		{key: fAPI, label: "api", kind: kindChoice, options: apiOptions},
 		{key: fCtx, label: "context window", kind: kindInt, placeholder: humanTokens(cfg.ContextWindow)},
+		{key: fMax, label: "max tokens", kind: kindInt, placeholder: humanTokens(cfg.MaxTokens)},
 		{key: fImage, label: "image input", kind: kindBool, defaultOn: cfg.ImageEnabled},
 		{key: fThink, label: "thinking", kind: kindChoice, options: options},
 		{key: fDeflt, label: "use by default", kind: kindPlainBool},
@@ -491,6 +493,8 @@ func (e *ConfigEditor) rawFor(key string) string {
 			return m.API
 		case fCtx:
 			return intString(m.ContextWindow)
+		case fMax:
+			return intString(m.MaxTokens)
 		case fImage:
 			return triString(m.ImageEnabled)
 		case fThink:
@@ -628,6 +632,12 @@ func (e *ConfigEditor) applyModel(index int, field, value string) error {
 			return err
 		}
 		m.ContextWindow = window
+	case fMax:
+		maxTokens, err := parsePositiveInt(value, "tokens")
+		if err != nil {
+			return err
+		}
+		m.MaxTokens = maxTokens
 	case fImage:
 		on, err := parseTri(value)
 		if err != nil {

@@ -83,6 +83,9 @@ func (w *Screen) Draw(ctx components.DrawContext) components.Surface {
 	}
 
 	sphere := w.Sphere
+	// The sphere tints itself from the theme, so a live theme switch repaints
+	// the hero without rebuilding the widget.
+	sphere.Theme = th
 	// Fit sphere into available space; default is 40×40.
 	sphereSize := 40
 	if maxH < sphereSize+2 {

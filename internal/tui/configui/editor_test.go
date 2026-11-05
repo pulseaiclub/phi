@@ -127,6 +127,31 @@ func TestThinkingChoicesFollowPresetAndEndpoint(t *testing.T) {
 	}
 }
 
+func TestMaxTokensFieldUsesPresetAndOverride(t *testing.T) {
+	doc := &project.ConfigDoc{Models: []project.ModelDoc{{Name: "deepseek-flash"}}}
+	e := newTestEditor(t, doc)
+
+	focus(t, e, modelKey(0, fMax))
+	r, _ := e.focused()
+	assert.Equal(t, "384k", r.display, "the preset max_tokens should be visible as the placeholder")
+
+	e.commit(modelKey(0, fMax), "64000")
+	require.NotNil(t, doc.Models[0].MaxTokens)
+	assert.Equal(t, 64000, *doc.Models[0].MaxTokens)
+	r, _ = e.focused()
+	assert.Equal(t, "64000", r.display)
+	for _, value := range []string{"0", "-1", "invalid"} {
+		require.Error(t, e.apply(modelKey(0, fMax), value))
+		assert.Equal(t, 64000, *doc.Models[0].MaxTokens, "invalid input must preserve the stored limit")
+	}
+
+	e.commit(modelKey(0, fMax), "")
+	assert.Nil(t, doc.Models[0].MaxTokens, "clearing the field should restore the preset")
+	focus(t, e, modelKey(0, fMax))
+	r, _ = e.focused()
+	assert.Equal(t, "384k", r.display)
+}
+
 func assertThinkingChoices(t *testing.T, e *ConfigEditor, want []string) {
 	t.Helper()
 	focus(t, e, modelKey(0, fThink))
@@ -455,6 +480,13 @@ func TestSaveWritesFileAndBackup(t *testing.T) {
 	}
 	press(e, xui.KeyEnter, 0)
 
+	focus(t, e, modelKey(0, fMax))
+	press(e, xui.KeyEnter, 0)
+	for _, r := range "64000" {
+		typeRune(e, r)
+	}
+	press(e, xui.KeyEnter, 0)
+
 	press(e, xui.KeyRune, 's')
 	assert.Equal(t, statusSuccess, e.statusKind, e.status)
 	assert.False(t, e.Dirty())
@@ -463,6 +495,8 @@ func TestSaveWritesFileAndBackup(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, saved.Models, 1)
 	assert.Equal(t, "old-2", saved.Models[0].Name)
+	require.NotNil(t, saved.Models[0].MaxTokens)
+	assert.Equal(t, 64000, *saved.Models[0].MaxTokens)
 
 	backup, err := os.ReadFile(path + ".bak")
 	require.NoError(t, err)
@@ -475,6 +509,7 @@ func TestSaveWritesFileAndBackup(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, p.LoadConfig())
 	assert.Equal(t, "old-2", p.Config().Model().Name)
+	assert.Equal(t, 64000, p.Config().Model().MaxTokens)
 }
 
 func TestSaveRefusesInvalidDocument(t *testing.T) {

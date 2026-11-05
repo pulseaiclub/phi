@@ -36,11 +36,12 @@ func TestGradient(t *testing.T) {
 }
 
 func TestSpherePalette(t *testing.T) {
-	sphere := &Sphere{Width: 10, Height: 10}
+	sphere := &Sphere{Width: 10, Height: 10, Theme: components.DefaultTheme()}
 	sphere.ensure()
 	require.Len(t, sphere.colors, paletteLen, "gradient is sampled into full length")
 
-	first, last := sphereStops[0], sphereStops[len(sphereStops)-1]
+	stops := sphereStops(components.DefaultTheme())
+	first, last := stops[0], stops[len(stops)-1]
 	require.Equal(t, xui.RGBColor(first.r, first.g, first.b), sphere.colors[0], "dim end")
 	require.Equal(t, xui.RGBColor(last.r, last.g, last.b), sphere.colors[paletteLen-1], "bright end")
 }
