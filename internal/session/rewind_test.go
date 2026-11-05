@@ -56,6 +56,33 @@ func TestRewindPersistsAndBranches(t *testing.T) {
 	assert.Empty(t, list[0].Preview)
 }
 
+func TestRewindOriginalInputSurvivesReload(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		raw  []string
+		want string
+	}{
+		{"original", []string{"  user text\n"}, "  user text\n"},
+		{"empty", []string{""}, ""},
+		{"legacy", nil, "processed text"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			m, err := NewSessionManager(dir, WithShouldFlush(true), WithSessionDir(dir))
+			require.NoError(t, err)
+			user, err := m.Append(llm.Message{Role: llm.RoleUser, Content: "processed text"}, tc.raw...)
+			require.NoError(t, err)
+			_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "reply"})
+			require.NoError(t, err)
+			loaded, err := OpenSession(m.File())
+			require.NoError(t, err)
+			text, err := loaded.RewindTo(user)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, text)
+		})
+	}
+}
+
 func TestRewindPreservesCurrentModelAcrossResume(t *testing.T) {
 	dir := t.TempDir()
 	m, err := NewSessionManager(dir, WithShouldFlush(true), WithSessionDir(dir), WithModel("model-a"))

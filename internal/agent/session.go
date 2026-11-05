@@ -179,6 +179,19 @@ func (s *Session) Append(message ...llm.Message) error {
 	return nil
 }
 
+// AppendUser keeps the model-facing message and original input in one entry.
+func (s *Session) AppendUser(text string, images []llm.Image, rawInput string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.contextCacheValid = false
+	id, err := s.manager.Append(llm.Message{Role: llm.RoleUser, Content: text, Images: images}, rawInput)
+	if err != nil {
+		return err
+	}
+	s.lastID = id
+	return nil
+}
+
 // AppendBash records a user "!!cmd" run as an in-context user message and
 // invalidates the context cache so the next turn sees it.
 func (s *Session) AppendBash(command, output string, exitCode int, cancelled bool) error {

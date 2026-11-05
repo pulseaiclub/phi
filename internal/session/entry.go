@@ -74,10 +74,21 @@ type SessionMessageEntry struct {
 	SessionBaseEntry
 	Message llm.Message `json:"message"`
 	Usage   llm.Usage   `json:"usage,omitempty"`
+	// RawInput preserves user text before reference expansion and extension hooks.
+	// nil means an older entry; an empty string is valid for attachment-only input.
+	RawInput *string `json:"rawInput,omitempty"`
 	// Bash is set for a user "!!cmd" run whose output belongs in the model
 	// context. Message carries the model-facing text; Bash tells replay to draw
 	// the row as a bash block instead of a user bubble.
 	Bash *BashExecution `json:"bash,omitempty"`
+}
+
+// UserInput falls back to model-facing content for sessions without raw input.
+func (s SessionMessageEntry) UserInput() string {
+	if s.RawInput != nil {
+		return *s.RawInput
+	}
+	return s.Message.Content
 }
 
 // BashExecution records a user-run shell command that entered the LLM context.

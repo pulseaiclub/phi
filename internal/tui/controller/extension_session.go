@@ -41,7 +41,9 @@ func (c *EngineController) SessionTurns() []ext.SessionTurn {
 	}
 	var turns []ext.SessionTurn
 	for _, msg := range c.engine.Session().UserTurns() {
-		turns = append(turns, ext.SessionTurn{EntryID: msg.ID, Text: msg.Message.Content, Timestamp: msg.Timestamp})
+		turns = append(turns, ext.SessionTurn{
+			EntryID: msg.ID, Text: msg.UserInput(), Timestamp: msg.Timestamp, ImageCount: len(msg.Message.Images),
+		})
 	}
 	return turns
 }

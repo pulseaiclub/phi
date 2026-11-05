@@ -303,6 +303,8 @@ func (engine *Engine) Session() *Session {
 
 // LoopOpts configures a single agent loop turn.
 type LoopOpts struct {
+	// RawInput is captured before UI reference expansion; nil uses the prompt.
+	RawInput *string
 	// PendingSkills are skill names the user selected in the composer.
 	// When set, the model is instructed to read those SKILL.md files first.
 	PendingSkills []string
@@ -378,11 +380,15 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 		defer engine.extensions.EmitAgentEnd()
 
 		if !opts.Resume {
-			if err := engine.session.Append(llm.Message{
-				Role:    llm.RoleUser,
-				Content: content,
-				Images:  append([]llm.Image(nil), opts.Images...),
-			}); err != nil {
+			rawInput := prompt
+			if opts.RawInput != nil {
+				rawInput = *opts.RawInput
+			}
+			if err := engine.session.AppendUser(
+				content,
+				append([]llm.Image(nil), opts.Images...),
+				rawInput,
+			); err != nil {
 				yield(nil, err)
 				return
 			}

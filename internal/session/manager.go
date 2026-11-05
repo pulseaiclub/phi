@@ -176,7 +176,7 @@ func (sm *Manager) BuildContext() []MessageEntry {
 }
 
 // Append adds a message as a new leaf and returns its entry ID.
-func (sm *Manager) Append(msg llm.Message) (string, error) {
+func (sm *Manager) Append(msg llm.Message, rawInput ...string) (string, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -189,6 +189,9 @@ func (sm *Manager) Append(msg llm.Message) (string, error) {
 		},
 		Message: msg,
 		Usage:   msg.Usage,
+	}
+	if msg.Role == llm.RoleUser && len(rawInput) > 0 {
+		entry.RawInput = &rawInput[0]
 	}
 	if err := sm.appendEntry(entry); err != nil {
 		return "", err

@@ -96,6 +96,11 @@ Conversation rewind appends an `EntryLeaf` branch cursor, preserving existing
 history. Sessions containing this new record require an updated Phi reader.
 Rewind preserves the current model selection and persists it on the selected
 branch. Session list previews also follow that branch.
+New user turns preserve input before reference expansion, skill instructions,
+and extension rewrites. `SessionTurns.Text` and rewind's composer refill use
+that original input, falling back to message content for older entries.
+`SessionTurns.ImageCount` lets extensions warn that images must be reattached;
+rewind does not restore image, skill, or reference attachments.
 
 Cancellation or timeout of an in-flight RPC terminates the extension process,
 including its other pending calls. Reload the extension before using it again.

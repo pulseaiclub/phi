@@ -17,6 +17,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Go extensions can open selection pickers, query user turns on the current
   branch, and rewind the conversation through persistent host session APIs.
   Rewound sessions contain new `EntryLeaf` records and require an updated Phi.
+  New user turns preserve original input for rewind and report image counts;
+  older turns fall back to stored message text.
 - Extensions can prepare tools after argument rewrites and correlate executions
   using host-generated IDs, including concurrent worker calls.
 

@@ -22,9 +22,10 @@ type SelectReply struct {
 
 // SessionTurn identifies a user message on the active branch, newest first.
 type SessionTurn struct {
-	EntryID   string    `json:"entry_id"`
-	Text      string    `json:"text"`
-	Timestamp time.Time `json:"timestamp"`
+	ImageCount int       `json:"image_count,omitempty"`
+	EntryID    string    `json:"entry_id"`
+	Text       string    `json:"text"`
+	Timestamp  time.Time `json:"timestamp"`
 }
 
 // RewindRequest moves the conversation to immediately before EntryID.

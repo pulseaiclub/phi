@@ -67,7 +67,7 @@ func (sm *Manager) RewindTo(entryID string) (string, error) {
 				sm.byIDs[base.ID] = marker
 			}
 			sm.leafID = leaf
-			return msg.Message.Content, nil
+			return msg.UserInput(), nil
 		}
 	}
 	return "", fmt.Errorf("session: %q is not a user message on the current branch; select a current turn", entryID)

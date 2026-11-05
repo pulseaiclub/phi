@@ -367,7 +367,7 @@ func (c *EngineController) bindExtensionHost(r *extension.Runner) {
 		// UI goroutine applies.
 		RefreshTools: func() { c.publish(ExtTopologyChangedMsg{}) },
 		SendUserMessage: func(text string) {
-			go c.StartPrompt(text, nil, nil)
+			go c.StartPrompt(text, nil, nil, nil)
 		},
 	})
 
@@ -724,13 +724,14 @@ func (c *EngineController) ReplaySnapshot() session.Snapshot {
 	return session.ReplaySnapshot(c.engine.Session().PathEntries(), c.engine.ToolDetail)
 }
 
-func (c *EngineController) StartPrompt(text string, pendingSkills []string, images []llm.Image) {
+func (c *EngineController) StartPrompt(text string, pendingSkills []string, images []llm.Image, rawInput *string) {
 	c.streamMu.Lock()
 	defer c.streamMu.Unlock()
 	c.lastPrompt = LastPrompt{
-		Text:   text,
-		Skills: append([]string(nil), pendingSkills...),
-		Images: append([]llm.Image(nil), images...),
+		RawInput: rawInput,
+		Text:     text,
+		Skills:   append([]string(nil), pendingSkills...),
+		Images:   append([]llm.Image(nil), images...),
 	}
 	c.promptAppended = false
 	c.startPromptLocked()
@@ -880,6 +881,7 @@ func (c *EngineController) runLoop(ctx context.Context, gen int, engine *agent.E
 		return
 	}
 	for ev, err := range engine.Loop(ctx, prompt.Text, agent.LoopOpts{
+		RawInput:      prompt.RawInput,
 		PendingSkills: prompt.Skills,
 		Images:        prompt.Images,
 		Resume:        resume,

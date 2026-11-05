@@ -98,6 +98,7 @@ func (s *Submitter) Submit(text string) {
 		)
 		return
 	}
+	rawInput := text
 	text = strings.TrimSpace(text)
 	if strings.HasPrefix(text, "!") {
 		if s.bash.HandleSubmit(text) {
@@ -119,7 +120,7 @@ func (s *Submitter) Submit(text string) {
 			return
 		}
 	}
-	s.handleUserInput(text)
+	s.handleUserInput(text, rawInput)
 }
 
 func buildUserDisplay(text string, refs []chat.Ref, skills []string, images []imgutil.Attachment) string {
@@ -167,7 +168,7 @@ func promptWithRefs(text string, refs []chat.Ref) string {
 	return expanded + "\n\n" + text
 }
 
-func (s *Submitter) handleUserInput(text string) {
+func (s *Submitter) handleUserInput(text, rawInput string) {
 	pendingRefs := s.composer.PendingRefs()
 	pendingSkills := s.composer.PendingSkills()
 	pendingImages := s.composer.PendingImages()
@@ -195,7 +196,7 @@ func (s *Submitter) handleUserInput(text string) {
 	s.composer.ClearPendingImages()
 	s.composer.ClearPendingRefs()
 
-	s.ctrl.StartPrompt(promptWithRefs(text, pendingRefs), pendingSkills, llmImages)
+	s.ctrl.StartPrompt(promptWithRefs(text, pendingRefs), pendingSkills, llmImages, &rawInput)
 }
 
 // Cancel aborts overlays, bash, or the in-flight agent stream.
