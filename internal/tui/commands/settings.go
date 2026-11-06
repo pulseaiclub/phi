@@ -205,7 +205,7 @@ func (s *SettingsCommands) setMaxRounds(n int) {
 		publishToast(s.Bus, err.Error(), toast.ToastError, 3*time.Second)
 		return
 	}
-	publishToast(s.Bus, fmt.Sprintf("Max rounds: %d", n), toast.ToastSuccess, 2*time.Second)
+	publishToast(s.Bus, fmt.Sprintf("Steps per turn: %d", n), toast.ToastSuccess, 2*time.Second)
 }
 
 func buildThinkPalette(ctrl *controller.EngineController, set func(llm.ThinkMode)) palette.PaletteCommand {

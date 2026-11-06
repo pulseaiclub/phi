@@ -237,7 +237,8 @@ func (e *ConfigEditor) build() {
 	skills := displayPath(e.skills)
 	e.addField(e.fieldRow(fieldSpec{key: keySkillPath, label: "skill path", kind: kindText, placeholder: skills}))
 	e.addSection("Agent Loop", "")
-	e.addField(e.fieldRow(fieldSpec{key: keyMaxRounds, label: "max rounds", kind: kindInt, placeholder: "64"}))
+	// Label matches the palette's "steps per turn"; the YAML key stays max_rounds.
+	e.addField(e.fieldRow(fieldSpec{key: keyMaxRounds, label: "steps per turn", kind: kindInt, placeholder: "64"}))
 	e.addSection("Permissions", "")
 	e.addField(e.fieldRow(fieldSpec{key: keyPermMode, label: "mode", kind: kindChoice, options: permModeOptions}))
 	e.addField(e.fieldRow(fieldSpec{
