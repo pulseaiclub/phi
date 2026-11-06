@@ -37,8 +37,8 @@ func TestPermissionsCommand_Toggle(t *testing.T) {
 	assert.Equal(t, "settings", cmd.Noun)
 	assert.Equal(t, "permissions", cmd.Verb)
 	require.Len(t, cmd.Submenu, 2)
-	assert.Equal(t, chrome.CurrentMarker(true)+"off — allow all (no prompts)", cmd.Submenu[0].Verb)
-	assert.Equal(t, chrome.CurrentMarker(false)+"on — ask before gated tools", cmd.Submenu[1].Verb)
+	assert.Equal(t, chrome.CurrentMarker(true)+"off — never ask, allow everything", cmd.Submenu[0].Verb)
+	assert.Equal(t, chrome.CurrentMarker(false)+"on — ask before risky actions", cmd.Submenu[1].Verb)
 
 	cmd.Submenu[0].Run()
 	require.NotNil(t, bypass)
@@ -54,8 +54,8 @@ func TestAgentsCommand_Toggle(t *testing.T) {
 	assert.Equal(t, "settings", cmd.Noun)
 	assert.Equal(t, "agents", cmd.Verb)
 	require.Len(t, cmd.Submenu, 3)
-	assert.Equal(t, chrome.CurrentMarker(false)+"on — register agent_* tools", cmd.Submenu[0].Verb)
-	assert.Equal(t, chrome.CurrentMarker(true)+"off — no sub-agents (fewer tools)", cmd.Submenu[1].Verb)
+	assert.Equal(t, chrome.CurrentMarker(false)+"on — Phi may delegate to sub-agents", cmd.Submenu[0].Verb)
+	assert.Equal(t, chrome.CurrentMarker(true)+"off — Phi works alone", cmd.Submenu[1].Verb)
 
 	cmd.Submenu[0].Run()
 	require.NotNil(t, enabled)

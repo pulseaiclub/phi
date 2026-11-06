@@ -13,7 +13,7 @@ import (
 func TestFormatContextLabel(t *testing.T) {
 	u := session.TokenUsage{PromptTokens: 5120, TotalTokens: 6000}
 	got := formatContextLabel(u, 128000)
-	require.Equal(t, "4%/128k", got)
+	require.Equal(t, "4% of 128k", got)
 	require.Empty(t, formatContextLabel(session.TokenUsage{}, 128000), "empty usage should hide label")
 	require.Empty(t, formatContextLabel(u, 0), "zero window should hide label")
 }
@@ -25,11 +25,11 @@ func TestFormatContextLabelCountsCachedPrompt(t *testing.T) {
 	u := session.TokenUsage{
 		PromptTokens: 1480, CachedTokens: 33792, CompletionTokens: 1789, TotalTokens: 37061,
 	}
-	require.Equal(t, "3%/1.0M", formatContextLabel(u, 1_000_000))
+	require.Equal(t, "3% of 1.0M", formatContextLabel(u, 1_000_000))
 
 	// Same turn without a provider total: the buckets still size the window.
 	noTotal := session.TokenUsage{PromptTokens: 1480, CachedTokens: 33792, CompletionTokens: 1789}
-	require.Equal(t, "3%/1.0M", formatContextLabel(noTotal, 1_000_000))
+	require.Equal(t, "3% of 1.0M", formatContextLabel(noTotal, 1_000_000))
 }
 
 func TestFormatUsageStats(t *testing.T) {
@@ -86,7 +86,7 @@ func TestTokenStatusLabelAmbient(t *testing.T) {
 	label := tokenStatusLabel(th, u, 128000)
 	assert.Equal(t, ChromeLabelStyle(th), label.Style)
 	assert.Contains(t, label.Text, "↑1.2k")
-	assert.Contains(t, label.Text, "%/128k")
+	assert.Contains(t, label.Text, "% of 128k")
 	assert.Empty(t, label.Spans)
 }
 

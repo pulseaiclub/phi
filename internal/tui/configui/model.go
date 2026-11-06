@@ -213,12 +213,12 @@ var (
 		llm.Max:     "provider maximum",
 	}
 	permModeOptions = []option{
-		opt("", "auto", "interactive: ask before gated tools"),
-		opt(string(permission.ModeInteractive), "interactive", "ask before gated tools"),
+		opt("", "auto", "interactive: ask before risky actions"),
+		opt(string(permission.ModeInteractive), "interactive", "ask before risky actions"),
 		opt(string(permission.ModeReadonly), "readonly", "deny writes, keep reads"),
-		opt(string(permission.ModeAutopilot), "autopilot", "fold ask to allow"),
-		opt(string(permission.ModeHeadlessStrict), "headless-strict", "fold ask to deny"),
-		opt(string(permission.ModeAllowAll), "allow-all", "skip all permission checks"),
+		opt(string(permission.ModeAutopilot), "autopilot", "deny ask silently (same as headless-strict)"),
+		opt(string(permission.ModeHeadlessStrict), "headless-strict", "deny ask without prompting"),
+		opt(string(permission.ModeAllowAll), "allow-all", "allow everything, no prompts"),
 	}
 	bashDefaultOptions = []option{
 		opt("", "auto", "policy default (ask)"),
@@ -280,7 +280,7 @@ func (e *ConfigEditor) build() {
 }
 
 func (e *ConfigEditor) buildModels() {
-	note := "none yet — press a to add one"
+	note := "none yet — press a to add one (model id + your provider's api key)"
 	if n := len(e.doc.Models); n == 1 {
 		note = "1 model"
 	} else if n > 1 {

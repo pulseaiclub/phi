@@ -62,7 +62,9 @@ func formatContextLabel(usage session.TokenUsage, window int) string {
 	}
 	pct := min(max(int(contextFillRatio(used, window)*100), 0), 100)
 	if window >= 1000 {
-		return fmt.Sprintf("%d%%/%s", pct, components.FormatTokens(window))
+		// "4% of 128k" says what the percentage is of; "4%/128k" reads as a
+		// fraction of an unknown unit.
+		return fmt.Sprintf("%d%% of %s", pct, components.FormatTokens(window))
 	}
 	return fmt.Sprintf("%d%%", pct)
 }

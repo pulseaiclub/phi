@@ -340,7 +340,7 @@ func buildPermissionsPalette(set func(bool), bypass bool) palette.PaletteCommand
 		Submenu: []palette.PaletteCommand{
 			{
 				ID:       "permissions-off",
-				Verb:     chrome.CurrentMarker(bypass) + "off — allow all (no prompts)",
+				Verb:     chrome.CurrentMarker(bypass) + "off — never ask, allow everything",
 				Keywords: []string{"bypass", "disable", "off"},
 				Run: func() {
 					if set != nil {
@@ -350,7 +350,7 @@ func buildPermissionsPalette(set func(bool), bypass bool) palette.PaletteCommand
 			},
 			{
 				ID:       "permissions-on",
-				Verb:     chrome.CurrentMarker(!bypass) + "on — ask before gated tools",
+				Verb:     chrome.CurrentMarker(!bypass) + "on — ask before risky actions",
 				Keywords: []string{"enable", "ask", "on", "interactive"},
 				Run: func() {
 					if set != nil {
@@ -414,7 +414,7 @@ func buildAgentsPalette(
 		Submenu: []palette.PaletteCommand{
 			{
 				ID:       "agents-on",
-				Verb:     chrome.CurrentMarker(enabled) + "on — register agent_* tools",
+				Verb:     chrome.CurrentMarker(enabled) + "on — Phi may delegate to sub-agents",
 				Keywords: []string{"enable", "on", "spawn"},
 				Run: func() {
 					if set != nil {
@@ -424,7 +424,7 @@ func buildAgentsPalette(
 			},
 			{
 				ID:       "agents-off",
-				Verb:     chrome.CurrentMarker(!enabled) + "off — no sub-agents (fewer tools)",
+				Verb:     chrome.CurrentMarker(!enabled) + "off — Phi works alone",
 				Keywords: []string{"disable", "off"},
 				Run: func() {
 					if set != nil {
@@ -457,8 +457,8 @@ func buildMaxRoundsPalette(ctrl *controller.EngineController, set func(int)) pal
 		mark := chrome.CurrentMarker(n == current)
 		cmds = append(cmds, palette.PaletteCommand{
 			ID:       fmt.Sprintf("max-rounds-%d", n),
-			Verb:     fmt.Sprintf("%s%d rounds", mark, n),
-			Keywords: []string{strconv.Itoa(n), "rounds", "limit", "budget"},
+			Verb:     fmt.Sprintf("%s%d steps", mark, n),
+			Keywords: []string{strconv.Itoa(n), "rounds", "steps", "limit", "budget"},
 			Run: func() {
 				if set != nil {
 					set(n)
@@ -469,9 +469,9 @@ func buildMaxRoundsPalette(ctrl *controller.EngineController, set func(int)) pal
 	return palette.PaletteCommand{
 		ID:           "settings-max-rounds",
 		Noun:         "settings",
-		Verb:         "max rounds",
-		Keywords:     []string{"max", "rounds", "limit", "budget", "tool", "iterations"},
-		SubmenuTitle: "Max Tool Rounds",
+		Verb:         "steps per turn",
+		Keywords:     []string{"max", "rounds", "steps", "limit", "budget", "tool", "iterations"},
+		SubmenuTitle: "Steps per Turn",
 		Submenu:      cmds,
 	}
 }

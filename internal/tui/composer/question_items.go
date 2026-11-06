@@ -16,6 +16,7 @@ func questionShortcutItems(promptRecall bool) []mention.Item {
 		{Path: "@", Description: "mention files"},
 		{Path: "?", Description: "shortcut help"},
 		{Path: "Esc", Description: "cancel / stop"},
+		{Path: "Ctrl+C", Description: "quit"},
 		{Path: "Ctrl+K", Description: "command palette"},
 		{Path: "Ctrl+A", Description: "start of line"},
 		{Path: "Ctrl+V", Description: "paste images or text"},

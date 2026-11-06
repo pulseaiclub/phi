@@ -114,10 +114,10 @@ func TestSettingsPaletteMarksCurrentValues(t *testing.T) {
 	require.NotEmpty(t, theme.Submenu)
 	assert.Equal(t, chrome.CurrentMarker(true)+"Dark (builtin)", theme.Submenu[0].Verb)
 
-	// The TUI starts in bypass, so "off — allow all" is current.
+	// The TUI starts in bypass, so the "never ask" row is current.
 	perm := byID["settings-permissions"]
 	require.Len(t, perm.Submenu, 2)
-	assert.Equal(t, chrome.CurrentMarker(true)+"off — allow all (no prompts)", perm.Submenu[0].Verb)
+	assert.Equal(t, chrome.CurrentMarker(true)+"off — never ask, allow everything", perm.Submenu[0].Verb)
 
 	// No per-role override configured, so each role inherits the parent.
 	agents := byID["settings-agents"]
