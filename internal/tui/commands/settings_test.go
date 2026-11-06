@@ -47,7 +47,7 @@ func TestSetModelUpdatesFooterContextWindow(t *testing.T) {
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
 	bus := controller.NewBus(nil)
-	ctrl, err := controller.NewController(bus, proj, cwd)
+	ctrl, err := controller.NewController(bus, proj)
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 	require.Equal(t, 192000, ctrl.ContextWindow())
@@ -91,7 +91,7 @@ func TestSettingsPaletteMarksCurrentValues(t *testing.T) {
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
 	bus := controller.NewBus(nil)
-	ctrl, err := controller.NewController(bus, proj, cwd)
+	ctrl, err := controller.NewController(bus, proj)
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 
