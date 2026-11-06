@@ -16,6 +16,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- TUI: restore the status label animation's ~15Hz cadence after the footer
+  state refactor. The spinner was advancing on every 60fps redraw, so the
+  flowing highlight looked four times faster without the pipeline changing.
+
 ### Security
 
 <!-- Released section -->
