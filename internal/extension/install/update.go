@@ -66,7 +66,7 @@ func Update(ctx context.Context, opts UpdateOptions) error {
 		return err
 	}
 	if len(targets) == 0 {
-		return errors.New("no phi-installed plugins to update")
+		return errors.New("no managed extensions to update — install one with 'phi plugin install owner/repo'")
 	}
 
 	var errs []error

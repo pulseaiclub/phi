@@ -281,7 +281,7 @@ fi
 
 info ""
 info "Next steps:"
-info "  1. phi config          # add a model + api_key (opens in browser)"
+info "  1. phi config          # add a model id + your provider's api key"
 info "  2. phi                 # start the TUI"
 info ""
 info "Or set PHI_MODEL and PHI_API_KEY, then run 'phi'."

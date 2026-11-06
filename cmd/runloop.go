@@ -46,6 +46,9 @@ func runHeadless(opts runOptions) error {
 	bs, err := loadRunBootstrap(ctx, opts.sessionDir, opts.yolo)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "phi run:", err)
+		if isSetupError(err) {
+			printSetupHint(os.Stderr)
+		}
 		return exitCode(ExitUsage)
 	}
 	if opts.yolo {

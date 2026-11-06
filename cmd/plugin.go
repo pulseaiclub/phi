@@ -134,7 +134,7 @@ func pluginList() error {
 		return err
 	}
 	if len(installed) == 0 {
-		fmt.Println("(no plugins — try: phi plugin install alice/greet)")
+		fmt.Println("(no extensions installed — try: phi plugin install owner/repo)")
 		return nil
 	}
 	for _, in := range installed {

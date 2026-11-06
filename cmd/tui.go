@@ -20,10 +20,7 @@ func runTUI() error {
 	proj := project.GetDefaultProject()
 	if err := proj.LoadConfig(); err != nil {
 		fmt.Fprintln(os.Stderr, "phi:", err)
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "Configure a model first, then restart:")
-		fmt.Fprintln(os.Stderr, "  phi config")
-		fmt.Fprintln(os.Stderr, "or set PHI_MODEL and PHI_API_KEY.")
+		printSetupHint(os.Stderr)
 		return exitCode(ExitUsage)
 	}
 

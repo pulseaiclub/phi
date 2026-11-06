@@ -44,7 +44,7 @@ type runBootstrap struct {
 func loadRunBootstrap(ctx context.Context, sessionDirOverride string, yolo bool) (*runBootstrap, error) {
 	proj := project.GetDefaultProject()
 	if err := proj.LoadConfig(); err != nil {
-		return nil, err
+		return nil, setupError{err: err}
 	}
 	if err := EnsureSearchTools(ctx, proj); err != nil {
 		fmt.Fprintln(os.Stderr, "warning: could not install search tools:", err)

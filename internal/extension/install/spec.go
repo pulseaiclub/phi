@@ -27,7 +27,7 @@ func (s Spec) ID() string { return s.Repo }
 func ParseSpec(raw string) (Spec, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return Spec{}, errors.New("empty plugin spec")
+		return Spec{}, errors.New("missing extension spec — expected owner/repo[@ref]")
 	}
 	if strings.HasPrefix(raw, "git@") {
 		return Spec{}, errors.New("SSH git URLs are not supported; use owner/repo or https://github.com/owner/repo")
