@@ -91,7 +91,7 @@ func TestDrawPermissionAskReplacesComposerSlot(t *testing.T) {
 
 func TestFormatAskHeader(t *testing.T) {
 	h, d := formatAskHeader(permission.Request{Kind: permission.KindWrite, Paths: []string{"/tmp/a"}})
-	require.Equal(t, "Allow creating file:", h)
+	require.Equal(t, "Write this file?", h)
 	require.Equal(t, "/tmp/a", d)
 }
 

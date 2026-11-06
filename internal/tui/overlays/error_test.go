@@ -158,7 +158,7 @@ func TestErrorAskNarrowWidthWrapsActionsWithoutOverwritingBorder(t *testing.T) {
 	for _, width := range []int{12, 8} {
 		surf := o.drawError(components.DrawContext{Max: components.Size{Width: width, Height: 9}}, width, 9)
 		body := errorBodyText(st, width, 9)
-		require.Contains(t, body, "Copy to Clipboard", "selected action must remain visible at width %d", width)
+		require.Contains(t, body, "Copy error", "selected action must remain visible at width %d", width)
 		for y := 1; y < surf.Size.Height-1; y++ {
 			require.Equal(t, "│", surf.Buffer[y*surf.Size.Width+surf.Size.Width-1].Char,
 				"width %d row %d right border must survive", width, y)

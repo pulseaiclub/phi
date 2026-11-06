@@ -12,7 +12,7 @@ import (
 
 var errorOptionLabels = []string{
 	"Retry",
-	"Copy to Clipboard",
+	"Copy error",
 	"Dismiss",
 }
 
@@ -49,7 +49,9 @@ func (st *errorAskState) wrappedLines(
 	for i, label := range errorOptionLabels {
 		options = append(
 			options,
-			chrome.OptionLine(th, th.Destructive, label, i == st.selected, max(innerW, 1), method),
+			// Destructive stays on the "Error" title alone; the selected action
+			// wears the same action accent as every other decision panel.
+			chrome.OptionLine(th, chrome.DecisionPrimary(th), label, i == st.selected, max(innerW, 1), method),
 		)
 	}
 	hint = wrap(components.Span{
@@ -296,5 +298,5 @@ func (o *Overlays) drawError(ctx components.DrawContext, width, height int) comp
 		height = st.preferredAskHeight(width, ctx.Method)
 	}
 	body := st.visibleLines(th, errorInnerWidth(width), height, ctx.Method)
-	return paintAskPanel(body, width, height, th.Destructive, ctx.Method)
+	return paintAskPanel(body, width, height, chrome.ModalBorder(th), ctx.Method)
 }

@@ -124,10 +124,10 @@ func (o *Overlays) PreferredBottomHeight(width int, method xui.WidthMethod) (hei
 		return o.perm.preferredAskHeight(width, method), true
 	}
 	if o.cont != nil {
-		return o.cont.preferredAskHeight(), true
+		return o.cont.preferredAskHeight(width, method), true
 	}
 	if o.confirm != nil {
-		return o.confirm.preferredAskHeight(), true
+		return o.confirm.preferredAskHeight(width, method), true
 	}
 	if o.err != nil {
 		return o.err.preferredAskHeight(width, method), true
@@ -460,35 +460,39 @@ func (o *Overlays) drawPermissionAsk(ctx components.DrawContext, width, height i
 	if width <= 0 {
 		width = 80
 	}
-	if height <= 0 {
-		height = st.preferredAskHeight(width, ctx.Method)
-	}
 	innerW := width - 4
 	if innerW < 10 {
 		innerW = width
 	}
+	if height <= 0 {
+		height = st.preferredAskHeight(width, ctx.Method)
+	}
+	return paintAskPanel(st.bodyLines(th, innerW, ctx.Method), width, height, chrome.ModalBorder(th), ctx.Method)
+}
 
-	primary := chrome.DecisionPrimary(th)
-
+// bodyLines is the one description of the panel: drawing and height estimation
+// both read it, so a wrapped option is never measured as a single row and then
+// clipped off the bottom.
+func (st *permAskState) bodyLines(th components.Theme, innerW int, method xui.WidthMethod) []components.RichLine {
 	var body []components.RichLine
 	add := func(spans ...components.Span) {
-		body = append(body, components.WrapSpans(spans, innerW, ctx.Method)...)
+		body = append(body, components.WrapSpans(spans, innerW, method)...)
 	}
 
-	add(components.Span{Text: st.header, Style: th.Foreground})
-	body = append(body, st.detailLines(th, innerW, ctx.Method)...)
+	add(components.Span{Text: st.header, Style: chrome.PanelTitle(th)})
+	body = append(body, st.detailLines(th, innerW, method)...)
 	if st.reason != "" {
 		add(components.Span{Text: "(" + st.reason + ")", Style: th.Muted})
 	}
 	body = append(body, components.RichLine{})
 
+	primary := chrome.DecisionPrimary(th)
 	if st.feedbackMode {
-		body = append(body, st.feedbackLines(th, primary, innerW, ctx.Method)...)
+		body = append(body, st.feedbackLines(th, primary, innerW, method)...)
 	} else {
-		body = append(body, st.optionLines(th, primary, innerW, ctx.Method)...)
+		body = append(body, st.optionLines(th, primary, innerW, method)...)
 	}
-
-	return paintAskPanel(body, width, height, chrome.ModalBorder(th), ctx.Method)
+	return body
 }
 
 func (o *Overlays) drawContinueAsk(ctx components.DrawContext, width, height int) components.Surface {
@@ -500,33 +504,34 @@ func (o *Overlays) drawContinueAsk(ctx components.DrawContext, width, height int
 	if width <= 0 {
 		width = 80
 	}
-	if height <= 0 {
-		height = st.preferredAskHeight()
-	}
 	innerW := width - 4
 	if innerW < 10 {
 		innerW = width
 	}
+	if height <= 0 {
+		height = st.preferredAskHeight(width, ctx.Method)
+	}
+	return paintAskPanel(st.bodyLines(th, innerW, ctx.Method), width, height, chrome.ModalBorder(th), ctx.Method)
+}
 
-	primary := chrome.DecisionPrimary(th)
-
+func (st *continueAskState) bodyLines(th components.Theme, innerW int, method xui.WidthMethod) []components.RichLine {
 	var body []components.RichLine
 	body = append(body, components.WrapSpans([]components.Span{
 		{
-			Text:  fmt.Sprintf("Reached max tool rounds (%d). Continue for another %d?", st.maxRounds, st.maxRounds),
-			Style: th.Foreground,
+			Text:  fmt.Sprintf("Phi hit its %d-step limit for this turn. Continue?", st.maxRounds),
+			Style: chrome.PanelTitle(th),
 		},
-	}, innerW, ctx.Method)...)
+	}, innerW, method)...)
 	body = append(body, components.RichLine{})
 
+	primary := chrome.DecisionPrimary(th)
 	for i, label := range continueOptionLabels {
-		body = append(body, chrome.OptionLine(th, primary, label, i == st.selected, innerW, ctx.Method)...)
+		body = append(body, chrome.OptionLine(th, primary, label, i == st.selected, innerW, method)...)
 	}
 	body = append(body, components.WrapSpans([]components.Span{
 		{Text: chrome.AskHint("↑↓ move", "select", "stop"), Style: th.Muted},
-	}, innerW, ctx.Method)...)
-
-	return paintAskPanel(body, width, height, chrome.ModalBorder(th), ctx.Method)
+	}, innerW, method)...)
+	return body
 }
 
 type askOption int
@@ -538,11 +543,13 @@ const (
 	askOptDenyFeedback
 )
 
+// askOptionLabels name the scope of each choice, not the mechanism: a beginner
+// approving a command must be able to tell "once" from "and never ask again".
 var askOptionLabels = []string{
-	"Approve",
-	"Allow All for This Session",
-	"Allow All for Every Session",
-	"Deny with feedback",
+	"Allow once",
+	"Allow everything for this session",
+	"Always allow everything (saves to config)",
+	"Deny and tell Phi why",
 }
 
 var continueOptionLabels = []string{
@@ -570,6 +577,8 @@ type continueAskState struct {
 }
 
 func formatAskHeader(req permission.Request) (header, detail string) {
+	// Every header is one question ending in "?": the panel asks, the options
+	// answer, and the detail below says what is at stake.
 	switch req.Kind {
 	case permission.KindExec:
 		cmd := req.Command
@@ -586,11 +595,11 @@ func formatAskHeader(req permission.Request) (header, detail string) {
 		// Kind collapses every writing tool; the tool name keeps the prompt
 		// honest about which one is asking.
 		if req.Tool == "edit" {
-			return "Allow editing file:", path
+			return "Edit this file?", path
 		}
-		return "Allow creating file:", path
+		return "Write this file?", path
 	default:
-		return fmt.Sprintf("Invoke tool %s?", req.Tool), permission.Summarize(req)
+		return fmt.Sprintf("Use the %s tool?", req.Tool), permission.Summarize(req)
 	}
 }
 
@@ -618,36 +627,18 @@ func (st *permAskState) preferredAskHeight(width int, method xui.WidthMethod) in
 	if st == nil {
 		return 8
 	}
-	innerW := width - 4
-	innerW = max(innerW, 20)
-	h := 2
-	h++
-	if st.detail != "" {
-		h += strings.Count(st.detail, "\n") + 1
-	}
-	if st.reason != "" {
-		h++
-	}
-	h++
-	if st.feedbackMode {
-		h += 3
-	} else {
-		h += len(askOptionLabels)
-		h++
-	}
-	h++
-	if h < 8 {
-		h = 8
-	}
-	_ = method
-	_ = innerW
-	return h
+	innerW := max(width-4, 20)
+	// Wrapping depends on width and method only — never on colors — so the
+	// default theme measures the same rows the panel will paint.
+	return max(len(st.bodyLines(components.DefaultTheme(), innerW, method))+2, 8)
 }
 
-func (*continueAskState) preferredAskHeight() int {
-	h := 2 + 1 + 1 + len(continueOptionLabels) + 1 + 1
-	h = max(h, 8)
-	return h
+func (st *continueAskState) preferredAskHeight(width int, method xui.WidthMethod) int {
+	if st == nil {
+		return 8
+	}
+	innerW := max(width-4, 20)
+	return max(len(st.bodyLines(components.DefaultTheme(), innerW, method))+2, 8)
 }
 
 func (st *permAskState) detailLines(th components.Theme, innerW int, method xui.WidthMethod) []components.RichLine {

@@ -40,18 +40,51 @@ func newConfirmAskState(msg controller.OverlayMsg) *confirmAskState {
 	}
 }
 
-func (s *confirmAskState) preferredAskHeight() int {
-	h := 2 + 1 + 1 + 2 + 1 + 1
-	if s.message != "" {
-		h += 1 + strings.Count(s.message, "\n")
+// bodyLines is the one description of the panel: drawing and height estimation
+// both read it, so a wrapped prompt is never measured as a single row.
+func (s *confirmAskState) bodyLines(th components.Theme, innerW int, method xui.WidthMethod) []components.RichLine {
+	var body []components.RichLine
+	add := func(spans ...components.Span) {
+		body = append(body, components.WrapSpans(spans, innerW, method)...)
 	}
-	if h < 8 {
+
+	title := s.title
+	if title == "" {
+		title = "Confirm"
+	}
+	add(components.Span{Text: title, Style: chrome.PanelTitle(th)})
+	if s.message != "" {
+		for line := range strings.SplitSeq(s.message, "\n") {
+			add(components.Span{Text: line, Style: th.Muted})
+		}
+	}
+	body = append(body, components.RichLine{})
+
+	primary := chrome.DecisionPrimary(th)
+	if s.danger {
+		// A destructive confirm reads destructive top to bottom: border and
+		// decision rows share the alarm color.
+		primary = th.Destructive
+	}
+	for i, label := range []string{s.yes, s.no} {
+		body = append(body, chrome.OptionLine(th, primary, label, i == s.selected, innerW, method)...)
+	}
+	body = append(body, components.WrapSpans([]components.Span{
+		{Text: chrome.ConfirmHint(), Style: th.Muted},
+	}, innerW, method)...)
+	return body
+}
+
+func (s *confirmAskState) preferredAskHeight(width int, method xui.WidthMethod) int {
+	if s == nil {
 		return 8
 	}
+	innerW := max(width-4, 20)
+	h := len(s.bodyLines(components.DefaultTheme(), innerW, method)) + 2
 	if h > 16 {
 		return 16
 	}
-	return h
+	return max(h, 8)
 }
 
 func (o *Overlays) beginExtConfirm(msg controller.OverlayMsg) {
@@ -180,44 +213,17 @@ func (o *Overlays) drawExtConfirm(ctx components.DrawContext, width, height int)
 	if width <= 0 {
 		width = 80
 	}
-	if height <= 0 {
-		height = st.preferredAskHeight()
-	}
 	innerW := width - 4
 	if innerW < 10 {
 		innerW = width
 	}
+	if height <= 0 {
+		height = st.preferredAskHeight(width, ctx.Method)
+	}
 
-	primary := chrome.DecisionPrimary(th)
 	border := chrome.ModalBorder(th)
 	if st.danger {
-		primary = th.Destructive
 		border = th.Destructive
 	}
-
-	var body []components.RichLine
-	add := func(spans ...components.Span) {
-		body = append(body, components.WrapSpans(spans, innerW, ctx.Method)...)
-	}
-
-	title := st.title
-	if title == "" {
-		title = "Confirm"
-	}
-	add(components.Span{Text: title, Style: th.Foreground})
-	if st.message != "" {
-		for line := range strings.SplitSeq(st.message, "\n") {
-			add(components.Span{Text: line, Style: th.Muted})
-		}
-	}
-	body = append(body, components.RichLine{})
-
-	for i, label := range []string{st.yes, st.no} {
-		body = append(body, chrome.OptionLine(th, primary, label, i == st.selected, innerW, ctx.Method)...)
-	}
-	body = append(body, components.WrapSpans([]components.Span{
-		{Text: chrome.ConfirmHint(), Style: th.Muted},
-	}, innerW, ctx.Method)...)
-
-	return paintAskPanel(body, width, height, border, ctx.Method)
+	return paintAskPanel(st.bodyLines(th, innerW, ctx.Method), width, height, border, ctx.Method)
 }
