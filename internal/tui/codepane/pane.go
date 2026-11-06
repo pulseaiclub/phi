@@ -471,12 +471,13 @@ func humanBytes(n int64) string {
 	if n < unit {
 		return fmt.Sprintf("%d B", n)
 	}
+	units := [...]string{"KiB", "MiB", "GiB", "TiB", "PiB", "EiB"}
 	div, exp := int64(unit), 0
-	for v := n / unit; v >= unit; v /= unit {
+	for v := n / unit; v >= unit && exp < len(units)-1; v /= unit {
 		div *= unit
 		exp++
 	}
-	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
+	return fmt.Sprintf("%.1f %s", float64(n)/float64(div), units[exp])
 }
 
 func (p *Pane) lineText() string {

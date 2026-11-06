@@ -131,7 +131,7 @@ const collectTruncationMarker = "[output truncated:"
 // collectTruncationNote is appended after display truncation so it does not
 // consume the real output's line or byte budget.
 var collectTruncationNote = fmt.Sprintf(
-	"\n\n%s only the last %d MB was kept]",
+	"\n\n%s only the last %d MiB was kept]",
 	collectTruncationMarker,
 	BashMaxCollectBytes/(1024*1024),
 )

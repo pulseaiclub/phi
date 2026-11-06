@@ -76,7 +76,7 @@ func TestExecShellBoundsCollection(t *testing.T) {
 	require.NoError(t, err)
 	cleanupBashOutputFile(t, res.Output)
 	require.False(t, res.ExitCode != 0 || res.Canceled, "result: %+v", res)
-	require.Contains(t, res.Output, "[output truncated: only the last 8 MB was kept]")
+	require.Contains(t, res.Output, "[output truncated: only the last 8 MiB was kept]")
 	require.Contains(t, res.Output, "Retained output:")
 	require.NotContains(t, res.Output, "Full output:", "collection-truncated output mislabeled")
 }

@@ -335,8 +335,8 @@ func TestRelPathFallsBackToAbsoluteOutsideCwd(t *testing.T) {
 
 func TestHumanBytes(t *testing.T) {
 	assert.Equal(t, "512 B", humanBytes(512))
-	assert.Equal(t, "1.0 KB", humanBytes(1024))
-	assert.Equal(t, "8.0 MB", humanBytes(maxFileBytes))
+	assert.Equal(t, "1.0 KiB", humanBytes(1024))
+	assert.Equal(t, "8.0 MiB", humanBytes(maxFileBytes))
 }
 
 func TestFirstNonBlank(t *testing.T) {
