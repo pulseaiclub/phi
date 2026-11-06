@@ -89,16 +89,13 @@ func New(
 }
 
 // Active reports whether the overlay is showing.
-func (p *Pane) Active() bool { return p != nil && p.active }
+func (p *Pane) Active() bool { return p.active }
 
 // ReturnToList distinguishes back navigation from sending notes to the agent.
 func (p *Pane) ReturnToList() bool { return p.returnToList }
 
 // SetTheme updates chrome and syntax colors.
 func (p *Pane) SetTheme(th components.Theme) {
-	if p == nil {
-		return
-	}
 	p.theme = th
 	p.picker.Theme = th
 	p.highlighted = diffview.HighlightRows(p.rows, th)
@@ -106,9 +103,6 @@ func (p *Pane) SetTheme(th components.Theme) {
 
 // OpenGit loads a git diff in cwd and shows the overlay.
 func (p *Pane) OpenGit(cwd string, spec []string) {
-	if p == nil {
-		return
-	}
 	wasChange := p.change != nil
 	p.saveChangeNotes()
 	p.change = nil
@@ -129,9 +123,6 @@ func (p *Pane) OpenGit(cwd string, spec []string) {
 
 // OpenText shows a preloaded unified diff (tests / paste).
 func (p *Pane) OpenText(input string, spec []string) {
-	if p == nil {
-		return
-	}
 	wasChange := p.change != nil
 	p.saveChangeNotes()
 	p.change = nil
@@ -254,9 +245,6 @@ func (p *Pane) openParsed(input, loadErr string, keepNotes bool) {
 
 // Close hides the overlay.
 func (p *Pane) Close() {
-	if p == nil {
-		return
-	}
 	p.saveChangeNotes()
 	p.returnToList = false
 	p.active = false
@@ -268,7 +256,7 @@ func (p *Pane) Close() {
 
 // Handle consumes keyboard input while the overlay is active.
 func (p *Pane) Handle(ctx *components.EventContext, ev xui.Event) {
-	if p == nil || !p.active {
+	if !p.active {
 		return
 	}
 	switch e := ev.(type) {
@@ -868,9 +856,6 @@ func (p *Pane) visSide(idx diffreview.CommentIndex) []diffview.Vis {
 
 // Draw paints the overlay.
 func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
-	if p == nil {
-		return components.NewSurface(ctx.Max.Width, ctx.Max.Height, nil)
-	}
 	p.viewH = max(ctx.Max.Height-2, 1)
 	p.revealCursor()
 

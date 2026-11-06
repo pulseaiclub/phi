@@ -36,22 +36,17 @@ func NewActivityHandler() *ActivityHandler {
 
 // SetOnChange registers a UI-thread callback after activity changes.
 func (h *ActivityHandler) SetOnChange(fn func()) {
-	if h != nil {
-		h.onChange = fn
-	}
+	h.onChange = fn
 }
 
 func (h *ActivityHandler) notify() {
-	if h != nil && h.onChange != nil {
+	if h.onChange != nil {
 		h.onChange()
 	}
 }
 
 // Apply sets activity from a FooterMsg (or direct call on UI thread).
 func (h *ActivityHandler) Apply(a Activity) {
-	if h == nil {
-		return
-	}
 	h.Current = a
 	h.notify()
 }
@@ -60,9 +55,6 @@ func (h *ActivityHandler) Apply(a Activity) {
 // Upgrades (Idle→Streaming/Tools/…) go through Apply, which notifies.
 // The Idle fallback below sets Current directly, so it notifies explicitly.
 func (h *ActivityHandler) SyncFromSnap(snap session.Snapshot) {
-	if h == nil {
-		return
-	}
 	// Don't clobber approval activity while the confirmation UI is up.
 	if h.Current == ActivityAwaitingApproval {
 		return
@@ -95,9 +87,6 @@ func (h *ActivityHandler) SyncFromSnap(snap session.Snapshot) {
 
 // ShowSpinner reports whether the current activity animates a spinner.
 func (h *ActivityHandler) ShowSpinner() bool {
-	if h == nil {
-		return false
-	}
 	return h.Current.showSpinner()
 }
 
@@ -106,9 +95,6 @@ func (h *ActivityHandler) ShowSpinner() bool {
 // output there, so anything gating on the snapshot alone would miss an Esc that
 // arrived while the provider was still thinking.
 func (h *ActivityHandler) TurnPending() bool {
-	if h == nil {
-		return false
-	}
 	switch h.Current {
 	case ActivitySubmitting, ActivityWaiting, ActivityStreaming, ActivityRetrying:
 		return true
@@ -119,9 +105,6 @@ func (h *ActivityHandler) TurnPending() bool {
 
 // Label returns the status-slot text for the current activity and session snapshot.
 func (h *ActivityHandler) Label(snap session.Snapshot) string {
-	if h == nil {
-		return ""
-	}
 	if h.Current == ActivityTools {
 		n := session.RunningToolCount(snap)
 		if n > 1 {

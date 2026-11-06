@@ -36,7 +36,7 @@ func NewSubagentStore() *SubagentStore {
 
 // Bind links a job id to the parent agent tool_use id.
 func (s *SubagentStore) Bind(jobID, parentToolUseID string) {
-	if s == nil || jobID == "" || parentToolUseID == "" {
+	if jobID == "" || parentToolUseID == "" {
 		return
 	}
 	s.mu.Lock()
@@ -83,7 +83,7 @@ func (s *SubagentStore) viewLocked(jobID, parentToolUseID string) *subagentView 
 // ApplyProgress upserts a child tool row under the parent agent tool.
 // Returns true when the nested tree view actually changed.
 func (s *SubagentStore) ApplyProgress(p job.Progress) bool {
-	if s == nil || (p.JobID == "" && p.ParentToolUseID == "") {
+	if p.JobID == "" && p.ParentToolUseID == "" {
 		return false
 	}
 	s.mu.Lock()
@@ -112,7 +112,7 @@ func (s *SubagentStore) ApplyProgress(p job.Progress) bool {
 
 // ApplyResult records label / terminal summary from agent tool JSON output.
 func (s *SubagentStore) ApplyResult(parentToolUseID string, r agenttool.AgentResult) {
-	if s == nil || !r.OK {
+	if !r.OK {
 		return
 	}
 	s.mu.Lock()
@@ -130,7 +130,7 @@ func (s *SubagentStore) ApplyResult(parentToolUseID string, r agenttool.AgentRes
 // agent_wait / agent_cancel rows carry only a job id in their args; this is
 // what lets the transcript show the job's name instead.
 func (s *SubagentStore) Label(jobID string) string {
-	if s == nil || jobID == "" {
+	if jobID == "" {
 		return ""
 	}
 	s.mu.Lock()
@@ -143,7 +143,7 @@ func (s *SubagentStore) Label(jobID string) string {
 
 // Children returns a copy of nested tools for a parent tool_use id.
 func (s *SubagentStore) Children(parentToolUseID string) []block.ChildTool {
-	if s == nil || parentToolUseID == "" {
+	if parentToolUseID == "" {
 		return nil
 	}
 	s.mu.Lock()
@@ -157,7 +157,7 @@ func (s *SubagentStore) Children(parentToolUseID string) []block.ChildTool {
 
 // ChildrenByJob returns a copy of nested tools for a job id.
 func (s *SubagentStore) ChildrenByJob(jobID string) []block.ChildTool {
-	if s == nil || jobID == "" {
+	if jobID == "" {
 		return nil
 	}
 	s.mu.Lock()

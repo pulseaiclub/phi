@@ -70,7 +70,7 @@ func TestSubmitter_IsBusy(t *testing.T) {
 	th := components.DefaultTheme()
 	spin := status.NewSpinner(th.ToolName)
 	tp := transcript.NewTranscriptPane(th, spin, "Phi test")
-	sub := newTestSubmitter(t, tp, nil, nil, nil)
+	sub := newTestSubmitter(t, tp, controller.NewActivityHandler(), nil, nil)
 	assert.False(t, sub.IsBusy())
 }
 

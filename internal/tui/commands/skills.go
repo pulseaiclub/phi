@@ -18,7 +18,7 @@ type skillAdder interface {
 
 // Register wires the skills palette entry into r.
 func (s *SkillsCommands) Register(r *CommandRegistry) {
-	if s == nil || r == nil {
+	if r == nil {
 		return
 	}
 	r.Register(Command{
@@ -30,7 +30,7 @@ func (s *SkillsCommands) Register(r *CommandRegistry) {
 }
 
 func (s *SkillsCommands) add(name string) {
-	if s == nil || s.Add == nil {
+	if s.Add == nil {
 		return
 	}
 	s.Add.AddPendingSkill(name)
