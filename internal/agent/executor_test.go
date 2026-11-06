@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ext "github.com/pulseaiclub/phi/ext/go"
 	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/extension/create"
 	"github.com/pulseaiclub/phi/internal/llm"
@@ -504,4 +506,50 @@ func TestExecutorMixedBatchStaysSequential(t *testing.T) {
 	require.Len(t, msgs, 2)
 	assert.Equal(t, "A", msgs[0].Content)
 	assert.Equal(t, "B", msgs[1].Content)
+}
+
+func TestChildEnginePreservesExtensionHostState(t *testing.T) {
+	r := loadExt(t, `package main
+import (
+  "github.com/pulseaiclub/phi/ext/go"
+  "github.com/pulseaiclub/phi/ext/go/phi"
+)
+func main() {
+  m := phi.New("test", "0.0.1")
+  m.OnToolCall(func(ext.ToolCallEvent) *ext.ToolCallResult {
+    host := m.Host()
+    return &ext.ToolCallResult{Context: host.SessionID + "|" + host.Cwd}
+  })
+  _ = m.Run()
+}
+`)
+	r.Bind(ext.HostOpts{})
+	parentSession, err := NewSession(WithCwd(t.TempDir()))
+	require.NoError(t, err)
+	_, err = NewEngine(llm.ModelConfig{Name: "test"}, parentSession, WithExtensions(r))
+	require.NoError(t, err)
+	api := r.Fiber("test").API()
+	parentTools := api.GetAllTools()
+	require.NotEmpty(t, parentTools)
+
+	childSession, err := NewSession(WithCwd(t.TempDir()))
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(childSession.Cwd(), "child.txt"), []byte("child content"), 0o600))
+	child, err := NewEngine(llm.ModelConfig{Name: "test"}, childSession,
+		WithExtensions(r), WithOmitExtensionTools(true), WithTools(ChildTools()))
+	require.NoError(t, err)
+	for _, phase := range []string{"construction", "rebind"} {
+		t.Run(phase, func(t *testing.T) {
+			if phase == "rebind" {
+				child.SetExtensions(r)
+			}
+			assert.Equal(t, parentTools, api.GetAllTools())
+			msgs, _, _ := child.executor.Run(t.Context(), []llm.ToolCall{{
+				ID: "child-read", Function: llm.Function{Name: "read", Arguments: `{"path":"child.txt"}`},
+			}}, func(session.ToolData) bool { return true })
+			require.Len(t, msgs, 1)
+			assert.Contains(t, msgs[0].Content, parentSession.ID()+"|"+parentSession.Cwd())
+			assert.Contains(t, msgs[0].Content, "child content")
+		})
+	}
 }
