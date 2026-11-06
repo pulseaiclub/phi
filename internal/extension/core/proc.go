@@ -1039,19 +1039,6 @@ func (p *Proc) registerInterceptShims(api *ext.API) {
 		}
 		return &ext.UserInputResult{Handled: resp.Handled, Text: resp.Prompt, Reason: resp.Reason}
 	})
-	on(
-		pxb.EvTurnStopping,
-		ext.EventTurnStopping,
-		func(ev ext.TurnStoppingEvent, _ *ext.Context) *ext.TurnStoppingResult {
-			resp, err := p.Intercept(context.Background(), pxb.InterceptReq{
-				Event: pxb.EvTurnStopping, TurnIndex: uint32(ev.TurnIndex), //nolint:gosec // G115
-			})
-			if err != nil {
-				return nil
-			}
-			return &ext.TurnStoppingResult{Continue: resp.Continue, Message: resp.Prompt, Reason: resp.Reason}
-		},
-	)
 }
 
 // registerEventShims forwards fire-and-forget lifecycle events to the child.

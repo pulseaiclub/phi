@@ -430,7 +430,6 @@ const INTERCEPT_RESP = [
   { tag: 9, kind: "string", key: "toast" },
   { tag: 10, kind: "u64", key: "handled", bool: true },
   { tag: 11, kind: "string", key: "prompt" },
-  { tag: 12, kind: "u64", key: "continue", bool: true },
 ] as const satisfies readonly FieldSpec[];
 
 /** Ext→host intercept reply. */
@@ -446,7 +445,6 @@ export interface InterceptResp {
   toast: string;
   handled: boolean;
   prompt: string;
-  continue: boolean;
 }
 
 export function encodeInterceptResp(m: InterceptResp): Buffer {

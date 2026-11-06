@@ -404,19 +404,6 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 
 			if len(msg.ToolCalls) == 0 {
 				engine.extensions.EmitTurnEnd(toolRounds)
-				if cont, steer := engine.extensions.EmitTurnStopping(toolRounds); cont {
-					steerMsg := steer
-					if steerMsg == "" {
-						steerMsg = "continue"
-					}
-					if err := engine.session.Append(
-						llm.Message{Role: llm.RoleUser, Content: steerMsg},
-					); err != nil {
-						yield(nil, err)
-						return
-					}
-					continue
-				}
 				// Turn finished — compact using this assistant's usage. The
 				// threshold reads context size the same way the composer does.
 				if _, err := engine.runCompact(ctx, yield, msg.Usage.ContextTokens(), false); err != nil {
