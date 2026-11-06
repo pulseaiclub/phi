@@ -562,9 +562,6 @@ func (c *EngineController) SessionID() string {
 // whichever one is open now.
 func (c *EngineController) AppendUserBash(sessionID, command, output string, exitCode int, cancelled bool) error {
 	engine := c.engine
-	if engine == nil || engine.Session() == nil {
-		return nil
-	}
 	if sessionID != "" && engine.SessionID() != sessionID {
 		return nil
 	}
@@ -705,9 +702,6 @@ func (c *EngineController) openEngine(
 }
 
 func (c *EngineController) ReplaySnapshot() session.Snapshot {
-	if c.engine == nil || c.engine.Session() == nil {
-		return session.Snapshot{}
-	}
 	return session.ReplaySnapshot(c.engine.Session().PathEntries(), c.engine.ToolDetail)
 }
 
@@ -862,10 +856,6 @@ func (c *EngineController) runLoop(ctx context.Context, gen int, engine *agent.E
 	// Publish completion only after the iterator's cleanup (including AgentEnd)
 	// has finished, so Retry cannot start while the failed turn is unwinding.
 	defer func() { c.finishLoop(ctx, gen, loopErr) }()
-	if engine == nil {
-		loopErr = errors.New("agent not configured")
-		return
-	}
 	for ev, err := range engine.Loop(ctx, prompt.Text, agent.LoopOpts{
 		PendingSkills: prompt.Skills,
 		Images:        prompt.Images,

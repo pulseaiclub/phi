@@ -168,9 +168,6 @@ func (engine *Engine) SetModelWithHooks(cfg llm.ModelConfig, hooks llmclient.Hoo
 // SetJobs attaches or detaches the job manager and rebuilds the tool list.
 // Pass nil to unregister agent_* tools (sub-agents disabled).
 func (engine *Engine) SetJobs(jobs *job.Manager) {
-	if engine == nil {
-		return
-	}
 	engine.jobs = jobs
 	engine.rebindTools()
 }
@@ -178,9 +175,6 @@ func (engine *Engine) SetJobs(jobs *job.Manager) {
 // SetMaxRounds updates the tool-round budget and is safe to call during Loop.
 // Non-positive values restore the package default.
 func (engine *Engine) SetMaxRounds(n int) {
-	if engine == nil {
-		return
-	}
 	if n <= 0 {
 		n = defaultMaxToolRounds
 	}
@@ -221,76 +215,50 @@ func (engine *Engine) bindExecutor(registry tooldef.Registry) {
 
 // HasTool reports whether a tool is currently registered on the executor.
 func (engine *Engine) HasTool(name string) bool {
-	if engine == nil || engine.executor == nil {
-		return false
-	}
 	_, ok := engine.executor.registry[name]
 	return ok
 }
 
 // SetPermission updates the gate and ask handler used by the tool executor.
 func (engine *Engine) SetPermission(gate permission.Gate, ask permission.AskFunc) {
-	if engine == nil {
-		return
-	}
 	engine.gate = gate
 	engine.ask = ask
-	if engine.executor != nil {
-		engine.executor.gate = gate
-		engine.executor.ask = ask
-		// Spawn handlers capture the gate for each parent configuration.
-		engine.executor.registry = tooldef.NewRegistry(engine.buildToolList(engine.baseTools))
-	}
+	engine.executor.gate = gate
+	engine.executor.ask = ask
+	// Spawn handlers capture the gate for each parent configuration.
+	engine.executor.registry = tooldef.NewRegistry(engine.buildToolList(engine.baseTools))
 }
 
 // SetContinueAsk sets the handler invoked when the tool-round budget is exhausted.
 // Pass nil to hard-fail with ErrMaxRounds (default for headless runs).
 func (engine *Engine) SetContinueAsk(fn ContinueFunc) {
-	if engine == nil {
-		return
-	}
 	engine.continueAsk = fn
 }
 
 // SetExtensions replaces the extension runner. Pass nil to disable extensions.
 // Rebinds tools so RegisterTool from the new runner takes effect.
 func (engine *Engine) SetExtensions(r *extension.Runner) {
-	if engine == nil {
-		return
-	}
 	engine.extensions = r
 	engine.rebindTools()
 }
 
 // SessionID returns the durable session id.
 func (engine *Engine) SessionID() string {
-	if engine == nil || engine.session == nil {
-		return ""
-	}
 	return engine.session.ID()
 }
 
 // SessionFile returns the JSONL path (empty in memory mode).
 func (engine *Engine) SessionFile() string {
-	if engine == nil || engine.session == nil {
-		return ""
-	}
 	return engine.session.File()
 }
 
 // SessionCwd returns the cwd recorded on the session header.
 func (engine *Engine) SessionCwd() string {
-	if engine == nil || engine.session == nil {
-		return ""
-	}
 	return engine.session.Cwd()
 }
 
 // Session returns the underlying session wrapper (for UI transcript replay).
 func (engine *Engine) Session() *Session {
-	if engine == nil {
-		return nil
-	}
 	return engine.session
 }
 
@@ -667,9 +635,6 @@ func (engine *Engine) streamTurn(
 // resumed sessions show the same detail (e.g. "read foo.go:10-20") instead of
 // raw JSON. Returns "" when the tool is unknown or has no detail formatter.
 func (engine *Engine) ToolDetail(name, args string) string {
-	if engine == nil || engine.executor == nil {
-		return ""
-	}
 	tool, ok := engine.executor.registry[name]
 	if !ok || tool.DetailFromArgs == nil {
 		return ""

@@ -46,14 +46,11 @@ func newBashRunner(
 
 // Running reports whether a local bash command is in flight.
 func (b *BashRunner) Running() bool {
-	return b != nil && b.running.Load()
+	return b.running.Load()
 }
 
 // HandleSubmit runs a user "!cmd". Returns true when the input was consumed.
 func (b *BashRunner) HandleSubmit(text string) bool {
-	if b == nil {
-		return false
-	}
 	command, includeInContext, ok := parseBashInput(text)
 	if !ok {
 		return false
@@ -186,7 +183,7 @@ func (b *BashRunner) recordContext(
 	exitCode int,
 	cancelled bool,
 ) {
-	if b == nil || !includeInContext || b.ctrl == nil {
+	if !includeInContext || b.ctrl == nil {
 		return
 	}
 	// Appending mid-turn would break tool_use/tool_result pairing, so the output
@@ -207,24 +204,15 @@ func (b *BashRunner) recordContext(
 }
 
 func (b *BashRunner) publishSession(ev session.Event) {
-	if b == nil {
-		return
-	}
 	b.bus.Publish(controller.SessionEventMsg{Event: ev})
 }
 
 func (b *BashRunner) showToast(msg string, d time.Duration) {
-	if b == nil {
-		return
-	}
 	b.bus.Publish(controller.ToastMsg{Message: msg, Kind: toast.ToastWarning, Duration: d})
 }
 
 // Cancel aborts a running user "!cmd". Returns true if one was cancelled.
 func (b *BashRunner) Cancel() bool {
-	if b == nil {
-		return false
-	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.cancel == nil {
@@ -236,7 +224,7 @@ func (b *BashRunner) Cancel() bool {
 
 // SyncBorder paints the composer border for bash mode when text starts with "!".
 func (b *BashRunner) SyncBorder(text string) {
-	if b == nil || b.composer == nil {
+	if b.composer == nil {
 		return
 	}
 	bash := strings.HasPrefix(strings.TrimLeft(text, " \t"), "!")

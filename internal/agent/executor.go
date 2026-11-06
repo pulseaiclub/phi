@@ -51,9 +51,6 @@ func NewExecutor(
 
 // SetMeta attaches session identity used in extension Event payloads.
 func (e *Executor) SetMeta(sessionID, cwd string) {
-	if e == nil {
-		return
-	}
 	e.sessionID = sessionID
 	e.cwd = cwd
 	e.ext.SetMeta(sessionID, cwd)

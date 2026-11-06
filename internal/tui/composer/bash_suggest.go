@@ -69,9 +69,6 @@ func newBashSuggest(pane *ComposerPane, theme components.Theme) bashSuggest {
 // none is ever set, on a build without a predictor — the picker stays closed and
 // the composer behaves exactly as before.
 func (c *ComposerPane) SetBashPredictor(predictor BashPredictor) {
-	if c == nil {
-		return
-	}
 	c.bash.predictor = predictor
 }
 
@@ -235,9 +232,6 @@ func (b *bashSuggest) schedule(query string) {
 
 // ApplyBashSuggestions applies one prediction on the UI goroutine.
 func (c *ComposerPane) ApplyBashSuggestions(msg controller.BashSuggestionsMsg) {
-	if c == nil {
-		return
-	}
 	c.bash.apply(msg)
 }
 

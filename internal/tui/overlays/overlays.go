@@ -53,14 +53,12 @@ func NewOverlays(
 
 // SetTheme updates overlay chrome styling.
 func (o *Overlays) SetTheme(th components.Theme) {
-	if o != nil {
-		o.theme = th
-	}
+	o.theme = th
 }
 
 // Active reports whether a modal overlay is showing.
 func (o *Overlays) Active() bool {
-	return o != nil && (o.perm != nil || o.cont != nil || o.confirm != nil || o.err != nil)
+	return o.perm != nil || o.cont != nil || o.confirm != nil || o.err != nil
 }
 
 // BlocksComposer reports whether composer input should be disabled.
@@ -70,19 +68,16 @@ func (o *Overlays) BlocksComposer() bool {
 
 // PermissionActive reports whether the permission overlay is showing.
 func (o *Overlays) PermissionActive() bool {
-	return o != nil && o.perm != nil
+	return o.perm != nil
 }
 
 // ContinueActive reports whether the continue overlay is showing.
 func (o *Overlays) ContinueActive() bool {
-	return o != nil && o.cont != nil
+	return o.cont != nil
 }
 
 // Apply routes overlay bus messages by Kind.
 func (o *Overlays) Apply(msg controller.OverlayMsg) {
-	if o == nil {
-		return
-	}
 	switch msg.Kind {
 	case controller.OverlayPermissionAsk:
 		o.beginPermissionAsk(msg)
@@ -105,12 +100,12 @@ func (o *Overlays) Apply(msg controller.OverlayMsg) {
 
 // HandlePermissionKey handles keyboard input while permission ask is active.
 func (o *Overlays) HandlePermissionKey(ctx *components.EventContext, e xui.KeyEvent) bool {
-	return o != nil && o.perm != nil && o.handlePermissionKey(ctx, e)
+	return o.perm != nil && o.handlePermissionKey(ctx, e)
 }
 
 // HandleContinueKey handles keyboard input while continue ask is active.
 func (o *Overlays) HandleContinueKey(ctx *components.EventContext, e xui.KeyEvent) bool {
-	return o != nil && o.cont != nil && o.handleContinueKey(ctx, e)
+	return o.cont != nil && o.handleContinueKey(ctx, e)
 }
 
 // ResolvePermission sends a permission reply and clears the overlay.
@@ -125,9 +120,6 @@ func (o *Overlays) ResolveContinue(r controller.ContinueReply) {
 
 // PreferredBottomHeight estimates rows for the bottom overlay or composer slot.
 func (o *Overlays) PreferredBottomHeight(width int, method xui.WidthMethod) (height int, overlay bool) {
-	if o == nil {
-		return 0, false
-	}
 	if o.perm != nil {
 		return o.perm.preferredAskHeight(width, method), true
 	}
@@ -145,9 +137,6 @@ func (o *Overlays) PreferredBottomHeight(width int, method xui.WidthMethod) (hei
 
 // DrawBottom renders the overlay panel when active.
 func (o *Overlays) DrawBottom(ctx components.DrawContext, width, height int) (components.Surface, bool) {
-	if o == nil {
-		return components.Surface{}, false
-	}
 	if o.perm != nil {
 		return o.drawPermissionAsk(ctx, width, height), true
 	}
