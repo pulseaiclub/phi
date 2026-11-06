@@ -394,8 +394,8 @@ still append when configured; the flag only scopes the built-in toolset.
 Exit codes: `0` success · `1` runtime/LLM error · `2` max rounds reached ·
 `3` config/usage error.
 
-In the interactive TUI, exhausting the tool-round budget prompts Continue /
-Stop. Headless `phi run` has no confirmation UI, so it exits with code 2.
+Exhausting the tool-round budget stops the run with exit code 2, both in
+the interactive TUI and in headless `phi run`.
 
 In headless mode, permission `ask` decisions are denied (there is no approval
 UI), so `readonly`-style safety applies without extra flags. For benchmarks

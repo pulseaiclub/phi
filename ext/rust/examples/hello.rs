@@ -31,11 +31,6 @@ fn main() -> Result<(), phi::Error> {
         None
     });
 
-    m.on_turn_stopping(|_ev| {
-        // return Some(phi::TurnStoppingResult { continue_: true, message: "check X".into(), ..Default::default() }) to steer
-        None
-    });
-
     m.subscribe(pxb::Event::SessionStart, |ev| {
         let _ = ev; // Reason, PreviousSessionID, …
     });

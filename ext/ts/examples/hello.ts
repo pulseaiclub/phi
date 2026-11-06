@@ -36,11 +36,6 @@ m.onToolResult((_ev) => {
   return null;
 });
 
-m.onTurnStopping((_ev) => {
-  // return { continue: true, message: "check X" } to steer
-  return null;
-});
-
 m.subscribe(Event.SessionStart, (_ev) => {
   // Reason, PreviousSessionID, …
 });

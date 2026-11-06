@@ -182,7 +182,7 @@ func wiredComposer(t *testing.T) (*ComposerPane, *controller.Bus) {
 	reg := commands.NewCommandRegistry()
 	reg.Register(commands.Command{Name: "new", Slash: true})
 	reg.Register(commands.Command{Name: "diff", Slash: true, NeedsArgs: true})
-	c.Wire(nil, nil, reg, c.cwd, bus, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	c.Wire(nil, nil, reg, c.cwd, bus, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	return c, bus
 }
 

@@ -55,7 +55,6 @@ fn main() -> Result<(), phi::Error> {
     m.on_user_input(|_ev| None);   // return Some(UserInputResult { handled: true, .. }) to swallow
     m.on_tool_call(|_ev| None);    // return Some(ToolCallResult { block: true, reason: "…", .. }) to deny
     m.on_tool_result(|_ev| None);  // return Some(ToolResultResult { stop: true, .. }) to end the loop
-    m.on_turn_stopping(|_ev| None); // return Some(TurnStoppingResult { continue_: true, message: "…", .. }) to steer
     m.subscribe(pxb::Event::SessionStart, |_ev| {});
     m.run()
 }

@@ -162,66 +162,6 @@ func TestLoopMaxRoundsDoesNotExecuteExtraToolRound(t *testing.T) {
 	require.Equal(t, 2, assistantToolRounds)
 }
 
-func TestLoopContinueAskGrantsAnotherBudget(t *testing.T) {
-	server, _ := fakeToolSequenceServer(-1)
-	defer server.Close()
-
-	var asks atomic.Int32
-	sess, err := NewSession(WithCwd(t.TempDir()))
-	require.NoError(t, err)
-	engine, err := NewEngine(
-		llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x"},
-		sess,
-		WithGate(permission.AllowAll{}),
-		WithMaxRounds(1),
-		WithContinueAsk(func(context.Context, int) (bool, error) {
-			// Approve once so the loop can start a second budget window, then stop.
-			return asks.Add(1) == 1, nil
-		}),
-	)
-	require.NoError(t, err)
-
-	var lastErr error
-	for ev, err := range engine.Loop(t.Context(), "go", LoopOpts{}) {
-		_ = ev
-		if err != nil {
-			lastErr = err
-			break
-		}
-	}
-	require.Error(t, lastErr)
-	require.ErrorIs(t, lastErr, ErrMaxRounds)
-	require.Equal(t, int32(2), asks.Load(), "should ask once per exhausted budget")
-}
-
-func TestLoopContinueAskDeclineReturnsErrMaxRounds(t *testing.T) {
-	server, _ := fakeToolSequenceServer(-1)
-	defer server.Close()
-
-	sess, err := NewSession(WithCwd(t.TempDir()))
-	require.NoError(t, err)
-	engine, err := NewEngine(
-		llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x"},
-		sess,
-		WithGate(permission.AllowAll{}),
-		WithMaxRounds(1),
-		WithContinueAsk(func(context.Context, int) (bool, error) {
-			return false, nil
-		}),
-	)
-	require.NoError(t, err)
-
-	var lastErr error
-	for ev, err := range engine.Loop(t.Context(), "go", LoopOpts{}) {
-		_ = ev
-		if err != nil {
-			lastErr = err
-			break
-		}
-	}
-	require.ErrorIs(t, lastErr, ErrMaxRounds)
-}
-
 // overflowThenOKServer fails the first streaming chat with a context overflow,
 // serves a non-stream compact summary, then streams a final text reply.
 func overflowThenOKServer(streamHits *atomic.Int32) *httptest.Server {

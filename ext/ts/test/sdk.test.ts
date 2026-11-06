@@ -96,7 +96,6 @@ const EMPTY_INTERCEPT_RESP = encodeInterceptResp({
   toast: "",
   handled: false,
   prompt: "",
-  continue: false,
 });
 
 /** A minimal PXB host. Uses the SDK's own codec, so byte-level fidelity to

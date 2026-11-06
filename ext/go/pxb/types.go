@@ -88,7 +88,6 @@ const (
 	EvTurnStart           uint16 = 11
 	EvTurnEnd             uint16 = 12
 	EvUserInput           uint16 = 13
-	EvTurnStopping        uint16 = 14
 	EvSessionCompact      uint16 = 15
 	EvPaneAction          uint16 = 16
 )
@@ -122,8 +121,6 @@ func EventName(code uint16) string {
 		return "turn_end"
 	case EvUserInput:
 		return "user_input"
-	case EvTurnStopping:
-		return "turn_stopping"
 	case EvSessionCompact:
 		return "session_compact"
 	case EvPaneAction:
@@ -162,8 +159,6 @@ func EventCode(name string) uint16 {
 		return EvTurnEnd
 	case "user_input":
 		return EvUserInput
-	case "turn_stopping":
-		return EvTurnStopping
 	case "session_compact":
 		return EvSessionCompact
 	case "pane_action":

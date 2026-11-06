@@ -942,7 +942,6 @@ const (
 	fInterceptRespToast              uint16 = 9
 	fInterceptRespHandled            uint16 = 10
 	fInterceptRespPrompt             uint16 = 11
-	fInterceptRespContinue           uint16 = 12
 )
 
 // sizeInterceptResp is the exact wire size of msg.
@@ -959,7 +958,6 @@ func sizeInterceptResp(msg InterceptResp) int {
 	n += strSize(msg.Toast)
 	n += u64FieldSize
 	n += strSize(msg.Prompt)
-	n += u64FieldSize
 	return n
 }
 
@@ -980,7 +978,6 @@ func EncodeInterceptResp(msg InterceptResp) []byte {
 	fw.putString(fInterceptRespToast, msg.Toast)
 	fw.putBool(fInterceptRespHandled, msg.Handled)
 	fw.putString(fInterceptRespPrompt, msg.Prompt)
-	fw.putBool(fInterceptRespContinue, msg.Continue)
 	return fw.bytes()
 }
 
@@ -1031,10 +1028,6 @@ func DecodeInterceptResp(b []byte) (InterceptResp, error) {
 		case fInterceptRespPrompt:
 			s, err := takeString(kind, fr)
 			msg.Prompt = s
-			return err
-		case fInterceptRespContinue:
-			v, err := takeU64(kind, fr)
-			msg.Continue = v != 0
 			return err
 		default:
 			return fr.skip(kind)

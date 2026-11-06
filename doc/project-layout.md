@@ -20,7 +20,7 @@
 | `internal/tui/transcript/` | Session→widget projection (Mapper, Pane) |
 | `internal/tui/composer/` | Chat input, `/` `?` `@` `!` pickers, palette |
 | `internal/tui/footer/`   | Activity spinner, token labels, update hint |
-| `internal/tui/overlays/` | Permission / continue-ask panels |
+| `internal/tui/overlays/` | Permission / ext-confirm / error panels |
 | `internal/tui/diffpane/` | Git diff review overlay (`/diff`) |
 | `internal/tui/codepane/` | Source viewer overlay (`/code`) |
 | `internal/tui/submit/`   | Submit, cancel, slash dispatch, bash runner |

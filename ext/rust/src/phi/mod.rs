@@ -284,20 +284,6 @@ pub struct UserInputResult {
     pub reason: String,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct TurnStoppingEvent {
-    pub turn_index: u32,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct TurnStoppingResult {
-    /// Forces another agent step.
-    pub continue_: bool,
-    /// Injected as a user message when continuing.
-    pub message: String,
-    pub reason: String,
-}
-
 /// Registered intercept / subscribe handlers. Kept as one struct so `run`
 /// can destructure the [`Extension`] into independent fields (each handler
 /// borrows only what it needs, no interior mutability).
@@ -310,7 +296,6 @@ struct Handlers {
     session_before_switch:
         Option<Box<dyn FnMut(SessionBeforeSwitchEvent) -> Option<SessionBeforeSwitchResult>>>,
     user_input: Option<Box<dyn FnMut(UserInputEvent) -> Option<UserInputResult>>>,
-    turn_stopping: Option<Box<dyn FnMut(TurnStoppingEvent) -> Option<TurnStoppingResult>>>,
     events: EventHandlers,
 }
 
@@ -464,15 +449,6 @@ impl Extension {
     ) {
         self.handlers.user_input = Some(Box::new(f));
         push_unique(&mut self.intercept, pxb::Event::UserInput);
-    }
-
-    /// May steer another agent step when the model stops with no tools.
-    pub fn on_turn_stopping(
-        &mut self,
-        f: impl FnMut(TurnStoppingEvent) -> Option<TurnStoppingResult> + 'static,
-    ) {
-        self.handlers.turn_stopping = Some(Box::new(f));
-        push_unique(&mut self.intercept, pxb::Event::TurnStopping);
     }
 
     /// Adds a fire-and-forget lifecycle listener; the payload is the wire
@@ -954,19 +930,6 @@ fn handle_intercept(req: pxb::InterceptReq, handlers: &mut Handlers) -> pxb::Int
             if let Some(v) = r.text {
                 resp.prompt = v;
             }
-        }
-        pxb::Event::TurnStopping => {
-            let Some(f) = handlers.turn_stopping.as_mut() else {
-                return resp;
-            };
-            let Some(r) = f(TurnStoppingEvent {
-                turn_index: req.turn_index,
-            }) else {
-                return resp;
-            };
-            resp.continue_ = r.continue_;
-            resp.prompt = r.message;
-            resp.reason = r.reason;
         }
         _ => {}
     }

@@ -196,20 +196,20 @@ func TestErrorAskReplacesOtherModals(t *testing.T) {
 	var replies []controller.ErrorReply
 	var texts []string
 	o := errorOverlays(&replies, &texts)
-	contReply := make(chan controller.ContinueReply, 1)
-	o.beginContinueAsk(controller.OverlayMsg{
-		Kind:      controller.OverlayContinueAsk,
-		MaxRounds: 2,
-		ContReply: contReply,
+	confirmReply := make(chan controller.ExtConfirmReply, 1)
+	o.beginExtConfirm(controller.OverlayMsg{
+		Kind:         controller.OverlayExtConfirm,
+		Title:        "Confirm",
+		ConfirmReply: confirmReply,
 	})
 	beginErrorAsk(o)
-	require.Nil(t, o.cont, "error dialog replaces continue ask")
+	require.Nil(t, o.confirm, "error dialog replaces ext confirm")
 	require.NotNil(t, o.err)
 	select {
-	case <-contReply:
-		// continue ask resolved as stopped
+	case <-confirmReply:
+		// ext confirm resolved as dismissed
 	default:
-		require.Fail(t, "replaced continue ask should resolve")
+		require.Fail(t, "replaced ext confirm should resolve")
 	}
 
 	// And vice versa: a permission ask resolves the error dialog as dismissed.

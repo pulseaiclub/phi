@@ -619,24 +619,6 @@ func (r *Runner) EmitUserInput(text string) (out string, handled bool) {
 	return out, false
 }
 
-// EmitTurnStopping asks extensions whether to steer another step.
-func (r *Runner) EmitTurnStopping(idx int) (continueTurn bool, message string) {
-	if r == nil {
-		return false, ""
-	}
-	ev := ext.TurnStoppingEvent{TurnIndex: idx}
-	for _, h := range r.handlers(ext.EventTurnStopping) {
-		res := callTurnStopping(h, ev, r.context())
-		if res == nil {
-			continue
-		}
-		if res.Continue {
-			return true, res.Message
-		}
-	}
-	return false, ""
-}
-
 // EmitSessionCompact notifies listeners that compaction ran.
 func (r *Runner) EmitSessionCompact(reason string) {
 	r.emitNotify(ext.EventSessionCompact, ext.SessionCompactEvent{Reason: reason})
@@ -715,15 +697,6 @@ func callUserInput(h any, ev ext.UserInputEvent, ctx *ext.Context) *ext.UserInpu
 		return fn(ev, ctx)
 	default:
 		return callViaReflect[ext.UserInputResult](h, ev, ctx)
-	}
-}
-
-func callTurnStopping(h any, ev ext.TurnStoppingEvent, ctx *ext.Context) *ext.TurnStoppingResult {
-	switch fn := h.(type) {
-	case func(ext.TurnStoppingEvent, *ext.Context) *ext.TurnStoppingResult:
-		return fn(ev, ctx)
-	default:
-		return callViaReflect[ext.TurnStoppingResult](h, ev, ctx)
 	}
 }
 

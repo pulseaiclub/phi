@@ -64,7 +64,6 @@ type ComposerPane struct {
 
 	overlayBlocksComposer func() bool
 	handlePermissionKey   WireKeyHandler
-	handleContinueKey     WireKeyHandler
 	handleConfirmKey      WireKeyHandler
 	handleErrorKey        WireKeyHandler
 	handleCopyKey         WireKeyHandler
@@ -118,7 +117,6 @@ func (c *ComposerPane) Wire(
 	imageEnabled func() bool,
 	overlayBlocksComposer func() bool,
 	handlePermissionKey WireKeyHandler,
-	handleContinueKey WireKeyHandler,
 	handleConfirmKey WireKeyHandler,
 	handleErrorKey WireKeyHandler,
 	handleCopyKey WireKeyHandler,
@@ -136,7 +134,6 @@ func (c *ComposerPane) Wire(
 	c.imageEnabled = imageEnabled
 	c.overlayBlocksComposer = overlayBlocksComposer
 	c.handlePermissionKey = handlePermissionKey
-	c.handleContinueKey = handleContinueKey
 	c.handleConfirmKey = handleConfirmKey
 	c.handleErrorKey = handleErrorKey
 	c.handleCopyKey = handleCopyKey
@@ -648,9 +645,6 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			return
 		}
 		if c.handlePermissionKey != nil && c.handlePermissionKey(ctx, ev) {
-			return
-		}
-		if c.handleContinueKey != nil && c.handleContinueKey(ctx, ev) {
 			return
 		}
 		if c.handleConfirmKey != nil && c.handleConfirmKey(ctx, ev) {

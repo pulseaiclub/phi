@@ -210,7 +210,6 @@ pxb_message! {
         9  => toast: String,
         10 => handled: bool,
         11 => prompt: String,
-        12 => continue_: bool,
     }
 }
 
@@ -426,7 +425,6 @@ mod tests {
                 stop: false,
                 cancel: false,
                 handled: true,
-                continue_: true,
                 reason: "r".into(),
                 input: b"in".to_vec(),
                 content: "c".into(),
