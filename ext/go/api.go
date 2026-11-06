@@ -5,6 +5,8 @@ import (
 	"errors"
 	"maps"
 	"sync"
+
+	"github.com/pulseaiclub/phi/ext/go/pxb"
 )
 
 // Factory is the entry point symbol every extension must export.
@@ -143,6 +145,7 @@ func (a *API) BindHost(opts HostOpts) {
 
 // HostOpts wires host capabilities into API action methods.
 type HostOpts struct {
+	HostRequest     func(pxb.HostRequest) pxb.HostResult
 	UI              UI
 	Cwd             string
 	SessionID       string

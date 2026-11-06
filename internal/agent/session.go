@@ -168,14 +168,30 @@ func (s *Session) SetModel(name string) error {
 func (s *Session) Append(message ...llm.Message) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.contextCacheValid = false
 	for _, msg := range message {
-		id, err := s.manager.Append(msg)
-		if err != nil {
+		if err := s.recordAppend(s.manager.Append(msg)); err != nil {
 			return err
 		}
-		s.lastID = id
 	}
+	return nil
+}
+
+// AppendUser keeps the model-facing message and original input in one entry.
+func (s *Session) AppendUser(text string, images []llm.Image, rawInput string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.recordAppend(
+		s.manager.AppendUser(llm.Message{Role: llm.RoleUser, Content: text, Images: images}, rawInput),
+	)
+}
+
+// recordAppend requires s.mu; failed appends must also invalidate cached context.
+func (s *Session) recordAppend(id string, err error) error {
+	s.contextCacheValid = false
+	if err != nil {
+		return err
+	}
+	s.lastID = id
 	return nil
 }
 
@@ -184,26 +200,14 @@ func (s *Session) Append(message ...llm.Message) error {
 func (s *Session) AppendBash(command, output string, exitCode int, cancelled bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.contextCacheValid = false
-	id, err := s.manager.AppendBash(command, output, exitCode, cancelled)
-	if err != nil {
-		return err
-	}
-	s.lastID = id
-	return nil
+	return s.recordAppend(s.manager.AppendBash(command, output, exitCode, cancelled))
 }
 
 // AppendCompaction records a compaction entry and invalidates the context cache.
 func (s *Session) AppendCompaction(c session.Compaction) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.contextCacheValid = false
-	id, err := s.manager.AppendCompaction(c)
-	if err != nil {
-		return err
-	}
-	s.lastID = id
-	return nil
+	return s.recordAppend(s.manager.AppendCompaction(c))
 }
 
 // PathEntries returns the current leaf-to-root session entries for compaction.
@@ -277,8 +281,22 @@ func (s *Session) LastID() string {
 
 // AddUser records a single user message for this chat turn.
 func (s *Session) AddUser(text string) error {
-	return s.Append(llm.Message{
-		Role:    llm.RoleUser,
-		Content: text,
-	})
+	return s.AppendUser(text, nil, text)
+}
+
+func (s *Session) UserTurns() []session.SessionMessageEntry { return s.manager.UserTurns() }
+
+func (s *Session) CanRewindTo(entryID string) error { return s.manager.CanRewindTo(entryID) }
+
+func (s *Session) RewindTo(entryID string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	text, err := s.manager.RewindTo(entryID)
+	if err != nil {
+		return "", err
+	}
+	s.lastID = s.manager.LeafID()
+	s.contextCacheValid = false
+	s.contextCache = nil
+	return text, nil
 }

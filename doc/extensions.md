@@ -12,7 +12,7 @@ Shaped for subprocess PXB:
 
 ```
 user_input ──(transform|handled)──► before_agent_start ──► agent_start
-  └─ turn_start → LLM → tool_execution_start → tool_call → Gate/Ask → Run
+  └─ turn_start → LLM → tool_execution_start → tool_call → tool_prepare → Gate/Ask → Run
        → tool_result → tool_execution_end → turn_end
   └─ (no tools) turn_stopping ──(continue+message)──► another turn
   └─ agent_end
@@ -25,6 +25,7 @@ session_compact (after auto compaction)
 | `user_input` | intercept | rewrite text / `Handled` swallow |
 | `before_agent_start` | intercept | rewrite prompt / append context |
 | `tool_call` | intercept | block / rewrite args / context |
+| `tool_prepare` | intercept | block / context; final args are read-only |
 | `tool_result` | intercept | rewrite content / context / **Stop** agent loop |
 | `turn_stopping` | intercept | `Continue` + steer message |
 | `session_before_switch` | intercept | cancel switch |
@@ -75,6 +76,31 @@ go get github.com/pulseaiclub/phi/ext/go@v0.21.0
 
 Slow tools (HTTP fetch, long builds, …) should set `TimeoutSec` — the host’s
 default RPC wait is **30s**. Values are clamped to 1–3600.
+
+Slash commands may wait up to one hour so host pickers and confirmations do
+not exhaust the tool RPC timeout. Each TUI dialog still has its own timeout.
+
+The Go SDK also provides `Select`, `SessionTurns`, and `SessionRewind` via
+generic PXB host requests. Session operations require an interactive host;
+headless hosts return an explicit unsupported error. `ToolCallEvent.Paths`
+reuses the tool's declared targets, resolving local paths against the actual
+execution directory, including a worker's separate workdir.
+Use `OnToolPrepare` to capture file state after all `tool_call` rewrites.
+Prepare handlers cannot rewrite arguments; a failed prepare RPC blocks the tool.
+`ExecutionID` uniquely identifies a host invocation across prepare and
+`tool_execution_end`, even when providers reuse `ToolCallID` across workers.
+Extensions own their recovery policies and file snapshots; the host only
+provides selection and conversation primitives.
+
+Conversation rewind appends an `EntryLeaf` branch cursor, preserving existing
+history. Sessions containing this new record require an updated Phi reader.
+Rewind preserves the current model selection and persists it on the selected
+branch. Session list previews also follow that branch.
+New user turns preserve input before reference expansion, skill instructions,
+and extension rewrites. `SessionTurns.Text` and rewind's composer refill use
+that original input, falling back to message content for older entries.
+`SessionTurns.ImageCount` lets extensions warn that images must be reattached;
+rewind does not restore image, skill, or reference attachments.
 
 Cancellation or timeout of an in-flight RPC terminates the extension process,
 including its other pending calls. Reload the extension before using it again.

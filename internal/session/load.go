@@ -75,6 +75,8 @@ func readSessionMeta(path string, e os.DirEntry) (SessionMeta, error) {
 	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 
 	lineNo := 0
+	// Keep only branch previews, rather than retaining full message bodies.
+	previews := make(map[string]string)
 	for sc.Scan() {
 		lineNo++
 		line := sc.Bytes()
@@ -93,10 +95,17 @@ func readSessionMeta(path string, e os.DirEntry) (SessionMeta, error) {
 			meta.ID = e.ID
 			meta.Timestamp = e.Timestamp
 			meta.Cwd = e.Cwd
-		case SessionMessageEntry:
-			if e.Message.Role == llm.RoleUser && strings.TrimSpace(e.Message.Content) != "" {
-				meta.Preview = truncatePreview(e.Message.Content, 72)
+		default:
+			preview := ""
+			if parent := entry.GetParent(); parent != nil {
+				preview = previews[*parent]
 			}
+			if msg, ok := entry.(SessionMessageEntry); ok && msg.Message.Role == llm.RoleUser &&
+				strings.TrimSpace(msg.Message.Content) != "" {
+				preview = truncatePreview(msg.Message.Content, 72)
+			}
+			previews[entry.GetID()] = preview
+			meta.Preview = preview
 		}
 	}
 	if meta.ID != "" {
@@ -228,6 +237,15 @@ func OpenSession(path string) (*Manager, error) {
 			h := e
 			header = &h
 			entries = append(entries, h)
+		case LeafEntry:
+			if header == nil {
+				return nil, fmt.Errorf("session: leaf before header at %s:%d", path, lineNo)
+			}
+			if e.ParentID != nil && byIDs[*e.ParentID] == nil {
+				return nil, fmt.Errorf("session: unknown leaf %q at %s:%d", *e.ParentID, path, lineNo)
+			}
+			entries = append(entries, e)
+			leafID = e.ParentID
 		default:
 			if header == nil {
 				return nil, fmt.Errorf("session: first entry must be session header at %s:%d", path, lineNo)
@@ -275,6 +293,12 @@ func decodeEntryLine(raw []byte, lineNo int) (MessageEntry, error) {
 		return nil, fmt.Errorf("session: line %d: %w", lineNo, err)
 	}
 	switch probe.Type {
+	case EntryLeaf:
+		var leaf LeafEntry
+		if err := json.Unmarshal(raw, &leaf); err != nil {
+			return nil, fmt.Errorf("session: line %d leaf: %w", lineNo, err)
+		}
+		return leaf, nil
 	case EntrySession, "session":
 		var h SessionHeader
 		if err := json.Unmarshal(raw, &h); err != nil {

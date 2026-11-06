@@ -193,6 +193,8 @@ pxb_message! {
         9  => reason: String,
         10 => target_id: String,
         11 => turn_index: u32,
+        12 => paths_json: Vec<u8>,
+        13 => execution_id: String,
     }
 }
 
@@ -228,6 +230,7 @@ pxb_message! {
         9  => session_id: String,
         10 => previous_session_id: String,
         11 => target_session_id: String,
+        12 => execution_id: String,
     }
 }
 
@@ -417,6 +420,8 @@ mod tests {
                 reason: "r".into(),
                 target_id: "t2".into(),
                 turn_index: 3,
+                paths_json: b"[\"file\"]".to_vec(),
+                execution_id: "execution-1".into(),
             }
         );
         rt!(
@@ -450,6 +455,7 @@ mod tests {
                 session_id: "s".into(),
                 previous_session_id: "ps".into(),
                 target_session_id: "ts".into(),
+                execution_id: "execution-1".into(),
             }
         );
         rt!(

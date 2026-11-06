@@ -103,7 +103,7 @@ func TestRetryLastPromptResumesWithoutDuplicateUserMessage(t *testing.T) {
 	_ = ctrl.bus.Drain()
 	requests = make(chan struct{}, 4)
 
-	ctrl.StartPrompt("keep this once", nil, nil)
+	ctrl.StartPrompt("keep this once", nil, nil, nil)
 	first := waitLoopFinished(t, ctrl.bus, 1)
 	require.NotEmpty(t, first.ErrorText)
 	assert.False(t, first.Cancelled)
@@ -141,7 +141,7 @@ func TestCancelInFlightPromptPublishesSilentCompletion(t *testing.T) {
 
 	ctrl := newThinkingTestController(t, setupThinkingTest(t, llm.OpenAI, server.URL))
 	_ = ctrl.bus.Drain()
-	ctrl.StartPrompt("cancel this", nil, nil)
+	ctrl.StartPrompt("cancel this", nil, nil, nil)
 
 	select {
 	case <-requestStarted:

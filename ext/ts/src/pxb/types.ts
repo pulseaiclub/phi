@@ -87,6 +87,7 @@ export const Event = {
   UserInput: 13,
   TurnStopping: 14,
   SessionCompact: 15,
+  ToolPrepare: 17,
   PaneAction: 16,
 } as const;
 
@@ -111,6 +112,7 @@ const EVENT_NAMES: Readonly<Record<number, string>> = {
   [Event.UserInput]: "user_input",
   [Event.TurnStopping]: "turn_stopping",
   [Event.SessionCompact]: "session_compact",
+  [Event.ToolPrepare]: "tool_prepare",
   [Event.PaneAction]: "pane_action",
 };
 

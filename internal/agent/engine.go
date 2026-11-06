@@ -88,8 +88,9 @@ func NewEngine(model llm.ModelConfig, sess *Session, opts ...EngineOption) (*Eng
 	}
 	engine.SetMaxRounds(maxRounds)
 	engine.baseTools = cfg.tools
-	engine.extensions.SetBaseTools(engine.buildCoreTools(engine.baseTools))
-	engine.extensions.SetMeta(engine.SessionID(), engine.SessionCwd())
+	if !engine.omitExtTools {
+		engine.extensions.SetBaseTools(engine.buildCoreTools(engine.baseTools))
+	}
 	toolList := engine.buildToolList(engine.baseTools)
 	engine.client = engine.newChatClient(toolList)
 	engine.bindExecutor(tooldef.NewRegistry(toolList))
@@ -188,7 +189,9 @@ func (engine *Engine) SetMaxRounds(n int) {
 }
 
 func (engine *Engine) rebindTools() {
-	engine.extensions.SetBaseTools(engine.buildCoreTools(engine.baseTools))
+	if !engine.omitExtTools {
+		engine.extensions.SetBaseTools(engine.buildCoreTools(engine.baseTools))
+	}
 	toolList := engine.buildToolList(engine.baseTools)
 	engine.client = engine.newChatClient(toolList)
 	engine.bindExecutor(tooldef.NewRegistry(toolList))
@@ -217,6 +220,9 @@ func (engine *Engine) systemPrompt() string {
 func (engine *Engine) bindExecutor(registry tooldef.Registry) {
 	engine.executor = NewExecutor(registry, engine.gate, engine.ask, engine.extensions)
 	engine.executor.SetMeta(engine.SessionID(), engine.SessionCwd())
+	if !engine.omitExtTools {
+		engine.extensions.SetMeta(engine.SessionID(), engine.SessionCwd())
+	}
 }
 
 // HasTool reports whether a tool is currently registered on the executor.
@@ -296,6 +302,8 @@ func (engine *Engine) Session() *Session {
 
 // LoopOpts configures a single agent loop turn.
 type LoopOpts struct {
+	// RawInput is captured before UI reference expansion; nil uses the prompt.
+	RawInput *string
 	// PendingSkills are skill names the user selected in the composer.
 	// When set, the model is instructed to read those SKILL.md files first.
 	PendingSkills []string
@@ -371,11 +379,15 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 		defer engine.extensions.EmitAgentEnd()
 
 		if !opts.Resume {
-			if err := engine.session.Append(llm.Message{
-				Role:    llm.RoleUser,
-				Content: content,
-				Images:  append([]llm.Image(nil), opts.Images...),
-			}); err != nil {
+			rawInput := prompt
+			if opts.RawInput != nil {
+				rawInput = *opts.RawInput
+			}
+			if err := engine.session.AppendUser(
+				content,
+				append([]llm.Image(nil), opts.Images...),
+				rawInput,
+			); err != nil {
 				yield(nil, err)
 				return
 			}

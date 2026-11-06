@@ -341,6 +341,7 @@ func (c *EngineController) bindExtensionHost(r *extension.Runner) {
 		cwd = c.proj.Root()
 	}
 	r.Bind(ext.HostOpts{
+		HostRequest: c.extensionHostRequest,
 		UI: extension.BusUI{
 			NotifyFn: func(message, kind string) {
 				toastKind := toast.ToastSuccess
@@ -366,7 +367,7 @@ func (c *EngineController) bindExtensionHost(r *extension.Runner) {
 		// UI goroutine applies.
 		RefreshTools: func() { c.publish(ExtTopologyChangedMsg{}) },
 		SendUserMessage: func(text string) {
-			go c.StartPrompt(text, nil, nil)
+			go c.StartPrompt(text, nil, nil, nil)
 		},
 	})
 
@@ -642,7 +643,17 @@ func (c *EngineController) NewSession() error {
 	return nil
 }
 
+func (c *EngineController) refuseWhileJobsLive(action string) error {
+	if c.jobs != nil && c.jobs.LiveCount() > 0 {
+		return fmt.Errorf("cannot %s while sub-agents are running; wait for or cancel the jobs", action)
+	}
+	return nil
+}
+
 func (c *EngineController) beginSessionSwitch(reason, targetID string, cancelStream bool) (prevID string, err error) {
+	if err := c.refuseWhileJobsLive("switch sessions"); err != nil {
+		return "", err
+	}
 	if c.sessionDir == "" {
 		return "", errors.New("session directory not configured")
 	}
@@ -720,13 +731,14 @@ func (c *EngineController) ReplaySnapshot() session.Snapshot {
 	return session.ReplaySnapshot(c.engine.Session().PathEntries(), c.engine.ToolDetail)
 }
 
-func (c *EngineController) StartPrompt(text string, pendingSkills []string, images []llm.Image) {
+func (c *EngineController) StartPrompt(text string, pendingSkills []string, images []llm.Image, rawInput *string) {
 	c.streamMu.Lock()
 	defer c.streamMu.Unlock()
 	c.lastPrompt = LastPrompt{
-		Text:   text,
-		Skills: append([]string(nil), pendingSkills...),
-		Images: append([]llm.Image(nil), images...),
+		RawInput: rawInput,
+		Text:     text,
+		Skills:   append([]string(nil), pendingSkills...),
+		Images:   append([]llm.Image(nil), images...),
 	}
 	c.promptAppended = false
 	c.startPromptLocked()
@@ -876,6 +888,7 @@ func (c *EngineController) runLoop(ctx context.Context, gen int, engine *agent.E
 		return
 	}
 	for ev, err := range engine.Loop(ctx, prompt.Text, agent.LoopOpts{
+		RawInput:      prompt.RawInput,
 		PendingSkills: prompt.Skills,
 		Images:        prompt.Images,
 		Resume:        resume,

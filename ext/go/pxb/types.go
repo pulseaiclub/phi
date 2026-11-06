@@ -91,11 +91,14 @@ const (
 	EvTurnStopping        uint16 = 14
 	EvSessionCompact      uint16 = 15
 	EvPaneAction          uint16 = 16
+	EvToolPrepare         uint16 = 17
 )
 
 // EventName maps a wire code to the public ext event string.
 func EventName(code uint16) string {
 	switch code {
+	case EvToolPrepare:
+		return "tool_prepare"
 	case EvToolCall:
 		return "tool_call"
 	case EvToolResult:
@@ -136,6 +139,8 @@ func EventName(code uint16) string {
 // EventCode maps a public event string to a wire code (0 = unknown).
 func EventCode(name string) uint16 {
 	switch name {
+	case "tool_prepare":
+		return EvToolPrepare
 	case "tool_call":
 		return EvToolCall
 	case "tool_result":

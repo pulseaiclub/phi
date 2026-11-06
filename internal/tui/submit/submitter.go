@@ -4,6 +4,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pulseaiclub/phi/internal/components/toast"
+
 	"github.com/pulseaiclub/phi/internal/components/chat"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/session"
@@ -16,12 +18,13 @@ import (
 
 // Submitter owns submit / cancel / slash dispatch and coordinates bash runs.
 type Submitter struct {
-	ctrl       *controller.EngineController
-	commands   *commands.CommandRegistry
-	transcript *transcript.TranscriptPane
-	activity   *controller.ActivityHandler
-	composer   composer.Input
-	bash       *BashRunner
+	commandBusy func() bool
+	ctrl        *controller.EngineController
+	commands    *commands.CommandRegistry
+	transcript  *transcript.TranscriptPane
+	activity    *controller.ActivityHandler
+	composer    composer.Input
+	bash        *BashRunner
 
 	commandContext commands.Context
 
@@ -36,6 +39,8 @@ type Submitter struct {
 	resolveConfirm    func(controller.ExtConfirmReply)
 	resolveError      func(controller.ErrorReply)
 }
+
+func (s *Submitter) SetCommandBusy(fn func() bool) { s.commandBusy = fn }
 
 // NewSubmitter builds a Submitter from explicit collaborators (no *Editor back-pointer).
 // BashRunner is composed internally from transcript/composer/bus.
@@ -83,6 +88,17 @@ func (s *Submitter) SyncBashBorder(text string) {
 
 // Submit handles a user prompt from the composer (agent, slash, or bash).
 func (s *Submitter) Submit(text string) {
+	if s.commandBusy != nil && s.commandBusy() {
+		s.bus.Publish(
+			controller.ToastMsg{
+				Message:  commands.ExtensionCommandBusyMessage,
+				Kind:     toast.ToastWarning,
+				Duration: 3 * time.Second,
+			},
+		)
+		return
+	}
+	rawInput := text
 	text = strings.TrimSpace(text)
 	if strings.HasPrefix(text, "!") {
 		if s.bash.HandleSubmit(text) {
@@ -104,7 +120,7 @@ func (s *Submitter) Submit(text string) {
 			return
 		}
 	}
-	s.handleUserInput(text)
+	s.handleUserInput(text, rawInput)
 }
 
 func buildUserDisplay(text string, refs []chat.Ref, skills []string, images []imgutil.Attachment) string {
@@ -152,7 +168,7 @@ func promptWithRefs(text string, refs []chat.Ref) string {
 	return expanded + "\n\n" + text
 }
 
-func (s *Submitter) handleUserInput(text string) {
+func (s *Submitter) handleUserInput(text, rawInput string) {
 	pendingRefs := s.composer.PendingRefs()
 	pendingSkills := s.composer.PendingSkills()
 	pendingImages := s.composer.PendingImages()
@@ -180,7 +196,7 @@ func (s *Submitter) handleUserInput(text string) {
 	s.composer.ClearPendingImages()
 	s.composer.ClearPendingRefs()
 
-	s.ctrl.StartPrompt(promptWithRefs(text, pendingRefs), pendingSkills, llmImages)
+	s.ctrl.StartPrompt(promptWithRefs(text, pendingRefs), pendingSkills, llmImages, &rawInput)
 }
 
 // Cancel aborts overlays, bash, or the in-flight agent stream.
@@ -222,6 +238,9 @@ func (s *Submitter) IsBusy() bool {
 
 // StreamActive reports whether user input should be blocked for stream/overlays.
 func (s *Submitter) StreamActive() bool {
+	if s.commandBusy != nil && s.commandBusy() {
+		return true
+	}
 	if s.IsBusy() ||
 		(s.permissionActive != nil && s.permissionActive()) ||
 		(s.continueActive != nil && s.continueActive()) ||

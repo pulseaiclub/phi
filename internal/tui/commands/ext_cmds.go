@@ -14,6 +14,9 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
+// ExtensionCommandBusyMessage is shared by submit and slash-command guards.
+const ExtensionCommandBusyMessage = "An extension command is already running"
+
 // extComposer updates the palette command list.
 type extComposer interface {
 	SetPaletteCommands([]palette.PaletteCommand)
@@ -68,8 +71,8 @@ func (h *ExtCommands) slashCommand(name, desc string, needsArgs bool) Command {
 		Slash:       true,
 		NeedsArgs:   needsArgs,
 		Run: func(ctx Context, args []string) error {
-			if h.running.Load() {
-				ctx.Toast("An extension command is already running", toast.ToastWarning, 3*time.Second)
+			if !h.running.CompareAndSwap(false, true) {
+				ctx.Toast(ExtensionCommandBusyMessage, toast.ToastWarning, 3*time.Second)
 				return nil
 			}
 			text := strings.TrimSpace(strings.Join(args, " "))
@@ -80,13 +83,6 @@ func (h *ExtCommands) slashCommand(name, desc string, needsArgs bool) Command {
 }
 
 func (h *ExtCommands) run(name, args string) {
-	if !h.running.CompareAndSwap(false, true) {
-		h.Bus.Publish(controller.ExtCommandResultMsg{
-			Gen: h.gen.Load(),
-			Err: "An extension command is already running",
-		})
-		return
-	}
 	defer h.running.Store(false)
 
 	gen := h.gen.Load()
@@ -105,6 +101,8 @@ func (h *ExtCommands) run(name, args string) {
 	}
 	h.Bus.Publish(controller.ExtCommandResultMsg{Gen: gen, Submit: out.Submit})
 }
+
+func (h *ExtCommands) Running() bool { return h.running.Load() }
 
 // Apply delivers a finished extension command onto the UI goroutine.
 func (h *ExtCommands) Apply(msg controller.ExtCommandResultMsg) {

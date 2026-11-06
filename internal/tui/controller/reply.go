@@ -29,7 +29,8 @@ type ErrorReply struct {
 // LastPrompt is the most recent prompt submission, retained so an error
 // dialog can offer Retry.
 type LastPrompt struct {
-	Text   string
-	Skills []string
-	Images []llm.Image
+	RawInput *string
+	Text     string
+	Skills   []string
+	Images   []llm.Image
 }

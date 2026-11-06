@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pulseaiclub/phi/ext/go/pxb"
+
 	"github.com/pulseaiclub/xui"
 
 	"github.com/pulseaiclub/phi/internal/components"
@@ -46,9 +48,10 @@ type ComposerPane struct {
 	question mention.Picker
 	// bash offers completions from shell history while the user types a "!"
 	// command. Its rows are whole commands, so accepting replaces the text.
-	bash       bashSuggest
-	palette    palette.CommandPalette
-	listPicker listpicker.Picker
+	bash           bashSuggest
+	palette        palette.CommandPalette
+	listPicker     listpicker.Picker
+	extSelectReply chan pxb.HostResult
 
 	mentionGen int
 	// mentionCancel stops the search in flight; nil before the first search.
@@ -203,6 +206,9 @@ func (c *ComposerPane) ShowList(
 ) {
 	c.HideCompleters()
 	c.HidePalette()
+	if c.listPicker.Open {
+		c.listPicker.Hide()
+	}
 	c.listPicker.OnAccept = onAccept
 	c.listPicker.FocusReturn = &c.Chat
 	// Assign unconditionally: a nil clears a prior domain's delete path off

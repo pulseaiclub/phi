@@ -177,6 +177,18 @@ func (sm *Manager) BuildContext() []MessageEntry {
 
 // Append adds a message as a new leaf and returns its entry ID.
 func (sm *Manager) Append(msg llm.Message) (string, error) {
+	return sm.appendMessage(msg, nil)
+}
+
+// AppendUser records original input alongside the model-facing user message.
+func (sm *Manager) AppendUser(msg llm.Message, rawInput string) (string, error) {
+	if msg.Role != llm.RoleUser {
+		return "", fmt.Errorf("session: AppendUser requires role %q, got %q", llm.RoleUser, msg.Role)
+	}
+	return sm.appendMessage(msg, &rawInput)
+}
+
+func (sm *Manager) appendMessage(msg llm.Message, rawInput *string) (string, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -187,8 +199,9 @@ func (sm *Manager) Append(msg llm.Message) (string, error) {
 			ParentID:  sm.leafID,
 			Timestamp: time.Now(),
 		},
-		Message: msg,
-		Usage:   msg.Usage,
+		Message:  msg,
+		Usage:    msg.Usage,
+		RawInput: rawInput,
 	}
 	if err := sm.appendEntry(entry); err != nil {
 		return "", err
@@ -299,7 +312,11 @@ func (sm *Manager) ModelName() string {
 // modelName requires sm.mu to be held. Compaction limits message context,
 // but model selection may live anywhere on the selected branch.
 func (sm *Manager) modelName() string {
-	for id := sm.leafID; id != nil; {
+	return sm.modelNameAt(sm.leafID)
+}
+
+func (sm *Manager) modelNameAt(leaf *string) string {
+	for id := leaf; id != nil; {
 		entry, ok := sm.byIDs[*id]
 		if !ok {
 			break

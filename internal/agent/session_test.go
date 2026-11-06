@@ -12,6 +12,23 @@ import (
 	"github.com/pulseaiclub/phi/internal/session"
 )
 
+func TestSessionRewindInvalidatesContext(t *testing.T) {
+	s, err := NewSession(WithCwd(t.TempDir()))
+	require.NoError(t, err)
+	require.NoError(t, s.AddUser("first"))
+	first := s.LastID()
+	require.NoError(t, s.Append(llm.Message{Role: llm.RoleAssistant, Content: "reply"}))
+	require.Len(t, s.BuildContext(), 2)
+	text, err := s.RewindTo(first)
+	require.NoError(t, err)
+	assert.Equal(t, "first", text)
+	assert.Empty(t, s.BuildContext())
+	assert.Empty(t, s.LastID())
+	require.NoError(t, s.AddUser("retry"))
+	require.Len(t, s.BuildContext(), 1)
+	assert.Equal(t, "retry", s.BuildContext()[0].Content)
+}
+
 func TestSessionPersistFlush(t *testing.T) {
 	dir := t.TempDir()
 	sess, err := NewSession(
