@@ -9,121 +9,62 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/components/layout"
+	"github.com/pulseaiclub/phi/internal/components/status"
 	"github.com/pulseaiclub/phi/internal/session"
-	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
-type stubComposer struct {
-	label layout.BorderLabel
-	set   bool
-}
-
-func (s *stubComposer) SetBottomLeftLabel(label layout.BorderLabel) {
-	s.label = label
-	s.set = true
-}
-
-func (s *stubComposer) ClearBottomLeftLabel() {
-	s.label = layout.BorderLabel{}
-	s.set = false
-}
-
 func TestDrawExtensionStatus(t *testing.T) {
-	f := NewFooterChrome(components.DefaultTheme(), 0)
-	f.SetExtensionStatus(" review ")
-	f.Activity().Apply(controller.ActivityCancelled)
-
-	row := components.SurfaceText(f.Draw(components.DrawContext{Method: xui.WidthUnicode}, 40))
+	f := NewFooterChrome(components.DefaultTheme())
+	row := components.SurfaceText(f.Draw(components.DrawContext{Method: xui.WidthUnicode}, 40, State{
+		ExtensionStatus: " review ",
+	}))
 	assert.Contains(t, row, "review")
 	assert.NotContains(t, row, "job")
 	assert.NotContains(t, row, "Stopped")
 }
 
 func TestDrawEmptyFooter(t *testing.T) {
-	f := NewFooterChrome(components.DefaultTheme(), 0)
+	f := NewFooterChrome(components.DefaultTheme())
 
-	row := components.SurfaceText(f.Draw(components.DrawContext{Method: xui.WidthUnicode}, 40))
+	row := components.SurfaceText(f.Draw(components.DrawContext{Method: xui.WidthUnicode}, 40, State{}))
 	assert.Empty(t, strings.TrimSpace(row))
 }
 
-func TestUpdateTokenDisplayZeroClearsLabel(t *testing.T) {
-	f := NewFooterChrome(components.DefaultTheme(), 128000)
-	comp := &stubComposer{}
-	f.BindComposer(comp)
-
-	f.UpdateTokenDisplay(session.TokenUsage{PromptTokens: 1200, TotalTokens: 1200})
-	require.True(t, comp.set)
-
-	// A session switch to one without usage must drop the stale counts.
-	f.UpdateTokenDisplay(session.TokenUsage{})
-	assert.False(t, comp.set)
-	assert.Empty(t, comp.label.Text)
-}
-
-func TestClearTokenDisplayDropsLabel(t *testing.T) {
-	f := NewFooterChrome(components.DefaultTheme(), 128000)
-	comp := &stubComposer{}
-	f.BindComposer(comp)
-
-	f.UpdateTokenDisplay(session.TokenUsage{PromptTokens: 1200, TotalTokens: 1200})
-	require.True(t, comp.set)
-
-	f.ClearTokenDisplay()
-	assert.False(t, comp.set)
-}
-
-// A model switch changes the window the fill label is measured against; the
-// footer starts with the startup model's window, so it must be replaceable.
-func TestSetContextWindowRefreshesLabel(t *testing.T) {
-	f := NewFooterChrome(components.DefaultTheme(), 192000)
-	comp := &stubComposer{}
-	f.BindComposer(comp)
-	f.UpdateTokenDisplay(session.TokenUsage{PromptTokens: 50000, TotalTokens: 50000})
-	require.True(t, comp.set)
-	assert.Contains(t, comp.label.Text, "%/192k")
-
-	f.SetContextWindow(1_000_000)
-	assert.Contains(t, comp.label.Text, "%/1.0M")
-
-	f.SetContextWindow(0)
-	assert.NotContains(t, comp.label.Text, "%", "unknown window drops the fill fragment")
-	assert.Contains(t, comp.label.Text, "↑50k", "usage stats survive a window reset")
-}
-
-func TestStatusSlotSwapsActivityAndTokens(t *testing.T) {
-	f := NewFooterChrome(components.DefaultTheme(), 128000)
-	comp := &stubComposer{}
-	f.BindComposer(comp)
-
-	f.UpdateTokenDisplay(session.TokenUsage{
-		PromptTokens:     1200,
-		CompletionTokens: 800,
-		TotalTokens:      2000,
+func TestStatusLabelUsesSnapshotUsage(t *testing.T) {
+	th := components.DefaultTheme()
+	label := StatusLabel(th, StatusInput{
+		Usage:         session.TokenUsage{PromptTokens: 1200, CompletionTokens: 800, TotalTokens: 2000},
+		ContextWindow: 128000,
 	})
-	require.True(t, comp.set)
-	assert.Contains(t, comp.label.Text, "↑1.2k")
-	assert.Contains(t, comp.label.Text, "↓800")
+	assert.Contains(t, label.Text, "↑1.2k")
+	assert.Contains(t, label.Text, "↓800")
 
-	f.Activity().Apply(controller.ActivityStreaming)
-	require.True(t, comp.set)
-	assert.Empty(t, comp.label.Text)
-	require.NotEmpty(t, comp.label.Spans)
+	cleared := StatusLabel(th, StatusInput{ContextWindow: 128000})
+	assert.False(t, cleared.Visible())
+}
+
+func TestStatusLabelSwapsActivityAndTokens(t *testing.T) {
+	th := components.DefaultTheme()
+	spin := status.NewSpinner(th.ToolName)
+	label := StatusLabel(th, StatusInput{
+		Activity:      "Generating…",
+		ShowSpinner:   true,
+		Spinner:       spin,
+		Usage:         session.TokenUsage{PromptTokens: 1200, CompletionTokens: 800, TotalTokens: 2000},
+		ContextWindow: 128000,
+	})
+	assert.Empty(t, label.Text)
+	require.NotEmpty(t, label.Spans)
 	var joined strings.Builder
-	for _, sp := range comp.label.Spans {
+	for _, sp := range label.Spans {
 		joined.WriteString(sp.Text)
 	}
 	assert.Equal(t, "Generating…", joined.String())
-	lit := 0
-	fg := components.DefaultTheme().Foreground
-	for _, sp := range comp.label.Spans {
-		if sp.Style == fg {
-			lit++
-		}
-	}
-	assert.Positive(t, lit)
 
-	f.Activity().Apply(controller.ActivityIdle)
-	assert.Contains(t, comp.label.Text, "↑1.2k")
-	assert.Empty(t, comp.label.Spans)
+	idle := StatusLabel(th, StatusInput{
+		Usage:         session.TokenUsage{PromptTokens: 1200, CompletionTokens: 800, TotalTokens: 2000},
+		ContextWindow: 128000,
+	})
+	assert.Contains(t, idle.Text, "↑1.2k")
+	assert.Empty(t, idle.Spans)
 }

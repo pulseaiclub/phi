@@ -60,7 +60,6 @@ func TestPaletteReopenReflectsThinkingSelectionAndModelSwitch(t *testing.T) {
 		cwd,
 		"primary",
 		nil,
-		0,
 		[]string{"primary", "secondary"},
 	)
 
@@ -185,7 +184,7 @@ func TestModelPaletteSavesDefaultAndRestoresSession(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 	e := NewEditor(app.NewApp(nil), bus, ctrl, nil, components.DefaultTheme(), cwd,
-		"primary", nil, ctrl.ContextWindow(), []string{"primary", "secondary"})
+		"primary", nil, []string{"primary", "secondary"})
 	key := func(code xui.KeyCode, r rune, mods xui.Modifiers) {
 		t.Helper()
 		e.composer.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: code, Rune: r, Mods: mods})

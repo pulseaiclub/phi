@@ -6,18 +6,17 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
-	"github.com/pulseaiclub/phi/internal/tui/footer"
 	"github.com/pulseaiclub/phi/internal/tui/transcript"
 )
 
 // SessionCommands owns /sessions and /new UI side effects.
 type SessionCommands struct {
-	Ctrl       *controller.EngineController
-	Composer   BuiltinComposer
-	Transcript *transcript.TranscriptPane
-	Footer     *footer.FooterChrome
-	Bus        *controller.Bus
-	SyncHooks  func()
+	Ctrl          *controller.EngineController
+	Composer      BuiltinComposer
+	Transcript    *transcript.TranscriptPane
+	Bus           *controller.Bus
+	SyncHooks     func()
+	ResetActivity func()
 	// OpenPicker opens the session list overlay (wired by Builtin.Bind).
 	OpenPicker func(items []session.SessionMeta, currentID string)
 	// RefreshPicker swaps rows into the open overlay (wired by Builtin.Bind).
@@ -33,14 +32,12 @@ type SessionCommands struct {
 func NewSessionCommands(
 	ctrl *controller.EngineController,
 	transcript *transcript.TranscriptPane,
-	footer *footer.FooterChrome,
 	bus *controller.Bus,
 	syncHooks func(),
 ) *SessionCommands {
 	return &SessionCommands{
 		Ctrl:       ctrl,
 		Transcript: transcript,
-		Footer:     footer,
 		Bus:        bus,
 		SyncHooks:  syncHooks,
 	}
@@ -122,9 +119,6 @@ func (s *SessionCommands) resume(id string) {
 	s.Transcript.LoadReplay(snap)
 	s.Transcript.Sync()
 	s.Transcript.StickToBottom()
-	// The resumed session carries its own last usage; without this the footer
-	// keeps showing the counts of the session we just left.
-	s.Footer.UpdateTokenDisplay(snap.LastUsage())
 	s.refreshModel()
 	msg := "Resumed " + shortSessionID(s.Ctrl.SessionID())
 	if warn != "" {
@@ -185,9 +179,10 @@ func (s *SessionCommands) NewSession() {
 	}
 	s.Transcript.LoadReplay(s.Ctrl.ReplaySnapshot())
 	s.Transcript.ResetSubagents()
-	s.Footer.ClearTokenDisplay()
-	s.Footer.Activity().Apply(controller.ActivityIdle)
 	s.refreshModel()
+	if s.ResetActivity != nil {
+		s.ResetActivity()
+	}
 	s.Transcript.Sync()
 	s.Transcript.StickToBottom()
 	publishToast(s.Bus, "New session "+shortSessionID(s.Ctrl.SessionID()), toast.ToastSuccess, 3*time.Second)
@@ -196,9 +191,6 @@ func (s *SessionCommands) NewSession() {
 func (s *SessionCommands) refreshModel() {
 	if s.Composer != nil {
 		s.Composer.SetModelLabel(s.Ctrl.ModelName(), string(s.Ctrl.ThinkLevel()))
-	}
-	if s.Footer != nil {
-		s.Footer.SetContextWindow(s.Ctrl.ContextWindow())
 	}
 }
 

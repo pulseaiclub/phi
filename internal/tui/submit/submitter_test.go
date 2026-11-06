@@ -79,7 +79,7 @@ func TestSubmitter_IsBusy(t *testing.T) {
 func TestSubmitter_IsBusy_requestInFlight(t *testing.T) {
 	th := components.DefaultTheme()
 	spin := status.NewSpinner(th.ToolName)
-	activity := controller.NewActivityHandler(spin)
+	activity := controller.NewActivityHandler()
 	sub := newTestSubmitter(t, transcript.NewTranscriptPane(th, spin, "Phi test"), activity, nil, nil)
 
 	for _, a := range []controller.Activity{
@@ -99,7 +99,7 @@ func TestSubmitter_IsBusy_requestInFlight(t *testing.T) {
 func TestSubmitter_StreamActive_activity(t *testing.T) {
 	th := components.DefaultTheme()
 	spin := status.NewSpinner(th.ToolName)
-	activity := controller.NewActivityHandler(spin)
+	activity := controller.NewActivityHandler()
 	sub := newTestSubmitter(t, transcript.NewTranscriptPane(th, spin, "Phi test"), activity, nil, nil)
 	activity.Apply(controller.ActivityWaiting)
 	assert.True(t, sub.StreamActive())

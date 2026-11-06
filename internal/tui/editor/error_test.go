@@ -44,7 +44,7 @@ func TestCancelledCompletionDoesNotShowError(t *testing.T) {
 	e.Update(controller.LoopFinishedMsg{Cancelled: true})
 	require.False(t, e.overlays.Active())
 	require.False(t, e.transcript.IsStreaming())
-	require.Equal(t, controller.ActivityCancelled, e.footer.Activity().Current)
+	require.Equal(t, controller.ActivityCancelled, e.activity.Current)
 }
 
 func TestRetryUnavailableRestoresIdle(t *testing.T) {
@@ -53,5 +53,5 @@ func TestRetryUnavailableRestoresIdle(t *testing.T) {
 	e.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
 	require.False(t, e.overlays.Active())
 	require.False(t, e.submitter.IsBusy())
-	require.Equal(t, controller.ActivityIdle, e.footer.Activity().Current)
+	require.Equal(t, controller.ActivityIdle, e.activity.Current)
 }

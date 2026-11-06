@@ -4,7 +4,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/palette"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
-	"github.com/pulseaiclub/phi/internal/tui/footer"
 	"github.com/pulseaiclub/phi/internal/tui/transcript"
 	"github.com/pulseaiclub/phi/internal/util/gitx"
 )
@@ -32,7 +31,6 @@ func NewBuiltinRegistry(
 	ctrl *controller.EngineController,
 	composer BuiltinComposer,
 	tr *transcript.TranscriptPane,
-	ft *footer.FooterChrome,
 	modelNames []string,
 	skillPaths []string,
 	openDiff func(args []string),
@@ -43,17 +41,15 @@ func NewBuiltinRegistry(
 		Registry: r,
 		Ctrl:     ctrl,
 		Composer: composer,
-		Footer:   ft,
 		Bus:      bus,
 	}
-	sessions := NewSessionCommands(ctrl, tr, ft, bus, ext.Sync)
+	sessions := NewSessionCommands(ctrl, tr, bus, ext.Sync)
 	sessions.Composer = composer
 	branches := NewBranchCommands(bus)
 	settings := &SettingsCommands{
 		Ctrl:       ctrl,
 		Bus:        bus,
 		Composer:   composer,
-		Footer:     ft,
 		ModelNames: append([]string(nil), modelNames...),
 	}
 	skills := &SkillsCommands{
