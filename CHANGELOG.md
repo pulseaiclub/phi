@@ -12,10 +12,34 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- TUI: the permission dialog names the scope of each choice ("Allow once",
+  "Allow everything for this session", "Always allow everything (saves to
+  config)", "Deny and tell Phi why"), and every ask header is one plain
+  question ("Run this command?", "Edit this file?", "Write this file?").
+- TUI: panel headers (permission, continue, extension confirm) now use the
+  title role instead of body weight, so the question owns the emphasis.
+- TUI: the `@`-file picker and transcript block copy use the theme selection
+  color; they no longer keep a blue or olive stripe under other themes.
+- TUI: footer context usage reads "4% of 128k" instead of "4%/128k".
+- TUI: palette copy drops internal vocabulary — "never ask, allow everything",
+  "ask before risky actions", "Phi may delegate to sub-agents", "steps per turn".
+- `phi run` prints the same setup hint as the TUI when no model is configured,
+  instead of a bare error. The installer no longer claims `phi config` opens a
+  browser.
+- File sizes now label binary units as KiB/MiB (viewer cap, bash truncation) and
+  the README footprint numbers match a current release build.
+
 ### Added
+
+- TUI: `?` shortcut help lists `Ctrl+C` (quit).
 
 ### Fixed
 
+- Docs: `autopilot` was documented as folding `ask` to allow; it folds to deny
+  (same as `headless-strict`), and the config form said the same wrong thing.
+  `allow-all` is the unattended mode.
+- Docs: the zh README described `bash.allow`/`bash.deny` as exact command-prefix
+  matching; they are regexes.
 - TUI: restore the status label animation's ~15Hz cadence after the footer
   state refactor. The spinner was advancing on every 60fps redraw, so the
   flowing highlight looked four times faster without the pipeline changing.

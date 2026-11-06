@@ -12,7 +12,7 @@
   <a href="https://github.com/pulseaiclub/phi/releases"><img src="https://img.shields.io/github/v/release/pulseaiclub/phi?style=flat&colorA=222222&colorB=8957E5" alt="Release"></a>
 </p>
 
-- 15 MB · ~31 ms  · sub-agents · anchored sloppy edits · permission gate · progressive MCP · PXB extensions · native diff review & code selection · OpenAI / Anthropic / Gemini
+- 16 MiB · ~31 ms · sub-agents · anchored sloppy edits · permission gate · progressive MCP · PXB extensions · native diff review & code selection · OpenAI / Anthropic / Gemini
 
 ![phi welcome](assets/phi.png)
 
@@ -105,7 +105,7 @@ make build          # produces ./phi
 make install        # build and install into $GOBIN
 ```
 
-On first start, phi automatically creates `~/.phi/{bin,skills,hooks,session}`. Search
+On first start, phi automatically creates `~/.phi/{bin,skills,extensions,jobs,session}`. Search
 tools (`fd`, `rg`) download into `~/.phi/bin` in the background when missing.
 
 The TUI gives the model four core tools — `read`, `write`, `edit`, and
@@ -139,15 +139,15 @@ figures.
 
 | Metric | phi |
 | --- | ---: |
-| Release binary | **~15 MB** |
+| Release binary | **~16 MiB** |
 | Idle RSS (1 session) | **~21 MB** |
 | 10 idle sessions (total RSS) | **~221 MB** |
 | Time to first frame | **~31 ms** (26–49 ms) |
 | Cold `go build` (empty `GOCACHE`) | **~5.5 s** |
 | Warm rebuild | **~0.7 s** |
-| Go source (excl. tests) | **~22k LOC** / 107 files |
-| Go packages | **32** |
-| Direct module deps | **6** (15 modules total) |
+| Go source (excl. tests) | **~54k LOC** / 341 files |
+| Go packages | **84** |
+| Direct module deps | **8** (17 modules total) |
 | Linked runtimes | system libs only (no Node / Electron / Python) |
 
 ## Configuration
@@ -189,7 +189,7 @@ models:
     think_level: high       # optional: off | minimal | low | medium | high | …
 
 skill_path: ~/.phi/skills # where SKILL.md files are loaded from; "~/…" is expanded
-max_rounds: 64            # tool round budget; 0 → engine default (64)
+max_rounds: 64            # steps per turn; 0 → engine default (64)
 
 agents:
   enabled: true           # default; set false to disable agent_* sub-agent tools
@@ -246,7 +246,7 @@ Provider routing uses the explicit `api` field (`OpenAI` / `Anthropic` /
 
 `phi` starts the TUI: a chat transcript on top, an editor at
 the bottom, and a footer with the current activity. When a newer release is
-available, the footer shows a hint like `0.2.0 available · phi update`.
+available, the footer shows a hint like `0.30.0 available · phi update`.
 
 Assistant output is rendered as Markdown (CommonMark/GFM): headings, emphasis,
 strikethrough, links, blockquotes, lists, task checkboxes, and tables are
@@ -260,7 +260,7 @@ The editor supports:
 - `?` — shortcut help picker (lists `/`, `!`, `@`, and key bindings; `Esc` closes)
 - `!command` — run a shell command locally and stream its output into the
   transcript (see [Commands](#commands))
-- `Ctrl+K` — command palette: settings → model / theme / permissions / agents (incl. per-role models), skills, hooks
+- `Ctrl+K` — command palette: settings → model / theme / permissions / agents (incl. per-role models) / thinking / steps per turn, plus skills and extensions
 
 ### Keyboard shortcuts
 
@@ -381,7 +381,7 @@ Flags:
 | `-p, --prompt STRING`| Prompt to run (required)                       |
 | `--jsonl`            | Emit JSONL events to stdout                    |
 | `--yolo`             | Skip all permission checks for this run (benchmarks / CI only) |
-| `--max-rounds N`     | Cap tool rounds (default 64)                   |
+| `--max-rounds N`     | Cap steps per turn (default 64)                |
 | `--timeout DURATION` | Limit the agent run wall-clock time (e.g. `10m`; disabled by default) |
 | `--session ID`       | Resume a persisted session by id or unique prefix |
 | `--continue-last`    | Resume the newest persisted session for this directory |
@@ -391,10 +391,10 @@ Flags:
 `--tools` accepts built-in names such as `read,ls,grep`. MCP and agent tools
 still append when configured; the flag only scopes the built-in toolset.
 
-Exit codes: `0` success · `1` runtime/LLM error · `2` max rounds reached ·
+Exit codes: `0` success · `1` runtime/LLM error · `2` step limit reached ·
 `3` config/usage error.
 
-In the interactive TUI, exhausting the tool-round budget prompts Continue /
+In the interactive TUI, exhausting the step budget prompts Continue /
 Stop. Headless `phi run` has no confirmation UI, so it exits with code 2.
 
 In headless mode, permission `ask` decisions are denied (there is no approval
@@ -454,7 +454,7 @@ Modes:
 | ------------------ | --------------------------------------------------- |
 | `interactive`      | Default. `ask` decisions prompt in the TUI.         |
 | `readonly`         | Deny writes / bash; read tools still work.          |
-| `autopilot`        | Fold `ask` → allow, run unattended.                 |
+| `autopilot`        | Deny every `ask` without prompting (same fold as `headless-strict`); use `allow-all` for unattended runs. |
 | `headless-strict`  | Fold `ask` → deny (used by `phi run`).              |
 | `allow-all`        | Skip every permission check.                        |
 
@@ -466,9 +466,10 @@ path, or workspace scope; they are evaluated strictest-first (`deny` > `ask` >
 `dangerously_allow_all: true` still loads as `mode: allow-all`. Full semantics
 and examples: [doc/permissions.md](doc/permissions.md).
 
-In the TUI, an approval dialog replaces the editor with options to approve,
-deny with feedback, or allow all for the session / for every session. The
-palette's settings → permissions entry toggles session-wide bypass.
+In the TUI, an approval dialog replaces the editor with four choices: allow
+once, allow everything for this session, always allow everything (written to
+`~/.phi/config.yaml`), or deny and say why. The palette's settings →
+permissions entry toggles the session-wide bypass without touching the file.
 
 ## Extensions
 

@@ -12,7 +12,7 @@
   <a href="https://github.com/pulseaiclub/phi/releases"><img src="https://img.shields.io/github/v/release/pulseaiclub/phi?style=flat&colorA=222222&colorB=8957E5" alt="Release"></a>
 </p>
 
-- 15 MB · ~31 ms · sub-agent · 锚点编辑 · 权限门控 · 渐进式 MCP · PXB 插件 · 全屏审阅 & 代码选中 · OpenAI / Anthropic / Gemini
+- 16 MiB · ~31 ms · 子代理 · 锚点编辑 · 权限门控 · 渐进式 MCP · PXB 扩展 · 全屏审阅 & 代码选中 · OpenAI / Anthropic / Gemini
 
 ![phi 欢迎界面](assets/phi.png)
 
@@ -109,7 +109,7 @@ make build          # 生成 ./phi
 make install        # 构建并安装到 $GOBIN
 ```
 
-首次启动时，phi 会自动创建 `~/.phi/{bin,skills,hooks,session}`。搜索工具
+首次启动时，phi 会自动创建 `~/.phi/{bin,skills,extensions,jobs,session}`。搜索工具
 （`fd`、`rg`）缺失时会在后台下载到 `~/.phi/bin`。
 
 TUI 给模型提供四个核心工具——`read`、`write`、`edit` 和 `bash`——外加 `grep`、`find`、`ls`。模型用这些工具来完成你的请求。外部 HTTP 抓取在配置 MCP 后可用。
@@ -140,15 +140,15 @@ TUI 给模型提供四个核心工具——`read`、`write`、`edit` 和 `bash`�
 
 | 指标 | phi |
 | --- | ---: |
-| 发布二进制 | **约 15 MB** |
+| 发布二进制 | **约 16 MiB** |
 | 空闲 RSS（1 个会话） | **约 21 MB** |
 | 10 个空闲会话（RSS 总量） | **约 221 MB** |
 | 首帧时间 | **约 31 ms**（26–49 ms） |
 | 冷 `go build`（空 `GOCACHE`） | **约 5.5 s** |
 | 热重建 | **约 0.7 s** |
-| Go 源码（不含测试） | **约 22k 行** / 107 个文件 |
-| Go 包数量 | **32** |
-| 直接模块依赖 | **6**（共 15 个模块） |
+| Go 源码（不含测试） | **约 54k 行** / 341 个文件 |
+| Go 包数量 | **84** |
+| 直接模块依赖 | **8**（共 17 个模块） |
 | 链接运行时 | 仅系统库（无 Node / Electron / Python） |
 
 ## 配置
@@ -188,7 +188,7 @@ models:
     think_level: high       # 可选：off | minimal | low | medium | high | …
 
 skill_path: ~/.phi/skills # SKILL.md 文件的加载目录；`~/…` 会被展开
-max_rounds: 64            # 工具轮次预算；0 → 引擎默认值（64）
+max_rounds: 64            # 单轮工具步数上限；0 → 引擎默认值（64）
 
 agents:
   enabled: true           # 默认；设为 false 可禁用 agent_* 子代理工具
@@ -234,7 +234,7 @@ permissions:
 ## 交互模式
 
 `phi` 启动 TUI：上方是对话记录，底部是编辑器，底部状态栏显示
-当前活动。有新版发布时，状态栏会提示类似 `0.2.0 available · phi update`。
+当前活动。有新版发布时，状态栏会提示类似 `0.30.0 available · phi update`。
 
 助手输出按 Markdown（CommonMark/GFM）渲染：标题、强调、删除线、链接、引用、
 列表、任务复选框和表格都会按当前主题着色；围栏代码块上方有淡色语言标注，并按语言高亮。
@@ -247,7 +247,7 @@ permissions:
 - `?` —— 快捷键帮助选择器（列出 `/`、`!`、`@` 和按键绑定；`Esc` 关闭）
 - `!command` —— 在本地运行 shell 命令，并把输出流式写入对话记录
   （见 [命令](#命令)）
-- `Ctrl+K` —— 命令面板：设置 → 模型 / 主题 / 权限 / 代理、技能、hooks
+- `Ctrl+K` —— 命令面板：设置 → 模型 / 主题 / 权限 / 代理（含各角色模型）/ 思考强度 / 单轮步数，以及技能、扩展
 
 ### 键盘快捷键
 
@@ -349,7 +349,7 @@ phi run -p "fix the failing test in internal/tools"
 | `-p, --prompt STRING` | 要运行的提示词（必填） |
 | `--jsonl` | 向 stdout 输出 JSONL 事件 |
 | `--yolo` | 本次运行跳过所有权限检查（仅用于 benchmark / CI） |
-| `--max-rounds N` | 限制工具轮数（默认 64） |
+| `--max-rounds N` | 限制单轮工具步数（默认 64） |
 | `--timeout DURATION` | 限制 Agent 运行总时长（例如 `10m`，默认不限制） |
 | `--session ID` | 按 id 或唯一前缀恢复已持久化的会话 |
 | `--continue-last` | 恢复当前目录最新的持久化会话 |
@@ -415,16 +415,17 @@ Instructions the agent should follow when this skill is relevant.
 | ------------------ | --------------------------------------------------- |
 | `interactive` | 默认。`ask` 决策在 TUI 中弹出询问。 |
 | `readonly` | 拒绝写入 / bash；只读工具仍可用。 |
-| `autopilot` | 把 `ask` 折叠为 allow，无人值守运行。 |
+| `autopilot` | 把 `ask` 折叠为 deny，不弹窗（与 `headless-strict` 相同）。无人值守请用 `allow-all`。 |
 | `headless-strict` | 把 `ask` 折叠为 deny（`phi run` 使用）。 |
 | `allow-all` | 跳过所有权限检查。 |
 
-按工具的规则：`bash.default` / `bash.allow` / `bash.deny`（精确命令前缀匹配）。
+按工具的规则：`bash.default` / `bash.allow` / `bash.deny`（对整条命令做正则匹配）。
 全局键：`workspace_only_writes`（默认 true）和 `ask_timeout_sec`。
 已弃用的 `dangerously_allow_all: true` 仍按 `mode: allow-all` 加载。
 
-在 TUI 中，审批对话框会替换编辑器，提供批准、带反馈地拒绝、或对本次会话 /
-所有会话全部允许等选项。面板的 设置 → 权限 条目可切换会话级绕过。
+在 TUI 中，审批对话框会替换编辑器，提供四个选项：本次允许、本次会话内全部允许、
+永远全部允许（写入 `~/.phi/config.yaml`）、拒绝并说明该怎么做。面板的
+设置 → 权限 条目只切换会话级绕过，不改文件。
 
 ## Extensions（扩展）
 
