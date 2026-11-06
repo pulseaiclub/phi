@@ -48,7 +48,7 @@ func TestPaletteReopenReflectsThinkingSelectionAndModelSwitch(t *testing.T) {
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
 	bus := controller.NewBus(nil)
-	ctrl, err := controller.NewController(bus, proj, cwd)
+	ctrl, err := controller.NewController(bus, proj)
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 	e := NewEditor(
@@ -180,7 +180,7 @@ func TestModelPaletteSavesDefaultAndRestoresSession(t *testing.T) {
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
 	bus := controller.NewBus(nil)
-	ctrl, err := controller.NewController(bus, proj, cwd)
+	ctrl, err := controller.NewController(bus, proj)
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 	e := NewEditor(app.NewApp(nil), bus, ctrl, nil, components.DefaultTheme(), cwd,
@@ -253,7 +253,7 @@ func TestModelPaletteSavesDefaultAndRestoresSession(t *testing.T) {
 	assert.Equal(t, "secondary", ctrl.ModelName())
 
 	ctrl.Close()
-	restarted, err := controller.NewController(controller.NewBus(nil), proj, cwd)
+	restarted, err := controller.NewController(controller.NewBus(nil), proj)
 	require.NoError(t, err)
 	t.Cleanup(restarted.Close)
 	assert.Equal(t, "secondary", restarted.ModelName(), "saved default must survive restart")

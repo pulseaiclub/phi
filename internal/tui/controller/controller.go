@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -65,15 +64,7 @@ type EngineController struct {
 
 // NewController returns a live EngineController. proj must be non-nil.
 // Failure returns (nil, err), never a half-initialized value.
-func NewController(bus *Bus, proj *project.Project, cwd string) (*EngineController, error) {
-	if strings.TrimSpace(cwd) == "" {
-		var err error
-		cwd, err = os.Getwd()
-		if err != nil {
-			return nil, fmt.Errorf("tui: getwd: %w", err)
-		}
-	}
-
+func NewController(bus *Bus, proj *project.Project) (*EngineController, error) {
 	if err := proj.LoadConfig(); err != nil {
 		return nil, err
 	}
@@ -82,7 +73,7 @@ func NewController(bus *Bus, proj *project.Project, cwd string) (*EngineControll
 	c := &EngineController{
 		bus:           bus,
 		proj:          proj,
-		cwd:           cwd,
+		cwd:           proj.Root(),
 		sessionDir:    proj.SessionDir(),
 		askTimeoutSec: defaultAskTimeoutSec,
 		modelCfg:      config.Model(),
