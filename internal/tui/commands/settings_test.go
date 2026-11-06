@@ -14,10 +14,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
-type stubSettingsFooter struct{ window int }
-
-func (s *stubSettingsFooter) SetContextWindow(window int) { s.window = window }
-
 type stubSettingsComposer struct{ name string }
 
 func (s *stubSettingsComposer) SetModelLabel(name, _ string) { s.name = name }
@@ -56,20 +52,16 @@ func TestSetModelUpdatesFooterContextWindow(t *testing.T) {
 	t.Cleanup(ctrl.Close)
 	require.Equal(t, 192000, ctrl.ContextWindow())
 
-	foot := &stubSettingsFooter{}
 	comp := &stubSettingsComposer{}
-	s := &SettingsCommands{Ctrl: ctrl, Bus: bus, Composer: comp, Footer: foot}
+	s := &SettingsCommands{Ctrl: ctrl, Bus: bus, Composer: comp}
 	s.setModel("big-model")
 
 	assert.Equal(t, "big-model", comp.name)
-	assert.Equal(t, 1_000_000, foot.window)
 	assert.Equal(t, 1_000_000, ctrl.ContextWindow())
 
 	s.setModel("small-model")
-	require.Equal(t, 192000, foot.window)
 	require.True(t, s.saveModel("big-model"))
 	assert.Equal(t, "big-model", comp.name)
-	assert.Equal(t, 1_000_000, foot.window)
 }
 
 // Every settings picker marks the live value with the shared dot, so the

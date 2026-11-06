@@ -20,7 +20,6 @@ type SettingsCommands struct {
 	Ctrl       *controller.EngineController
 	Bus        *controller.Bus
 	Composer   settingsComposer
-	Footer     settingsFooter
 	ModelNames []string
 	// CurrentTheme is the theme applied through the palette; empty means the
 	// startup default, so the picker marks it before the first switch.
@@ -30,12 +29,6 @@ type SettingsCommands struct {
 // settingsComposer is the subset of the composer pane needed by settings.
 type settingsComposer interface {
 	SetModelLabel(name, thinkLevel string)
-}
-
-// settingsFooter is the subset of the footer needed by settings: the context
-// window follows the active model, so a switch must refresh it.
-type settingsFooter interface {
-	SetContextWindow(window int)
 }
 
 // Register wires settings palette entries into r.
@@ -142,9 +135,6 @@ func (s *SettingsCommands) applyModel(name string) error {
 	}
 	if s.Composer != nil {
 		s.Composer.SetModelLabel(name, string(s.Ctrl.ThinkLevel()))
-	}
-	if s.Footer != nil {
-		s.Footer.SetContextWindow(s.Ctrl.ContextWindow())
 	}
 	return nil
 }

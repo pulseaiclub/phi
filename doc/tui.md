@@ -9,7 +9,7 @@ cmd/main.go
   └─ editor.NewEditor(app, bus, ctrl, …)
        ├─ TranscriptPane   snap, list, mapper, subagents, welcome, text selection
        ├─ ComposerPane     chat, @/slash/?/! pickers, palette (input only)
-       ├─ FooterChrome     status slot (activity↔tokens), bottom row for ext/jobs/hints
+       ├─ FooterChrome     bottom row for extension status and update hints
        ├─ Overlays         permission ask, continue ask
        ├─ DiffPane         full-screen git diff review (`/diff`)
        ├─ CodePane         full-screen source viewer (`/code`)
@@ -21,9 +21,9 @@ cmd/main.go
 | Owner | Composes (lifecycle) | Aggregates (injected) |
 | ----- | -------------------- | --------------------- |
 | `Editor` | all panes, `Submitter`, `toast`, `CommandRegistry` | `Bus`, `App`, `vx` |
-| `TranscriptPane` | `MessageList`, `Mapper`, `SubagentStore`, `welcome`, `textSel` | `theme`, `spinner` ref from footer |
+| `TranscriptPane` | `MessageList`, `Mapper`, `SubagentStore`, `welcome`, `textSel` | `theme`, `spinner` ref from editor |
 | `ComposerPane` | `ChatInput`, pickers, `palette` | callbacks `onSubmit`, `onCancel`, `onRedraw` |
-| `FooterChrome` | `ActivityHandler`, `Spinner` | `labelContext()`, `liveJobs()` closures |
+| `FooterChrome` | drawing theme | immutable `State` passed to `Draw` |
 | `Overlays` | `permAskState`, `continueAskState` | `activity` ref, reply callbacks |
 | `DiffPane` | review overlay (rows, notes, search) | `cwd`, submit/copy/toast callbacks |
 | `CodePane` | source overlay (lines, caret, selection) | `cwd`, add-to-chat/toast callbacks |
@@ -56,7 +56,7 @@ internal/tui/
 | `controller` | `Controller` runs `agent.Engine`; publishes `Msg` to the bus only |
 | `transcript` | Projects `session.Event` → message list; sub-agent rows; copy selection |
 | `composer` | Keyboard routing for chat, `/` slash, `?` shortcuts, `@` mention, `!` shell completion, Ctrl+K palette |
-| `footer` | Composer status slot (activity ↔ tokens), bottom footer row (ext status, jobs, update hint) |
+| `footer` | Status label helpers and bottom footer row renderer |
 | `overlays` | Modal permission / continue-ask panels; replaces composer when active |
 | `diffpane` | Full-screen git diff review; notes stay in memory |
 | `codepane` | Full-screen source viewer: syntax highlight, caret, line selection |
@@ -130,7 +130,7 @@ toast) run inline — no pane state needs a lock.
 
 | Phase | Messages | Handler |
 | ----- | -------- | ------- |
-| Batch pass | `SessionEventMsg`, `JobProgressMsg` | `TranscriptPane` → optional `Sync` + footer token refresh |
+| Batch pass | `SessionEventMsg`, `JobProgressMsg` | `TranscriptPane` → optional `Sync`; editor refreshes the status slot |
 | Per-msg | everything else | `Editor.Update` → domain handler |
 
 ### Transport rules
@@ -158,8 +158,8 @@ How data crosses the UI/domain boundary — one rule per direction:
 | `SessionEventMsg`, `JobProgressMsg` | `TranscriptPane` (in `drainBus`) |
 | `SubmitMsg`, `CancelStreamMsg` | `Submitter` |
 | `OverlayMsg` (permission / continue / ext-confirm ask+dismiss) | `Overlays` |
-| `FooterMsg` (activity / clear-if / update hint) | `FooterChrome` |
-| `ExtSessionEffectsMsg` | `FooterChrome` (+ toast when set) |
+| `FooterMsg` (activity / clear-if / update hint) | `Editor` / `ActivityHandler` |
+| `ExtSessionEffectsMsg` | `Editor` (+ toast when set) |
 | `MentionResultsMsg`, `BranchLabelMsg` | `ComposerPane` |
 | `ToastMsg` | `Editor` toast overlay |
 | `ExtCommandResultMsg` | `ExtCommands` |
@@ -213,7 +213,7 @@ Controller.runLoop
   → bus.Publish(SessionEventMsg{Event})
   → drainBus: TranscriptPane.ApplySession
   → TranscriptPane.Sync (mapper + subagent store)
-  → FooterChrome.SyncFromSnap (activity / status slot)
+  → Editor updates ActivityHandler and derives the status slot from the snapshot
   → stick-to-bottom if user was pinned
 ```
 
@@ -267,8 +267,8 @@ the old JSONL file is gone. The same store call backs `phi sessions remove`.
 | Source | Msg | Target |
 | ------ | --- | ------ |
 | `StartBranchWatch` | `BranchLabelMsg` | composer bottom-right label |
-| `StartUpdateCheck` | `FooterMsg` (update available) | footer update hint |
-| Extension session lifecycle | `ExtSessionEffectsMsg` | footer status + toast |
+| `StartUpdateCheck` | `FooterMsg` (update available) | editor-owned footer state |
+| Extension session lifecycle | `ExtSessionEffectsMsg` | editor-owned footer state + toast |
 
 ---
 

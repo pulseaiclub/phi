@@ -3,7 +3,6 @@ package controller
 import (
 	"fmt"
 
-	"github.com/pulseaiclub/phi/internal/components/status"
 	"github.com/pulseaiclub/phi/internal/session"
 )
 
@@ -23,17 +22,16 @@ const (
 	ActivityAwaitingApproval
 )
 
-// ActivityHandler owns footer/stream activity state.
+// ActivityHandler owns stream activity state.
 // It only mutates itself when Apply / SyncFromSnap are called on the UI goroutine.
 type ActivityHandler struct {
 	Current  Activity
-	spin     *status.Spinner
 	onChange func()
 }
 
-// NewActivityHandler builds an ActivityHandler that owns the given spinner.
-func NewActivityHandler(spin *status.Spinner) *ActivityHandler {
-	return &ActivityHandler{spin: spin}
+// NewActivityHandler builds an ActivityHandler.
+func NewActivityHandler() *ActivityHandler {
+	return &ActivityHandler{}
 }
 
 // SetOnChange registers a UI-thread callback after activity changes.
@@ -55,9 +53,6 @@ func (h *ActivityHandler) Apply(a Activity) {
 		return
 	}
 	h.Current = a
-	if h.spin != nil {
-		h.spin.Frame = 0
-	}
 	h.notify()
 }
 

@@ -19,11 +19,6 @@ type extComposer interface {
 	SetPaletteCommands([]palette.PaletteCommand)
 }
 
-// extFooter updates the extension status indicator.
-type extFooter interface {
-	SetExtensionStatus(status string)
-}
-
 // extSubmitter submits text to the agent and reports busy state.
 type extSubmitter interface {
 	IsBusy() bool
@@ -35,7 +30,7 @@ type ExtCommands struct {
 	Registry   *CommandRegistry
 	Ctrl       *controller.EngineController
 	Composer   extComposer
-	Footer     extFooter
+	SetStatus  func(string)
 	Submitter  extSubmitter
 	Bus        *controller.Bus
 	CommandCtx Context
@@ -120,8 +115,8 @@ func (h *ExtCommands) Apply(msg controller.ExtCommandResultMsg) {
 		publishToast(h.Bus, msg.Err, toast.ToastError, 3*time.Second)
 		return
 	}
-	if msg.StatusSet {
-		h.Footer.SetExtensionStatus(msg.Status)
+	if msg.StatusSet && h.SetStatus != nil {
+		h.SetStatus(msg.Status)
 	}
 	if msg.Toast != "" {
 		publishToast(h.Bus, msg.Toast, toast.ToastSuccess, 3*time.Second)

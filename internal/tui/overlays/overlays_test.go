@@ -16,7 +16,7 @@ func testOverlays(activity *controller.ActivityHandler) *Overlays {
 }
 
 func TestResolvePermissionSendsReply(t *testing.T) {
-	activity := controller.NewActivityHandler(nil)
+	activity := controller.NewActivityHandler()
 	o := testOverlays(activity)
 	reply := make(chan controller.AskReply, 1)
 	o.beginPermissionAsk(controller.OverlayMsg{
@@ -39,7 +39,7 @@ func TestResolvePermissionSendsReply(t *testing.T) {
 }
 
 func TestPermissionDenyWithFeedback(t *testing.T) {
-	o := testOverlays(controller.NewActivityHandler(nil))
+	o := testOverlays(controller.NewActivityHandler())
 	reply := make(chan controller.AskReply, 1)
 	o.beginPermissionAsk(controller.OverlayMsg{
 		Kind:      controller.OverlayPermissionAsk,
@@ -56,7 +56,7 @@ func TestPermissionDenyWithFeedback(t *testing.T) {
 }
 
 func TestPermissionDismissClearsOverlay(t *testing.T) {
-	o := testOverlays(controller.NewActivityHandler(nil))
+	o := testOverlays(controller.NewActivityHandler())
 	reply := make(chan controller.AskReply, 1)
 	o.beginPermissionAsk(controller.OverlayMsg{
 		Kind:      controller.OverlayPermissionAsk,
@@ -73,7 +73,7 @@ func TestPermissionDismissClearsOverlay(t *testing.T) {
 }
 
 func TestDrawPermissionAskReplacesComposerSlot(t *testing.T) {
-	o := testOverlays(controller.NewActivityHandler(nil))
+	o := testOverlays(controller.NewActivityHandler())
 	reply := make(chan controller.AskReply, 1)
 	o.beginPermissionAsk(controller.OverlayMsg{
 		Kind:      controller.OverlayPermissionAsk,
@@ -96,7 +96,7 @@ func TestFormatAskHeader(t *testing.T) {
 }
 
 func TestContinueAskResolveContinue(t *testing.T) {
-	activity := controller.NewActivityHandler(nil)
+	activity := controller.NewActivityHandler()
 	o := testOverlays(activity)
 	reply := make(chan controller.ContinueReply, 1)
 	o.beginContinueAsk(controller.OverlayMsg{
@@ -118,7 +118,7 @@ func TestContinueAskResolveContinue(t *testing.T) {
 }
 
 func TestContinueAskEscapeStops(t *testing.T) {
-	o := testOverlays(controller.NewActivityHandler(nil))
+	o := testOverlays(controller.NewActivityHandler())
 	reply := make(chan controller.ContinueReply, 1)
 	o.beginContinueAsk(controller.OverlayMsg{
 		Kind:      controller.OverlayContinueAsk,
@@ -136,7 +136,7 @@ func TestContinueAskEscapeStops(t *testing.T) {
 }
 
 func TestContinueDismissClearsOverlay(t *testing.T) {
-	o := testOverlays(controller.NewActivityHandler(nil))
+	o := testOverlays(controller.NewActivityHandler())
 	reply := make(chan controller.ContinueReply, 1)
 	o.beginContinueAsk(controller.OverlayMsg{
 		Kind:      controller.OverlayContinueAsk,

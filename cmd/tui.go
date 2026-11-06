@@ -95,7 +95,6 @@ func runTUI() error {
 		cwd,
 		model,
 		proj.Config().SkillPaths,
-		ctrl.ContextWindow(),
 		modelNames,
 	)
 	redraw.Bind(ui.RequestRedraw)
