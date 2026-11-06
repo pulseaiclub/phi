@@ -324,9 +324,6 @@ func (e *Editor) advanceSpinner() {
 }
 
 func (e *Editor) syncStatusSlot() {
-	if e == nil || e.composer == nil {
-		return
-	}
 	label := footer.StatusLabel(e.theme, footer.StatusInput{
 		Activity:      e.activity.Label(e.transcript.Snapshot()),
 		ShowSpinner:   e.activity.ShowSpinner(),
