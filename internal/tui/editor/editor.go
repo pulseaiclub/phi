@@ -59,7 +59,10 @@ type Editor struct {
 	code       *codepane.Pane
 	diffList   listpicker.State
 
+	// The TUI redraws at 60fps; the flowing status highlight moves every fourth
+	// frame, matching the ~80ms cadence status.Spinner used to declare.
 	spin       *status.Spinner
+	spinTick   int
 	activity   *controller.ActivityHandler
 	extStatus  string
 	updateHint string
@@ -71,6 +74,10 @@ type Editor struct {
 	extCmds   *commands.ExtCommands
 	submitter *submit.Submitter
 }
+
+// spinnerFrameDivisor throttles the 60fps app redraw to the status slot's
+// ~15Hz spinner cadence.
+const spinnerFrameDivisor = 4
 
 // NewEditor builds the TUI panes and wires injected collaborators.
 // application, bus, and ctrl must be non-nil.
@@ -304,7 +311,16 @@ func (e *Editor) drainBus() {
 
 func (e *Editor) onActivityChange() {
 	e.spin.Frame = 0
+	e.spinTick = 0
 	e.syncStatusSlot()
+}
+
+func (e *Editor) advanceSpinner() {
+	e.spinTick++
+	if e.activity.ShowSpinner() && e.spinTick%spinnerFrameDivisor == 0 {
+		e.spin.Tick()
+		e.syncStatusSlot()
+	}
 }
 
 func (e *Editor) syncStatusSlot() {
@@ -490,10 +506,7 @@ func (e *Editor) showSessionList(items []session.SessionMeta, currentID string) 
 func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	e.drainBus()
 
-	if e.activity.ShowSpinner() {
-		e.spin.Tick()
-		e.syncStatusSlot()
-	}
+	e.advanceSpinner()
 	_ = e.toast.Visible()
 
 	if e.diff.Active() {
