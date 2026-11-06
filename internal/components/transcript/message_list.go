@@ -46,6 +46,16 @@ type listItemGeom struct {
 	y, h  int // list-local (screen within the list surface)
 }
 
+// highlightBg is the block-copy highlight. It follows the theme's selection
+// color so copy selection and drag selection never differ.
+func (m *MessageList) highlightBg() xui.Color {
+	th := m.Theme
+	if th == (components.Theme{}) {
+		th = components.DefaultTheme()
+	}
+	return th.SelectionBg.Bg
+}
+
 func (m *MessageList) spacing() int {
 	if m.ItemSpacing <= 0 {
 		return 1
@@ -285,7 +295,7 @@ func (m *MessageList) Draw(ctx components.DrawContext) components.Surface {
 				heightChanged = true
 			}
 			if i == m.Selected && m.Selected >= 0 {
-				hl := xui.Style{Bg: xui.RGBColor(0x2a, 0x2e, 0x24)}
+				hl := xui.Style{Bg: m.highlightBg()}
 				components.ApplyBlockHighlight(&surf, hl)
 			}
 			root.Children = append(root.Children, components.SubSurface{
