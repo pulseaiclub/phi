@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"context"
 	"fmt"
 	"runtime"
 	"sync/atomic"
@@ -101,32 +100,6 @@ func TestLoopConcurrentSetMaxRounds(t *testing.T) {
 	}
 	require.EqualValues(t, 8, runs.Load())
 	require.EqualValues(t, 9, requests.Load())
-}
-
-func TestLoopRoundBudgetSnapshotSurvivesSetterDuringPrompt(t *testing.T) {
-	server, _ := fakeToolSequenceServer(-1)
-	defer server.Close()
-	var runs atomic.Int32
-	engine := newRoundTestEngine(t, server.URL, &runs, 1)
-	asked := 0
-	engine.SetContinueAsk(func(_ context.Context, budget int) (bool, error) {
-		asked = budget
-		engine.SetMaxRounds(9)
-		return false, nil
-	})
-
-	var lastErr error
-	for _, err := range engine.Loop(t.Context(), "go", LoopOpts{}) {
-		if err != nil {
-			lastErr = err
-			break
-		}
-	}
-	require.Equal(t, 1, asked)
-	require.ErrorIs(t, lastErr, ErrMaxRounds)
-	require.EqualError(t, lastErr, "agent: exceeded maximum tool rounds (1)")
-	require.EqualValues(t, 1, runs.Load())
-	require.EqualValues(t, 9, engine.maxRounds.Load())
 }
 
 func TestEngineRunnerInheritsRoundBudget(t *testing.T) {

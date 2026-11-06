@@ -161,12 +161,9 @@ func NewEditor(
 		e.bus,
 		cmdCtx,
 		e.overlays.PermissionActive,
-
-		e.overlays.ContinueActive,
 		e.overlays.ConfirmActive,
 		e.overlays.ErrorActive,
 		e.overlays.ResolvePermission,
-		e.overlays.ResolveContinue,
 		e.overlays.ResolveConfirm,
 		e.overlays.ResolveError,
 	)
@@ -192,7 +189,6 @@ func NewEditor(
 		e.ctrl.ImageEnabled,
 		e.blocksComposer,
 		e.overlays.HandlePermissionKey,
-		e.overlays.HandleContinueKey,
 		e.overlays.HandleConfirmKey,
 		e.overlays.HandleErrorKey,
 		e.handleCopyKey,

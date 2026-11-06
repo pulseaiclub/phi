@@ -3,7 +3,6 @@ package overlays
 import (
 	"testing"
 
-	"github.com/pulseaiclub/xui"
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/components"
@@ -93,61 +92,4 @@ func TestFormatAskHeader(t *testing.T) {
 	h, d := formatAskHeader(permission.Request{Kind: permission.KindWrite, Paths: []string{"/tmp/a"}})
 	require.Equal(t, "Allow creating file:", h)
 	require.Equal(t, "/tmp/a", d)
-}
-
-func TestContinueAskResolveContinue(t *testing.T) {
-	activity := controller.NewActivityHandler()
-	o := testOverlays(activity)
-	reply := make(chan controller.ContinueReply, 1)
-	o.beginContinueAsk(controller.OverlayMsg{
-		Kind:      controller.OverlayContinueAsk,
-		MaxRounds: 64,
-		ContReply: reply,
-	})
-	require.NotNil(t, o.cont, "expected continueAsk")
-	require.Equal(t, 64, o.cont.maxRounds)
-	require.Equal(t, controller.ActivityAwaitingApproval, activity.Current)
-	o.resolveContinue(controller.ContinueReply{Continue: true})
-	require.Nil(t, o.cont, "expected continueAsk cleared")
-	select {
-	case r := <-reply:
-		require.True(t, r.Continue, "expected Continue=true")
-	default:
-		require.Fail(t, "expected reply")
-	}
-}
-
-func TestContinueAskEscapeStops(t *testing.T) {
-	o := testOverlays(controller.NewActivityHandler())
-	reply := make(chan controller.ContinueReply, 1)
-	o.beginContinueAsk(controller.OverlayMsg{
-		Kind:      controller.OverlayContinueAsk,
-		MaxRounds: 2,
-		ContReply: reply,
-	})
-	ctx := &components.EventContext{}
-	_ = o.handleContinueKey(ctx, xui.KeyEvent{Press: true, Code: xui.KeyEscape})
-	select {
-	case r := <-reply:
-		require.False(t, r.Continue, "escape should stop")
-	default:
-		require.Fail(t, "expected reply on escape")
-	}
-}
-
-func TestContinueDismissClearsOverlay(t *testing.T) {
-	o := testOverlays(controller.NewActivityHandler())
-	reply := make(chan controller.ContinueReply, 1)
-	o.beginContinueAsk(controller.OverlayMsg{
-		Kind:      controller.OverlayContinueAsk,
-		MaxRounds: 2,
-		ContReply: reply,
-	})
-	o.Apply(controller.OverlayMsg{Kind: controller.OverlayContinueDismiss})
-	require.Nil(t, o.cont, "overlay should clear without consuming reply")
-	select {
-	case <-reply:
-		require.Fail(t, "dismiss must not send on reply")
-	default:
-	}
 }

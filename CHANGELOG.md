@@ -10,6 +10,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Removed
 
+- TUI/agent: removed the "Continue for another N?" prompt when the tool-round
+  budget is exhausted. The loop now always stops with `ErrMaxRounds` (exit
+  code 2 in headless runs); raise the budget in the palette to go further.
+
 ### Changed
 
 ### Added

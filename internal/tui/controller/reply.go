@@ -15,11 +15,6 @@ type ExtConfirmReply struct {
 	OK bool
 }
 
-// ContinueReply is the user's response when the tool-round budget is exhausted.
-type ContinueReply struct {
-	Continue bool
-}
-
 // ErrorReply is the user's response to a loop-error dialog.
 type ErrorReply struct {
 	Retry bool // re-run the last prompt

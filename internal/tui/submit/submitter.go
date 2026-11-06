@@ -28,11 +28,9 @@ type Submitter struct {
 	bus *controller.Bus
 
 	permissionActive  func() bool
-	continueActive    func() bool
 	confirmActive     func() bool
 	errorActive       func() bool
 	resolvePermission func(controller.AskReply)
-	resolveContinue   func(controller.ContinueReply)
 	resolveConfirm    func(controller.ExtConfirmReply)
 	resolveError      func(controller.ErrorReply)
 }
@@ -48,11 +46,9 @@ func NewSubmitter(
 	bus *controller.Bus,
 	commandContext commands.Context,
 	permissionActive func() bool,
-	continueActive func() bool,
 	confirmActive func() bool,
 	errorActive func() bool,
 	resolvePermission func(controller.AskReply),
-	resolveContinue func(controller.ContinueReply),
 	resolveConfirm func(controller.ExtConfirmReply),
 	resolveError func(controller.ErrorReply),
 ) *Submitter {
@@ -66,11 +62,9 @@ func NewSubmitter(
 		commandContext:    commandContext,
 		bus:               bus,
 		permissionActive:  permissionActive,
-		continueActive:    continueActive,
 		confirmActive:     confirmActive,
 		errorActive:       errorActive,
 		resolvePermission: resolvePermission,
-		resolveContinue:   resolveContinue,
 		resolveConfirm:    resolveConfirm,
 		resolveError:      resolveError,
 	}
@@ -188,9 +182,6 @@ func (s *Submitter) Cancel() {
 	if s.resolvePermission != nil && s.permissionActive != nil && s.permissionActive() {
 		s.resolvePermission(controller.AskReply{})
 	}
-	if s.resolveContinue != nil && s.continueActive != nil && s.continueActive() {
-		s.resolveContinue(controller.ContinueReply{})
-	}
 	if s.resolveConfirm != nil && s.confirmActive != nil && s.confirmActive() {
 		s.resolveConfirm(controller.ExtConfirmReply{})
 	}
@@ -224,7 +215,6 @@ func (s *Submitter) IsBusy() bool {
 func (s *Submitter) StreamActive() bool {
 	if s.IsBusy() ||
 		(s.permissionActive != nil && s.permissionActive()) ||
-		(s.continueActive != nil && s.continueActive()) ||
 		(s.errorActive != nil && s.errorActive()) {
 		return true
 	}

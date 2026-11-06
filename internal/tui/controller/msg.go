@@ -131,15 +131,13 @@ type OverlayKind int
 const (
 	OverlayPermissionAsk OverlayKind = iota
 	OverlayPermissionDismiss
-	OverlayContinueAsk
-	OverlayContinueDismiss
 	OverlayExtConfirm
 	OverlayExtConfirmDismiss
 	OverlayErrorAsk
 	OverlayErrorDismiss
 )
 
-// OverlayMsg drives permission / continue / extension-confirm UI.
+// OverlayMsg drives permission / extension-confirm / loop-error UI.
 // Kind selects which fields are meaningful; reply chans must be buffered(1).
 type OverlayMsg struct {
 	Kind OverlayKind
@@ -148,10 +146,6 @@ type OverlayMsg struct {
 	Request   permission.Request
 	Reason    string
 	PermReply chan AskReply
-
-	// Continue ask
-	MaxRounds int
-	ContReply chan ContinueReply
 
 	// Extension confirm
 	Title        string

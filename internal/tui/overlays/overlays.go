@@ -18,11 +18,10 @@ type overlayComposer interface {
 	HidePalette()
 }
 
-// Overlays owns permission, continue-ask, and extension-confirm UI that replaces the composer slot.
+// Overlays owns permission, extension-confirm, and loop-error UI that replaces the composer slot.
 type Overlays struct {
 	theme    components.Theme
 	perm     *permAskState
-	cont     *continueAskState
 	confirm  *confirmAskState
 	err      *errorAskState
 	activity *controller.ActivityHandler
@@ -58,7 +57,7 @@ func (o *Overlays) SetTheme(th components.Theme) {
 
 // Active reports whether a modal overlay is showing.
 func (o *Overlays) Active() bool {
-	return o.perm != nil || o.cont != nil || o.confirm != nil || o.err != nil
+	return o.perm != nil || o.confirm != nil || o.err != nil
 }
 
 // BlocksComposer reports whether composer input should be disabled.
@@ -71,11 +70,6 @@ func (o *Overlays) PermissionActive() bool {
 	return o.perm != nil
 }
 
-// ContinueActive reports whether the continue overlay is showing.
-func (o *Overlays) ContinueActive() bool {
-	return o.cont != nil
-}
-
 // Apply routes overlay bus messages by Kind.
 func (o *Overlays) Apply(msg controller.OverlayMsg) {
 	switch msg.Kind {
@@ -83,10 +77,6 @@ func (o *Overlays) Apply(msg controller.OverlayMsg) {
 		o.beginPermissionAsk(msg)
 	case controller.OverlayPermissionDismiss:
 		o.dismissPermission()
-	case controller.OverlayContinueAsk:
-		o.beginContinueAsk(msg)
-	case controller.OverlayContinueDismiss:
-		o.dismissContinue()
 	case controller.OverlayExtConfirm:
 		o.beginExtConfirm(msg)
 	case controller.OverlayExtConfirmDismiss:
@@ -103,28 +93,15 @@ func (o *Overlays) HandlePermissionKey(ctx *components.EventContext, e xui.KeyEv
 	return o.perm != nil && o.handlePermissionKey(ctx, e)
 }
 
-// HandleContinueKey handles keyboard input while continue ask is active.
-func (o *Overlays) HandleContinueKey(ctx *components.EventContext, e xui.KeyEvent) bool {
-	return o.cont != nil && o.handleContinueKey(ctx, e)
-}
-
 // ResolvePermission sends a permission reply and clears the overlay.
 func (o *Overlays) ResolvePermission(r controller.AskReply) {
 	o.resolvePermission(r)
-}
-
-// ResolveContinue sends a continue reply and clears the overlay.
-func (o *Overlays) ResolveContinue(r controller.ContinueReply) {
-	o.resolveContinue(r)
 }
 
 // PreferredBottomHeight estimates rows for the bottom overlay or composer slot.
 func (o *Overlays) PreferredBottomHeight(width int, method xui.WidthMethod) (height int, overlay bool) {
 	if o.perm != nil {
 		return o.perm.preferredAskHeight(width, method), true
-	}
-	if o.cont != nil {
-		return o.cont.preferredAskHeight(), true
 	}
 	if o.confirm != nil {
 		return o.confirm.preferredAskHeight(), true
@@ -140,9 +117,6 @@ func (o *Overlays) DrawBottom(ctx components.DrawContext, width, height int) (co
 	if o.perm != nil {
 		return o.drawPermissionAsk(ctx, width, height), true
 	}
-	if o.cont != nil {
-		return o.drawContinueAsk(ctx, width, height), true
-	}
 	if o.confirm != nil {
 		return o.drawExtConfirm(ctx, width, height), true
 	}
@@ -155,9 +129,6 @@ func (o *Overlays) DrawBottom(ctx components.DrawContext, width, height int) (co
 func (o *Overlays) beginPermissionAsk(msg controller.OverlayMsg) {
 	if o.perm != nil {
 		o.resolvePermission(controller.AskReply{})
-	}
-	if o.cont != nil {
-		o.resolveContinue(controller.ContinueReply{})
 	}
 	if o.confirm != nil {
 		o.resolveExtConfirm(controller.ExtConfirmReply{})
@@ -196,64 +167,6 @@ func (o *Overlays) resolvePermission(r controller.AskReply) {
 		return
 	}
 	o.perm = nil
-	if o.activity != nil && o.activity.Current == controller.ActivityAwaitingApproval {
-		o.activity.Apply(controller.ActivityTools)
-	}
-	if o.focusChat != nil {
-		o.focusChat()
-	}
-	if st.reply != nil {
-		select {
-		case st.reply <- r:
-		default:
-		}
-	}
-}
-
-func (o *Overlays) beginContinueAsk(msg controller.OverlayMsg) {
-	if o.cont != nil {
-		o.resolveContinue(controller.ContinueReply{})
-	}
-	if o.perm != nil {
-		o.resolvePermission(controller.AskReply{})
-	}
-	if o.confirm != nil {
-		o.resolveExtConfirm(controller.ExtConfirmReply{})
-	}
-	if o.err != nil {
-		o.resolveError(controller.ErrorReply{})
-	}
-	if o.composer != nil {
-		o.composer.HideCompleters()
-		o.composer.HidePalette()
-	}
-	o.cont = newContinueAskState(msg.MaxRounds, msg.ContReply)
-	o.activity.Apply(controller.ActivityAwaitingApproval)
-	if o.focusEditor != nil {
-		o.focusEditor()
-	}
-}
-
-func (o *Overlays) dismissContinue() {
-	wasAsk := o.cont != nil
-	o.cont = nil
-	if !wasAsk {
-		return
-	}
-	if o.activity != nil && o.activity.Current == controller.ActivityAwaitingApproval {
-		o.activity.Apply(controller.ActivityTools)
-	}
-	if o.focusChat != nil {
-		o.focusChat()
-	}
-}
-
-func (o *Overlays) resolveContinue(r controller.ContinueReply) {
-	st := o.cont
-	if st == nil {
-		return
-	}
-	o.cont = nil
 	if o.activity != nil && o.activity.Current == controller.ActivityAwaitingApproval {
 		o.activity.Apply(controller.ActivityTools)
 	}
@@ -393,64 +306,6 @@ func (o *Overlays) handlePermissionFeedbackKey(ctx *components.EventContext, e x
 	return true
 }
 
-func (o *Overlays) handleContinueKey(ctx *components.EventContext, e xui.KeyEvent) bool {
-	st := o.cont
-	if st == nil || !e.Press {
-		return false
-	}
-
-	switch e.Code {
-	case xui.KeyEscape:
-		o.resolveContinue(controller.ContinueReply{})
-		ctx.ConsumeAndRedraw()
-		return true
-	case xui.KeyUp, xui.KeyLeft:
-		if st.selected > 0 {
-			st.selected--
-		} else {
-			st.selected = len(continueOptionLabels) - 1
-		}
-		ctx.ConsumeAndRedraw()
-		return true
-	case xui.KeyDown, xui.KeyRight, xui.KeyTab:
-		st.selected = (st.selected + 1) % len(continueOptionLabels)
-		ctx.ConsumeAndRedraw()
-		return true
-	case xui.KeyEnter:
-		o.acceptContinueOption(st.selected)
-		ctx.ConsumeAndRedraw()
-		return true
-	case xui.KeyRune:
-		if e.Mods.Has(xui.ModCtrl) || e.Mods.Has(xui.ModAlt) {
-			ctx.ConsumeAndRedraw()
-			return true
-		}
-		switch e.Rune {
-		case 'k', 'K', 'h', 'H':
-			if st.selected > 0 {
-				st.selected--
-			}
-			ctx.ConsumeAndRedraw()
-			return true
-		case 'j', 'J', 'l', 'L':
-			st.selected = (st.selected + 1) % len(continueOptionLabels)
-			ctx.ConsumeAndRedraw()
-			return true
-		}
-	}
-	ctx.ConsumeAndRedraw()
-	return true
-}
-
-func (o *Overlays) acceptContinueOption(idx int) {
-	switch idx {
-	case 0:
-		o.resolveContinue(controller.ContinueReply{Continue: true})
-	default:
-		o.resolveContinue(controller.ContinueReply{})
-	}
-}
-
 func (o *Overlays) drawPermissionAsk(ctx components.DrawContext, width, height int) components.Surface {
 	st := o.perm
 	if st == nil {
@@ -491,44 +346,6 @@ func (o *Overlays) drawPermissionAsk(ctx components.DrawContext, width, height i
 	return paintAskPanel(body, width, height, chrome.ModalBorder(th), ctx.Method)
 }
 
-func (o *Overlays) drawContinueAsk(ctx components.DrawContext, width, height int) components.Surface {
-	st := o.cont
-	if st == nil {
-		return components.NewSurface(width, height, nil)
-	}
-	th := o.theme
-	if width <= 0 {
-		width = 80
-	}
-	if height <= 0 {
-		height = st.preferredAskHeight()
-	}
-	innerW := width - 4
-	if innerW < 10 {
-		innerW = width
-	}
-
-	primary := chrome.DecisionPrimary(th)
-
-	var body []components.RichLine
-	body = append(body, components.WrapSpans([]components.Span{
-		{
-			Text:  fmt.Sprintf("Reached max tool rounds (%d). Continue for another %d?", st.maxRounds, st.maxRounds),
-			Style: th.Foreground,
-		},
-	}, innerW, ctx.Method)...)
-	body = append(body, components.RichLine{})
-
-	for i, label := range continueOptionLabels {
-		body = append(body, chrome.OptionLine(th, primary, label, i == st.selected, innerW, ctx.Method)...)
-	}
-	body = append(body, components.WrapSpans([]components.Span{
-		{Text: chrome.AskHint("↑↓ move", "select", "stop"), Style: th.Muted},
-	}, innerW, ctx.Method)...)
-
-	return paintAskPanel(body, width, height, chrome.ModalBorder(th), ctx.Method)
-}
-
 type askOption int
 
 const (
@@ -545,11 +362,6 @@ var askOptionLabels = []string{
 	"Deny with feedback",
 }
 
-var continueOptionLabels = []string{
-	"Continue",
-	"Stop",
-}
-
 type permAskState struct {
 	req    permission.Request
 	reason string
@@ -561,12 +373,6 @@ type permAskState struct {
 	feedbackMode bool
 	feedback     string
 	feedbackCur  int
-}
-
-type continueAskState struct {
-	maxRounds int
-	reply     chan controller.ContinueReply
-	selected  int
 }
 
 func formatAskHeader(req permission.Request) (header, detail string) {
@@ -606,14 +412,6 @@ func newPermAskState(req permission.Request, reason string, reply chan controlle
 	}
 }
 
-func newContinueAskState(maxRounds int, reply chan controller.ContinueReply) *continueAskState {
-	return &continueAskState{
-		maxRounds: maxRounds,
-		reply:     reply,
-		selected:  0,
-	}
-}
-
 func (st *permAskState) preferredAskHeight(width int, method xui.WidthMethod) int {
 	if st == nil {
 		return 8
@@ -641,12 +439,6 @@ func (st *permAskState) preferredAskHeight(width int, method xui.WidthMethod) in
 	}
 	_ = method
 	_ = innerW
-	return h
-}
-
-func (*continueAskState) preferredAskHeight() int {
-	h := 2 + 1 + 1 + len(continueOptionLabels) + 1 + 1
-	h = max(h, 8)
 	return h
 }
 
