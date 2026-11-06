@@ -27,8 +27,10 @@ type errorAskState struct {
 	selected int
 }
 
+// errorInnerWidth wraps to the same column the ask panels use, so the error
+// dialog and the decision dialogs break lines in the same place.
 func errorInnerWidth(width int) int {
-	return max(width-3, 0)
+	return askInnerWidth(width)
 }
 
 func (st *errorAskState) wrappedLines(

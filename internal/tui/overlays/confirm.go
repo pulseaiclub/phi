@@ -40,25 +40,25 @@ func newConfirmAskState(msg controller.OverlayMsg) *confirmAskState {
 	}
 }
 
-// bodyLines is the one description of the panel: drawing and height estimation
+// segments is the one description of the panel: drawing and height estimation
 // both read it, so a wrapped prompt is never measured as a single row.
-func (s *confirmAskState) bodyLines(th components.Theme, innerW int, method xui.WidthMethod) []components.RichLine {
-	var body []components.RichLine
-	add := func(spans ...components.Span) {
-		body = append(body, components.WrapSpans(spans, innerW, method)...)
-	}
-
+func (s *confirmAskState) segments(
+	th components.Theme,
+	innerW int,
+	method xui.WidthMethod,
+) (head, detail, choices []components.RichLine) {
 	title := s.title
 	if title == "" {
 		title = "Confirm"
 	}
-	add(components.Span{Text: title, Style: chrome.PanelTitle(th)})
+	head = components.WrapSpans([]components.Span{{Text: title, Style: chrome.PanelTitle(th)}}, innerW, method)
 	if s.message != "" {
 		for line := range strings.SplitSeq(s.message, "\n") {
-			add(components.Span{Text: line, Style: th.Muted})
+			detail = append(
+				detail,
+				components.WrapSpans([]components.Span{{Text: line, Style: th.Muted}}, innerW, method)...)
 		}
 	}
-	body = append(body, components.RichLine{})
 
 	primary := chrome.DecisionPrimary(th)
 	if s.danger {
@@ -67,20 +67,20 @@ func (s *confirmAskState) bodyLines(th components.Theme, innerW int, method xui.
 		primary = th.Destructive
 	}
 	for i, label := range []string{s.yes, s.no} {
-		body = append(body, chrome.OptionLine(th, primary, label, i == s.selected, innerW, method)...)
+		choices = append(choices, chrome.OptionLine(th, primary, label, i == s.selected, innerW, method)...)
 	}
-	body = append(body, components.WrapSpans([]components.Span{
+	choices = append(choices, components.WrapSpans([]components.Span{
 		{Text: chrome.ConfirmHint(), Style: th.Muted},
 	}, innerW, method)...)
-	return body
+	return head, detail, choices
 }
 
 func (s *confirmAskState) preferredAskHeight(width int, method xui.WidthMethod) int {
 	if s == nil {
 		return 8
 	}
-	innerW := max(width-4, 20)
-	h := len(s.bodyLines(components.DefaultTheme(), innerW, method)) + 2
+	head, detail, choices := s.segments(components.DefaultTheme(), askInnerWidth(width), method)
+	h := askNaturalHeight(head, detail, choices)
 	if h > 16 {
 		return 16
 	}
@@ -213,10 +213,7 @@ func (o *Overlays) drawExtConfirm(ctx components.DrawContext, width, height int)
 	if width <= 0 {
 		width = 80
 	}
-	innerW := width - 4
-	if innerW < 10 {
-		innerW = width
-	}
+	innerW := askInnerWidth(width)
 	if height <= 0 {
 		height = st.preferredAskHeight(width, ctx.Method)
 	}
@@ -225,5 +222,6 @@ func (o *Overlays) drawExtConfirm(ctx components.DrawContext, width, height int)
 	if st.danger {
 		border = th.Destructive
 	}
-	return paintAskPanel(st.bodyLines(th, innerW, ctx.Method), width, height, border, ctx.Method)
+	head, detail, choices := st.segments(th, innerW, ctx.Method)
+	return paintAskPanel(composeAsk(height, head, detail, choices), width, height, border, ctx.Method)
 }

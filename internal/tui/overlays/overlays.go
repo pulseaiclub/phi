@@ -460,39 +460,90 @@ func (o *Overlays) drawPermissionAsk(ctx components.DrawContext, width, height i
 	if width <= 0 {
 		width = 80
 	}
-	innerW := width - 4
-	if innerW < 10 {
-		innerW = width
-	}
+	innerW := askInnerWidth(width)
 	if height <= 0 {
 		height = st.preferredAskHeight(width, ctx.Method)
 	}
-	return paintAskPanel(st.bodyLines(th, innerW, ctx.Method), width, height, chrome.ModalBorder(th), ctx.Method)
+	head, detail, choices := st.segments(th, innerW, ctx.Method)
+	return paintAskPanel(composeAsk(height, head, detail, choices), width, height, chrome.ModalBorder(th), ctx.Method)
 }
 
-// bodyLines is the one description of the panel: drawing and height estimation
+// askInnerWidth is the wrap column inside an ask panel: paintAskPanel starts
+// body text at column 2 and the right border owns the last cell. Measurement
+// and drawing must both use it, or a narrow terminal wraps more rows than the
+// panel reserved and the last rows fall outside the border.
+func askInnerWidth(width int) int {
+	return max(width-4, 1)
+}
+
+// composeAsk fits a decision panel into height rows (borders excluded). The
+// question and the choices always render; the detail between them is trimmed
+// first, because a short terminal that hides "Deny" is worse than one that
+// hides the command preview.
+func composeAsk(height int, head, detail, choices []components.RichLine) []components.RichLine {
+	avail := max(height-2, 1)
+	room := avail - len(head) - len(choices) - 1 // blank separator before the choices
+	detail = trimAskDetail(detail, max(room, 0))
+
+	out := make([]components.RichLine, 0, avail)
+	out = append(out, head...)
+	if len(detail) > 0 {
+		out = append(out, detail...)
+		out = append(out, components.RichLine{})
+	}
+	out = append(out, choices...)
+	if len(out) > avail {
+		out = out[:avail]
+	}
+	return out
+}
+
+// askNaturalHeight is what composeAsk produces when nothing needs trimming, plus
+// the two border rows. Measuring through composeAsk itself means the panel can
+// never reserve fewer rows than it paints.
+func askNaturalHeight(head, detail, choices []components.RichLine) int {
+	const noLimit = 1 << 20
+	return len(composeAsk(noLimit, head, detail, choices)) + 2
+}
+
+// trimAskDetail cuts detail to room rows, marking the cut with an ellipsis row.
+func trimAskDetail(detail []components.RichLine, room int) []components.RichLine {
+	if len(detail) <= room {
+		return detail
+	}
+	if room <= 0 {
+		return nil
+	}
+	out := append([]components.RichLine(nil), detail[:room]...)
+	out[room-1] = components.RichLine{{Text: "…"}}
+	return out
+}
+
+// segments is the one description of the panel: drawing and height estimation
 // both read it, so a wrapped option is never measured as a single row and then
 // clipped off the bottom.
-func (st *permAskState) bodyLines(th components.Theme, innerW int, method xui.WidthMethod) []components.RichLine {
-	var body []components.RichLine
-	add := func(spans ...components.Span) {
-		body = append(body, components.WrapSpans(spans, innerW, method)...)
+func (st *permAskState) segments(
+	th components.Theme,
+	innerW int,
+	method xui.WidthMethod,
+) (head, detail, choices []components.RichLine) {
+	wrap := func(spans ...components.Span) []components.RichLine {
+		return components.WrapSpans(spans, innerW, method)
 	}
 
-	add(components.Span{Text: st.header, Style: chrome.PanelTitle(th)})
-	body = append(body, st.detailLines(th, innerW, method)...)
+	head = wrap(components.Span{Text: st.header, Style: chrome.PanelTitle(th)})
+	detail = st.detailLines(th, innerW, method)
 	if st.reason != "" {
-		add(components.Span{Text: "(" + st.reason + ")", Style: th.Muted})
+		detail = append(detail, wrap(components.Span{Text: "(" + st.reason + ")", Style: th.Muted})...)
 	}
-	body = append(body, components.RichLine{})
 
 	primary := chrome.DecisionPrimary(th)
 	if st.feedbackMode {
-		body = append(body, st.feedbackLines(th, primary, innerW, method)...)
+		choices = st.feedbackLines(th, primary, innerW, method)
 	} else {
-		body = append(body, st.optionLines(th, primary, innerW, method)...)
+		choices = st.optionLines(th, primary, innerW, method)
 	}
-	return body
+	return head, detail, choices
 }
 
 func (o *Overlays) drawContinueAsk(ctx components.DrawContext, width, height int) components.Surface {
@@ -504,34 +555,35 @@ func (o *Overlays) drawContinueAsk(ctx components.DrawContext, width, height int
 	if width <= 0 {
 		width = 80
 	}
-	innerW := width - 4
-	if innerW < 10 {
-		innerW = width
-	}
+	innerW := askInnerWidth(width)
 	if height <= 0 {
 		height = st.preferredAskHeight(width, ctx.Method)
 	}
-	return paintAskPanel(st.bodyLines(th, innerW, ctx.Method), width, height, chrome.ModalBorder(th), ctx.Method)
+	head, choices := st.segments(th, innerW, ctx.Method)
+	return paintAskPanel(composeAsk(height, head, nil, choices), width, height, chrome.ModalBorder(th), ctx.Method)
 }
 
-func (st *continueAskState) bodyLines(th components.Theme, innerW int, method xui.WidthMethod) []components.RichLine {
-	var body []components.RichLine
-	body = append(body, components.WrapSpans([]components.Span{
+// segments returns the question and the choices; this panel has no detail block.
+func (st *continueAskState) segments(
+	th components.Theme,
+	innerW int,
+	method xui.WidthMethod,
+) (head, choices []components.RichLine) {
+	head = components.WrapSpans([]components.Span{
 		{
 			Text:  fmt.Sprintf("Phi hit its %d-step limit for this turn. Continue?", st.maxRounds),
 			Style: chrome.PanelTitle(th),
 		},
-	}, innerW, method)...)
-	body = append(body, components.RichLine{})
+	}, innerW, method)
 
 	primary := chrome.DecisionPrimary(th)
 	for i, label := range continueOptionLabels {
-		body = append(body, chrome.OptionLine(th, primary, label, i == st.selected, innerW, method)...)
+		choices = append(choices, chrome.OptionLine(th, primary, label, i == st.selected, innerW, method)...)
 	}
-	body = append(body, components.WrapSpans([]components.Span{
+	choices = append(choices, components.WrapSpans([]components.Span{
 		{Text: chrome.AskHint("↑↓ move", "select", "stop"), Style: th.Muted},
 	}, innerW, method)...)
-	return body
+	return head, choices
 }
 
 type askOption int
@@ -627,18 +679,18 @@ func (st *permAskState) preferredAskHeight(width int, method xui.WidthMethod) in
 	if st == nil {
 		return 8
 	}
-	innerW := max(width-4, 20)
 	// Wrapping depends on width and method only — never on colors — so the
 	// default theme measures the same rows the panel will paint.
-	return max(len(st.bodyLines(components.DefaultTheme(), innerW, method))+2, 8)
+	head, detail, choices := st.segments(components.DefaultTheme(), askInnerWidth(width), method)
+	return max(askNaturalHeight(head, detail, choices), 8)
 }
 
 func (st *continueAskState) preferredAskHeight(width int, method xui.WidthMethod) int {
 	if st == nil {
 		return 8
 	}
-	innerW := max(width-4, 20)
-	return max(len(st.bodyLines(components.DefaultTheme(), innerW, method))+2, 8)
+	head, choices := st.segments(components.DefaultTheme(), askInnerWidth(width), method)
+	return max(askNaturalHeight(head, nil, choices), 8)
 }
 
 func (st *permAskState) detailLines(th components.Theme, innerW int, method xui.WidthMethod) []components.RichLine {
