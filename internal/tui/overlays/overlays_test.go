@@ -33,6 +33,23 @@ func TestConfirmRestoresPreviousActivity(t *testing.T) {
 	}
 }
 
+func TestConfirmPreservesUpdatedActivity(t *testing.T) {
+	for _, action := range []string{"reply", "dismiss"} {
+		t.Run(action, func(t *testing.T) {
+			activity := controller.NewActivityHandler()
+			o := testOverlays(activity)
+			o.beginExtConfirm(controller.OverlayMsg{Kind: controller.OverlayExtConfirm})
+			activity.Apply(controller.ActivityCancelled)
+			if action == "reply" {
+				o.resolveExtConfirm(controller.ExtConfirmReply{OK: true})
+			} else {
+				o.dismissExtConfirm()
+			}
+			require.Equal(t, controller.ActivityCancelled, activity.Current)
+		})
+	}
+}
+
 func TestResolvePermissionSendsReply(t *testing.T) {
 	activity := controller.NewActivityHandler()
 	o := testOverlays(activity)

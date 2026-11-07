@@ -29,8 +29,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the parent engine's built-in tool list.
 - Extension confirmation dialogs restore the prior activity, so idle slash
   commands remain idle after confirmation.
-- Windows shell cancellation bounds the time spent in `taskkill`, allowing
-  fallback cleanup to proceed if process-tree termination stalls.
 
 ### Security
 
