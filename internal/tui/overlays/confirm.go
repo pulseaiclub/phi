@@ -128,6 +128,17 @@ func (o *Overlays) ResolveConfirm(r controller.ExtConfirmReply) {
 	o.resolveExtConfirm(r)
 }
 
+// ClearActivityIf also expires activity hidden by a confirmation so closing
+// the dialog cannot restore an expired status.
+func (o *Overlays) ClearActivityIf(a controller.Activity) {
+	if o.confirm != nil && o.confirm.previous == a {
+		o.confirm.previous = controller.ActivityIdle
+	}
+	if o.activity.Current == a {
+		o.activity.Apply(controller.ActivityIdle)
+	}
+}
+
 func (o *Overlays) handleConfirmKey(ctx *components.EventContext, e xui.KeyEvent) bool {
 	st := o.confirm
 	if st == nil || !e.Press {

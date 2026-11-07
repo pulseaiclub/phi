@@ -345,9 +345,7 @@ func (e *Editor) setExtensionStatus(status string) {
 func (e *Editor) applyFooterMessage(msg controller.FooterMsg) {
 	switch msg.Kind {
 	case controller.FooterClearIfActivity:
-		if e.activity.Current == msg.If {
-			e.activity.Apply(controller.ActivityIdle)
-		}
+		e.overlays.ClearActivityIf(msg.If)
 	case controller.FooterSetActivity:
 		e.activity.Apply(msg.Activity)
 	case controller.FooterUpdateAvailable:
