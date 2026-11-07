@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -19,12 +20,28 @@ import (
 func runTUI() error {
 	proj := project.GetDefaultProject()
 	if err := proj.LoadConfig(); err != nil {
-		fmt.Fprintln(os.Stderr, "phi:", err)
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "Configure a model first, then restart:")
-		fmt.Fprintln(os.Stderr, "  phi config")
-		fmt.Fprintln(os.Stderr, "or set PHI_MODEL and PHI_API_KEY.")
-		return exitCode(ExitUsage)
+		if !project.SetupNeeded(err) {
+			// A broken config is a real error; the dialog must not touch it.
+			fmt.Fprintln(os.Stderr, "phi:", err)
+			fmt.Fprintln(os.Stderr, "Run phi config to inspect and fix it.")
+			return exitCode(ExitUsage)
+		}
+		// Fresh install: collect the two values phi cannot derive itself.
+		switch err := runOnboarding(proj); {
+		case errors.Is(err, errOnboardAbort):
+			fmt.Fprintln(os.Stderr, "Setup cancelled. Configure a model first, then restart:")
+			fmt.Fprintln(os.Stderr, "  phi config")
+			fmt.Fprintln(os.Stderr, "or set PHI_MODEL and PHI_API_KEY.")
+			return exitCode(ExitUsage)
+		case err != nil:
+			fmt.Fprintln(os.Stderr, "phi:", err)
+			return exitCode(ExitError)
+		}
+		if err := proj.LoadConfig(); err != nil {
+			// The dialog validates what it saves; this only fires on surprises.
+			fmt.Fprintln(os.Stderr, "phi:", err)
+			return exitCode(ExitUsage)
+		}
 	}
 
 	// Download fd/rg in the background so a cold install does not block the

@@ -97,13 +97,13 @@ func (d *Dialog) drawPanel(width int, method xui.WidthMethod) components.Surface
 		}
 		components.PaintSpans(&panel, 2, i+1, line, method)
 	}
-	d.drawFields(&panel, fieldsTop+1, bodyW, method)
+	d.drawFields(&panel, fieldsTop+1, method)
 	panel.Cursor = &components.Point{X: d.caretX, Y: d.caretY}
 	return panel
 }
 
 // drawFields paints the two input rows and the caret of the focused one.
-func (d *Dialog) drawFields(panel *components.Surface, top, bodyW int, method xui.WidthMethod) {
+func (d *Dialog) drawFields(panel *components.Surface, top int, method xui.WidthMethod) {
 	th := d.theme
 	bg := th.SelectionBg.Bg
 	valueX := 2 + labelWidth + 2

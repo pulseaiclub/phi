@@ -118,10 +118,18 @@ func loadConfig(global GlobalLayout, cwd string) (*Config, error) {
 	}
 	def := cfg.defaultEntry()
 	if def.Name == "" {
-		return nil, fmt.Errorf("%w: missing model name (set PHI_MODEL or models[].name in %s)", ErrSetupNeeded, global.ConfigFile())
+		return nil, fmt.Errorf(
+			"%w: missing model name (set PHI_MODEL or models[].name in %s)",
+			ErrSetupNeeded,
+			global.ConfigFile(),
+		)
 	}
 	if def.APIKey == "" {
-		return nil, fmt.Errorf("%w: missing api_key (set PHI_API_KEY or models[].api_key in %s)", ErrSetupNeeded, global.ConfigFile())
+		return nil, fmt.Errorf(
+			"%w: missing api_key (set PHI_API_KEY or models[].api_key in %s)",
+			ErrSetupNeeded,
+			global.ConfigFile(),
+		)
 	}
 	// A "~" in skill_path is expanded before anything stats the path: both the
 	// docs and the settings screen hand out ~-prefixed paths, and a literal

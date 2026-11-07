@@ -1,7 +1,6 @@
 package onboard
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,8 +11,9 @@ import (
 	"github.com/pulseaiclub/phi/internal/components"
 )
 
-func newDialog(name, key string) *Dialog {
-	return New(components.DarkTheme(), name, key)
+// newDialog starts with both fields empty; tests type into them.
+func newDialog() *Dialog {
+	return New(components.DarkTheme(), "", "")
 }
 
 func press(d *Dialog, code xui.KeyCode, r rune) *components.EventContext {
@@ -37,7 +37,7 @@ func fillBoth(t *testing.T, d *Dialog, name, key string) {
 }
 
 func TestSubmitSavesBothValues(t *testing.T) {
-	d := newDialog("", "")
+	d := newDialog()
 	fillBoth(t, d, "  deepseek-flash  ", "sk-test-123")
 
 	ctx := press(d, xui.KeyEnter, 0)
@@ -49,7 +49,7 @@ func TestSubmitSavesBothValues(t *testing.T) {
 }
 
 func TestSubmitWithEmptyFieldsPointsAtTheField(t *testing.T) {
-	d := newDialog("", "")
+	d := newDialog()
 
 	ctx := press(d, xui.KeyEnter, 0)
 	assert.False(t, d.Submitted())
@@ -71,7 +71,7 @@ func TestSubmitWithEmptyFieldsPointsAtTheField(t *testing.T) {
 }
 
 func TestEscapeAborts(t *testing.T) {
-	d := newDialog("", "")
+	d := newDialog()
 	fillBoth(t, d, "deepseek-flash", "sk-test")
 
 	ctx := press(d, xui.KeyEscape, 0)
@@ -81,8 +81,9 @@ func TestEscapeAborts(t *testing.T) {
 }
 
 func TestPrefillAndTabRoundTrip(t *testing.T) {
-	d := newDialog("gemini-3-pro", "")
+	d := New(components.DarkTheme(), "gemini-3-pro", "sk-prefill")
 	assert.Equal(t, "gemini-3-pro", d.name.Text())
+	assert.Equal(t, "sk-prefill", d.key.Text())
 
 	// Tab from the name lands on the key field and wraps back around.
 	assert.Equal(t, fieldName, d.focus)
@@ -93,7 +94,7 @@ func TestPrefillAndTabRoundTrip(t *testing.T) {
 }
 
 func TestPasteGoesToFocusedField(t *testing.T) {
-	d := newDialog("", "")
+	d := newDialog()
 	typeText(t, d, "deep")
 	ctx := &components.EventContext{}
 	d.Handle(ctx, xui.PasteEvent{Text: "-flash"})
@@ -105,7 +106,7 @@ func TestPasteGoesToFocusedField(t *testing.T) {
 }
 
 func TestDrawMasksTheKeyAndShowsTheCaret(t *testing.T) {
-	d := newDialog("", "")
+	d := newDialog()
 	fillBoth(t, d, "deepseek-flash", "sk-secret-value")
 
 	ctx := components.DrawContext{Max: components.Size{Width: 100, Height: 30}, Method: xui.WidthUnicode}
@@ -130,23 +131,23 @@ func TestDrawMasksTheKeyAndShowsTheCaret(t *testing.T) {
 func TestDrawHintsWhatTheNameDerives(t *testing.T) {
 	ctx := components.DrawContext{Max: components.Size{Width: 100, Height: 30}, Method: xui.WidthUnicode}
 
-	d := newDialog("", "")
+	d := newDialog()
 	typeText(t, d, "deepseek-flash")
 	assert.Contains(t, components.SurfaceText(d.Draw(ctx)), "https://api.deepseek.com")
 
-	d = newDialog("", "")
+	d = newDialog()
 	typeText(t, d, "totally-unknown")
 	text := components.SurfaceText(d.Draw(ctx))
 	assert.Contains(t, text, "unknown name")
 	assert.Contains(t, text, "api.openai.com")
 
-	d = newDialog("", "")
+	d = newDialog()
 	typeText(t, d, "vendor/glm-5.3-flash:free")
 	assert.Contains(t, components.SurfaceText(d.Draw(ctx)), "base_url with phi config")
 }
 
 func TestCtrlEditingKeys(t *testing.T) {
-	d := newDialog("", "")
+	d := newDialog()
 	typeText(t, d, "deepseek-flash-delete-me")
 	ctrl := func(r rune) {
 		d.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyRune, Rune: r, Mods: xui.ModCtrl, Press: true})
@@ -161,7 +162,7 @@ func TestCtrlEditingKeys(t *testing.T) {
 }
 
 func TestUnknownKeysAreSwallowed(t *testing.T) {
-	d := newDialog("", "")
+	d := newDialog()
 	for _, code := range []xui.KeyCode{xui.KeyF1, xui.KeyPageUp, xui.KeyPageDown} {
 		ctx := press(d, code, 0)
 		assert.True(t, ctx.Consume, "code %v must not leak to a parent", code)
@@ -169,5 +170,5 @@ func TestUnknownKeysAreSwallowed(t *testing.T) {
 	}
 	assert.False(t, d.Submitted())
 	assert.False(t, d.Aborted())
-	assert.True(t, strings.Contains(maskInput("abc"), "•••"))
+	assert.Contains(t, maskInput("abc"), "•••")
 }

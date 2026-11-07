@@ -14,6 +14,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- First launch with no config opens a two-field setup dialog (model name + API key) instead of exiting; a preset name fills in the rest, and Esc keeps the `phi config` / environment-variable advice.
+
 ### Fixed
 
 ### Security
