@@ -134,6 +134,38 @@ func SetDefaultModel(global GlobalLayout, name string) error {
 	return doc.Save(path)
 }
 
+// UpsertDefaultModel writes a minimal models[] entry (name + api_key) and
+// marks it the default, creating the file if needed. First-run onboarding
+// uses it so a fresh install reaches a working config from two values; the
+// preset machinery fills in base_url, api and the capability fields on load.
+// Like SetDefaultModel it reads the document from disk so environment
+// overrides never get persisted.
+func UpsertDefaultModel(global GlobalLayout, name, apiKey string) error {
+	path := global.ConfigFile()
+	doc, err := ReadConfigDoc(path)
+	if err != nil {
+		return err
+	}
+	index := -1
+	for i, m := range doc.Models {
+		if m.Name == name {
+			index = i
+		}
+	}
+	if index < 0 {
+		doc.Models = append(doc.Models, ModelDoc{Name: name})
+		index = len(doc.Models) - 1
+	}
+	doc.Models[index].APIKey = apiKey
+	for i := range doc.Models {
+		doc.Models[i].Default = i == index
+	}
+	if err := doc.Validate(); err != nil {
+		return fmt.Errorf("cannot save model %q: %w", name, err)
+	}
+	return doc.Save(path)
+}
+
 // Validate reports whether doc is safe to write. It does not mutate doc: a
 // document with no explicit default is valid, since the loader falls back to
 // the first model.

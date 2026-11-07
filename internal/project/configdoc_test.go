@@ -42,6 +42,61 @@ func TestSetDefaultModel(t *testing.T) {
 	assert.Equal(t, "environment-model", envConfig.Model().Name, "environment overrides still take precedence")
 }
 
+func TestUpsertDefaultModel(t *testing.T) {
+	t.Run("creates the file from two values", func(t *testing.T) {
+		global := GlobalLayout{root: t.TempDir()}
+		require.NoError(t, UpsertDefaultModel(global, "deepseek-flash", "sk-test"))
+
+		saved, err := ReadConfigDoc(global.ConfigFile())
+		require.NoError(t, err)
+		require.Len(t, saved.Models, 1)
+		assert.Equal(t, "deepseek-flash", saved.Models[0].Name)
+		assert.Equal(t, "sk-test", saved.Models[0].APIKey)
+		assert.True(t, saved.Models[0].Default)
+
+		// The two values the dialog collects must load into a usable config.
+		loaded, err := parseConfigFile(global.ConfigFile())
+		require.NoError(t, err)
+		m := loaded.Model()
+		assert.Equal(t, "deepseek-flash", m.Name)
+		assert.Equal(t, "sk-test", m.APIKey)
+		assert.Equal(t, "https://api.deepseek.com", m.BaseURL, "preset fills the connection in")
+	})
+
+	t.Run("upserts by name and moves the default flag", func(t *testing.T) {
+		global := GlobalLayout{root: t.TempDir()}
+		path := global.ConfigFile()
+		require.NoError(t, os.WriteFile(path, []byte(configDocFixture), 0o600))
+		t.Setenv("PHI_API_KEY", "environment-key-must-not-be-saved")
+		t.Setenv("PHI_MODEL", "environment-model")
+
+		require.NoError(t, UpsertDefaultModel(global, "model-b", "key-new"))
+		saved, err := ReadConfigDoc(path)
+		require.NoError(t, err)
+		require.Len(t, saved.Models, 2)
+		assert.False(t, saved.Models[0].Default)
+		assert.Equal(t, "key-new", saved.Models[1].APIKey)
+		assert.True(t, saved.Models[1].Default)
+
+		require.NoError(t, UpsertDefaultModel(global, "model-b", "key-again"))
+		saved, err = ReadConfigDoc(path)
+		require.NoError(t, err)
+		require.Len(t, saved.Models, 2, "same name must not grow the list")
+		assert.Equal(t, "key-again", saved.Models[1].APIKey)
+	})
+
+	t.Run("repairs a default entry that is missing its key", func(t *testing.T) {
+		global := GlobalLayout{root: t.TempDir()}
+		path := global.ConfigFile()
+		require.NoError(t, os.WriteFile(path, []byte("models:\n  - name: x\n"), 0o600))
+
+		require.NoError(t, UpsertDefaultModel(global, "x", "sk-test"))
+		loaded, err := parseConfigFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, "sk-test", loaded.Model().APIKey)
+	})
+}
+
 func TestSetDefaultModelFailurePreservesConfig(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
