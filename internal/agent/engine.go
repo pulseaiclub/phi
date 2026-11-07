@@ -80,11 +80,7 @@ func NewEngine(model llm.ModelConfig, sess *Session, opts ...EngineOption) (*Eng
 	}
 	engine.SetMaxRounds(maxRounds)
 	engine.baseTools = cfg.tools
-	engine.extensions.SetBaseTools(engine.buildCoreTools(engine.baseTools))
-	engine.extensions.SetMeta(engine.SessionID(), engine.SessionCwd())
-	toolList := engine.buildToolList(engine.baseTools)
-	engine.client = engine.newChatClient(toolList)
-	engine.bindExecutor(tooldef.NewRegistry(toolList))
+	engine.rebindTools()
 	return engine, nil
 }
 
@@ -174,10 +170,15 @@ func (engine *Engine) SetMaxRounds(n int) {
 }
 
 func (engine *Engine) rebindTools() {
-	engine.extensions.SetBaseTools(engine.buildCoreTools(engine.baseTools))
+	// Child engines share the runner, but the parent owns its host state.
+	if !engine.omitExtTools {
+		engine.extensions.SetBaseTools(engine.buildCoreTools(engine.baseTools))
+		engine.extensions.SetMeta(engine.SessionID(), engine.SessionCwd())
+	}
 	toolList := engine.buildToolList(engine.baseTools)
 	engine.client = engine.newChatClient(toolList)
-	engine.bindExecutor(tooldef.NewRegistry(toolList))
+	engine.executor = NewExecutor(tooldef.NewRegistry(toolList), engine.gate, engine.ask, engine.extensions)
+	engine.executor.cwd = engine.SessionCwd()
 }
 
 func (engine *Engine) systemPrompt() string {
@@ -198,11 +199,6 @@ func (engine *Engine) systemPrompt() string {
 		maxConcurrent,
 		mcpServers,
 	)
-}
-
-func (engine *Engine) bindExecutor(registry tooldef.Registry) {
-	engine.executor = NewExecutor(registry, engine.gate, engine.ask, engine.extensions)
-	engine.executor.SetMeta(engine.SessionID(), engine.SessionCwd())
 }
 
 // HasTool reports whether a tool is currently registered on the executor.

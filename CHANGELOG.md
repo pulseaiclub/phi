@@ -25,6 +25,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Child agents no longer overwrite shared extension host session metadata or
+  the parent engine's built-in tool list.
+
 ### Security
 
 <!-- Released section -->

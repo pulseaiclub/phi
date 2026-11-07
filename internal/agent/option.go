@@ -56,6 +56,7 @@ func WithExtensions(runner *extension.Runner) EngineOption {
 }
 
 // WithOmitExtensionTools keeps Runner events but skips RegisterTool merge (sub-agents).
+// The child also leaves the shared runner's host metadata and base tools with the parent.
 func WithOmitExtensionTools(omit bool) EngineOption {
 	return func(c *engineConfig) { c.omitExtTools = omit }
 }
