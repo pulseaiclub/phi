@@ -40,7 +40,6 @@ func TestNewBuiltinRegistry_RegistersDomains(t *testing.T) {
 		nil,
 		comp,
 		nil,
-		nil,
 		[]string{"m1"},
 		[]string{t.TempDir()},
 		func(args []string) { opened = append([]string(nil), args...) },

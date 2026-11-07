@@ -1,8 +1,6 @@
 package status
 
 import (
-	"time"
-
 	"github.com/pulseaiclub/xui"
 
 	"github.com/pulseaiclub/phi/internal/components"
@@ -14,10 +12,9 @@ import (
 // slot animates a highlight traveling through the activity text so
 // older terminals that lack block glyphs still render cleanly.
 type Spinner struct {
-	Frame    int
-	Style    xui.Style
-	frames   []string
-	Interval time.Duration
+	Frame  int
+	Style  xui.Style
+	frames []string
 }
 
 const flowTrail = 3
@@ -25,9 +22,8 @@ const flowTrail = 3
 // NewSpinner returns a spinner with a 1-cell braille glyph.
 func NewSpinner(style xui.Style) *Spinner {
 	return &Spinner{
-		Style:    style,
-		Interval: 80 * time.Millisecond,
-		frames:   []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
+		Style:  style,
+		frames: []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
 	}
 }
 

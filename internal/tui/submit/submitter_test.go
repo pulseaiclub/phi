@@ -56,8 +56,8 @@ func newTestSubmitter(
 		nil,
 		commands.NewContext(nil, nil),
 
-		nil, nil, nil, nil,
-		nil, nil, nil, nil,
+		nil, nil, nil,
+		nil, nil, nil,
 	)
 }
 
@@ -70,7 +70,7 @@ func TestSubmitter_IsBusy(t *testing.T) {
 	th := components.DefaultTheme()
 	spin := status.NewSpinner(th.ToolName)
 	tp := transcript.NewTranscriptPane(th, spin, "Phi test")
-	sub := newTestSubmitter(t, tp, nil, nil, nil)
+	sub := newTestSubmitter(t, tp, controller.NewActivityHandler(), nil, nil)
 	assert.False(t, sub.IsBusy())
 }
 
@@ -79,7 +79,7 @@ func TestSubmitter_IsBusy(t *testing.T) {
 func TestSubmitter_IsBusy_requestInFlight(t *testing.T) {
 	th := components.DefaultTheme()
 	spin := status.NewSpinner(th.ToolName)
-	activity := controller.NewActivityHandler(spin)
+	activity := controller.NewActivityHandler()
 	sub := newTestSubmitter(t, transcript.NewTranscriptPane(th, spin, "Phi test"), activity, nil, nil)
 
 	for _, a := range []controller.Activity{
@@ -99,7 +99,7 @@ func TestSubmitter_IsBusy_requestInFlight(t *testing.T) {
 func TestSubmitter_StreamActive_activity(t *testing.T) {
 	th := components.DefaultTheme()
 	spin := status.NewSpinner(th.ToolName)
-	activity := controller.NewActivityHandler(spin)
+	activity := controller.NewActivityHandler()
 	sub := newTestSubmitter(t, transcript.NewTranscriptPane(th, spin, "Phi test"), activity, nil, nil)
 	activity.Apply(controller.ActivityWaiting)
 	assert.True(t, sub.StreamActive())

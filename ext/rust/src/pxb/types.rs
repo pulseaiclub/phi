@@ -177,7 +177,6 @@ pub enum Event {
     TurnStart,
     TurnEnd,
     UserInput,
-    TurnStopping,
     SessionCompact,
     PaneAction,
     Unknown(u16),
@@ -201,7 +200,6 @@ impl Event {
             11 => Self::TurnStart,
             12 => Self::TurnEnd,
             13 => Self::UserInput,
-            14 => Self::TurnStopping,
             15 => Self::SessionCompact,
             16 => Self::PaneAction,
             other => Self::Unknown(other),
@@ -223,7 +221,6 @@ impl Event {
             Self::TurnStart => 11,
             Self::TurnEnd => 12,
             Self::UserInput => 13,
-            Self::TurnStopping => 14,
             Self::SessionCompact => 15,
             Self::PaneAction => 16,
             Self::Unknown(v) => v,
@@ -246,7 +243,6 @@ impl Event {
             Self::TurnStart => "turn_start",
             Self::TurnEnd => "turn_end",
             Self::UserInput => "user_input",
-            Self::TurnStopping => "turn_stopping",
             Self::SessionCompact => "session_compact",
             Self::PaneAction => "pane_action",
             Self::Unknown(_) => "",
@@ -270,7 +266,6 @@ impl Event {
             "turn_start" => Self::TurnStart,
             "turn_end" => Self::TurnEnd,
             "user_input" => Self::UserInput,
-            "turn_stopping" => Self::TurnStopping,
             "session_compact" => Self::SessionCompact,
             "pane_action" => Self::PaneAction,
             _ => Self::Unknown(0),
@@ -295,10 +290,15 @@ mod tests {
 
     #[test]
     fn event_name_and_code_roundtrip() {
+        // Code 14 is retired (was `turn_stopping`); never reuse it.
         for code in 1..=16 {
             let ev = Event::from_code(code);
             assert_eq!(ev.code(), code);
-            assert_eq!(Event::from_name(ev.name()), ev);
+            if code == 14 {
+                assert_eq!(ev, Event::Unknown(14));
+            } else {
+                assert_eq!(Event::from_name(ev.name()), ev);
+            }
         }
         assert_eq!(Event::from_code(0), Event::Unknown(0));
         assert_eq!(Event::from_name("nope"), Event::Unknown(0));

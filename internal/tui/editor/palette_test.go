@@ -48,7 +48,7 @@ func TestPaletteReopenReflectsThinkingSelectionAndModelSwitch(t *testing.T) {
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
 	bus := controller.NewBus(nil)
-	ctrl, err := controller.NewController(bus, proj, cwd)
+	ctrl, err := controller.NewController(bus, proj)
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 	e := NewEditor(
@@ -60,7 +60,6 @@ func TestPaletteReopenReflectsThinkingSelectionAndModelSwitch(t *testing.T) {
 		cwd,
 		"primary",
 		nil,
-		0,
 		[]string{"primary", "secondary"},
 	)
 
@@ -181,11 +180,11 @@ func TestModelPaletteSavesDefaultAndRestoresSession(t *testing.T) {
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
 	bus := controller.NewBus(nil)
-	ctrl, err := controller.NewController(bus, proj, cwd)
+	ctrl, err := controller.NewController(bus, proj)
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 	e := NewEditor(app.NewApp(nil), bus, ctrl, nil, components.DefaultTheme(), cwd,
-		"primary", nil, ctrl.ContextWindow(), []string{"primary", "secondary"})
+		"primary", nil, []string{"primary", "secondary"})
 	key := func(code xui.KeyCode, r rune, mods xui.Modifiers) {
 		t.Helper()
 		e.composer.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: code, Rune: r, Mods: mods})
@@ -254,7 +253,7 @@ func TestModelPaletteSavesDefaultAndRestoresSession(t *testing.T) {
 	assert.Equal(t, "secondary", ctrl.ModelName())
 
 	ctrl.Close()
-	restarted, err := controller.NewController(controller.NewBus(nil), proj, cwd)
+	restarted, err := controller.NewController(controller.NewBus(nil), proj)
 	require.NoError(t, err)
 	t.Cleanup(restarted.Close)
 	assert.Equal(t, "secondary", restarted.ModelName(), "saved default must survive restart")

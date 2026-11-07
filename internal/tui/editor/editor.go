@@ -13,6 +13,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/components/chat"
 	"github.com/pulseaiclub/phi/internal/components/listpicker"
+	"github.com/pulseaiclub/phi/internal/components/status"
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/session/shellhist"
@@ -58,6 +59,14 @@ type Editor struct {
 	code       *codepane.Pane
 	diffList   listpicker.State
 
+	// The TUI redraws at 60fps; the flowing status highlight moves every fourth
+	// frame, matching the ~80ms cadence status.Spinner used to declare.
+	spin       *status.Spinner
+	spinTick   int
+	activity   *controller.ActivityHandler
+	extStatus  string
+	updateHint string
+
 	ctrl *controller.EngineController
 
 	commands  *commands.CommandRegistry
@@ -65,6 +74,10 @@ type Editor struct {
 	extCmds   *commands.ExtCommands
 	submitter *submit.Submitter
 }
+
+// spinnerFrameDivisor throttles the 60fps app redraw to the status slot's
+// ~15Hz spinner cadence.
+const spinnerFrameDivisor = 4
 
 // NewEditor builds the TUI panes and wires injected collaborators.
 // application, bus, and ctrl must be non-nil.
@@ -76,7 +89,6 @@ func NewEditor(
 	theme components.Theme,
 	cwd, modelLabel string,
 	skillPaths []string,
-	contextWindow int,
 	modelNames []string,
 ) *Editor {
 	e := &Editor{
@@ -88,8 +100,11 @@ func NewEditor(
 		ctrl:     ctrl,
 		toast:    toast.Toast{Theme: theme},
 		composer: composer.NewComposerPane(theme, modelLabel, cwd),
-		footer:   footer.NewFooterChrome(theme, contextWindow),
+		footer:   footer.NewFooterChrome(theme),
+		spin:     status.NewSpinner(theme.ToolName),
+		activity: controller.NewActivityHandler(),
 	}
+	e.activity.SetOnChange(e.onActivityChange)
 	commitMessages := commitmsg.New(ctrl.GenerateCommitMessage)
 	e.composer.SetBashPredictor(composer.NewBashPredictor(cwd, commitMessages.Complete))
 	// Prompt recall is opt-in: it persists what the user typed under the home
@@ -97,13 +112,11 @@ func NewEditor(
 	if dir := ctrl.SessionDir(); dir != "" && shellhist.PromptsEnabled() {
 		e.composer.SetPromptHistory(shellhist.NewPromptHistory(dir))
 	}
-	e.transcript = transcript.NewTranscriptPane(theme, e.footer.Spinner(), "Phi "+version.Version)
-	e.transcript.SetUsageCallback(e.footer.UpdateTokenDisplay)
-	e.footer.BindComposer(e.composer)
-	e.footer.SetLabelContext(e.transcript.Snapshot)
+	e.transcript = transcript.NewTranscriptPane(theme, e.spin, "Phi "+version.Version)
+	e.syncStatusSlot()
 	e.overlays = overlays.NewOverlays(
 		theme,
-		e.footer.Activity(),
+		e.activity,
 		e.composer,
 		e.focusSelf,
 		e.composer.FocusChat,
@@ -126,7 +139,6 @@ func NewEditor(
 		e.ctrl,
 		e.composer,
 		e.transcript,
-		e.footer,
 		modelNames,
 		skillPaths,
 		e.openDiff,
@@ -134,7 +146,9 @@ func NewEditor(
 	)
 	e.commands = builtins.Registry
 	e.sessions = builtins.Sessions
+	e.sessions.ResetActivity = e.resetActivity
 	e.extCmds = builtins.Ext
+	e.extCmds.SetStatus = e.setExtensionStatus
 	e.composer.OnPaletteOpen = builtins.Ext.RefreshPalette
 
 	cmdCtx := commands.NewContext(e.bus, e.composer.PushPalette)
@@ -142,17 +156,14 @@ func NewEditor(
 		e.ctrl,
 		e.commands,
 		e.transcript,
-		e.footer.Activity(),
+		e.activity,
 		e.composer,
 		e.bus,
 		cmdCtx,
 		e.overlays.PermissionActive,
-
-		e.overlays.ContinueActive,
 		e.overlays.ConfirmActive,
 		e.overlays.ErrorActive,
 		e.overlays.ResolvePermission,
-		e.overlays.ResolveContinue,
 		e.overlays.ResolveConfirm,
 		e.overlays.ResolveError,
 	)
@@ -178,7 +189,6 @@ func NewEditor(
 		e.ctrl.ImageEnabled,
 		e.blocksComposer,
 		e.overlays.HandlePermissionKey,
-		e.overlays.HandleContinueKey,
 		e.overlays.HandleConfirmKey,
 		e.overlays.HandleErrorKey,
 		e.handleCopyKey,
@@ -212,7 +222,7 @@ func (e *Editor) Update(m controller.Msg) {
 	case controller.LoopStartedMsg:
 		if e.ctrl.CurrentLoop(msg.Gen) {
 			e.overlays.ResolveError(controller.ErrorReply{})
-			e.footer.Activity().Apply(controller.ActivityWaiting)
+			e.activity.Apply(controller.ActivityWaiting)
 		}
 	case controller.LoopFinishedMsg:
 		if !e.ctrl.CurrentLoop(msg.Gen) {
@@ -220,15 +230,15 @@ func (e *Editor) Update(m controller.Msg) {
 		}
 		e.transcript.ApplySession(session.CancelStreaming{})
 		e.transcript.Sync()
-		e.footer.Activity().Apply(controller.ActivityIdle)
+		e.activity.Apply(controller.ActivityIdle)
 		if msg.Cancelled {
-			e.footer.Activity().Apply(controller.ActivityCancelled)
+			e.activity.Apply(controller.ActivityCancelled)
 		}
 		if msg.ErrorText != "" {
 			e.overlays.Apply(controller.OverlayMsg{Kind: controller.OverlayErrorAsk, ErrorText: msg.ErrorText})
 		}
 	case controller.FooterMsg:
-		e.footer.Apply(msg)
+		e.applyFooterMessage(msg)
 	case controller.ToastMsg:
 		e.toast.Show(msg.Message, msg.Kind, msg.Duration)
 	case controller.ThemeMsg:
@@ -241,7 +251,9 @@ func (e *Editor) Update(m controller.Msg) {
 			e.composer.SetModelLabel(e.ctrl.ModelName(), msg.Value)
 		}
 	case controller.ExtSessionEffectsMsg:
-		e.footer.ApplySessionEffects(msg)
+		if msg.StatusSet {
+			e.extStatus = msg.Status
+		}
 		if msg.Toast != "" {
 			e.toast.Show(msg.Toast, toast.ToastSuccess, 3*time.Second)
 		}
@@ -285,10 +297,61 @@ func (e *Editor) drainBus() {
 	}
 	if agentEvent {
 		e.transcript.Sync()
-		e.footer.SyncFromSnap(e.transcript.Snapshot())
+		e.activity.SyncFromSnap(e.transcript.Snapshot())
+		e.syncStatusSlot()
 		if atBottom {
 			e.transcript.StickToBottom()
 		}
+	}
+}
+
+func (e *Editor) onActivityChange() {
+	e.spin.Frame = 0
+	e.spinTick = 0
+	e.syncStatusSlot()
+}
+
+func (e *Editor) advanceSpinner() {
+	e.spinTick++
+	if e.activity.ShowSpinner() && e.spinTick%spinnerFrameDivisor == 0 {
+		e.spin.Tick()
+		e.syncStatusSlot()
+	}
+}
+
+func (e *Editor) syncStatusSlot() {
+	label := footer.StatusLabel(e.theme, footer.StatusInput{
+		Activity:      e.activity.Label(e.transcript.Snapshot()),
+		ShowSpinner:   e.activity.ShowSpinner(),
+		Spinner:       e.spin,
+		Usage:         e.transcript.Snapshot().LastUsage(),
+		ContextWindow: e.ctrl.ContextWindow(),
+	})
+	if !label.Visible() {
+		e.composer.ClearBottomLeftLabel()
+		return
+	}
+	e.composer.SetBottomLeftLabel(label)
+}
+
+func (e *Editor) resetActivity() {
+	e.activity.Apply(controller.ActivityIdle)
+}
+
+func (e *Editor) setExtensionStatus(status string) {
+	e.extStatus = status
+}
+
+func (e *Editor) applyFooterMessage(msg controller.FooterMsg) {
+	switch msg.Kind {
+	case controller.FooterClearIfActivity:
+		if e.activity.Current == msg.If {
+			e.activity.Apply(controller.ActivityIdle)
+		}
+	case controller.FooterSetActivity:
+		e.activity.Apply(msg.Activity)
+	case controller.FooterUpdateAvailable:
+		e.updateHint = strings.TrimPrefix(msg.Latest, "v") + " available · phi update"
 	}
 }
 
@@ -402,9 +465,9 @@ func (e *Editor) copyToClipboard(text string) bool {
 func (e *Editor) handleErrorReply(r controller.ErrorReply, text string) {
 	switch {
 	case r.Retry:
-		e.footer.Activity().Apply(controller.ActivityWaiting)
+		e.activity.Apply(controller.ActivityWaiting)
 		if !e.ctrl.RetryLastPrompt() {
-			e.footer.Activity().Apply(controller.ActivityIdle)
+			e.activity.Apply(controller.ActivityIdle)
 			e.toast.Show("Nothing to retry", toast.ToastWarning, 2*time.Second)
 		}
 	case r.Copy:
@@ -436,7 +499,7 @@ func (e *Editor) showSessionList(items []session.SessionMeta, currentID string) 
 func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	e.drainBus()
 
-	e.footer.AdvanceTick()
+	e.advanceSpinner()
 	_ = e.toast.Visible()
 
 	if e.diff.Active() {
@@ -491,7 +554,10 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	} else {
 		chatSurf = e.composer.DrawChat(ctx, maxSize.Width, chatH)
 	}
-	footerSurf := e.footer.Draw(ctx, maxSize.Width)
+	footerSurf := e.footer.Draw(ctx, maxSize.Width, footer.State{
+		ExtensionStatus: e.extStatus,
+		UpdateHint:      e.updateHint,
+	})
 
 	root.Children = []components.SubSurface{
 		{Origin: components.Point{X: 0, Y: 0}, Surface: listSurf},
@@ -582,6 +648,8 @@ func (e *Editor) applyTheme(name string) {
 	e.toast.Theme = th
 	e.transcript.SetTheme(th)
 	e.footer.SetTheme(th)
+	e.spin.Style = th.ToolName
+	e.syncStatusSlot()
 	e.overlays.SetTheme(th)
 	e.diff.SetTheme(th)
 	e.code.SetTheme(th)

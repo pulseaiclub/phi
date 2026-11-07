@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -51,12 +50,6 @@ func TestMaxRoundsLifecycle(t *testing.T) {
 				require.NoError(t, ctrl.SetRoleModel("worker", "secondary"))
 				assert.Equal(t, 2, ctrl.modelForRole(job.RoleWorker).MaxRounds)
 				before := requests.Load()
-				asked := 0
-				ctrl.engine.SetContinueAsk(func(_ context.Context, budget int) (bool, error) {
-					asked++
-					assert.Equal(t, 2, budget)
-					return false, nil
-				})
 				var loopErr error
 				for _, err := range ctrl.engine.Loop(t.Context(), "test budget", agent.LoopOpts{}) {
 					if err != nil {
@@ -65,7 +58,6 @@ func TestMaxRoundsLifecycle(t *testing.T) {
 					}
 				}
 				require.ErrorIs(t, loopErr, agent.ErrMaxRounds)
-				assert.Equal(t, 1, asked)
 				assert.Equal(t, int32(3), requests.Load()-before)
 			}
 
@@ -115,7 +107,7 @@ func TestModelLifecycle(t *testing.T) {
 	ctrl.Close()
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
-	restarted, err := NewController(NewBus(nil), proj, cwd)
+	restarted, err := NewController(NewBus(nil), proj)
 	require.NoError(t, err)
 	defer restarted.Close()
 	assert.Equal(t, "primary", restarted.ModelName(), "startup must use the configured default")
@@ -164,7 +156,7 @@ models:
 	cwd := t.TempDir()
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
-	ctrl, err := NewController(NewBus(nil), proj, cwd)
+	ctrl, err := NewController(NewBus(nil), proj)
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 	return ctrl

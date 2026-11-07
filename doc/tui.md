@@ -9,8 +9,8 @@ cmd/main.go
   └─ editor.NewEditor(app, bus, ctrl, …)
        ├─ TranscriptPane   snap, list, mapper, subagents, welcome, text selection
        ├─ ComposerPane     chat, @/slash/?/! pickers, palette (input only)
-       ├─ FooterChrome     status slot (activity↔tokens), bottom row for ext/jobs/hints
-       ├─ Overlays         permission ask, continue ask
+       ├─ FooterChrome     bottom row for extension status and update hints
+       ├─ Overlays         permission ask, ext-confirm
        ├─ DiffPane         full-screen git diff review (`/diff`)
        ├─ CodePane         full-screen source viewer (`/code`)
        └─ Submitter        submit / cancel / slash / bash → Controller
@@ -21,10 +21,10 @@ cmd/main.go
 | Owner | Composes (lifecycle) | Aggregates (injected) |
 | ----- | -------------------- | --------------------- |
 | `Editor` | all panes, `Submitter`, `toast`, `CommandRegistry` | `Bus`, `App`, `vx` |
-| `TranscriptPane` | `MessageList`, `Mapper`, `SubagentStore`, `welcome`, `textSel` | `theme`, `spinner` ref from footer |
+| `TranscriptPane` | `MessageList`, `Mapper`, `SubagentStore`, `welcome`, `textSel` | `theme`, `spinner` ref from editor |
 | `ComposerPane` | `ChatInput`, pickers, `palette` | callbacks `onSubmit`, `onCancel`, `onRedraw` |
-| `FooterChrome` | `ActivityHandler`, `Spinner` | `labelContext()`, `liveJobs()` closures |
-| `Overlays` | `permAskState`, `continueAskState` | `activity` ref, reply callbacks |
+| `FooterChrome` | drawing theme | immutable `State` passed to `Draw` |
+| `Overlays` | `permAskState`, `confirmAskState` | `activity` ref, reply callbacks |
 | `DiffPane` | review overlay (rows, notes, search) | `cwd`, submit/copy/toast callbacks |
 | `CodePane` | source overlay (lines, caret, selection) | `cwd`, add-to-chat/toast callbacks |
 | `Submitter` | `BashRunner` | `Controller`, `Bus`, `CommandRegistry`, pane refs |
@@ -42,7 +42,7 @@ internal/tui/
 ├── transcript/             # Mapper, SubagentStore, TranscriptPane
 ├── composer/               # ComposerPane, Wire(), Input iface
 ├── footer/                 # FooterChrome, token label helpers
-├── overlays/               # permission + continue ask
+├── overlays/               # permission + ext-confirm ask
 ├── diffpane/               # git diff review overlay (`/diff`)
 ├── codepane/               # source viewer overlay (`/code`)
 ├── submit/                 # Submitter, BashRunner
@@ -56,8 +56,8 @@ internal/tui/
 | `controller` | `Controller` runs `agent.Engine`; publishes `Msg` to the bus only |
 | `transcript` | Projects `session.Event` → message list; sub-agent rows; copy selection |
 | `composer` | Keyboard routing for chat, `/` slash, `?` shortcuts, `@` mention, `!` shell completion, Ctrl+K palette |
-| `footer` | Composer status slot (activity ↔ tokens), bottom footer row (ext status, jobs, update hint) |
-| `overlays` | Modal permission / continue-ask panels; replaces composer when active |
+| `footer` | Status label helpers and bottom footer row renderer |
+| `overlays` | Modal permission / ext-confirm / error panels; replaces composer when active |
 | `diffpane` | Full-screen git diff review; notes stay in memory |
 | `codepane` | Full-screen source viewer: syntax highlight, caret, line selection |
 | `submit` | User submit path: agent prompt, slash commands, `!bash`, cancel |
@@ -77,7 +77,7 @@ proj.LoadConfig()
 vx, theme, cwd
 redraw := controller.NewRedrawRelay()
 bus    := controller.NewBus(redraw.Fire)
-ctrl   := controller.NewController(bus, proj, cwd)
+ctrl   := controller.NewController(bus, proj)
 ui     := editor.NewEditor(app, bus, ctrl, vx, theme, cwd, model, skillPaths, contextWindow, modelNames)
 redraw.Bind(ui.RequestRedraw)
 ui.StartUpdateCheck(...)
@@ -130,7 +130,7 @@ toast) run inline — no pane state needs a lock.
 
 | Phase | Messages | Handler |
 | ----- | -------- | ------- |
-| Batch pass | `SessionEventMsg`, `JobProgressMsg` | `TranscriptPane` → optional `Sync` + footer token refresh |
+| Batch pass | `SessionEventMsg`, `JobProgressMsg` | `TranscriptPane` → optional `Sync`; editor refreshes the status slot |
 | Per-msg | everything else | `Editor.Update` → domain handler |
 
 ### Transport rules
@@ -157,9 +157,9 @@ How data crosses the UI/domain boundary — one rule per direction:
 | ---------------- | ------- |
 | `SessionEventMsg`, `JobProgressMsg` | `TranscriptPane` (in `drainBus`) |
 | `SubmitMsg`, `CancelStreamMsg` | `Submitter` |
-| `OverlayMsg` (permission / continue / ext-confirm ask+dismiss) | `Overlays` |
-| `FooterMsg` (activity / clear-if / update hint) | `FooterChrome` |
-| `ExtSessionEffectsMsg` | `FooterChrome` (+ toast when set) |
+| `OverlayMsg` (permission / ext-confirm ask+dismiss) | `Overlays` |
+| `FooterMsg` (activity / clear-if / update hint) | `Editor` / `ActivityHandler` |
+| `ExtSessionEffectsMsg` | `Editor` (+ toast when set) |
 | `MentionResultsMsg`, `BranchLabelMsg` | `ComposerPane` |
 | `ToastMsg` | `Editor` toast overlay |
 | `ExtCommandResultMsg` | `ExtCommands` |
@@ -213,7 +213,7 @@ Controller.runLoop
   → bus.Publish(SessionEventMsg{Event})
   → drainBus: TranscriptPane.ApplySession
   → TranscriptPane.Sync (mapper + subagent store)
-  → FooterChrome.SyncFromSnap (activity / status slot)
+  → Editor updates ActivityHandler and derives the status slot from the snapshot
   → stick-to-bottom if user was pinned
 ```
 
@@ -228,11 +228,11 @@ Esc / composer cancel
   → FooterMsg{Kind: FooterClearIfActivity} when activity was cancelled
 ```
 
-### 4. Permission / continue ask
+### 4. Permission / ext-confirm ask
 
 ```text
 Engine needs approval
-  → Controller publishes OverlayMsg (permission / continue / ext-confirm ask)
+  → Controller publishes OverlayMsg (permission / ext-confirm ask)
   → Overlays.Apply → replaces composer bottom panel
   → user keys → Overlays → Controller reply channel
   → OverlayMsg dismiss Kind on timeout/cancel
@@ -267,8 +267,8 @@ the old JSONL file is gone. The same store call backs `phi sessions remove`.
 | Source | Msg | Target |
 | ------ | --- | ------ |
 | `StartBranchWatch` | `BranchLabelMsg` | composer bottom-right label |
-| `StartUpdateCheck` | `FooterMsg` (update available) | footer update hint |
-| Extension session lifecycle | `ExtSessionEffectsMsg` | footer status + toast |
+| `StartUpdateCheck` | `FooterMsg` (update available) | editor-owned footer state |
+| Extension session lifecycle | `ExtSessionEffectsMsg` | editor-owned footer state + toast |
 
 ---
 

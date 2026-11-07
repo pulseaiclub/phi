@@ -24,7 +24,7 @@ func TestNewController_ReadyEngine(t *testing.T) {
 	require.NoError(t, proj.LoadConfig())
 
 	bus := NewBus(nil)
-	ctrl, err := NewController(bus, proj, cwd)
+	ctrl, err := NewController(bus, proj)
 	require.NoError(t, err)
 	require.NotNil(t, ctrl)
 	require.NotNil(t, ctrl.engine)

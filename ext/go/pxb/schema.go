@@ -191,8 +191,7 @@ type InterceptResp struct {
 	SystemPromptAppend string `pxb:"8"`
 	Toast              string `pxb:"9"`
 	Handled            bool   `pxb:"10"`
-	Prompt             string `pxb:"11"` // rewrite user prompt / steer message
-	Continue           bool   `pxb:"12"`
+	Prompt             string `pxb:"11"` // rewrite user prompt
 }
 
 // EventNotify is a fire-and-forget host→ext lifecycle event.

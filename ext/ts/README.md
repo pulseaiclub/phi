@@ -59,7 +59,6 @@ m.registerCommand("plan", {
 m.onUserInput((_ev) => null);    // return { handled: true } to swallow
 m.onToolCall((_ev) => null);     // return { block: true, reason: "…" } to deny
 m.onToolResult((_ev) => null);   // return { stop: true } to end the loop
-m.onTurnStopping((_ev) => null); // return { continue: true, message: "…" } to steer
 m.subscribe(Event.SessionStart, (_ev) => {});
 await m.run();
 ```

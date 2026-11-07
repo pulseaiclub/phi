@@ -64,7 +64,7 @@ func runTUI() error {
 
 	redraw := controller.NewRedrawRelay()
 	bus := controller.NewBus(redraw.Fire)
-	ctrl, err := controller.NewController(bus, proj, cwd)
+	ctrl, err := controller.NewController(bus, proj)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "phi:", err)
 		return exitCode(ExitError)
@@ -95,7 +95,6 @@ func runTUI() error {
 		cwd,
 		model,
 		proj.Config().SkillPaths,
-		ctrl.ContextWindow(),
 		modelNames,
 	)
 	redraw.Bind(ui.RequestRedraw)

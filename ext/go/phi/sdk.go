@@ -34,7 +34,6 @@ type ExtensionAPI struct {
 	onBeforeAgentStart    func(ext.BeforeAgentStartEvent) *ext.BeforeAgentStartResult
 	onSessionBeforeSwitch func(ext.SessionBeforeSwitchEvent) *ext.SessionBeforeSwitchResult
 	onUserInput           func(ext.UserInputEvent) *ext.UserInputResult
-	onTurnStopping        func(ext.TurnStoppingEvent) *ext.TurnStoppingResult
 	onEvent               map[uint16]func(pxb.EventNotify)
 
 	wr *pxb.Writer
@@ -161,14 +160,6 @@ func (extension *ExtensionAPI) OnUserInput(fn func(ext.UserInputEvent) *ext.User
 	defer extension.mu.Unlock()
 	extension.onUserInput = fn
 	extension.intercept = appendUnique(extension.intercept, pxb.EvUserInput)
-}
-
-// OnTurnStopping may steer another step when the model stops with no tools.
-func (extension *ExtensionAPI) OnTurnStopping(fn func(ext.TurnStoppingEvent) *ext.TurnStoppingResult) {
-	extension.mu.Lock()
-	defer extension.mu.Unlock()
-	extension.onTurnStopping = fn
-	extension.intercept = appendUnique(extension.intercept, pxb.EvTurnStopping)
 }
 
 // Subscribe adds a fire-and-forget lifecycle listener (no payload).
@@ -697,15 +688,6 @@ func (extension *ExtensionAPI) handleIntercept(req pxb.InterceptReq) pxb.Interce
 			return pxb.InterceptResp{}
 		}
 		return pxb.InterceptResp{Handled: r.Handled, Prompt: r.Text, Reason: r.Reason}
-	case pxb.EvTurnStopping:
-		if extension.onTurnStopping == nil {
-			return pxb.InterceptResp{}
-		}
-		r := extension.onTurnStopping(ext.TurnStoppingEvent{TurnIndex: int(req.TurnIndex)})
-		if r == nil {
-			return pxb.InterceptResp{}
-		}
-		return pxb.InterceptResp{Continue: r.Continue, Prompt: r.Message, Reason: r.Reason}
 	default:
 		return pxb.InterceptResp{}
 	}

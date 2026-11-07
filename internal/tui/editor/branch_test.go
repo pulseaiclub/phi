@@ -66,9 +66,9 @@ func branchEditor(t *testing.T) *Editor {
 		bus:      bus,
 		cwd:      dir,
 	}
-	e.composer.Wire(nil, nil, nil, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	e.composer.Wire(nil, nil, nil, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
-	builtins := commands.NewBuiltinRegistry(bus, nil, e.composer, nil, nil, nil, nil, nil, nil)
+	builtins := commands.NewBuiltinRegistry(bus, nil, e.composer, nil, nil, nil, nil, nil)
 	e.commands = builtins.Registry
 	builtins.Bind(
 		nil,

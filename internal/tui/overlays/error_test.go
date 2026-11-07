@@ -22,7 +22,7 @@ const testErrText = "request ended without sending any chunks"
 func errorOverlays(replies *[]controller.ErrorReply, texts *[]string) *Overlays {
 	return NewOverlays(
 		components.DefaultTheme(),
-		controller.NewActivityHandler(nil),
+		controller.NewActivityHandler(),
 		nil, nil, nil,
 		func(r controller.ErrorReply, text string) {
 			*replies = append(*replies, r)
@@ -113,7 +113,7 @@ func TestErrorAskHeightAccountsForWrapping(t *testing.T) {
 	require.GreaterOrEqual(t, h, 2+1+1+3+1+len(errorOptionLabels)+1)
 
 	// Every option row must be inside the border (row 0 and h-1 are the frame).
-	o := testOverlays(controller.NewActivityHandler(nil))
+	o := testOverlays(controller.NewActivityHandler())
 	o.err = st
 	surf := o.drawError(components.DrawContext{Max: components.Size{Width: 60, Height: h}}, 60, h)
 	plain := components.SurfaceText(surf)
@@ -136,7 +136,7 @@ func errorBodyText(st *errorAskState, width, height int) string {
 
 func TestErrorAskConstrainedHeightsKeepActions(t *testing.T) {
 	st := &errorAskState{message: strings.Repeat("long wrapped error ", 20)}
-	o := testOverlays(controller.NewActivityHandler(nil))
+	o := testOverlays(controller.NewActivityHandler())
 	o.err = st
 
 	for _, height := range []int{8, 9} {
@@ -152,7 +152,7 @@ func TestErrorAskConstrainedHeightsKeepActions(t *testing.T) {
 
 func TestErrorAskNarrowWidthWrapsActionsWithoutOverwritingBorder(t *testing.T) {
 	st := &errorAskState{message: strings.Repeat("error ", 20), selected: errOptCopy}
-	o := testOverlays(controller.NewActivityHandler(nil))
+	o := testOverlays(controller.NewActivityHandler())
 	o.err = st
 
 	for _, width := range []int{12, 8} {
@@ -168,7 +168,7 @@ func TestErrorAskNarrowWidthWrapsActionsWithoutOverwritingBorder(t *testing.T) {
 
 func TestErrorAskEmptyMessageUsesMinimumLayout(t *testing.T) {
 	st := &errorAskState{}
-	o := testOverlays(controller.NewActivityHandler(nil))
+	o := testOverlays(controller.NewActivityHandler())
 	o.err = st
 
 	require.Equal(t, 8, st.preferredAskHeight(60, 0))
@@ -196,20 +196,20 @@ func TestErrorAskReplacesOtherModals(t *testing.T) {
 	var replies []controller.ErrorReply
 	var texts []string
 	o := errorOverlays(&replies, &texts)
-	contReply := make(chan controller.ContinueReply, 1)
-	o.beginContinueAsk(controller.OverlayMsg{
-		Kind:      controller.OverlayContinueAsk,
-		MaxRounds: 2,
-		ContReply: contReply,
+	confirmReply := make(chan controller.ExtConfirmReply, 1)
+	o.beginExtConfirm(controller.OverlayMsg{
+		Kind:         controller.OverlayExtConfirm,
+		Title:        "Confirm",
+		ConfirmReply: confirmReply,
 	})
 	beginErrorAsk(o)
-	require.Nil(t, o.cont, "error dialog replaces continue ask")
+	require.Nil(t, o.confirm, "error dialog replaces ext confirm")
 	require.NotNil(t, o.err)
 	select {
-	case <-contReply:
-		// continue ask resolved as stopped
+	case <-confirmReply:
+		// ext confirm resolved as dismissed
 	default:
-		require.Fail(t, "replaced continue ask should resolve")
+		require.Fail(t, "replaced ext confirm should resolve")
 	}
 
 	// And vice versa: a permission ask resolves the error dialog as dismissed.

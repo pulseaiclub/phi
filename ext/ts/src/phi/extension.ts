@@ -238,18 +238,6 @@ export interface UserInputResult {
   reason?: string;
 }
 
-export interface TurnStoppingEvent {
-  turnIndex: number;
-}
-
-export interface TurnStoppingResult {
-  /** Forces another agent step. */
-  continue?: boolean;
-  /** Injected as a user message when continuing. */
-  message?: string;
-  reason?: string;
-}
-
 type EventSink = (ev: EventNotify) => void;
 
 interface InterceptHandlers {
@@ -258,7 +246,6 @@ interface InterceptHandlers {
   beforeAgentStart?: (ev: BeforeAgentStartEvent) => BeforeAgentStartResult | null | void;
   sessionBeforeSwitch?: (ev: SessionBeforeSwitchEvent) => SessionBeforeSwitchResult | null | void;
   userInput?: (ev: UserInputEvent) => UserInputResult | null | void;
-  turnStopping?: (ev: TurnStoppingEvent) => TurnStoppingResult | null | void;
 }
 
 // Bound both frame overhead and payload memory while a command waits on the
@@ -397,13 +384,6 @@ export class Extension {
   onUserInput(f: (ev: UserInputEvent) => UserInputResult | null | void): this {
     this.reg.intercept.userInput = f;
     pushUnique(this.reg.interceptCodes, Event.UserInput);
-    return this;
-  }
-
-  /** May steer another agent step when the model stops with no tools. */
-  onTurnStopping(f: (ev: TurnStoppingEvent) => TurnStoppingResult | null | void): this {
-    this.reg.intercept.turnStopping = f;
-    pushUnique(this.reg.interceptCodes, Event.TurnStopping);
     return this;
   }
 
@@ -922,7 +902,6 @@ function handleIntercept(reg: Registry, req: InterceptReq): InterceptResp {
     toast: "",
     handled: false,
     prompt: "",
-    continue: false,
   };
   const h = reg.intercept;
   switch (req.event) {
@@ -984,15 +963,6 @@ function handleIntercept(reg: Registry, req: InterceptReq): InterceptResp {
       resp.handled = r.handled ?? false;
       resp.reason = r.reason ?? "";
       if (r.text !== undefined) resp.prompt = r.text;
-      return resp;
-    }
-    case Event.TurnStopping: {
-      if (!h.turnStopping) return resp;
-      const r = h.turnStopping({ turnIndex: req.turnIndex });
-      if (!r) return resp;
-      resp.continue = r.continue ?? false;
-      resp.prompt = r.message ?? "";
-      resp.reason = r.reason ?? "";
       return resp;
     }
     default:

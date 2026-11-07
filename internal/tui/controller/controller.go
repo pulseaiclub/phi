@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -65,15 +64,7 @@ type EngineController struct {
 
 // NewController returns a live EngineController. proj must be non-nil.
 // Failure returns (nil, err), never a half-initialized value.
-func NewController(bus *Bus, proj *project.Project, cwd string) (*EngineController, error) {
-	if strings.TrimSpace(cwd) == "" {
-		var err error
-		cwd, err = os.Getwd()
-		if err != nil {
-			return nil, fmt.Errorf("tui: getwd: %w", err)
-		}
-	}
-
+func NewController(bus *Bus, proj *project.Project) (*EngineController, error) {
 	if err := proj.LoadConfig(); err != nil {
 		return nil, err
 	}
@@ -82,7 +73,7 @@ func NewController(bus *Bus, proj *project.Project, cwd string) (*EngineControll
 	c := &EngineController{
 		bus:           bus,
 		proj:          proj,
-		cwd:           cwd,
+		cwd:           proj.Root(),
 		sessionDir:    proj.SessionDir(),
 		askTimeoutSec: defaultAskTimeoutSec,
 		modelCfg:      config.Model(),
@@ -433,18 +424,6 @@ func (c *EngineController) askPermission(
 	return permission.AskResult{Approved: r.Approved, Feedback: r.Feedback}, nil
 }
 
-func (c *EngineController) askContinue(ctx context.Context, maxRounds int) (bool, error) {
-	reply := make(chan ContinueReply, 1)
-	c.publish(OverlayMsg{Kind: OverlayContinueAsk, MaxRounds: maxRounds, ContReply: reply})
-	r, err := waitReply(ctx, reply, c.askTimeout(), func() {
-		c.publish(OverlayMsg{Kind: OverlayContinueDismiss})
-	})
-	if err != nil {
-		return false, err
-	}
-	return r.Continue, nil
-}
-
 func (c *EngineController) askExtConfirm(req ext.ConfirmRequest) ext.ConfirmReply {
 	reply := make(chan ExtConfirmReply, 1)
 	c.publish(OverlayMsg{
@@ -482,7 +461,6 @@ func (c *EngineController) SetModel(name string) error {
 	c.Cancel()
 	c.initGate(c.proj.Config().Permissions)
 	c.engine.SetPermission(c.gate, c.askPermission)
-	c.engine.SetContinueAsk(c.askContinue)
 	c.engine.SetJobs(c.engineJobs())
 	if _, _, err := c.ReloadExtensions(); err != nil {
 		debuglog.Logf("extension: reload on SetModel: %v", err)
@@ -571,9 +549,6 @@ func (c *EngineController) SessionID() string {
 // whichever one is open now.
 func (c *EngineController) AppendUserBash(sessionID, command, output string, exitCode int, cancelled bool) error {
 	engine := c.engine
-	if engine == nil || engine.Session() == nil {
-		return nil
-	}
 	if sessionID != "" && engine.SessionID() != sessionID {
 		return nil
 	}
@@ -701,7 +676,6 @@ func (c *EngineController) openEngine(
 	eng, err := agent.NewEngine(cfg, sess,
 		agent.WithGate(c.gate),
 		agent.WithAsk(c.askPermission),
-		agent.WithContinueAsk(c.askContinue),
 		agent.WithJobs(c.engineJobs()),
 		agent.WithExtensions(extRunner),
 		agent.WithMCP(c.mcpPool),
@@ -714,9 +688,6 @@ func (c *EngineController) openEngine(
 }
 
 func (c *EngineController) ReplaySnapshot() session.Snapshot {
-	if c.engine == nil || c.engine.Session() == nil {
-		return session.Snapshot{}
-	}
 	return session.ReplaySnapshot(c.engine.Session().PathEntries(), c.engine.ToolDetail)
 }
 
@@ -871,10 +842,6 @@ func (c *EngineController) runLoop(ctx context.Context, gen int, engine *agent.E
 	// Publish completion only after the iterator's cleanup (including AgentEnd)
 	// has finished, so Retry cannot start while the failed turn is unwinding.
 	defer func() { c.finishLoop(ctx, gen, loopErr) }()
-	if engine == nil {
-		loopErr = errors.New("agent not configured")
-		return
-	}
 	for ev, err := range engine.Loop(ctx, prompt.Text, agent.LoopOpts{
 		PendingSkills: prompt.Skills,
 		Images:        prompt.Images,

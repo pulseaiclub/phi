@@ -101,18 +101,6 @@ type UserInputResult struct {
 	Reason  string
 }
 
-// TurnStoppingEvent fires when the model ends a turn with no more tool calls.
-type TurnStoppingEvent struct {
-	TurnIndex int
-}
-
-// TurnStoppingResult may force another agent step (steer).
-type TurnStoppingResult struct {
-	Continue bool
-	Message  string // injected as a user message when Continue
-	Reason   string
-}
-
 // SessionCompactEvent notifies that context compaction ran.
 type SessionCompactEvent struct {
 	Reason string // auto | manual

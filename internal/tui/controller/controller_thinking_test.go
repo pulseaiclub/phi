@@ -191,7 +191,7 @@ func newThinkingTestController(t *testing.T, cwd string) *EngineController {
 	t.Helper()
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
-	ctrl, err := NewController(NewBus(nil), proj, cwd)
+	ctrl, err := NewController(NewBus(nil), proj)
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 	return ctrl
