@@ -1,6 +1,7 @@
 package project
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -96,6 +97,15 @@ func (c *Config) defaultEntry() *llm.ModelConfig {
 	return &c.Models[0]
 }
 
+// ErrSetupNeeded marks the fresh-install states the first-run dialog can fix:
+// no models at all, or a default entry without a name/api_key. A malformed
+// file or an unresolvable model is a real error and never carries it.
+var ErrSetupNeeded = errors.New("model setup needed")
+
+// SetupNeeded reports whether err is the "no usable model yet" class that
+// first-run onboarding can complete, as opposed to a broken config file.
+func SetupNeeded(err error) bool { return errors.Is(err, ErrSetupNeeded) }
+
 // loadConfig reads the config file, applies environment overrides, and fills
 // in defaults. A missing file yields a zero Config so env-only setups work.
 func loadConfig(global GlobalLayout, cwd string) (*Config, error) {
@@ -104,14 +114,14 @@ func loadConfig(global GlobalLayout, cwd string) (*Config, error) {
 		return nil, err
 	}
 	if len(cfg.Models) == 0 {
-		return nil, fmt.Errorf("missing models (add at least one model in %s)", global.ConfigFile())
+		return nil, fmt.Errorf("%w: missing models (add at least one model in %s)", ErrSetupNeeded, global.ConfigFile())
 	}
 	def := cfg.defaultEntry()
 	if def.Name == "" {
-		return nil, fmt.Errorf("missing model name (set PHI_MODEL or models[].name in %s)", global.ConfigFile())
+		return nil, fmt.Errorf("%w: missing model name (set PHI_MODEL or models[].name in %s)", ErrSetupNeeded, global.ConfigFile())
 	}
 	if def.APIKey == "" {
-		return nil, fmt.Errorf("missing api_key (set PHI_API_KEY or models[].api_key in %s)", global.ConfigFile())
+		return nil, fmt.Errorf("%w: missing api_key (set PHI_API_KEY or models[].api_key in %s)", ErrSetupNeeded, global.ConfigFile())
 	}
 	// A "~" in skill_path is expanded before anything stats the path: both the
 	// docs and the settings screen hand out ~-prefixed paths, and a literal

@@ -268,6 +268,28 @@ func TestLoadConfigMissingAPIKey(t *testing.T) {
 	assert.Contains(t, err.Error(), "api_key")
 }
 
+func TestSetupNeededMarksFreshInstallsOnly(t *testing.T) {
+	p := discoverInTempHome(t)
+
+	// No file at all: the first-run dialog can fix this.
+	err := p.LoadConfig()
+	require.Error(t, err)
+	assert.True(t, SetupNeeded(err), "missing file: %v", err)
+
+	// A default entry without api_key is still onboarding-fixable.
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte("models:\n  - name: x\n"), 0o644))
+	t.Setenv("PHI_API_KEY", "")
+	err = p.LoadConfig()
+	require.Error(t, err)
+	assert.True(t, SetupNeeded(err), "missing api_key: %v", err)
+
+	// A malformed file is a real error, never onboarding material.
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte("models: ["), 0o644))
+	err = p.LoadConfig()
+	require.Error(t, err)
+	assert.False(t, SetupNeeded(err), "malformed yaml: %v", err)
+}
+
 func TestLoadConfigConfigFileMissing(t *testing.T) {
 	// Env-only setup: no config file, all values from environment.
 	p := discoverInTempHome(t)
