@@ -78,14 +78,10 @@ Windows (PowerShell 5.1+):
 irm https://raw.githubusercontent.com/pulseaiclub/phi/main/scripts/install.ps1 | iex
 ```
 
-First launch needs a model. Open the config editor (creates `~/.phi` layout
-and writes `~/.phi/config.yaml`):
-
-```sh
-phi config
-```
-
-Or set env vars for a one-off run:
+First launch opens a small setup dialog asking for two things: the model
+name (a built-in preset such as `deepseek-flash`) and its API key — the
+preset fills in the rest, and `phi config` remains the full editor. Or set
+env vars for a one-off run:
 
 ```sh
 export PHI_MODEL=gpt-4o
