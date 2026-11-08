@@ -59,7 +59,7 @@ type EngineController struct {
 	extRunner     atomic.Pointer[extension.Runner]
 	mcpPool       *mcp.Pool
 
-	lastJobProgress sync.Map // job slot key → last published signature
+	lastJobProgress sync.Map // progressSlot → progressSig
 }
 
 // NewController returns a live EngineController. proj must be non-nil.
@@ -132,16 +132,36 @@ func (c *EngineController) startJobProgress() {
 	}()
 }
 
+// progressSlot identifies the UI row a job progress update belongs to: the
+// tool_use id when known, else a name+detail slot. The parts stay separate
+// fields rather than a joined string so a field containing the separator
+// cannot make the tool-id branch collide with the name+detail branch.
+type progressSlot struct {
+	job    string
+	tool   string
+	name   string
+	detail string
+}
+
+// progressSig holds the fields a slot's UI row renders; an unchanged sig means
+// the publish would not change the UI.
+type progressSig struct {
+	status string
+	name   string
+	detail string
+}
+
 func (c *EngineController) shouldPublishJobProgress(p job.Progress) bool {
-	key := p.JobID + "\x00" + p.ToolUseID
+	slot := progressSlot{job: p.JobID, tool: p.ToolUseID}
 	if p.ToolUseID == "" {
-		key = p.JobID + "\x00" + p.Name + "\x00" + p.Detail
+		slot.name = p.Name
+		slot.detail = p.Detail
 	}
-	sig := p.Status + "\x00" + p.Name + "\x00" + p.Detail
-	if prev, ok := c.lastJobProgress.Load(key); ok && prev.(string) == sig {
+	sig := progressSig{status: p.Status, name: p.Name, detail: p.Detail}
+	if prev, ok := c.lastJobProgress.Load(slot); ok && prev.(progressSig) == sig {
 		return false
 	}
-	c.lastJobProgress.Store(key, sig)
+	c.lastJobProgress.Store(slot, sig)
 	return true
 }
 

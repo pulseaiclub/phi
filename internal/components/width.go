@@ -31,3 +31,20 @@ func TruncateToWidth(s string, max int, method xui.WidthMethod) string {
 	}
 	return b.String()
 }
+
+// TruncateToWidthSuffix fits s within max columns, appending suffix to the
+// kept prefix when anything was cut. The suffix width counts against max; a
+// suffix too wide to fit is dropped in favor of a hard cut.
+func TruncateToWidthSuffix(s string, max int, suffix string, method xui.WidthMethod) string {
+	if max <= 0 {
+		return ""
+	}
+	if xui.StringWidth(s, method) <= max {
+		return s
+	}
+	suffixW := xui.StringWidth(suffix, method)
+	if suffixW >= max {
+		return TruncateToWidth(s, max, method)
+	}
+	return TruncateToWidth(s, max-suffixW, method) + suffix
+}

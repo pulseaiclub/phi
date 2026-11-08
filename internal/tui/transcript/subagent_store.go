@@ -22,8 +22,18 @@ type subagentView struct {
 	ParentToolUseID string
 	Label           string // "explore: find auth"; never a job id
 	Children        []block.ChildTool
-	childIdx        map[string]int
+	childIdx        map[childKey]int // never nil; created with the view
 	Summary         string
+}
+
+// childKey identifies a nested tool row: the tool_use id when the child
+// reported one, else a name+detail fallback. The parts stay separate fields
+// rather than a joined string so a field containing the separator cannot make
+// the two branches collide.
+type childKey struct {
+	tool   string
+	name   string
+	detail string
 }
 
 // NewSubagentStore creates an empty store.
@@ -47,29 +57,15 @@ func (s *SubagentStore) Bind(jobID, parentToolUseID string) {
 }
 
 func (s *SubagentStore) viewLocked(jobID, parentToolUseID string) *subagentView {
-	var v *subagentView
-	if parentToolUseID != "" {
-		v = s.byParent[parentToolUseID]
-	}
-	if v == nil && jobID != "" {
-		v = s.byJob[jobID]
-	}
+	v := s.lookupLocked(jobID, parentToolUseID)
 	if v == nil {
-		v = &subagentView{
-			JobID:           jobID,
-			ParentToolUseID: parentToolUseID,
-			childIdx:        make(map[string]int),
-		}
-	} else {
-		if jobID != "" {
-			v.JobID = jobID
-		}
-		if parentToolUseID != "" {
-			v.ParentToolUseID = parentToolUseID
-		}
-		if v.childIdx == nil {
-			v.childIdx = make(map[string]int)
-		}
+		v = &subagentView{childIdx: make(map[childKey]int)}
+	}
+	if jobID != "" {
+		v.JobID = jobID
+	}
+	if parentToolUseID != "" {
+		v.ParentToolUseID = parentToolUseID
 	}
 	if v.ParentToolUseID != "" {
 		s.byParent[v.ParentToolUseID] = v
@@ -78,6 +74,19 @@ func (s *SubagentStore) viewLocked(jobID, parentToolUseID string) *subagentView 
 		s.byJob[v.JobID] = v
 	}
 	return v
+}
+
+// lookupLocked finds an existing view by parent tool_use id first, then job id.
+func (s *SubagentStore) lookupLocked(jobID, parentToolUseID string) *subagentView {
+	if parentToolUseID != "" {
+		if v := s.byParent[parentToolUseID]; v != nil {
+			return v
+		}
+	}
+	if jobID != "" {
+		return s.byJob[jobID]
+	}
+	return nil
 }
 
 // ApplyProgress upserts a child tool row under the parent agent tool.
@@ -89,9 +98,9 @@ func (s *SubagentStore) ApplyProgress(p job.Progress) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	v := s.viewLocked(p.JobID, p.ParentToolUseID)
-	key := p.ToolUseID
-	if key == "" {
-		key = p.Name + "\x00" + p.Detail
+	key := childKey{tool: p.ToolUseID}
+	if p.ToolUseID == "" {
+		key.name, key.detail = p.Name, p.Detail
 	}
 	child := block.ChildTool{
 		Name:   p.Name,
@@ -148,11 +157,7 @@ func (s *SubagentStore) Children(parentToolUseID string) []block.ChildTool {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	v := s.byParent[parentToolUseID]
-	if v == nil {
-		return nil
-	}
-	return append([]block.ChildTool(nil), v.Children...)
+	return copyChildren(s.byParent[parentToolUseID])
 }
 
 // ChildrenByJob returns a copy of nested tools for a job id.
@@ -162,7 +167,11 @@ func (s *SubagentStore) ChildrenByJob(jobID string) []block.ChildTool {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	v := s.byJob[jobID]
+	return copyChildren(s.byJob[jobID])
+}
+
+// copyChildren snapshots the child rows so callers never alias the store.
+func copyChildren(v *subagentView) []block.ChildTool {
 	if v == nil {
 		return nil
 	}

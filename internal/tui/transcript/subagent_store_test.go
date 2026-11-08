@@ -54,3 +54,29 @@ func TestSubagentStoreProgressAndResult(t *testing.T) {
 	require.Equal(t, "explore: find auth", s.Label("job1"))
 	require.Empty(t, s.Label("job_missing"))
 }
+
+// A child keyed by tool_use id and a child keyed by the name+detail fallback
+// are separate rows even when their parts spell the same string. A tool_use id
+// with a separator inside is not reachable from the model, but it pins key
+// injectivity so a later refactor cannot merge the branches back.
+func TestSubagentStoreChildKeyKeepsBranchesApart(t *testing.T) {
+	s := transcript.NewSubagentStore()
+	require.True(t, s.ApplyProgress(job.Progress{
+		JobID: "job1", ParentToolUseID: "parent1", ToolUseID: "n\x00d", Name: "n", Detail: "d", Status: "in-progress",
+	}), "tool_use child should add a row")
+	require.True(t, s.ApplyProgress(job.Progress{
+		JobID: "job1", ParentToolUseID: "parent1", Name: "n", Detail: "d", Status: "in-progress",
+	}), "fallback child should add a second row")
+	require.Len(t, s.Children("parent1"), 2)
+
+	// Same slot + same status is a no-op; a status change updates in place.
+	require.False(t, s.ApplyProgress(job.Progress{
+		JobID: "job1", ParentToolUseID: "parent1", Name: "n", Detail: "d", Status: "in-progress",
+	}), "unchanged fallback child should be a no-op")
+	require.True(t, s.ApplyProgress(job.Progress{
+		JobID: "job1", ParentToolUseID: "parent1", Name: "n", Detail: "d", Status: "done",
+	}), "status change should update in place")
+	kids := s.Children("parent1")
+	require.Len(t, kids, 2)
+	require.Equal(t, status.ToolDone, kids[1].Status)
+}

@@ -21,6 +21,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- Skills picker moved from the Ctrl+K command palette to a `/skill` slash
+  command. Typing `/skill` opens a filterable list overlay (same picker as
+  `/sessions` and `/branch`); accepting a row attaches the skill to the next
+  turn. The skill no longer appears in the palette root, the list drops the
+  blank leading column, and long descriptions elide with `…` instead of a hard
+  cut.
+
 ### Added
 
 - First launch with no config opens a two-field setup dialog (model name + API key) instead of exiting; a preset name fills in the rest, and Esc keeps the `phi config` / environment-variable advice.
