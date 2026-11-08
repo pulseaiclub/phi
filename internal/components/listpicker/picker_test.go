@@ -1,6 +1,7 @@
 package listpicker
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/pulseaiclub/xui"
@@ -466,6 +467,53 @@ func TestPickerCommandAdvertRespectsHint(t *testing.T) {
 	text := components.SurfaceText(s.Children[0].Surface)
 	assert.Contains(t, text, "⏎ select")
 	assert.NotContains(t, text, CommandPrefix+" commands")
+}
+
+// drawRowLines renders the panel and returns its line buffer, one string per row.
+func drawRowLines(t *testing.T, p *Picker) []string {
+	t.Helper()
+	s := p.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 24}, Method: xui.WidthUnicode})
+	require.Len(t, s.Children, 1)
+	return strings.Split(strings.TrimSuffix(components.SurfaceText(s.Children[0].Surface), "\n"), "\n")
+}
+
+// Rows with no leading content must not pay the leading gutter: skills carry
+// no marker, and a blank margin ahead of every name is dead space. Lists that
+// do use the column keep it, blanks included, so a branch ● stays aligned
+// with the unmarked rows around it.
+func TestPickerDrawLeadingColumnFollowsContent(t *testing.T) {
+	t.Run("collapses when no row leads", func(t *testing.T) {
+		p := &Picker{Theme: components.DefaultTheme()}
+		p.Show([]Item{{ID: "a", Primary: "alpha", Detail: "does a"}}, ShowConfig{Title: "Skills"})
+		lines := drawRowLines(t, p)
+		assert.True(t, strings.HasPrefix(lines[2], "│ alpha"),
+			"first row starts at the left padding, got %q", lines[2])
+	})
+
+	t.Run("keeps the column when a row leads", func(t *testing.T) {
+		p := &Picker{Theme: components.DefaultTheme()}
+		p.Show([]Item{
+			{ID: "a", Leading: "2m ago", Primary: "alpha", Detail: "does a"},
+			{ID: "b", Primary: "beta", Detail: "does b"},
+		}, ShowConfig{Title: "Sessions"})
+		lines := drawRowLines(t, p)
+		assert.True(t, strings.HasPrefix(lines[2], "│ 2m ago    alpha"),
+			"led row keeps the fixed column, got %q", lines[2])
+		assert.True(t, strings.HasPrefix(lines[3], "│           beta"),
+			"unled row keeps the same column, got %q", lines[3])
+	})
+}
+
+// A detail wider than the remaining columns elides with a visible ellipsis
+// instead of ending mid-word like a rendering bug.
+func TestPickerDrawElidesLongDetail(t *testing.T) {
+	p := &Picker{Theme: components.DefaultTheme(), Width: 40}
+	detail := "Conducts multi-axis code review before merging any change"
+	p.Show([]Item{{ID: "a", Primary: "alpha", Detail: detail}}, ShowConfig{Title: "Skills"})
+	lines := drawRowLines(t, p)
+
+	assert.Contains(t, lines[2], "…", "the cut detail carries an ellipsis")
+	assert.NotContains(t, lines[2], "any change", "the cut tail is gone")
 }
 
 func TestPickerDrawConfirmChrome(t *testing.T) {

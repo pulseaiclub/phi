@@ -15,7 +15,7 @@ func Config() listpicker.ShowConfig {
 	return listpicker.ShowConfig{
 		Title: "Changes", FilterHint: "filter changed files…",
 		Empty: "No changes", EmptyFilter: "No changed files match %q",
-		Hint: chrome.ListHint("review"), LeadingWidth: 2, PrimaryWidth: 40,
+		Hint: chrome.ListHint("review"), PrimaryWidth: 40,
 	}
 }
 

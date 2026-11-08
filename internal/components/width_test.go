@@ -33,3 +33,29 @@ func TestTruncateToWidth(t *testing.T) {
 		})
 	}
 }
+
+func TestTruncateToWidthSuffix(t *testing.T) {
+	tests := []struct {
+		name   string
+		s      string
+		max    int
+		suffix string
+		want   string
+	}{
+		{"fits untouched", "abc", 5, "…", "abc"},
+		{"exact fit untouched", "abc", 3, "…", "abc"},
+		{"cut appends suffix inside max", "abcdef", 4, "…", "abc…"},
+		{"empty suffix is a hard cut", "abcdef", 3, "", "abc"},
+		{"wide glyphs count against the suffix", "中文abcdef", 7, "…", "中文ab…"},
+		{"suffix too wide for max is dropped", "abcdef", 1, "……", "a"},
+		{"zero max", "abc", 0, "…", ""},
+		{"negative max", "abc", -1, "…", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := TruncateToWidthSuffix(tt.s, tt.max, tt.suffix, xui.WidthUnicode)
+			assert.Equal(t, tt.want, got)
+			assert.LessOrEqual(t, xui.StringWidth(got, xui.WidthUnicode), max(tt.max, 0))
+		})
+	}
+}
