@@ -22,20 +22,20 @@ func TestFormatRelative(t *testing.T) {
 	assert.Equal(t, "—", FormatRelative(time.Time{}, now))
 }
 
-func TestSessionItemsGroupsForksUnderTheirSource(t *testing.T) {
+func TestSessionItemsKeepsListingOrder(t *testing.T) {
 	now := time.Now()
 	older := now.Add(-time.Hour)
 	items := SessionItems([]session.SessionMeta{
-		// mtime order: newest first, and the fork sits between two strangers.
+		// mtime order: newest first, with a fork between two strangers.
 		{ID: "other-9999", Preview: "stranger", Mtime: now},
 		{ID: "bbbbbbbb-2222", Parent: "aaaaaaaa-1111", Preview: "fork", Mtime: older.Add(time.Minute)},
 		{ID: "aaaaaaaa-1111", Preview: "source", Mtime: older},
 	}, "", now)
 
 	require.Len(t, items, 3)
-	assert.Equal(t, "other-99", items[0].Primary, "strangers keep their mtime slot")
-	assert.Equal(t, "aaaaaaaa", items[1].Primary)
-	assert.Equal(t, "bbbbbbbb ↳ aaaaaaaa", items[2].Primary, "the fork follows its source")
+	assert.Equal(t, "other-99", items[0].Primary, "rows keep the listing order")
+	assert.Equal(t, "bbbbbbbb ↳ aaaaaaaa", items[1].Primary, "the fork marks its source")
+	assert.Equal(t, "aaaaaaaa", items[2].Primary)
 }
 
 func TestSessionItemsKeepsForkOfMissingSource(t *testing.T) {
