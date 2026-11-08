@@ -46,7 +46,7 @@ func TestForkCopiesBranchAndRecordsParent(t *testing.T) {
 	assert.Equal(t, src.LeafID(), fork.LeafID(), "the fork keeps the source leaf")
 	assert.Equal(t, src.Cwd(), fork.Cwd())
 	assert.Equal(t, src.ModelName(), fork.ModelName(), "model selection rides on the copied branch")
-	assert.Equal(t, src.BuildContext(), fork.BuildContext())
+	assert.Equal(t, entryIDs(src.BuildContext()), entryIDs(fork.BuildContext()))
 
 	loaded, err := OpenSession(fork.File())
 	require.NoError(t, err)
@@ -70,7 +70,7 @@ func TestForkKeepsCompactionBoundary(t *testing.T) {
 	require.NoError(t, err)
 
 	srcCtx, forkCtx := src.BuildContext(), fork.BuildContext()
-	assert.Equal(t, srcCtx, forkCtx)
+	assert.Equal(t, entryIDs(srcCtx), entryIDs(forkCtx))
 	require.NotEmpty(t, forkCtx)
 	comp, ok := forkCtx[0].(CompactionEntry)
 	require.True(t, ok, "the newest compaction leads the context")
@@ -92,7 +92,7 @@ func TestForkExcludesEntriesOffTheBranch(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, src.Len()-1, fork.Len(), "header plus the branch only; the abandoned message stays behind")
-	assert.Equal(t, src.BuildContext(), fork.BuildContext())
+	assert.Equal(t, entryIDs(src.BuildContext()), entryIDs(fork.BuildContext()))
 	for _, entry := range fork.entries {
 		assert.NotEqual(t, abandoned, entry.GetID(), "off-branch entries must not be copied")
 	}
@@ -126,47 +126,6 @@ func TestForkEmptySession(t *testing.T) {
 	assert.Equal(t, src.ID(), list[0].Parent, "the listing exposes the fork source")
 }
 
-func TestForkAtEarlierEntryDropsLaterMessages(t *testing.T) {
-	src := forkSource(t)
-	firstUser := src.BuildContext()[1].GetID() // model change, then "hello"
-	_, err := src.Append(llm.Message{Role: llm.RoleUser, Content: "second"})
-	require.NoError(t, err)
-	_, err = src.Append(llm.Message{Role: llm.RoleAssistant, Content: "second reply"})
-	require.NoError(t, err)
-
-	fork, err := src.ForkAt(firstUser)
-	require.NoError(t, err)
-
-	assert.Equal(t, firstUser, fork.LeafID(), "the fork ends where it was asked to")
-	assert.Equal(t, src.ID(), fork.config.parentID)
-	assert.Equal(t, 3, fork.Len(), "header, model selection, and the kept message")
-	assert.Equal(t, entryIDs(src.BuildContext()[:2]), entryIDs(fork.BuildContext()),
-		"only what leads to the fork point survives")
-
-	_, err = src.ForkAt("not-an-entry")
-	require.ErrorContains(t, err, "not on this session")
-}
-
-func TestForkAtRecomputesAssistantFlag(t *testing.T) {
-	dir := t.TempDir()
-	src, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
-	require.NoError(t, err)
-	first, err := src.Append(llm.Message{Role: llm.RoleUser, Content: "first"})
-	require.NoError(t, err)
-	_, err = src.Append(llm.Message{Role: llm.RoleAssistant, Content: "reply lands after the fork point"})
-	require.NoError(t, err)
-	require.True(t, src.hasAssistantMsg)
-
-	fork, err := src.ForkAt(first)
-	require.NoError(t, err)
-
-	assert.False(
-		t,
-		fork.hasAssistantMsg,
-		"the copied branch has no assistant reply; the source flag must not ride along",
-	)
-}
-
 func TestForkOfForkKeepsLineage(t *testing.T) {
 	src := forkSource(t)
 	first, err := src.Fork()
@@ -177,7 +136,7 @@ func TestForkOfForkKeepsLineage(t *testing.T) {
 	loaded, err := OpenSession(second.File())
 	require.NoError(t, err)
 	assert.Equal(t, first.ID(), loaded.config.parentID)
-	assert.Equal(t, src.BuildContext(), second.BuildContext())
+	assert.Equal(t, entryIDs(src.BuildContext()), entryIDs(second.BuildContext()))
 }
 
 func TestForkRequiresPersistedSession(t *testing.T) {

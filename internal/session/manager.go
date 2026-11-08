@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -229,142 +228,59 @@ func (sm *Manager) AppendBash(command, output string, exitCode int, cancelled bo
 	return entry.ID, nil
 }
 
-// Fork copies the selected branch into an independent persisted session. The
-// source is never written to: the fork file exists before the caller switches
-// to it, so a failed fork leaves the source usable. Entry IDs and parent links
-// are copied verbatim, so the fork rebuilds the same context, compaction
-// boundary included.
-func (sm *Manager) Fork() (*Manager, error) { return sm.ForkAt("") }
-
-// ForkAt copies the branch ending at leafID into an independent persisted
-// session; an empty leafID means the current leaf. Forking at an earlier entry
-// reopens that point without the messages that followed it, which is how a user
-// takes a conversation in another direction.
-func (sm *Manager) ForkAt(leafID string) (*Manager, error) {
+// Fork copies this session's current branch to a new, independent session file
+// and returns a manager open on it. Entry IDs are copied verbatim, so the fork
+// rebuilds the same context, compaction boundary included. The source file is
+// never written to.
+func (sm *Manager) Fork() (*Manager, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	from := sm.leafID
-	if leafID != "" {
-		if _, ok := sm.byIDs[leafID]; !ok {
-			return nil, fmt.Errorf("session: fork point %q is not on this session", leafID)
-		}
-		id := leafID
-		from = &id
-	}
-	return sm.forkLocked(from)
-}
-
-// forkLocked copies the branch ending at from (nil copies an empty session).
-// Requires sm.mu to be held.
-func (sm *Manager) forkLocked(from *string) (*Manager, error) {
 	// Without a session file the fork would invent a relative path and drop the
 	// copy into the process cwd.
 	if sm.sessionFile == "" {
 		return nil, errors.New("session: fork requires a persisted session")
 	}
+
 	var branch []MessageEntry
-	if from != nil {
-		branch = sm.getBranch(*from)
+	if sm.leafID != nil {
+		branch = sm.getBranch(*sm.leafID) // newest first
 		if len(branch) == 0 {
 			// A header-only fork would point its leaf at an entry it does not hold.
-			return nil, fmt.Errorf("session: fork could not resolve branch at leaf %q", *from)
+			return nil, fmt.Errorf("session: fork could not resolve branch at leaf %q", *sm.leafID)
 		}
+		slices.Reverse(branch)
 	}
 
-	dir := filepath.Dir(sm.sessionFile)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, fmt.Errorf("session: create fork directory: %w", err)
-	}
+	id := generateSessionID()
+	stamp := time.Now().Format("2006-01-02T15-04-05")
+	entries := make([]MessageEntry, 0, len(branch)+1)
+	entries = append(entries, SessionHeader{
+		Type:          EntrySession,
+		ID:            id,
+		Timestamp:     stamp,
+		Cwd:           sm.cwd,
+		ParentSession: sm.sessionID,
+	})
+	entries = append(entries, branch...)
 
-	parentID := sm.sessionID
-	var leafCopy *string
-	if from != nil {
-		id := *from
-		leafCopy = &id
-	}
-
-	// The source's hasAssistantMsg may reflect replies the fork point leaves
-	// behind (or off-branch ones), so recompute it from the copied branch.
-	hasAssistant := false
-	for _, entry := range branch {
-		if msg, ok := entry.(SessionMessageEntry); ok && msg.Message.Role == llm.RoleAssistant {
-			hasAssistant = true
-			break
-		}
-	}
-
-	const maxForkAttempts = 3
-	var lastErr error
-	for range maxForkAttempts {
-		newID := generateSessionID()
-		stamp := time.Now().Format("2006-01-02T15-04-05")
-		header := SessionHeader{
-			Type:          EntrySession,
-			ID:            newID,
-			Timestamp:     stamp,
-			Cwd:           sm.cwd,
-			ParentSession: parentID,
-		}
-		copied := make([]MessageEntry, 0, len(branch)+1)
-		copied = append(copied, header)
-		for _, entry := range slices.Backward(branch) {
-			copied = append(copied, entry)
-		}
-
-		byIDs := make(map[string]MessageEntry, len(copied))
-		for _, entry := range copied[1:] {
-			byIDs[entry.GetID()] = entry
-		}
-
-		dst := &Manager{
-			cwd: sm.cwd,
-			config: ManagerConfig{
-				sessionDir:  dir,
-				shouldFlush: true,
-				parentID:    parentID,
-			},
-			entries:         copied,
-			byIDs:           byIDs,
-			leafID:          leafCopy,
-			sessionID:       newID,
-			shouldFlush:     true,
-			sessionFile:     filepath.Join(dir, fmt.Sprintf("%s_%s.jsonl", stamp, newID)),
-			hasAssistantMsg: hasAssistant,
-		}
-		err := dst.writeExclusive()
-		switch {
-		case err == nil:
-			dst.flushed = true
-			return dst, nil
-		case errors.Is(err, fs.ErrExist):
-			lastErr = err // another process claimed this id; retry with a fresh one
-		default:
-			return nil, err
-		}
-	}
-	return nil, fmt.Errorf("session: could not allocate a fork session id: %w", lastErr)
-}
-
-// writeExclusive writes the whole session to a file that must not exist yet.
-// O_EXCL keeps a fork from truncating a session that already claimed its id.
-func (sm *Manager) writeExclusive() error {
-	f, err := os.OpenFile(sm.sessionFile, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	path := filepath.Join(filepath.Dir(sm.sessionFile), fmt.Sprintf("%s_%s.jsonl", stamp, id))
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
-		return fmt.Errorf("session: write fork %s: %w", sm.sessionFile, err)
+		return nil, fmt.Errorf("session: create fork %s: %w", path, err)
 	}
-	if err := sm.encodeEntries(f, sm.entries); err != nil {
-		_ = f.Close()
-		// A truncated fork would be listed with a short preview, so drop it
-		// instead of leaving a half-written session behind.
-		_ = os.Remove(sm.sessionFile)
-		return fmt.Errorf("session: write fork %s: %w", sm.sessionFile, err)
+	err = sm.encodeEntries(f, entries)
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
 	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(sm.sessionFile)
-		return fmt.Errorf("session: close fork %s: %w", sm.sessionFile, err)
+	if err != nil {
+		// A truncated fork would be listed with a short preview, so drop it.
+		_ = os.Remove(path)
+		return nil, fmt.Errorf("session: write fork %s: %w", path, err)
 	}
-	return nil
+	// The loader is the only reader of a session file, so let it build the
+	// manager: leaf, parents, assistant flag, and cwd come out by construction.
+	return OpenSession(path)
 }
 
 // ModelName returns the latest model selection on the current branch.
