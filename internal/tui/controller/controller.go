@@ -639,11 +639,11 @@ func (c *EngineController) NewSession() error {
 	return nil
 }
 
-// ForkSession copies the current session at its leaf into a new persisted
-// session and switches the controller to it. Order matters: the before-switch
-// hook runs first so a denied fork writes nothing, and the fork file is written
-// and bound to an engine before the live session is touched. Any failure
-// therefore leaves the source session active and its history intact.
+// ForkSession copies the active session's current branch into a new persisted
+// session and switches the controller to it. The before-switch hook runs first
+// so a denied fork writes nothing, and the fork file exists and is bound to an
+// engine before the live session is touched: any failure leaves the source
+// session active and its history intact.
 func (c *EngineController) ForkSession() (string, error) {
 	prevID, err := c.preflightSessionSwitch("fork", "")
 	if err != nil {
@@ -653,24 +653,15 @@ func (c *EngineController) ForkSession() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := c.adoptFork(forked, prevID); err != nil {
-		return "", err
-	}
-	return forked.ID(), nil
-}
-
-// adoptFork binds a written fork to an engine and only then retires the source.
-// A failure removes the fork file, leaving the source session active.
-func (c *EngineController) adoptFork(forked *agent.Session, prevID string) error {
 	cfg, err := c.resolveModel()
 	if err != nil {
 		c.discardFork(forked.ID())
-		return err
+		return "", err
 	}
 	eng, err := c.newEngine(cfg, c.Extensions(), forked)
 	if err != nil {
 		c.discardFork(forked.ID())
-		return err
+		return "", err
 	}
 	c.commitSessionSwitch("fork", prevID, forked.ID())
 	c.modelMu.Lock()
@@ -678,7 +669,7 @@ func (c *EngineController) adoptFork(forked *agent.Session, prevID string) error
 	c.modelCfg = cfg
 	c.modelMu.Unlock()
 	c.emitSessionStart("fork", forked.ID(), prevID)
-	return nil
+	return forked.ID(), nil
 }
 
 // discardFork drops a fork the controller never switched to, so a failed switch
