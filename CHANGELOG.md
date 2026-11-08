@@ -21,6 +21,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- `/new` now lists before `/sessions` in the slash command menu, so the
+  frequent "fresh session" action comes first.
 - Skills picker moved from the Ctrl+K command palette to a `/skill` slash
   command. Typing `/skill` opens a filterable list overlay (same picker as
   `/sessions` and `/branch`); accepting a row attaches the skill to the next
