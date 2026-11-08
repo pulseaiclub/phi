@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"github.com/pulseaiclub/phi/internal/components/listpicker"
 	"github.com/pulseaiclub/phi/internal/components/palette"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
@@ -21,6 +22,7 @@ type Builtin struct {
 	Registry *CommandRegistry
 	Sessions *SessionCommands
 	Branches *BranchCommands
+	Skills   *SkillsCommands
 	Ext      *ExtCommands
 }
 
@@ -53,6 +55,7 @@ func NewBuiltinRegistry(
 		ModelNames: append([]string(nil), modelNames...),
 	}
 	skills := &SkillsCommands{
+		Bus:        bus,
 		SkillPaths: skillPaths,
 		Add:        composer,
 	}
@@ -67,7 +70,7 @@ func NewBuiltinRegistry(
 	diff.Register(r)
 	code.Register(r)
 
-	return &Builtin{Registry: r, Sessions: sessions, Branches: branches, Ext: ext}
+	return &Builtin{Registry: r, Sessions: sessions, Branches: branches, Skills: skills, Ext: ext}
 }
 
 // Bind attaches late UI collaborators (Submitter, pickers, stream guard).
@@ -78,6 +81,7 @@ func (b *Builtin) Bind(
 	refreshPicker func(items []session.SessionMeta, currentID string),
 	openBranchPicker func(branches []gitx.Branch, recent []string, onAccept, onDelete func(name string)),
 	refreshBranchPicker func(branches []gitx.Branch, recent []string),
+	openSkillPicker func(items []listpicker.Item, cfg listpicker.ShowConfig, onAccept func(listpicker.Item)),
 	cwd string,
 	streamActive func() bool,
 ) {
@@ -90,4 +94,5 @@ func (b *Builtin) Bind(
 	b.Branches.RefreshOverlay = refreshBranchPicker
 	b.Branches.Dir = cwd
 	b.Branches.StreamActive = streamActive
+	b.Skills.OpenPicker = openSkillPicker
 }

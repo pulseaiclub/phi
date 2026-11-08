@@ -303,6 +303,23 @@ func itemMatches(item Item, q string) bool {
 	return strings.Contains(hay, q)
 }
 
+// leadingWidth is the leading-column width the current rows actually need.
+// Rows carrying no leading content would still pay the gutter — a blank
+// margin ahead of every name (skills have no marker) — so the column
+// collapses to zero. Lists that mix content with blanks, like a branch list's
+// ●, keep it so the marked row stays aligned with the rest.
+func (p *Picker) leadingWidth() int {
+	if p.commandMode {
+		return 0
+	}
+	for _, item := range p.rows() {
+		if item.Leading != "" {
+			return p.cfg.LeadingWidth
+		}
+	}
+	return 0
+}
+
 // commandWidth sizes the primary column for the offered commands: the name is
 // what the user types and what Run receives, so cutting it at the item width
 // would misreport what Enter does.
@@ -740,12 +757,13 @@ func (p *Picker) drawRows(
 		panel.Print(2, listY, components.TruncateToWidth(msg, boxW-3, ctx.Method), th.Muted, ctx.Method)
 		return
 	}
+	leadW := p.leadingWidth()
 	for i := range visible {
 		ri := i + p.scroll
 		if ri < 0 || ri >= len(p.filtered) {
 			break
 		}
-		p.drawRow(panel, ctx, th, boxW, listY+i, ri)
+		p.drawRow(panel, ctx, th, boxW, listY+i, ri, leadW)
 	}
 }
 
@@ -753,7 +771,7 @@ func (p *Picker) drawRow(
 	panel *components.Surface,
 	ctx components.DrawContext,
 	th components.Theme,
-	boxW, y, ri int,
+	boxW, y, ri, leadW int,
 ) {
 	item := p.rows()[p.filtered[ri].index]
 	sel := ri == p.Selected
@@ -770,12 +788,10 @@ func (p *Picker) drawRow(
 		muted = fg
 	}
 
-	leadW, primW := p.cfg.LeadingWidth, p.cfg.PrimaryWidth
+	primW := p.cfg.PrimaryWidth
 	if p.commandMode {
-		// Commands carry no leading column; skipping its width keeps every name
-		// lined up with the prompt instead of under a blank gutter. The primary
-		// column widens to the names (see commandWidth) so none is cut short.
-		leadW = 0
+		// The primary column widens to the names (see commandWidth) so none is
+		// cut short; leadingWidth already dropped the empty gutter.
 		primW = p.commandWidth(ctx.Method)
 	}
 
@@ -805,7 +821,9 @@ func (p *Picker) drawRow(
 		detail = "—"
 	}
 	avail := max(boxW-1-x, 1)
-	panel.Print(x, y, components.TruncateToWidth(detail, avail, ctx.Method), base, ctx.Method)
+	// A visible ellipsis, so a long description reads as elided rather than
+	// clipped by a rendering bug.
+	panel.Print(x, y, components.TruncateToWidthSuffix(detail, avail, "…", ctx.Method), base, ctx.Method)
 }
 
 func (p *Picker) drawHint(
