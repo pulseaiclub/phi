@@ -108,8 +108,7 @@ func (s *SessionCommands) dirAndID() (dir, currentID string) {
 
 // Accept resumes the chosen session (used by the session list overlay).
 func (s *SessionCommands) Accept(id string) {
-	if s.StreamActive != nil && s.StreamActive() {
-		publishToast(s.Bus, "Cannot resume while a reply or command is running", toast.ToastWarning, 3*time.Second)
+	if s.blocked("resume") {
 		return
 	}
 	s.resume(id)
@@ -142,8 +141,7 @@ func (s *SessionCommands) resume(id string) {
 // Deleting the current session also resets to a fresh one: the engine must
 // not keep appending to a file the user asked to remove.
 func (s *SessionCommands) Delete(id string) {
-	if s.StreamActive != nil && s.StreamActive() {
-		publishToast(s.Bus, "Cannot delete while a reply or command is running", toast.ToastWarning, 3*time.Second)
+	if s.blocked("delete") {
 		return
 	}
 	dir, currentID := s.dirAndID()
@@ -174,13 +172,7 @@ func (s *SessionCommands) refreshPicker() {
 
 // NewSession starts a new empty session. Blocks while a stream or extension command is active.
 func (s *SessionCommands) NewSession() {
-	if s.StreamActive != nil && s.StreamActive() {
-		publishToast(
-			s.Bus,
-			"Cannot start a new session while a reply or command is running",
-			toast.ToastWarning,
-			3*time.Second,
-		)
+	if s.blocked("start a new session") {
 		return
 	}
 	if err := s.Ctrl.NewSession(); err != nil {
