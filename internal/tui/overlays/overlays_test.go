@@ -3,7 +3,6 @@ package overlays
 import (
 	"testing"
 
-	"github.com/pulseaiclub/xui"
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/components"
@@ -13,6 +12,42 @@ import (
 
 func testOverlays(activity *controller.ActivityHandler) *Overlays {
 	return NewOverlays(components.DefaultTheme(), activity, nil, nil, nil, nil)
+}
+
+func TestConfirmRestoresPreviousActivity(t *testing.T) {
+	for _, previous := range []controller.Activity{controller.ActivityIdle, controller.ActivityTools} {
+		activity := controller.NewActivityHandler()
+		activity.Apply(previous)
+		o := testOverlays(activity)
+		reply := make(chan controller.ExtConfirmReply, 1)
+		request := controller.OverlayMsg{Kind: controller.OverlayExtConfirm, ConfirmReply: reply}
+		o.beginExtConfirm(request)
+		require.Equal(t, controller.ActivityAwaitingApproval, activity.Current)
+		o.resolveExtConfirm(controller.ExtConfirmReply{OK: true})
+		require.Equal(t, previous, activity.Current)
+		require.True(t, (<-reply).OK)
+		o.beginExtConfirm(request)
+		o.dismissExtConfirm()
+		require.Equal(t, previous, activity.Current)
+		require.Empty(t, reply, "timeout dismissal must not send a reply")
+	}
+}
+
+func TestConfirmPreservesUpdatedActivity(t *testing.T) {
+	for _, action := range []string{"reply", "dismiss"} {
+		t.Run(action, func(t *testing.T) {
+			activity := controller.NewActivityHandler()
+			o := testOverlays(activity)
+			o.beginExtConfirm(controller.OverlayMsg{Kind: controller.OverlayExtConfirm})
+			activity.Apply(controller.ActivityCancelled)
+			if action == "reply" {
+				o.resolveExtConfirm(controller.ExtConfirmReply{OK: true})
+			} else {
+				o.dismissExtConfirm()
+			}
+			require.Equal(t, controller.ActivityCancelled, activity.Current)
+		})
+	}
 }
 
 func TestResolvePermissionSendsReply(t *testing.T) {
@@ -93,61 +128,4 @@ func TestFormatAskHeader(t *testing.T) {
 	h, d := formatAskHeader(permission.Request{Kind: permission.KindWrite, Paths: []string{"/tmp/a"}})
 	require.Equal(t, "Allow creating file:", h)
 	require.Equal(t, "/tmp/a", d)
-}
-
-func TestContinueAskResolveContinue(t *testing.T) {
-	activity := controller.NewActivityHandler()
-	o := testOverlays(activity)
-	reply := make(chan controller.ContinueReply, 1)
-	o.beginContinueAsk(controller.OverlayMsg{
-		Kind:      controller.OverlayContinueAsk,
-		MaxRounds: 64,
-		ContReply: reply,
-	})
-	require.NotNil(t, o.cont, "expected continueAsk")
-	require.Equal(t, 64, o.cont.maxRounds)
-	require.Equal(t, controller.ActivityAwaitingApproval, activity.Current)
-	o.resolveContinue(controller.ContinueReply{Continue: true})
-	require.Nil(t, o.cont, "expected continueAsk cleared")
-	select {
-	case r := <-reply:
-		require.True(t, r.Continue, "expected Continue=true")
-	default:
-		require.Fail(t, "expected reply")
-	}
-}
-
-func TestContinueAskEscapeStops(t *testing.T) {
-	o := testOverlays(controller.NewActivityHandler())
-	reply := make(chan controller.ContinueReply, 1)
-	o.beginContinueAsk(controller.OverlayMsg{
-		Kind:      controller.OverlayContinueAsk,
-		MaxRounds: 2,
-		ContReply: reply,
-	})
-	ctx := &components.EventContext{}
-	_ = o.handleContinueKey(ctx, xui.KeyEvent{Press: true, Code: xui.KeyEscape})
-	select {
-	case r := <-reply:
-		require.False(t, r.Continue, "escape should stop")
-	default:
-		require.Fail(t, "expected reply on escape")
-	}
-}
-
-func TestContinueDismissClearsOverlay(t *testing.T) {
-	o := testOverlays(controller.NewActivityHandler())
-	reply := make(chan controller.ContinueReply, 1)
-	o.beginContinueAsk(controller.OverlayMsg{
-		Kind:      controller.OverlayContinueAsk,
-		MaxRounds: 2,
-		ContReply: reply,
-	})
-	o.Apply(controller.OverlayMsg{Kind: controller.OverlayContinueDismiss})
-	require.Nil(t, o.cont, "overlay should clear without consuming reply")
-	select {
-	case <-reply:
-		require.Fail(t, "dismiss must not send on reply")
-	default:
-	}
 }

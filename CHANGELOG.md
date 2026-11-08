@@ -10,6 +10,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Removed
 
+- TUI/agent: removed the "Continue for another N?" prompt when the tool-round
+  budget is exhausted. The loop now always stops with `ErrMaxRounds` (exit
+  code 2 in headless runs); raise the budget in the palette to go further.
+- Extensions: removed the `turn_stopping` hook and the `InterceptResp.Continue`
+  wire field (PXB tag 12) across the Go host and the Go / Rust / TS SDKs
+  (`OnTurnStopping` / `on_turn_stopping` / `onTurnStopping`). Wire event code
+  14 is retired; a `tool_result` handler returning `Stop` remains the way to
+  end the loop early.
+
 ### Changed
 
 ### Added
@@ -17,6 +26,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - First launch with no config opens a two-field setup dialog (model name + API key) instead of exiting; a preset name fills in the rest, and Esc keeps the `phi config` / environment-variable advice.
 
 ### Fixed
+
+- Child agents no longer overwrite shared extension host session metadata or
+  the parent engine's built-in tool list.
+- Extension confirmation dialogs restore the prior activity, so idle slash
+  commands remain idle after confirmation and expired cancellation statuses
+  do not reappear.
 
 ### Security
 

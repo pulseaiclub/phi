@@ -25,12 +25,11 @@ const (
 
 // Executor runs model tool_calls against a tool registry and emits ToolData for the UI.
 type Executor struct {
-	registry  tooldef.Registry
-	gate      permission.Gate
-	ask       permission.AskFunc
-	ext       *extension.Runner // nil = disabled; methods are nil-safe no-ops
-	sessionID string
-	cwd       string
+	registry tooldef.Registry
+	gate     permission.Gate
+	ask      permission.AskFunc
+	ext      *extension.Runner // nil = disabled; methods are nil-safe no-ops
+	cwd      string
 	// askMu serializes approval prompts: a concurrent read-only batch can
 	// otherwise pop multiple dialogs / interleave stdin reads at once.
 	askMu sync.Mutex
@@ -47,13 +46,6 @@ func NewExecutor(
 		gate = permission.AllowAll{}
 	}
 	return &Executor{registry: registry, gate: gate, ask: ask, ext: extRunner}
-}
-
-// SetMeta attaches session identity used in extension Event payloads.
-func (e *Executor) SetMeta(sessionID, cwd string) {
-	e.sessionID = sessionID
-	e.cwd = cwd
-	e.ext.SetMeta(sessionID, cwd)
 }
 
 // Run executes tool calls and yields ToolData updates via emit.

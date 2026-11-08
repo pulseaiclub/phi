@@ -28,17 +28,11 @@ import (
 )
 
 // ErrMaxRounds is returned (wrapped) by Loop when the model exceeds the
-// configured tool-round budget and continuation is declined or unavailable.
-// Callers can distinguish it from other runtime errors with errors.Is,
-// e.g. for a dedicated exit code.
+// configured tool-round budget. Callers can distinguish it from other runtime
+// errors with errors.Is, e.g. for a dedicated exit code.
 var ErrMaxRounds = errors.New("exceeded maximum tool rounds")
 
 const defaultMaxToolRounds = 64
-
-// ContinueFunc asks whether to grant another maxRounds budget after the
-// current budget is exhausted. Nil means hard-fail with ErrMaxRounds
-// (headless / sub-agent default). True continues the loop with a fresh budget.
-type ContinueFunc func(ctx context.Context, maxRounds int) (bool, error)
 
 // Engine drives the agent loop: stream → tools → stream…
 // and yields session.Event for the TUI reducer. Context compaction is owned
@@ -51,7 +45,6 @@ type Engine struct {
 	hooks        llmclient.Hooks
 	gate         permission.Gate
 	ask          permission.AskFunc
-	continueAsk  ContinueFunc
 	jobs         *job.Manager
 	extensions   *extension.Runner // nil = disabled; all methods are nil-safe no-ops
 	baseTools    []tooldef.Tool    // nil = DefaultTools; preserved across rebind
@@ -76,7 +69,6 @@ func NewEngine(model llm.ModelConfig, sess *Session, opts ...EngineOption) (*Eng
 		session:      sess,
 		gate:         cfg.gate,
 		ask:          cfg.ask,
-		continueAsk:  cfg.continueAsk,
 		jobs:         cfg.jobs,
 		extensions:   cfg.extensions,
 		omitExtTools: cfg.omitExtTools,
@@ -88,11 +80,7 @@ func NewEngine(model llm.ModelConfig, sess *Session, opts ...EngineOption) (*Eng
 	}
 	engine.SetMaxRounds(maxRounds)
 	engine.baseTools = cfg.tools
-	engine.extensions.SetBaseTools(engine.buildCoreTools(engine.baseTools))
-	engine.extensions.SetMeta(engine.SessionID(), engine.SessionCwd())
-	toolList := engine.buildToolList(engine.baseTools)
-	engine.client = engine.newChatClient(toolList)
-	engine.bindExecutor(tooldef.NewRegistry(toolList))
+	engine.rebindTools()
 	return engine, nil
 }
 
@@ -182,10 +170,15 @@ func (engine *Engine) SetMaxRounds(n int) {
 }
 
 func (engine *Engine) rebindTools() {
-	engine.extensions.SetBaseTools(engine.buildCoreTools(engine.baseTools))
+	// Child engines share the runner, but the parent owns its host state.
+	if !engine.omitExtTools {
+		engine.extensions.SetBaseTools(engine.buildCoreTools(engine.baseTools))
+		engine.extensions.SetMeta(engine.SessionID(), engine.SessionCwd())
+	}
 	toolList := engine.buildToolList(engine.baseTools)
 	engine.client = engine.newChatClient(toolList)
-	engine.bindExecutor(tooldef.NewRegistry(toolList))
+	engine.executor = NewExecutor(tooldef.NewRegistry(toolList), engine.gate, engine.ask, engine.extensions)
+	engine.executor.cwd = engine.SessionCwd()
 }
 
 func (engine *Engine) systemPrompt() string {
@@ -208,11 +201,6 @@ func (engine *Engine) systemPrompt() string {
 	)
 }
 
-func (engine *Engine) bindExecutor(registry tooldef.Registry) {
-	engine.executor = NewExecutor(registry, engine.gate, engine.ask, engine.extensions)
-	engine.executor.SetMeta(engine.SessionID(), engine.SessionCwd())
-}
-
 // HasTool reports whether a tool is currently registered on the executor.
 func (engine *Engine) HasTool(name string) bool {
 	_, ok := engine.executor.registry[name]
@@ -227,12 +215,6 @@ func (engine *Engine) SetPermission(gate permission.Gate, ask permission.AskFunc
 	engine.executor.ask = ask
 	// Spawn handlers capture the gate for each parent configuration.
 	engine.executor.registry = tooldef.NewRegistry(engine.buildToolList(engine.baseTools))
-}
-
-// SetContinueAsk sets the handler invoked when the tool-round budget is exhausted.
-// Pass nil to hard-fail with ErrMaxRounds (default for headless runs).
-func (engine *Engine) SetContinueAsk(fn ContinueFunc) {
-	engine.continueAsk = fn
 }
 
 // SetExtensions replaces the extension runner. Pass nil to disable extensions.
@@ -404,22 +386,8 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			// leave an unexecuted tool call in the session or UI.
 			maxRounds := int(engine.maxRounds.Load())
 			if len(msg.ToolCalls) > 0 && toolRounds >= maxRounds {
-				if engine.continueAsk == nil {
-					yield(nil, fmt.Errorf("agent: %w (%d)", ErrMaxRounds, maxRounds))
-					return
-				}
-				ok, askErr := engine.continueAsk(ctx, maxRounds)
-				if askErr != nil {
-					yield(nil, askErr)
-					return
-				}
-				if !ok {
-					yield(nil, fmt.Errorf("agent: %w (%d)", ErrMaxRounds, maxRounds))
-					return
-				}
-				// Granted: reset the budget; the current and following tool
-				// rounds run under the fresh budget.
-				toolRounds = 0
+				yield(nil, fmt.Errorf("agent: %w (%d)", ErrMaxRounds, maxRounds))
+				return
 			}
 			if !yield(completeEvent, nil) {
 				return
@@ -432,19 +400,6 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 
 			if len(msg.ToolCalls) == 0 {
 				engine.extensions.EmitTurnEnd(toolRounds)
-				if cont, steer := engine.extensions.EmitTurnStopping(toolRounds); cont {
-					steerMsg := steer
-					if steerMsg == "" {
-						steerMsg = "continue"
-					}
-					if err := engine.session.Append(
-						llm.Message{Role: llm.RoleUser, Content: steerMsg},
-					); err != nil {
-						yield(nil, err)
-						return
-					}
-					continue
-				}
 				// Turn finished — compact using this assistant's usage. The
 				// threshold reads context size the same way the composer does.
 				if _, err := engine.runCompact(ctx, yield, msg.Usage.ContextTokens(), false); err != nil {

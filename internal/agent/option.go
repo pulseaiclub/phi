@@ -15,7 +15,6 @@ type EngineOption func(*engineConfig)
 type engineConfig struct {
 	gate         permission.Gate
 	ask          permission.AskFunc
-	continueAsk  ContinueFunc
 	tools        []tooldef.Tool
 	maxRounds    int
 	jobs         *job.Manager
@@ -33,11 +32,6 @@ func WithGate(gate permission.Gate) EngineOption {
 // WithAsk sets the ask callback (nil = deny on Ask).
 func WithAsk(ask permission.AskFunc) EngineOption {
 	return func(c *engineConfig) { c.ask = ask }
-}
-
-// WithContinueAsk sets the max-rounds continuation prompt (nil = ErrMaxRounds).
-func WithContinueAsk(fn ContinueFunc) EngineOption {
-	return func(c *engineConfig) { c.continueAsk = fn }
 }
 
 // WithTools sets the base tool list (nil = tools.DefaultTools(mcp) when an MCP
@@ -62,6 +56,7 @@ func WithExtensions(runner *extension.Runner) EngineOption {
 }
 
 // WithOmitExtensionTools keeps Runner events but skips RegisterTool merge (sub-agents).
+// The child also leaves the shared runner's host metadata and base tools with the parent.
 func WithOmitExtensionTools(omit bool) EngineOption {
 	return func(c *engineConfig) { c.omitExtTools = omit }
 }

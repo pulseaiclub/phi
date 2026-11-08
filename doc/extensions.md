@@ -14,8 +14,7 @@ Shaped for subprocess PXB:
 user_input ──(transform|handled)──► before_agent_start ──► agent_start
   └─ turn_start → LLM → tool_execution_start → tool_call → Gate/Ask → Run
        → tool_result → tool_execution_end → turn_end
-  └─ (no tools) turn_stopping ──(continue+message)──► another turn
-  └─ agent_end
+  └─ (no tools) agent_end
 session_before_switch → session_shutdown → session_start
 session_compact (after auto compaction)
 ```
@@ -26,7 +25,6 @@ session_compact (after auto compaction)
 | `before_agent_start` | intercept | rewrite prompt / append context |
 | `tool_call` | intercept | block / rewrite args / context |
 | `tool_result` | intercept | rewrite content / context / **Stop** agent loop |
-| `turn_stopping` | intercept | `Continue` + steer message |
 | `session_before_switch` | intercept | cancel switch |
 | `session_*` / `agent_*` / `turn_*` / `tool_execution_*` / `session_compact` | subscribe | observe (payload via `SubscribeEvent`) |
 
@@ -158,10 +156,6 @@ func main() {
 		// return &ext.ToolResultResult{Stop: true} to end the agent loop
 		return nil
 	})
-	m.OnTurnStopping(func(ev ext.TurnStoppingEvent) *ext.TurnStoppingResult {
-		// return &ext.TurnStoppingResult{Continue: true, Message: "check X"} to steer
-		return nil
-	})
 	m.SubscribeEvent(ext.EventSessionStart, func(ev pxb.EventNotify) {
 		_ = ev // Reason, PreviousSessionID, …
 	})
@@ -238,10 +232,6 @@ fn main() -> Result<(), phi::Error> {
     });
     m.on_tool_result(|_ev| {
         // Some(phi::ToolResultResult { stop: true, ..Default::default() }) ends the agent loop
-        None
-    });
-    m.on_turn_stopping(|_ev| {
-        // Some(phi::TurnStoppingResult { continue_: true, message: "check X".into(), ..Default::default() }) steers
         None
     });
     m.subscribe(pxb::Event::SessionStart, |_ev| {});
@@ -549,6 +539,6 @@ so its mechanisms can be lifted one at a time:
 |----------|-----------|
 | PreToolUse deny | `OnToolCall` → `Block: true` |
 | PostToolUse context | `OnToolResult` → `Context` |
-| Stop / steer | `OnTurnStopping` / `OnToolResult{Stop}` |
+| Stop | `OnToolResult{Stop}` |
 | UserPromptSubmit | `OnUserInput` |
 | Command slash | `RegisterCommand` |

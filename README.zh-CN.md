@@ -362,8 +362,8 @@ phi run -p "fix the failing test in internal/tools"
 退出码：`0` 成功 · `1` 运行时/LLM 错误 · `2` 达到最大轮数 ·
 `3` 配置/用法错误。
 
-交互式 TUI 在工具轮数耗尽时会询问 Continue / Stop。
-无头 `phi run` 没有确认界面，因此直接以退出码 2 结束。
+工具轮数耗尽时，运行会直接以退出码 2 停止；交互式 TUI 与无头
+`phi run` 行为一致。
 
 无头模式下，权限 `ask` 的决策会被拒绝（没有审批界面），因此无需额外参数
 即可获得 `readonly` 级别的安全性。跑 benchmark 需要任意 shell（`pytest`、

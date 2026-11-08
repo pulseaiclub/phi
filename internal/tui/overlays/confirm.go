@@ -18,6 +18,7 @@ type confirmAskState struct {
 	danger   bool
 	selected int // 0 = yes, 1 = no
 	reply    chan controller.ExtConfirmReply
+	previous controller.Activity
 }
 
 func newConfirmAskState(msg controller.OverlayMsg) *confirmAskState {
@@ -61,9 +62,6 @@ func (o *Overlays) beginExtConfirm(msg controller.OverlayMsg) {
 	if o.perm != nil {
 		o.resolvePermission(controller.AskReply{})
 	}
-	if o.cont != nil {
-		o.resolveContinue(controller.ContinueReply{})
-	}
 	if o.err != nil {
 		o.resolveError(controller.ErrorReply{})
 	}
@@ -72,6 +70,9 @@ func (o *Overlays) beginExtConfirm(msg controller.OverlayMsg) {
 		o.composer.HidePalette()
 	}
 	o.confirm = newConfirmAskState(msg)
+	if o.activity != nil {
+		o.confirm.previous = o.activity.Current
+	}
 	o.activity.Apply(controller.ActivityAwaitingApproval)
 	if o.focusEditor != nil {
 		o.focusEditor()
@@ -79,13 +80,13 @@ func (o *Overlays) beginExtConfirm(msg controller.OverlayMsg) {
 }
 
 func (o *Overlays) dismissExtConfirm() {
-	was := o.confirm != nil
+	st := o.confirm
 	o.confirm = nil
-	if !was {
+	if st == nil {
 		return
 	}
 	if o.activity != nil && o.activity.Current == controller.ActivityAwaitingApproval {
-		o.activity.Apply(controller.ActivityTools)
+		o.activity.Apply(st.previous)
 	}
 	if o.focusChat != nil {
 		o.focusChat()
@@ -99,7 +100,7 @@ func (o *Overlays) resolveExtConfirm(r controller.ExtConfirmReply) {
 	}
 	o.confirm = nil
 	if o.activity != nil && o.activity.Current == controller.ActivityAwaitingApproval {
-		o.activity.Apply(controller.ActivityTools)
+		o.activity.Apply(st.previous)
 	}
 	if o.focusChat != nil {
 		o.focusChat()
@@ -125,6 +126,17 @@ func (o *Overlays) ConfirmActive() bool {
 // ResolveConfirm sends a confirm reply and clears the overlay.
 func (o *Overlays) ResolveConfirm(r controller.ExtConfirmReply) {
 	o.resolveExtConfirm(r)
+}
+
+// ClearActivityIf also expires activity hidden by a confirmation so closing
+// the dialog cannot restore an expired status.
+func (o *Overlays) ClearActivityIf(a controller.Activity) {
+	if o.confirm != nil && o.confirm.previous == a {
+		o.confirm.previous = controller.ActivityIdle
+	}
+	if o.activity.Current == a {
+		o.activity.Apply(controller.ActivityIdle)
+	}
 }
 
 func (o *Overlays) handleConfirmKey(ctx *components.EventContext, e xui.KeyEvent) bool {

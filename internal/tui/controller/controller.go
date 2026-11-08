@@ -424,18 +424,6 @@ func (c *EngineController) askPermission(
 	return permission.AskResult{Approved: r.Approved, Feedback: r.Feedback}, nil
 }
 
-func (c *EngineController) askContinue(ctx context.Context, maxRounds int) (bool, error) {
-	reply := make(chan ContinueReply, 1)
-	c.publish(OverlayMsg{Kind: OverlayContinueAsk, MaxRounds: maxRounds, ContReply: reply})
-	r, err := waitReply(ctx, reply, c.askTimeout(), func() {
-		c.publish(OverlayMsg{Kind: OverlayContinueDismiss})
-	})
-	if err != nil {
-		return false, err
-	}
-	return r.Continue, nil
-}
-
 func (c *EngineController) askExtConfirm(req ext.ConfirmRequest) ext.ConfirmReply {
 	reply := make(chan ExtConfirmReply, 1)
 	c.publish(OverlayMsg{
@@ -473,7 +461,6 @@ func (c *EngineController) SetModel(name string) error {
 	c.Cancel()
 	c.initGate(c.proj.Config().Permissions)
 	c.engine.SetPermission(c.gate, c.askPermission)
-	c.engine.SetContinueAsk(c.askContinue)
 	c.engine.SetJobs(c.engineJobs())
 	if _, _, err := c.ReloadExtensions(); err != nil {
 		debuglog.Logf("extension: reload on SetModel: %v", err)
@@ -689,7 +676,6 @@ func (c *EngineController) openEngine(
 	eng, err := agent.NewEngine(cfg, sess,
 		agent.WithGate(c.gate),
 		agent.WithAsk(c.askPermission),
-		agent.WithContinueAsk(c.askContinue),
 		agent.WithJobs(c.engineJobs()),
 		agent.WithExtensions(extRunner),
 		agent.WithMCP(c.mcpPool),

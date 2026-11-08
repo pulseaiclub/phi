@@ -10,7 +10,7 @@ cmd/main.go
        ├─ TranscriptPane   snap, list, mapper, subagents, welcome, text selection
        ├─ ComposerPane     chat, @/slash/?/! pickers, palette (input only)
        ├─ FooterChrome     bottom row for extension status and update hints
-       ├─ Overlays         permission ask, continue ask
+       ├─ Overlays         permission ask, ext-confirm
        ├─ DiffPane         full-screen git diff review (`/diff`)
        ├─ CodePane         full-screen source viewer (`/code`)
        └─ Submitter        submit / cancel / slash / bash → Controller
@@ -24,7 +24,7 @@ cmd/main.go
 | `TranscriptPane` | `MessageList`, `Mapper`, `SubagentStore`, `welcome`, `textSel` | `theme`, `spinner` ref from editor |
 | `ComposerPane` | `ChatInput`, pickers, `palette` | callbacks `onSubmit`, `onCancel`, `onRedraw` |
 | `FooterChrome` | drawing theme | immutable `State` passed to `Draw` |
-| `Overlays` | `permAskState`, `continueAskState` | `activity` ref, reply callbacks |
+| `Overlays` | `permAskState`, `confirmAskState` | `activity` ref, reply callbacks |
 | `DiffPane` | review overlay (rows, notes, search) | `cwd`, submit/copy/toast callbacks |
 | `CodePane` | source overlay (lines, caret, selection) | `cwd`, add-to-chat/toast callbacks |
 | `Submitter` | `BashRunner` | `Controller`, `Bus`, `CommandRegistry`, pane refs |
@@ -42,7 +42,7 @@ internal/tui/
 ├── transcript/             # Mapper, SubagentStore, TranscriptPane
 ├── composer/               # ComposerPane, Wire(), Input iface
 ├── footer/                 # FooterChrome, token label helpers
-├── overlays/               # permission + continue ask
+├── overlays/               # permission + ext-confirm ask
 ├── diffpane/               # git diff review overlay (`/diff`)
 ├── codepane/               # source viewer overlay (`/code`)
 ├── submit/                 # Submitter, BashRunner
@@ -57,7 +57,7 @@ internal/tui/
 | `transcript` | Projects `session.Event` → message list; sub-agent rows; copy selection |
 | `composer` | Keyboard routing for chat, `/` slash, `?` shortcuts, `@` mention, `!` shell completion, Ctrl+K palette |
 | `footer` | Status label helpers and bottom footer row renderer |
-| `overlays` | Modal permission / continue-ask panels; replaces composer when active |
+| `overlays` | Modal permission / ext-confirm / error panels; replaces composer when active |
 | `diffpane` | Full-screen git diff review; notes stay in memory |
 | `codepane` | Full-screen source viewer: syntax highlight, caret, line selection |
 | `submit` | User submit path: agent prompt, slash commands, `!bash`, cancel |
@@ -157,7 +157,7 @@ How data crosses the UI/domain boundary — one rule per direction:
 | ---------------- | ------- |
 | `SessionEventMsg`, `JobProgressMsg` | `TranscriptPane` (in `drainBus`) |
 | `SubmitMsg`, `CancelStreamMsg` | `Submitter` |
-| `OverlayMsg` (permission / continue / ext-confirm ask+dismiss) | `Overlays` |
+| `OverlayMsg` (permission / ext-confirm ask+dismiss) | `Overlays` |
 | `FooterMsg` (activity / clear-if / update hint) | `Editor` / `ActivityHandler` |
 | `ExtSessionEffectsMsg` | `Editor` (+ toast when set) |
 | `MentionResultsMsg`, `BranchLabelMsg` | `ComposerPane` |
@@ -228,11 +228,11 @@ Esc / composer cancel
   → FooterMsg{Kind: FooterClearIfActivity} when activity was cancelled
 ```
 
-### 4. Permission / continue ask
+### 4. Permission / ext-confirm ask
 
 ```text
 Engine needs approval
-  → Controller publishes OverlayMsg (permission / continue / ext-confirm ask)
+  → Controller publishes OverlayMsg (permission / ext-confirm ask)
   → Overlays.Apply → replaces composer bottom panel
   → user keys → Overlays → Controller reply channel
   → OverlayMsg dismiss Kind on timeout/cancel

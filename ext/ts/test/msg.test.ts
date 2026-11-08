@@ -154,7 +154,6 @@ describe("messages", () => {
       toast: "t",
       handled: true,
       prompt: "p",
-      continue: true,
     });
     roundtrip<EventNotify>(encodeEventNotify, decodeEventNotify, {
       event: 5,
