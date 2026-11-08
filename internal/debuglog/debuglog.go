@@ -21,9 +21,15 @@ var (
 func Enabled() bool {
 	mu.Lock()
 	defer mu.Unlock()
+	return enabledLocked()
+}
+
+// enabledLocked reports whether logging is on; mu must be held.
+func enabledLocked() bool {
 	if !checked {
 		checked = true
-		enabled = os.Getenv("PHI_DEBUG") == "1" || strings.EqualFold(os.Getenv("PHI_DEBUG"), "true")
+		v := os.Getenv("PHI_DEBUG")
+		enabled = v == "1" || strings.EqualFold(v, "true")
 	}
 	return enabled
 }
@@ -62,17 +68,17 @@ func openLocked() error {
 
 // Logf writes a timestamped line when PHI_DEBUG is set.
 func Logf(format string, args ...any) {
-	if !Enabled() {
-		return
-	}
 	mu.Lock()
 	defer mu.Unlock()
+	if !enabledLocked() {
+		return
+	}
 	if err := openLocked(); err != nil {
 		return
 	}
 	_, _ = fmt.Fprintf(file, "%s ", time.Now().Format("15:04:05.000"))
 	_, _ = fmt.Fprintf(file, format, args...)
-	if format == "" || format[len(format)-1] != '\n' {
+	if !strings.HasSuffix(format, "\n") {
 		_, _ = fmt.Fprintln(file)
 	}
 }
@@ -94,7 +100,7 @@ func DumpRunes(label, s string) {
 			b.WriteString(" <TAB>")
 		case r < 0x20 || r == 0x7f:
 			b.WriteString(" <CTRL>")
-		case r >= 0x2e80 && r <= 0xa4cf, r >= 0x3400 && r <= 0x4dbf, r >= 0x20000 && r <= 0x3fffd:
+		case r >= 0x2e80 && r <= 0xa4cf, r >= 0x20000 && r <= 0x3fffd:
 			b.WriteString(" <WIDE?>")
 		}
 		b.WriteByte('\n')
