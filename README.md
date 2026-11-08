@@ -256,11 +256,11 @@ syntax highlighting. Structural markers (`#`, `` ` ``, `*`) are stripped.
 The editor supports:
 
 - `@` — fuzzy file mention picker (type `@` and start typing a path)
-- `/` — slash command picker (`/sessions`, `/branch`, `/new`, `/diff`, `/code`)
+- `/` — slash command picker (`/sessions`, `/branch`, `/skill`, `/new`, `/diff`, `/code`)
 - `?` — shortcut help picker (lists `/`, `!`, `@`, and key bindings; `Esc` closes)
 - `!command` — run a shell command locally and stream its output into the
   transcript (see [Commands](#commands))
-- `Ctrl+K` — command palette: settings → model / theme / permissions / agents (incl. per-role models), skills, hooks
+- `Ctrl+K` — command palette: settings → model / theme / permissions / agents (incl. per-role models), hooks
 
 ### Keyboard shortcuts
 
@@ -434,13 +434,13 @@ Instructions the agent should follow when this skill is relevant.
 ```
 
 `disable-model-invocation: true` keeps a skill out of the system prompt catalog
-— good for the ones you only want on explicit request. It stays in the skills
-panel and is still applied when you pick it there. Only a case-insensitive
+— good for the ones you only want on explicit request. It stays in the `/skill`
+list and is still applied when you pick it there. Only a case-insensitive
 `true` counts; any other value means `false`. This is a catalog filter, not
 access control: the model can still find the file with `ls` / `find`.
 
-In the TUI, add skills from the palette (skills → list), then submit the
-message with the selected skills applied.
+In the TUI, type `/skill` and pick a row from the list, then submit the message
+with the selected skills applied.
 
 ## Permissions
 
