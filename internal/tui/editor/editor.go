@@ -174,6 +174,7 @@ func NewEditor(
 		e.composer.RefreshSessionList,
 		e.composer.ShowBranchList,
 		e.composer.RefreshBranchList,
+		e.showSkillList,
 		e.cwd,
 		e.submitter.StreamActive,
 	)
@@ -491,6 +492,17 @@ func (e *Editor) addPendingRef(ref chat.Ref) {
 // accept/delete handlers.
 func (e *Editor) showSessionList(items []session.SessionMeta, currentID string) {
 	e.composer.ShowSessionList(items, currentID, e.sessions.Accept, e.sessions.Delete)
+}
+
+// showSkillList opens the skills picker bound to the skills commands' accept
+// handler. /skill is a slash command, not a Ctrl+K palette entry: attaching a
+// skill belongs to composing a turn.
+func (e *Editor) showSkillList(
+	items []listpicker.Item,
+	cfg listpicker.ShowConfig,
+	onAccept func(listpicker.Item),
+) {
+	e.composer.ShowList(items, cfg, onAccept, nil)
 }
 
 // Draw renders the editor surface for the given draw context.

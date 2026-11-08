@@ -1,14 +1,25 @@
 package commands
 
 import (
-	"github.com/pulseaiclub/phi/internal/components/palette"
+	"time"
+
+	"github.com/pulseaiclub/phi/internal/components/listpicker"
+	"github.com/pulseaiclub/phi/internal/components/listrows"
+	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/llm/skills"
+	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
-// SkillsCommands owns the skills palette command.
+// SkillsCommands owns the /skill slash command, which opens a listpicker.
+// It is intentionally a slash command, not a Ctrl+K palette entry: picking a
+// skill is part of composing a turn, not a global action.
 type SkillsCommands struct {
+	Bus        *controller.Bus
 	SkillPaths []string
-	Add        skillAdder
+	// Add attaches a chosen skill to the composer.
+	Add skillAdder
+	// OpenPicker opens the skills list overlay (wired by Builtin.Bind).
+	OpenPicker func(items []listpicker.Item, cfg listpicker.ShowConfig, onAccept func(listpicker.Item))
 }
 
 // skillAdder adds a pending skill to the composer.
@@ -16,61 +27,41 @@ type skillAdder interface {
 	AddPendingSkill(name string)
 }
 
-// Register wires the skills palette entry into r.
+// Register wires /skill into r as a slash command.
 func (s *SkillsCommands) Register(r *CommandRegistry) {
 	if r == nil {
 		return
 	}
 	r.Register(Command{
-		Name: "skills",
-		Build: func(_ Context) palette.PaletteCommand {
-			return buildSkillsPalette(s.SkillPaths, s.add)
+		Name:        "skill",
+		Description: "Attach a skill to the next turn — /skill",
+		Slash:       true,
+		Insert:      "/skill",
+		Run: func(_ Context, _ []string) error {
+			s.Show()
+			return nil
 		},
 	})
 }
 
-func (s *SkillsCommands) add(name string) {
-	if s.Add == nil {
+// Show loads skills from disk and opens the picker. Loading is one walk of the
+// skill roots, so it runs inline like /sessions does.
+func (s *SkillsCommands) Show() {
+	list := skills.LoadAll(s.SkillPaths)
+	if len(list) == 0 {
+		publishToast(s.Bus, "No skills found", toast.ToastWarning, 3*time.Second)
 		return
 	}
-	s.Add.AddPendingSkill(name)
+	if s.OpenPicker == nil {
+		return
+	}
+	s.OpenPicker(listrows.SkillItems(list), listrows.SkillConfig(), s.accept)
 }
 
-func buildSkillsPalette(skillPaths []string, add func(string)) palette.PaletteCommand {
-	submenu := skillSubcommands(skillPaths, add)
-	return palette.PaletteCommand{
-		ID:           "skills",
-		Noun:         "skills",
-		Verb:         "invoke",
-		Keywords:     []string{"skill", "use skill", "load skill", "pending"},
-		SubmenuTitle: "Select skill",
-		Submenu:      submenu,
+// accept is the picker's onAccept: attach the chosen skill and toast it.
+func (s *SkillsCommands) accept(item listpicker.Item) {
+	if s.Add != nil {
+		s.Add.AddPendingSkill(item.ID)
 	}
-}
-
-func skillSubcommands(skillPaths []string, add func(string)) []palette.PaletteCommand {
-	list := skills.LoadAll(skillPaths)
-	if len(list) == 0 {
-		return []palette.PaletteCommand{{
-			ID:       "skills-empty",
-			Verb:     "No skills found",
-			Disabled: true,
-		}}
-	}
-
-	out := make([]palette.PaletteCommand, 0, len(list))
-	for _, sk := range list {
-		name := skills.DisplayName(sk)
-		out = append(out, palette.PaletteCommand{
-			ID:       "skill-" + name,
-			Verb:     name,
-			Keywords: []string{sk.Description, "skill"},
-			Run: func() {
-				if add != nil {
-					add(name)
-				}
-			},
-		})
-	}
-	return out
+	publishToast(s.Bus, "Skill attached: "+item.ID, toast.ToastSuccess, 2*time.Second)
 }
