@@ -350,8 +350,8 @@ func (c *ComposerPane) SetInput(text string) {
 	c.Chat.ResetHistoryBrowse()
 }
 
-// Input returns the composer's current text; callers use it to avoid clobbering
-// a draft (a fork refills only an empty composer).
+// Input returns the composer's current text, so callers can avoid clobbering a
+// half-typed draft.
 func (c *ComposerPane) Input() string {
 	return c.Chat.Value
 }

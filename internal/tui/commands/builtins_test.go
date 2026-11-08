@@ -15,7 +15,6 @@ type stubBuiltinComposer struct {
 	thinkLevel string
 	skills     []string
 	pal        []palette.PaletteCommand
-	input      string
 }
 
 func (s *stubBuiltinComposer) SetModelLabel(name, thinkLevel string) {
@@ -29,14 +28,6 @@ func (s *stubBuiltinComposer) AddPendingSkill(name string) {
 
 func (s *stubBuiltinComposer) SetPaletteCommands(cmds []palette.PaletteCommand) {
 	s.pal = cmds
-}
-
-func (s *stubBuiltinComposer) SetInput(text string) {
-	s.input = text
-}
-
-func (s *stubBuiltinComposer) Input() string {
-	return s.input
 }
 
 func TestNewBuiltinRegistry_RegistersDomains(t *testing.T) {
