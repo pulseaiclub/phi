@@ -32,7 +32,7 @@ type Pane struct {
 	empty  string
 
 	change       *gitx.Change
-	changeNotes  map[string][]diffreview.CommentDraft
+	changeNotes  map[fileKey][]diffreview.CommentDraft
 	returnToList bool
 
 	rows        []diffreview.Row
@@ -154,9 +154,15 @@ func (p *Pane) OpenChange(root string, change gitx.Change) {
 	p.openParsed(text, "", true)
 }
 
+// fileKey identifies a changed file by repo and path.
+type fileKey struct {
+	cwd  string
+	path string
+}
+
 // changeKey scopes saved notes to one file in one repo, so switching projects
 // with the same relative path does not leak notes across roots.
-func (p *Pane) changeKey() string { return p.cwd + "\x00" + p.change.Path }
+func (p *Pane) changeKey() fileKey { return fileKey{cwd: p.cwd, path: p.change.Path} }
 
 // saveChangeNotes stashes the drafts of the file being left; an empty draft set
 // deletes the entry instead of storing an empty slice.
@@ -169,7 +175,7 @@ func (p *Pane) saveChangeNotes() {
 		return
 	}
 	if p.changeNotes == nil {
-		p.changeNotes = make(map[string][]diffreview.CommentDraft)
+		p.changeNotes = make(map[fileKey][]diffreview.CommentDraft)
 	}
 	p.changeNotes[p.changeKey()] = slices.Clone(p.drafts)
 }
