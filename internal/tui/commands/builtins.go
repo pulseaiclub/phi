@@ -14,6 +14,11 @@ type BuiltinComposer interface {
 	SetModelLabel(name, thinkLevel string)
 	AddPendingSkill(name string)
 	SetPaletteCommands([]palette.PaletteCommand)
+	// SetInput refills the composer, used when a fork hands back the prompt.
+	SetInput(text string)
+	// Input reports the composer's current text; a fork only refills an empty
+	// composer, so a half-typed draft is never discarded.
+	Input() string
 }
 
 // Builtin is the assembled command surface owned by the TUI shell.

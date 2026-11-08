@@ -65,6 +65,16 @@ func (s *SessionCommands) Register(r *CommandRegistry) {
 			return nil
 		},
 	})
+	r.Register(Command{
+		Name:        "fork",
+		Description: "Copy this session at its current point into a new one",
+		Slash:       true,
+		Insert:      "/fork",
+		Run: func(_ Context, args []string) error {
+			s.Fork(args)
+			return nil
+		},
+	})
 }
 
 // Show opens the session picker for the current session directory.
@@ -120,7 +130,7 @@ func (s *SessionCommands) resume(id string) {
 	s.Transcript.Sync()
 	s.Transcript.StickToBottom()
 	s.refreshModel()
-	msg := "Resumed " + shortSessionID(s.Ctrl.SessionID())
+	msg := "Resumed " + session.ShortID(s.Ctrl.SessionID())
 	if warn != "" {
 		publishToast(s.Bus, msg+" · "+warn, toast.ToastWarning, 4*time.Second)
 		return
@@ -141,7 +151,7 @@ func (s *SessionCommands) Delete(id string) {
 		publishToast(s.Bus, err.Error(), toast.ToastError, 4*time.Second)
 		return
 	}
-	publishToast(s.Bus, "Deleted "+shortSessionID(id), toast.ToastSuccess, 3*time.Second)
+	publishToast(s.Bus, "Deleted "+session.ShortID(id), toast.ToastSuccess, 3*time.Second)
 	if id == currentID {
 		s.NewSession()
 	}
@@ -185,18 +195,62 @@ func (s *SessionCommands) NewSession() {
 	}
 	s.Transcript.Sync()
 	s.Transcript.StickToBottom()
-	publishToast(s.Bus, "New session "+shortSessionID(s.Ctrl.SessionID()), toast.ToastSuccess, 3*time.Second)
+	publishToast(s.Bus, "New session "+session.ShortID(s.Ctrl.SessionID()), toast.ToastSuccess, 3*time.Second)
+}
+
+// Fork copies the current session at its current point: both sessions keep
+// going from here with the same history. Anything typed after /fork is
+// reported instead of ignored.
+func (s *SessionCommands) Fork(args []string) {
+	if len(args) > 0 {
+		publishToast(s.Bus, "Usage: /fork", toast.ToastWarning, 3*time.Second)
+		return
+	}
+	if s.blocked("fork") {
+		return
+	}
+	id, err := s.Ctrl.ForkSession()
+	if err != nil {
+		publishToast(s.Bus, err.Error(), toast.ToastError, 4*time.Second)
+		return
+	}
+	s.afterSessionSwitch()
+	publishToast(s.Bus, "Forked "+session.ShortID(id), toast.ToastSuccess, 3*time.Second)
+}
+
+// blocked reports whether a session switch has to wait, and says why.
+func (s *SessionCommands) blocked(action string) bool {
+	if s.StreamActive == nil || !s.StreamActive() {
+		return false
+	}
+	publishToast(
+		s.Bus,
+		"Cannot "+action+" while a reply or command is running",
+		toast.ToastWarning,
+		3*time.Second,
+	)
+	return true
+}
+
+// afterSessionSwitch rebuilds the UI for the session that just became active:
+// extension commands re-register, sub-agent rows from the source go away, and
+// the transcript is rebuilt from replay.
+func (s *SessionCommands) afterSessionSwitch() {
+	if s.SyncHooks != nil {
+		s.SyncHooks()
+	}
+	s.Transcript.LoadReplay(s.Ctrl.ReplaySnapshot())
+	s.Transcript.ResetSubagents()
+	s.refreshModel()
+	if s.ResetActivity != nil {
+		s.ResetActivity()
+	}
+	s.Transcript.Sync()
+	s.Transcript.StickToBottom()
 }
 
 func (s *SessionCommands) refreshModel() {
 	if s.Composer != nil {
 		s.Composer.SetModelLabel(s.Ctrl.ModelName(), string(s.Ctrl.ThinkLevel()))
 	}
-}
-
-func shortSessionID(id string) string {
-	if len(id) > 8 {
-		return id[:8]
-	}
-	return id
 }

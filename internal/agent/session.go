@@ -116,8 +116,11 @@ func NewSession(opts ...SessionOption) (*Session, error) {
 }
 
 // Fork copies the selected branch into an independent persisted session.
-func (s *Session) Fork() (*Session, error) {
-	fork, err := s.manager.Fork()
+func (s *Session) Fork() (*Session, error) { return s.ForkAt("") }
+
+// ForkAt copies the branch ending at leafID ("" = current leaf).
+func (s *Session) ForkAt(leafID string) (*Session, error) {
+	fork, err := s.manager.ForkAt(leafID)
 	if err != nil {
 		return nil, fmt.Errorf("agent: failed to fork session: %w", err)
 	}

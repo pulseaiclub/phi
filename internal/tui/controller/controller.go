@@ -588,7 +588,7 @@ func (c *EngineController) Resume(id string) (cwdWarning string, err error) {
 	if id == "" {
 		return "", errors.New("empty session id")
 	}
-	prevID, err := c.beginSessionSwitch("resume", id, true)
+	prevID, err := c.preflightSessionSwitch("resume", id)
 	if err != nil {
 		return "", err
 	}
@@ -599,6 +599,7 @@ func (c *EngineController) Resume(id string) (cwdWarning string, err error) {
 
 	extRunner := loadExtensions(c.proj)
 	c.swapExtensionRunner(extRunner)
+	c.commitSessionSwitch("resume", prevID, id)
 	eng, cfg, err := c.openEngine(cfg, extRunner, id)
 	if err != nil {
 		return "", err
@@ -617,7 +618,7 @@ func (c *EngineController) Resume(id string) (cwdWarning string, err error) {
 // NewSession starts a brand-new persisted session. Caller must ensure no agent
 // stream / local bash is in flight.
 func (c *EngineController) NewSession() error {
-	prevID, err := c.beginSessionSwitch("new", "", true)
+	prevID, err := c.preflightSessionSwitch("new", "")
 	if err != nil {
 		return err
 	}
@@ -625,6 +626,7 @@ func (c *EngineController) NewSession() error {
 	if err != nil {
 		return err
 	}
+	c.commitSessionSwitch("new", prevID, "")
 	engine, cfg, err := c.openEngine(cfg, c.Extensions(), "")
 	if err != nil {
 		return err
@@ -637,7 +639,59 @@ func (c *EngineController) NewSession() error {
 	return nil
 }
 
-func (c *EngineController) beginSessionSwitch(reason, targetID string, cancelStream bool) (prevID string, err error) {
+// ForkSession copies the current session at its leaf into a new persisted
+// session and switches the controller to it. Order matters: the before-switch
+// hook runs first so a denied fork writes nothing, and the fork file is written
+// and bound to an engine before the live session is touched. Any failure
+// therefore leaves the source session active and its history intact.
+func (c *EngineController) ForkSession() (string, error) {
+	prevID, err := c.preflightSessionSwitch("fork", "")
+	if err != nil {
+		return "", err
+	}
+	forked, err := c.engine.Session().Fork()
+	if err != nil {
+		return "", err
+	}
+	if err := c.adoptFork(forked, prevID); err != nil {
+		return "", err
+	}
+	return forked.ID(), nil
+}
+
+// adoptFork binds a written fork to an engine and only then retires the source.
+// A failure removes the fork file, leaving the source session active.
+func (c *EngineController) adoptFork(forked *agent.Session, prevID string) error {
+	cfg, err := c.resolveModel()
+	if err != nil {
+		c.discardFork(forked.ID())
+		return err
+	}
+	eng, err := c.newEngine(cfg, c.Extensions(), forked)
+	if err != nil {
+		c.discardFork(forked.ID())
+		return err
+	}
+	c.commitSessionSwitch("fork", prevID, forked.ID())
+	c.modelMu.Lock()
+	c.engine = eng
+	c.modelCfg = cfg
+	c.modelMu.Unlock()
+	c.emitSessionStart("fork", forked.ID(), prevID)
+	return nil
+}
+
+// discardFork drops a fork the controller never switched to, so a failed switch
+// does not leave an unreachable session in the session list.
+func (c *EngineController) discardFork(id string) {
+	if err := session.DeleteSession(c.sessionDir, id); err != nil {
+		debuglog.Logf("session: drop unused fork %s: %v", id, err)
+	}
+}
+
+// preflightSessionSwitch asks extensions whether a switch may happen. Nothing
+// is mutated yet: a denial leaves the current session untouched.
+func (c *EngineController) preflightSessionSwitch(reason, targetID string) (prevID string, err error) {
 	if c.sessionDir == "" {
 		return "", errors.New("session directory not configured")
 	}
@@ -651,11 +705,15 @@ func (c *EngineController) beginSessionSwitch(reason, targetID string, cancelStr
 		}
 		return "", errors.New(msg)
 	}
-	if cancelStream {
-		c.Cancel()
-	}
-	c.sessionShutdown(reason, prevID)
 	return prevID, nil
+}
+
+// commitSessionSwitch retires the outgoing session: the in-flight stream is
+// cancelled and extensions see session_shutdown before the new engine is
+// installed.
+func (c *EngineController) commitSessionSwitch(reason, prevID, targetID string) {
+	c.Cancel()
+	c.sessionShutdown(reason, prevID, targetID)
 }
 
 func (c *EngineController) resolveModel() (llm.ModelConfig, error) {
@@ -693,7 +751,22 @@ func (c *EngineController) openEngine(
 		}
 		cfg.MaxRounds = c.MaxRounds()
 	}
-	eng, err := agent.NewEngine(cfg, sess,
+	eng, err := c.newEngine(cfg, extRunner, sess)
+	if err != nil {
+		return nil, llm.ModelConfig{}, err
+	}
+	return eng, cfg, nil
+}
+
+// newEngine binds a session to a fresh engine on the controller-wide gate,
+// jobs, extensions, MCP pool and hooks. Every session switch funnels through
+// here, so a forked session runs on exactly the wiring of a resumed one.
+func (c *EngineController) newEngine(
+	cfg llm.ModelConfig,
+	extRunner *extension.Runner,
+	sess *agent.Session,
+) (*agent.Engine, error) {
+	return agent.NewEngine(cfg, sess,
 		agent.WithGate(c.gate),
 		agent.WithAsk(c.askPermission),
 		agent.WithJobs(c.engineJobs()),
@@ -701,10 +774,6 @@ func (c *EngineController) openEngine(
 		agent.WithMCP(c.mcpPool),
 		agent.WithHooks(model.HooksForConfig(cfg)),
 	)
-	if err != nil {
-		return nil, llm.ModelConfig{}, err
-	}
-	return eng, cfg, nil
 }
 
 func (c *EngineController) ReplaySnapshot() session.Snapshot {
@@ -765,7 +834,7 @@ func (c *EngineController) CurrentLoop(gen int) bool {
 }
 
 func (c *EngineController) Close() {
-	c.sessionShutdown("quit", c.SessionID())
+	c.sessionShutdown("quit", c.SessionID(), "")
 	c.Cancel()
 	c.unsubJobs()
 	_ = c.jobs.Close(context.Background())
@@ -790,13 +859,16 @@ func (c *EngineController) sessionBeforeSwitch(reason, fromID, targetID string) 
 	})
 }
 
-func (c *EngineController) sessionShutdown(reason, sessionID string) {
+func (c *EngineController) sessionShutdown(reason, sessionID, targetID string) {
 	r := c.Extensions()
 	if r == nil {
 		return
 	}
 	r.SetMeta(sessionID, c.cwd)
-	c.publishSessionEffects(r.EmitSessionShutdown(ext.SessionShutdownEvent{Reason: reason}))
+	c.publishSessionEffects(r.EmitSessionShutdown(ext.SessionShutdownEvent{
+		Reason:          reason,
+		TargetSessionID: targetID,
+	}))
 }
 
 func (c *EngineController) emitSessionStart(reason, sessionID, previousID string) {

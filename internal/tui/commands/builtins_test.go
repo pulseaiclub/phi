@@ -15,6 +15,7 @@ type stubBuiltinComposer struct {
 	thinkLevel string
 	skills     []string
 	pal        []palette.PaletteCommand
+	input      string
 }
 
 func (s *stubBuiltinComposer) SetModelLabel(name, thinkLevel string) {
@@ -28,6 +29,14 @@ func (s *stubBuiltinComposer) AddPendingSkill(name string) {
 
 func (s *stubBuiltinComposer) SetPaletteCommands(cmds []palette.PaletteCommand) {
 	s.pal = cmds
+}
+
+func (s *stubBuiltinComposer) SetInput(text string) {
+	s.input = text
+}
+
+func (s *stubBuiltinComposer) Input() string {
+	return s.input
 }
 
 func TestNewBuiltinRegistry_RegistersDomains(t *testing.T) {
@@ -52,6 +61,7 @@ func TestNewBuiltinRegistry_RegistersDomains(t *testing.T) {
 
 	assert.Equal(t, "/sessions", b.Registry.LookupInsert("sessions"))
 	assert.Equal(t, "/new", b.Registry.LookupInsert("new"))
+	assert.Equal(t, "/fork", b.Registry.LookupInsert("fork"))
 	assert.Equal(t, "/diff ", b.Registry.LookupInsert("diff"))
 
 	ctx := NewContext(bus, nil)

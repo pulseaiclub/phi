@@ -4,7 +4,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -227,66 +229,142 @@ func (sm *Manager) AppendBash(command, output string, exitCode int, cancelled bo
 	return entry.ID, nil
 }
 
-// Fork copies the selected branch into an independent persisted session.
-func (sm *Manager) Fork() (*Manager, error) {
+// Fork copies the selected branch into an independent persisted session. The
+// source is never written to: the fork file exists before the caller switches
+// to it, so a failed fork leaves the source usable. Entry IDs and parent links
+// are copied verbatim, so the fork rebuilds the same context, compaction
+// boundary included.
+func (sm *Manager) Fork() (*Manager, error) { return sm.ForkAt("") }
+
+// ForkAt copies the branch ending at leafID into an independent persisted
+// session; an empty leafID means the current leaf. Forking at an earlier entry
+// reopens that point without the messages that followed it, which is how a user
+// takes a conversation in another direction.
+func (sm *Manager) ForkAt(leafID string) (*Manager, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	newID := generateSessionID()
 
-	parentID := sm.sessionID
-	header := SessionHeader{
-		Type:          EntrySession,
-		ID:            newID,
-		Timestamp:     time.Now().Format("2006-01-02T15-04-05"),
-		Cwd:           sm.cwd,
-		ParentSession: parentID,
+	from := sm.leafID
+	if leafID != "" {
+		if _, ok := sm.byIDs[leafID]; !ok {
+			return nil, fmt.Errorf("session: fork point %q is not on this session", leafID)
+		}
+		id := leafID
+		from = &id
+	}
+	return sm.forkLocked(from)
+}
+
+// forkLocked copies the branch ending at from (nil copies an empty session).
+// Requires sm.mu to be held.
+func (sm *Manager) forkLocked(from *string) (*Manager, error) {
+	// Without a session file the fork would invent a relative path and drop the
+	// copy into the process cwd.
+	if sm.sessionFile == "" {
+		return nil, errors.New("session: fork requires a persisted session")
 	}
 	var branch []MessageEntry
-	if sm.leafID != nil {
-		branch = sm.getBranch(*sm.leafID)
-	}
-	copied := make([]MessageEntry, 0, len(branch)+1)
-	copied = append(copied, header)
-	for _, entry := range slices.Backward(branch) {
-		copied = append(copied, entry)
-	}
-
-	byIDs := make(map[string]MessageEntry, len(copied))
-	for _, entry := range copied[1:] {
-		byIDs[entry.GetID()] = entry
+	if from != nil {
+		branch = sm.getBranch(*from)
+		if len(branch) == 0 {
+			// A header-only fork would point its leaf at an entry it does not hold.
+			return nil, fmt.Errorf("session: fork could not resolve branch at leaf %q", *from)
+		}
 	}
 
+	dir := filepath.Dir(sm.sessionFile)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("session: create fork directory: %w", err)
+	}
+
+	parentID := sm.sessionID
 	var leafCopy *string
-	if sm.leafID != nil {
-		id := *sm.leafID
+	if from != nil {
+		id := *from
 		leafCopy = &id
 	}
 
-	config := ManagerConfig{
-		sessionDir:  sm.config.sessionDir,
-		shouldFlush: true,
-		parentID:    parentID,
+	// The source's hasAssistantMsg may reflect replies the fork point leaves
+	// behind (or off-branch ones), so recompute it from the copied branch.
+	hasAssistant := false
+	for _, entry := range branch {
+		if msg, ok := entry.(SessionMessageEntry); ok && msg.Message.Role == llm.RoleAssistant {
+			hasAssistant = true
+			break
+		}
 	}
 
-	file := filepath.Join(sm.config.sessionDir,
-		fmt.Sprintf("%s_%s.jsonl", time.Now().Format("2006-01-02T15-04-05"), newID))
+	const maxForkAttempts = 3
+	var lastErr error
+	for range maxForkAttempts {
+		newID := generateSessionID()
+		stamp := time.Now().Format("2006-01-02T15-04-05")
+		header := SessionHeader{
+			Type:          EntrySession,
+			ID:            newID,
+			Timestamp:     stamp,
+			Cwd:           sm.cwd,
+			ParentSession: parentID,
+		}
+		copied := make([]MessageEntry, 0, len(branch)+1)
+		copied = append(copied, header)
+		for _, entry := range slices.Backward(branch) {
+			copied = append(copied, entry)
+		}
 
-	dst := &Manager{
-		cwd:             sm.cwd,
-		config:          config,
-		entries:         copied,
-		byIDs:           byIDs,
-		leafID:          leafCopy,
-		sessionID:       newID,
-		shouldFlush:     true,
-		sessionFile:     file,
-		hasAssistantMsg: sm.hasAssistantMsg,
+		byIDs := make(map[string]MessageEntry, len(copied))
+		for _, entry := range copied[1:] {
+			byIDs[entry.GetID()] = entry
+		}
+
+		dst := &Manager{
+			cwd: sm.cwd,
+			config: ManagerConfig{
+				sessionDir:  dir,
+				shouldFlush: true,
+				parentID:    parentID,
+			},
+			entries:         copied,
+			byIDs:           byIDs,
+			leafID:          leafCopy,
+			sessionID:       newID,
+			shouldFlush:     true,
+			sessionFile:     filepath.Join(dir, fmt.Sprintf("%s_%s.jsonl", stamp, newID)),
+			hasAssistantMsg: hasAssistant,
+		}
+		err := dst.writeExclusive()
+		switch {
+		case err == nil:
+			dst.flushed = true
+			return dst, nil
+		case errors.Is(err, fs.ErrExist):
+			lastErr = err // another process claimed this id; retry with a fresh one
+		default:
+			return nil, err
+		}
 	}
-	if err := dst.flushAllEntries(); err != nil {
-		return nil, err
+	return nil, fmt.Errorf("session: could not allocate a fork session id: %w", lastErr)
+}
+
+// writeExclusive writes the whole session to a file that must not exist yet.
+// O_EXCL keeps a fork from truncating a session that already claimed its id.
+func (sm *Manager) writeExclusive() error {
+	f, err := os.OpenFile(sm.sessionFile, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		return fmt.Errorf("session: write fork %s: %w", sm.sessionFile, err)
 	}
-	dst.flushed = true
-	return dst, nil
+	if err := sm.encodeEntries(f, sm.entries); err != nil {
+		_ = f.Close()
+		// A truncated fork would be listed with a short preview, so drop it
+		// instead of leaving a half-written session behind.
+		_ = os.Remove(sm.sessionFile)
+		return fmt.Errorf("session: write fork %s: %w", sm.sessionFile, err)
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(sm.sessionFile)
+		return fmt.Errorf("session: close fork %s: %w", sm.sessionFile, err)
+	}
+	return nil
 }
 
 // ModelName returns the latest model selection on the current branch.

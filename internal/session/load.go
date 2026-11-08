@@ -21,8 +21,19 @@ type SessionMeta struct {
 	File      string
 	Timestamp string
 	Cwd       string
-	Mtime     time.Time
-	Preview   string // truncated last user text
+	// Parent is the session id this one was forked from (empty for none).
+	Parent  string
+	Mtime   time.Time
+	Preview string // truncated last user text
+}
+
+// ShortID trims a session id for display. Random ids share no prefix, so the
+// first eight runes stay unique within a listing.
+func ShortID(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
 }
 
 // ListSessions returns session files under dir, newest mtime first.
@@ -93,6 +104,7 @@ func readSessionMeta(path string, e os.DirEntry) (SessionMeta, error) {
 			meta.ID = e.ID
 			meta.Timestamp = e.Timestamp
 			meta.Cwd = e.Cwd
+			meta.Parent = e.ParentSession
 		case SessionMessageEntry:
 			if e.Message.Role == llm.RoleUser && strings.TrimSpace(e.Message.Content) != "" {
 				meta.Preview = truncatePreview(e.Message.Content, 72)

@@ -254,6 +254,19 @@ Composer input is blocked while an overlay is active (`OverlayBlocksComposer`).
 (`SessionCommands`, `SettingsCommands`, `ExtCommands`, …) call `Ctrl` / `Bus` /
 composer directly — no Editor closures.
 
+`/fork` (`SessionCommands.Fork`) copies the session at its current point: both
+sessions keep going from here with the same history. It takes no arguments:
+extra words get a usage toast instead of falling through to a prompt, and a
+running reply, local bash or open overlay refuses it.
+
+It routes through `EngineController.ForkSession`: the
+branch is written to a new JSONL file before anything else changes, so a failure
+keeps the source active, then the engine is rebound and only then does the
+session lifecycle fire with `reason: "fork"`. The UI refresh mirrors `/resume`
+(`afterSessionSwitch`): extension commands re-register, the transcript is
+rebuilt from replay (sub-agent rows dropped), the model label and activity state
+reset. The source session is untouched and stays in the picker.
+
 The `/sessions` overlay follows this wiring: `SessionCommands.Show` lists the
 project's sessions and opens the shared `listpicker` through the
 `Builtin.Bind`-injected callbacks. Enter resumes the selection; Ctrl+X arms
