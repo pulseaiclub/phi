@@ -10,9 +10,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Removed
 
-- TUI/agent: removed the "Continue for another N?" prompt when the tool-round
-  budget is exhausted. The loop now always stops with `ErrMaxRounds` (exit
-  code 2 in headless runs); raise the budget in the palette to go further.
+- Tool-round budgets: the loop no longer caps tool rounds. Removed
+  `max_rounds` from config.yaml, the `--max-rounds` flag and exit code 2 from
+  `phi run`, the "max rounds" palette entry, the config-UI field, and
+  `ErrMaxRounds` itself. Headless runs now exit 1 on any loop error.
 - Extensions: removed the `turn_stopping` hook and the `InterceptResp.Continue`
   wire field (PXB tag 12) across the Go host and the Go / Rust / TS SDKs
   (`OnTurnStopping` / `on_turn_stopping` / `onTurnStopping`). Wire event code

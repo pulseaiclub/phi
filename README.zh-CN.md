@@ -188,7 +188,6 @@ models:
     think_level: high       # 可选：off | minimal | low | medium | high | …
 
 skill_path: ~/.phi/skills # SKILL.md 文件的加载目录；`~/…` 会被展开
-max_rounds: 64            # 工具轮次预算；0 → 引擎默认值（64）
 
 agents:
   enabled: true           # 默认；设为 false 可禁用 agent_* 子代理工具
@@ -349,7 +348,6 @@ phi run -p "fix the failing test in internal/tools"
 | `-p, --prompt STRING` | 要运行的提示词（必填） |
 | `--jsonl` | 向 stdout 输出 JSONL 事件 |
 | `--yolo` | 本次运行跳过所有权限检查（仅用于 benchmark / CI） |
-| `--max-rounds N` | 限制工具轮数（默认 64） |
 | `--timeout DURATION` | 限制 Agent 运行总时长（例如 `10m`，默认不限制） |
 | `--session ID` | 按 id 或唯一前缀恢复已持久化的会话 |
 | `--continue-last` | 恢复当前目录最新的持久化会话 |
@@ -359,11 +357,8 @@ phi run -p "fix the failing test in internal/tools"
 `--tools` 接受 `read,ls,grep` 之类的内置工具名称。已配置的 MCP 和 agent
 工具仍会照常追加；该参数只限制内置工具集。
 
-退出码：`0` 成功 · `1` 运行时/LLM 错误 · `2` 达到最大轮数 ·
+退出码：`0` 成功 · `1` 运行时/LLM 错误 ·
 `3` 配置/用法错误。
-
-工具轮数耗尽时，运行会直接以退出码 2 停止；交互式 TUI 与无头
-`phi run` 行为一致。
 
 无头模式下，权限 `ask` 的决策会被拒绝（没有审批界面），因此无需额外参数
 即可获得 `readonly` 级别的安全性。跑 benchmark 需要任意 shell（`pytest`、

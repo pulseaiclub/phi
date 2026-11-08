@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -32,7 +30,6 @@ func TestRunOptionsFromFlags(t *testing.T) {
 		"-p", "do the thing",
 		"--jsonl",
 		"--yolo",
-		"--max-rounds", "10",
 		"--timeout", "10m",
 		"--session", "abc123",
 		"--tools", "grep, read,grep",
@@ -43,7 +40,6 @@ func TestRunOptionsFromFlags(t *testing.T) {
 	assert.Equal(t, "do the thing", opts.prompt)
 	assert.True(t, opts.jsonl)
 	assert.True(t, opts.yolo)
-	assert.Equal(t, 10, opts.maxRounds)
 	assert.Equal(t, 10*time.Minute, opts.timeout)
 	assert.Equal(t, "abc123", opts.session)
 	assert.Equal(t, "grep, read,grep", opts.builtinTools)
@@ -57,7 +53,6 @@ func TestRunOptionsFromFlags(t *testing.T) {
 func TestRunOptionsFromFlagsEqualsForms(t *testing.T) {
 	f, _, err := runCommand.Parse([]string{
 		"--prompt=hi",
-		"--max-rounds=5",
 		"--timeout=1500ms",
 		"--session-dir=/tmp/sess",
 		"--continue-last",
@@ -67,7 +62,6 @@ func TestRunOptionsFromFlagsEqualsForms(t *testing.T) {
 	opts, err := runOptionsFromFlags(f)
 	require.NoError(t, err)
 	assert.Equal(t, "hi", opts.prompt)
-	assert.Equal(t, 5, opts.maxRounds)
 	assert.Equal(t, 1500*time.Millisecond, opts.timeout)
 	assert.Equal(t, "/tmp/sess", opts.sessionDir)
 	assert.True(t, opts.continueLast)
@@ -80,8 +74,6 @@ func TestRunOptionsFromFlagsEqualsForms(t *testing.T) {
 func TestRunCommandParseErrors(t *testing.T) {
 	cases := [][]string{
 		{"--prompt"},             // missing value
-		{"--max-rounds", "abc"},  // non-integer
-		{"--max-rounds", "0"},    // non-positive
 		{"--timeout"},            // missing value
 		{"--timeout", "abc"},     // invalid duration
 		{"--timeout", "0"},       // non-positive
@@ -199,12 +191,6 @@ func TestRunLoopTimeoutCancelsLLMRequest(t *testing.T) {
 
 	assert.Equal(t, ExitError, exit)
 	assert.Less(t, time.Since(start), time.Second)
-}
-
-func TestClassifyRunError(t *testing.T) {
-	assert.Equal(t, ExitMaxRounds, classifyRunError(fmt.Errorf("agent: %w (64)", agent.ErrMaxRounds)))
-	assert.Equal(t, ExitError, classifyRunError(errors.New("LLM API error: (500) boom")))
-	assert.Equal(t, ExitError, classifyRunError(nil))
 }
 
 func TestJSONLEncoderEvents(t *testing.T) {

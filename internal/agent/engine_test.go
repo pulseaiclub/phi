@@ -63,23 +63,6 @@ func sseTextChunk(text string) string {
 	return "data: " + string(payload) + "\n\n"
 }
 
-// fakeToolSequenceServer returns tool calls for finalAfter tool requests, then
-// returns a final text response. A negative finalAfter means tool calls forever.
-func fakeToolSequenceServer(finalAfter int) (*httptest.Server, *atomic.Int32) {
-	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/event-stream")
-		request := requests.Add(1)
-		if finalAfter < 0 || int(request) <= finalAfter {
-			_, _ = fmt.Fprint(w, sseToolCallChunk(fmt.Sprintf("call_%d", request), "count", `{}`))
-		} else {
-			_, _ = fmt.Fprint(w, sseTextChunk("done"))
-		}
-		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
-	}))
-	return server, &requests
-}
-
 func countingTool(runs *atomic.Int32) tooldef.Tool {
 	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
@@ -92,74 +75,6 @@ func countingTool(runs *atomic.Int32) tooldef.Tool {
 			return tooldef.Result{Content: "ok"}, nil
 		},
 	}
-}
-
-func newRoundTestEngine(t *testing.T, serverURL string, runs *atomic.Int32, maxRounds int) *Engine {
-	t.Helper()
-	sess, err := NewSession(WithCwd(t.TempDir()))
-	require.NoError(t, err)
-	engine, err := NewEngine(
-		llm.ModelConfig{Name: "fake", BaseURL: serverURL, APIKey: "x"},
-		sess,
-		WithGate(permission.AllowAll{}),
-		WithTools([]tooldef.Tool{countingTool(runs)}),
-		WithMaxRounds(maxRounds),
-	)
-	require.NoError(t, err)
-	return engine
-}
-
-func TestLoopMaxRoundsAllowsFinalAnswerAfterLastToolRound(t *testing.T) {
-	server, requests := fakeToolSequenceServer(2)
-	defer server.Close()
-
-	var runs atomic.Int32
-	engine := newRoundTestEngine(t, server.URL, &runs, 2)
-
-	var lastErr error
-	var finalText string
-	for ev, err := range engine.Loop(t.Context(), "go", LoopOpts{}) {
-		if err != nil {
-			lastErr = err
-			break
-		}
-		if update, ok := ev.(session.AssistantMessageUpdate); ok && update.Message.State == session.StateComplete {
-			finalText = update.Message.FlatText()
-		}
-	}
-	require.NoError(t, lastErr)
-	require.Equal(t, int32(2), runs.Load())
-	require.Equal(t, int32(3), requests.Load())
-	require.Equal(t, "done", finalText)
-}
-
-func TestLoopMaxRoundsDoesNotExecuteExtraToolRound(t *testing.T) {
-	server, requests := fakeToolSequenceServer(-1)
-	defer server.Close()
-
-	var runs atomic.Int32
-	engine := newRoundTestEngine(t, server.URL, &runs, 2)
-
-	var lastErr error
-	for ev, err := range engine.Loop(t.Context(), "go", LoopOpts{}) {
-		_ = ev
-		if err != nil {
-			lastErr = err
-			break
-		}
-	}
-	require.Error(t, lastErr, "loop should stop when the model requests a third tool round")
-	require.ErrorIs(t, lastErr, ErrMaxRounds)
-	require.Equal(t, int32(2), runs.Load())
-	require.Equal(t, int32(3), requests.Load())
-
-	assistantToolRounds := 0
-	for _, msg := range engine.session.BuildContext() {
-		if msg.Role == llm.RoleAssistant && len(msg.ToolCalls) > 0 {
-			assistantToolRounds++
-		}
-	}
-	require.Equal(t, 2, assistantToolRounds)
 }
 
 // overflowThenOKServer fails the first streaming chat with a context overflow,

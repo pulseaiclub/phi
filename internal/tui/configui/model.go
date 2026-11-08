@@ -16,7 +16,6 @@ import (
 // fields by key, never by row index, so a rebuild may reorder rows freely.
 const (
 	keySkillPath = "skill_path"
-	keyMaxRounds = "max_rounds"
 
 	keyPermMode        = "perm.mode"
 	keyPermWorkspace   = "perm.workspace_only_writes"
@@ -236,8 +235,6 @@ func (e *ConfigEditor) build() {
 	e.addSection("Skills", "")
 	skills := displayPath(e.skills)
 	e.addField(e.fieldRow(fieldSpec{key: keySkillPath, label: "skill path", kind: kindText, placeholder: skills}))
-	e.addSection("Agent Loop", "")
-	e.addField(e.fieldRow(fieldSpec{key: keyMaxRounds, label: "max rounds", kind: kindInt, placeholder: "64"}))
 	e.addSection("Permissions", "")
 	e.addField(e.fieldRow(fieldSpec{key: keyPermMode, label: "mode", kind: kindChoice, options: permModeOptions}))
 	e.addField(e.fieldRow(fieldSpec{
@@ -514,8 +511,6 @@ func (e *ConfigEditor) rawFor(key string) string {
 	switch key {
 	case keySkillPath:
 		return stringValue(e.doc.SkillPath)
-	case keyMaxRounds:
-		return intString(e.doc.MaxRounds)
 	case keyPermMode:
 		return permString(e.doc, func(p *project.PermDoc) string {
 			// The deprecated bool reads as the mode it migrates to.
@@ -559,12 +554,6 @@ func (e *ConfigEditor) apply(key, value string) error {
 	switch key {
 	case keySkillPath:
 		e.doc.SkillPath = optionalString(strings.TrimSpace(value))
-	case keyMaxRounds:
-		rounds, err := parsePositiveInt(value, "rounds")
-		if err != nil {
-			return err
-		}
-		e.doc.MaxRounds = rounds
 	case keyPermMode:
 		p := perms(e.doc)
 		p.Mode = strings.TrimSpace(value)

@@ -24,7 +24,6 @@ type Config struct {
 	// SkillPaths lists every root the agent reads skills from, in priority
 	// order: SkillPath, then the .agents/skills locations.
 	SkillPaths  []string
-	MaxRounds   int // tool round budget; 0 → agent default (64)
 	Permissions permission.Policy
 	Agents      AgentsConfig
 }
@@ -50,7 +49,6 @@ type AgentsRoleModels struct {
 // for agent.NewEngine.
 func (c *Config) Model() llm.ModelConfig {
 	m := *c.defaultEntry()
-	m.MaxRounds = c.MaxRounds
 	m.SkillPaths = c.SkillPaths
 	return m
 }
@@ -61,7 +59,6 @@ func (c *Config) AllModels() []llm.ModelConfig {
 	all := make([]llm.ModelConfig, len(c.Models))
 	copy(all, c.Models)
 	for i := range all {
-		all[i].MaxRounds = c.MaxRounds
 		all[i].SkillPaths = c.SkillPaths
 	}
 	return all
@@ -161,9 +158,6 @@ func parseConfigFileWithEnv(path string, withEnv bool) (*Config, error) {
 	}
 	if raw.SkillPath != nil {
 		cfg.SkillPath = *raw.SkillPath
-	}
-	if raw.MaxRounds != nil && *raw.MaxRounds > 0 {
-		cfg.MaxRounds = *raw.MaxRounds
 	}
 	if raw.Permissions != nil {
 		if err := applyPermissions(&cfg.Permissions, raw.Permissions); err != nil {

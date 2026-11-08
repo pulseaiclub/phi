@@ -13,7 +13,7 @@ import (
 // entries, so extension models honor preset capabilities and think levels.
 // Direct-connect registrations must carry a base_url — the host would
 // otherwise dial an empty endpoint.
-func extensionModelConfig(route extension.ModelRoute, cfg *project.Config, maxRounds int) (llm.ModelConfig, error) {
+func extensionModelConfig(route extension.ModelRoute, cfg *project.Config) (llm.ModelConfig, error) {
 	reg := route.Reg
 	if !route.ExtConn() && reg.BaseURL == "" {
 		return llm.ModelConfig{}, fmt.Errorf("model %q: direct-connect registration needs base_url", reg.Name)
@@ -33,7 +33,6 @@ func extensionModelConfig(route extension.ModelRoute, cfg *project.Config, maxRo
 	if err != nil {
 		return llm.ModelConfig{}, err
 	}
-	m.MaxRounds = maxRounds
 	m.SkillPaths = cfg.SkillPaths
 	return m, nil
 }
@@ -44,7 +43,7 @@ func extensionModelConfig(route extension.ModelRoute, cfg *project.Config, maxRo
 // swaps the name (arbitrary-model workflow).
 func resolveModelConfig(cfg *project.Config, r *extension.Runner, name string) (llm.ModelConfig, error) {
 	if route, ok := r.LookupModel(name); ok {
-		return extensionModelConfig(route, cfg, cfg.MaxRounds)
+		return extensionModelConfig(route, cfg)
 	}
 	if m, ok := cfg.FindModel(name); ok {
 		return m, nil

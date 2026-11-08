@@ -2,7 +2,6 @@ package commands
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -67,12 +66,6 @@ func (s *SettingsCommands) Register(r *CommandRegistry) {
 		Name: "settings-debug",
 		Build: func(_ Context) palette.PaletteCommand {
 			return buildDebugPalette(s.setDebug)
-		},
-	})
-	r.Register(Command{
-		Name: "settings-max-rounds",
-		Build: func(_ Context) palette.PaletteCommand {
-			return buildMaxRoundsPalette(s.Ctrl, s.setMaxRounds)
 		},
 	})
 }
@@ -198,14 +191,6 @@ func (s *SettingsCommands) setThinkLevel(level llm.ThinkMode) {
 		s.Composer.SetModelLabel(s.Ctrl.ModelName(), label)
 	}
 	publishToast(s.Bus, "Thinking: "+label, toast.ToastSuccess, 2*time.Second)
-}
-
-func (s *SettingsCommands) setMaxRounds(n int) {
-	if err := s.Ctrl.SetMaxRounds(n); err != nil {
-		publishToast(s.Bus, err.Error(), toast.ToastError, 3*time.Second)
-		return
-	}
-	publishToast(s.Bus, fmt.Sprintf("Max rounds: %d", n), toast.ToastSuccess, 2*time.Second)
 }
 
 func buildThinkPalette(ctrl *controller.EngineController, set func(llm.ThinkMode)) palette.PaletteCommand {
@@ -440,38 +425,5 @@ func buildAgentsPalette(
 				Submenu:      roleCmds,
 			},
 		},
-	}
-}
-
-func buildMaxRoundsPalette(ctrl *controller.EngineController, set func(int)) palette.PaletteCommand {
-	presets := []int{16, 32, 64, 128, 256, 512}
-	current := 64
-	if ctrl != nil {
-		current = ctrl.MaxRounds()
-		if current == 0 {
-			current = 64
-		}
-	}
-	cmds := make([]palette.PaletteCommand, 0, len(presets))
-	for _, n := range presets {
-		mark := chrome.CurrentMarker(n == current)
-		cmds = append(cmds, palette.PaletteCommand{
-			ID:       fmt.Sprintf("max-rounds-%d", n),
-			Verb:     fmt.Sprintf("%s%d rounds", mark, n),
-			Keywords: []string{strconv.Itoa(n), "rounds", "limit", "budget"},
-			Run: func() {
-				if set != nil {
-					set(n)
-				}
-			},
-		})
-	}
-	return palette.PaletteCommand{
-		ID:           "settings-max-rounds",
-		Noun:         "settings",
-		Verb:         "max rounds",
-		Keywords:     []string{"max", "rounds", "limit", "budget", "tool", "iterations"},
-		SubmenuTitle: "Max Tool Rounds",
-		Submenu:      cmds,
 	}
 }

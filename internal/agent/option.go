@@ -16,7 +16,6 @@ type engineConfig struct {
 	gate         permission.Gate
 	ask          permission.AskFunc
 	tools        []tooldef.Tool
-	maxRounds    int
 	jobs         *job.Manager
 	extensions   *extension.Runner
 	omitExtTools bool
@@ -38,11 +37,6 @@ func WithAsk(ask permission.AskFunc) EngineOption {
 // pool is attached; sub-agents use ChildTools()).
 func WithTools(list []tooldef.Tool) EngineOption {
 	return func(c *engineConfig) { c.tools = list }
-}
-
-// WithMaxRounds overrides the model's tool-round budget when n is positive.
-func WithMaxRounds(n int) EngineOption {
-	return func(c *engineConfig) { c.maxRounds = n }
 }
 
 // WithJobs registers agent_* tools against the given job manager.
