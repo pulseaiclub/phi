@@ -259,13 +259,16 @@ sessions keep going from here with the same history. It takes no arguments:
 extra words get a usage toast instead of falling through to a prompt, and a
 running reply, local bash or open overlay refuses it.
 
-It routes through `EngineController.ForkSession`: the
-branch is written to a new JSONL file before anything else changes, so a failure
-keeps the source active, then the engine is rebound and only then does the
-session lifecycle fire with `reason: "fork"`. The UI refresh mirrors `/resume`
-(`afterSessionSwitch`): extension commands re-register, the transcript is
-rebuilt from replay (sub-agent rows dropped), the model label and activity state
-reset. The source session is untouched and stays in the picker.
+One move, no options: `session.Manager.Fork` writes the current branch to a new
+JSONL file (new id, source recorded as `parentSession`, entry ids copied
+verbatim) and reopens it through `session.OpenSession`, so the fork is read back
+by the same loader as any session. `EngineController.ForkSession` writes that
+file before anything else changes, so a failure keeps the source active; then
+the engine is rebound and only then does the session lifecycle fire with
+`reason: "fork"`. The UI refresh mirrors `/resume` (`afterSessionSwitch`):
+extension commands re-register, the transcript is rebuilt from replay (sub-agent
+rows dropped), the model label and activity state reset. The source session is
+untouched and stays in the picker.
 
 The `/sessions` overlay follows this wiring: `SessionCommands.Show` lists the
 project's sessions and opens the shared `listpicker` through the

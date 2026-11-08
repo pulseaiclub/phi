@@ -23,14 +23,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-- TUI: `/fork` copies the current session at its current point into a new
-  session (new id, source recorded as parent) with the same branch and
-  compaction context, persists it before the UI switches, and leaves the source
-  untouched and available in `/sessions`. Forking is refused while a reply or
-  command is running, and extra arguments report usage. Session listings show
-  the fork's source as `↳ <id>`, and the `/sessions` picker groups forks
-  directly under their source. `phi sessions fork <id>` copies a session
-  headlessly and prints the new id.
+- TUI: `/fork` copies the current session's branch into a new session (new id,
+  source recorded as parent) with the same compaction context and switches to
+  it; the source file is never touched and stays in `/sessions`. Forking is
+  refused while a reply or command is running, and extra arguments report
+  usage. Session listings show the fork's source as `↳ <id>`.
+  `phi sessions fork <id>` does the same headlessly and prints the new id.
 
 ### Fixed
 
