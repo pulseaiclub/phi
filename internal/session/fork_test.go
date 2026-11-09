@@ -2,6 +2,7 @@ package session
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -56,6 +57,55 @@ func TestForkCopiesBranchAndRecordsParent(t *testing.T) {
 	assert.Equal(t, src.ID(), header.ParentSession)
 	assert.Equal(t, fork.ID(), loaded.ID())
 	assert.Equal(t, entryIDs(src.BuildContext()), entryIDs(loaded.BuildContext()))
+}
+
+func TestForkLargeImageSurvivesReloadAndListing(t *testing.T) {
+	src := forkSource(t)
+	// A supported image can exceed 8 MiB after base64 encoding.
+	image := llm.Image{Data: strings.Repeat("A", 9<<20), MimeType: "image/png"}
+	_, err := src.Append(llm.Message{Role: llm.RoleUser, Content: "large image", Images: []llm.Image{image}})
+	require.NoError(t, err)
+	_, err = src.Append(llm.Message{Role: llm.RoleUser, Content: "after image"})
+	require.NoError(t, err)
+
+	fork, err := src.Fork()
+	require.NoError(t, err)
+	for _, path := range []string{src.File(), fork.File()} {
+		loaded, err := OpenSession(path)
+		require.NoError(t, err)
+		entries := loaded.BuildContext()
+		require.Len(t, entries, 5)
+		msg, ok := entries[3].(SessionMessageEntry)
+		require.True(t, ok)
+		assert.Equal(t, []llm.Image{image}, msg.Message.Images)
+		assert.Equal(t, src.LeafID(), loaded.LeafID())
+	}
+	list, err := ListSessions(src.config.sessionDir)
+	require.NoError(t, err)
+	require.Len(t, list, 2)
+	for _, meta := range list {
+		assert.Equal(t, "after image", meta.Preview, "listing must read past the large entry")
+	}
+}
+
+func TestForkRemovesCopyWhenReloadFails(t *testing.T) {
+	src := forkSource(t)
+	before, err := os.ReadFile(src.File())
+	require.NoError(t, err)
+	// Simulate an entry the writer can encode but the loader cannot decode.
+	entry := src.byIDs[src.LeafID()].(SessionMessageEntry)
+	entry.Type = "unsupported"
+	src.byIDs[entry.ID] = entry
+
+	fork, err := src.Fork()
+	require.ErrorContains(t, err, "unknown type")
+	assert.Nil(t, fork)
+	files, err := os.ReadDir(src.config.sessionDir)
+	require.NoError(t, err)
+	assert.Len(t, files, 1, "a failed fork must not leave a file behind")
+	after, err := os.ReadFile(src.File())
+	require.NoError(t, err)
+	assert.Equal(t, before, after)
 }
 
 func TestForkKeepsCompactionBoundary(t *testing.T) {

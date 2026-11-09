@@ -41,6 +41,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Sessions with image or tool entries larger than 8 MiB can be forked, resumed,
+  and listed without hitting a per-line read limit. Failed fork reloads remove
+  the unused copy and report cleanup errors.
 - Child agents no longer overwrite shared extension host session metadata or
   the parent engine's built-in tool list.
 - Extension confirmation dialogs restore the prior activity, so idle slash

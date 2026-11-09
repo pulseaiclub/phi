@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -82,8 +83,8 @@ func readSessionMeta(path string, e os.DirEntry) (SessionMeta, error) {
 		Mtime: info.ModTime(),
 	}
 	sc := bufio.NewScanner(f)
-	// Session files can grow; allow large lines for tool payloads.
-	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+	// The writer has no entry size cap; grow on demand for image and tool payloads.
+	sc.Buffer(make([]byte, 0, 64*1024), math.MaxInt)
 
 	lineNo := 0
 	for sc.Scan() {
@@ -211,7 +212,8 @@ func OpenSession(path string) (*Manager, error) {
 	defer f.Close()
 
 	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+	// Match the writer's uncapped entries without preallocating large buffers.
+	sc.Buffer(make([]byte, 0, 64*1024), math.MaxInt)
 
 	var (
 		entries         []MessageEntry

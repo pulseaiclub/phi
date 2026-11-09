@@ -280,7 +280,14 @@ func (sm *Manager) Fork() (*Manager, error) {
 	}
 	// The loader is the only reader of a session file, so let it build the
 	// manager: leaf, parents, assistant flag, and cwd come out by construction.
-	return OpenSession(path)
+	fork, err := OpenSession(path)
+	if err != nil {
+		if removeErr := os.Remove(path); removeErr != nil {
+			err = errors.Join(err, fmt.Errorf("remove unused fork %s: %w", path, removeErr))
+		}
+		return nil, fmt.Errorf("session: reopen fork %s: %w", path, err)
+	}
+	return fork, nil
 }
 
 // ModelName returns the latest model selection on the current branch.
