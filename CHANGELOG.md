@@ -10,6 +10,21 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Removed
 
+### Changed
+
+### Added
+
+### Fixed
+
+### Security
+
+<!-- Released section -->
+<!-- Don't change this section unless doing release -->
+
+## [0.29.8] - 2026-11-09
+
+### Removed
+
 - Tool-round budgets: the loop no longer caps tool rounds. Removed
   `max_rounds` from config.yaml, the `--max-rounds` flag and exit code 2 from
   `phi run`, the "max rounds" palette entry, the config-UI field, and
@@ -55,8 +70,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Security
 
-<!-- Released section -->
-<!-- Don't change this section unless doing release -->
 
 ## [0.29.7] - 2026-11-05
 
@@ -1473,7 +1486,8 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.29.7...HEAD
+[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.29.8...HEAD
+[0.29.8]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.8
 [0.29.7]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.7
 [0.29.6]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.6
 [0.29.5]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.5
