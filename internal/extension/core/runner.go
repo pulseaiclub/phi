@@ -230,7 +230,7 @@ func (s procSink) HostRequest(id uint32, hasID bool, req pxb.HostRequest) {
 	s.runner.handleHostRequest(s.proc, id, hasID, req, s.ui, s.sendUser)
 }
 
-func (*Runner) handleHostRequest(
+func (r *Runner) handleHostRequest(
 	p *Proc,
 	id uint32,
 	hasID bool,
@@ -264,6 +264,15 @@ func (*Runner) handleHostRequest(
 			}
 		}()
 	default:
+		if request := r.hostOpts().HostRequest; request != nil {
+			go func() {
+				res := request(req)
+				if hasID {
+					p.ReplyHost(id, res)
+				}
+			}()
+			return
+		}
 		debuglog.Logf("extension: unknown host request %q", req.Method)
 		if hasID {
 			p.ReplyHost(id, pxb.HostResult{OK: false, Error: "unknown method"})

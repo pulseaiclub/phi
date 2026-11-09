@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/components/chat"
+	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
@@ -16,12 +17,13 @@ import (
 
 // Submitter owns submit / cancel / slash dispatch and coordinates bash runs.
 type Submitter struct {
-	ctrl       *controller.EngineController
-	commands   *commands.CommandRegistry
-	transcript *transcript.TranscriptPane
-	activity   *controller.ActivityHandler
-	composer   composer.Input
-	bash       *BashRunner
+	commandBusy func() bool
+	ctrl        *controller.EngineController
+	commands    *commands.CommandRegistry
+	transcript  *transcript.TranscriptPane
+	activity    *controller.ActivityHandler
+	composer    composer.Input
+	bash        *BashRunner
 
 	commandContext commands.Context
 
@@ -48,6 +50,7 @@ func NewSubmitter(
 	permissionActive func() bool,
 	confirmActive func() bool,
 	errorActive func() bool,
+	commandBusy func() bool,
 	resolvePermission func(controller.AskReply),
 	resolveConfirm func(controller.ExtConfirmReply),
 	resolveError func(controller.ErrorReply),
@@ -64,6 +67,7 @@ func NewSubmitter(
 		permissionActive:  permissionActive,
 		confirmActive:     confirmActive,
 		errorActive:       errorActive,
+		commandBusy:       commandBusy,
 		resolvePermission: resolvePermission,
 		resolveConfirm:    resolveConfirm,
 		resolveError:      resolveError,
@@ -77,6 +81,10 @@ func (s *Submitter) SyncBashBorder(text string) {
 
 // Submit handles a user prompt from the composer (agent, slash, or bash).
 func (s *Submitter) Submit(text string) {
+	if s.commandBusy != nil && s.commandBusy() {
+		s.commandContext.Toast("An extension command is already running", toast.ToastWarning, 3*time.Second)
+		return
+	}
 	text = strings.TrimSpace(text)
 	if strings.HasPrefix(text, "!") {
 		if s.bash.HandleSubmit(text) {
@@ -213,6 +221,9 @@ func (s *Submitter) IsBusy() bool {
 
 // StreamActive reports whether user input should be blocked for stream/overlays.
 func (s *Submitter) StreamActive() bool {
+	if s.commandBusy != nil && s.commandBusy() {
+		return true
+	}
 	if s.IsBusy() ||
 		(s.permissionActive != nil && s.permissionActive()) ||
 		(s.errorActive != nil && s.errorActive()) {

@@ -197,14 +197,19 @@ func (c *ComposerPane) ShowList(
 	cfg listpicker.ShowConfig,
 	onAccept func(listpicker.Item),
 	onDelete func(listpicker.Item),
+	onClose func(),
 ) {
 	c.HideCompleters()
 	c.HidePalette()
+	if c.listPicker.Open {
+		c.listPicker.Hide()
+	}
 	c.listPicker.OnAccept = onAccept
 	c.listPicker.FocusReturn = &c.Chat
-	// Assign unconditionally: a nil clears a prior domain's delete path off
-	// the shared picker, mirroring the accept-leak guard above.
+	// Assign unconditionally: a nil clears a prior domain's delete and close
+	// paths off the shared picker, mirroring the accept-leak guard above.
 	c.listPicker.OnDelete = onDelete
+	c.listPicker.OnClose = onClose
 	c.listPicker.Show(items, cfg)
 	if c.requestFocus != nil {
 		c.requestFocus(&c.listPicker)
@@ -213,6 +218,9 @@ func (c *ComposerPane) ShowList(
 		c.onRedraw()
 	}
 }
+
+// HideList closes the shared list picker if open.
+func (c *ComposerPane) HideList() { c.listPicker.Hide() }
 
 // ListState saves the shared picker's query and selected row before acceptance.
 func (c *ComposerPane) ListState() listpicker.State { return c.listPicker.State() }
@@ -243,6 +251,7 @@ func (c *ComposerPane) ShowSessionList(
 				onDelete(item.ID)
 			}
 		},
+		nil,
 	)
 }
 
@@ -282,7 +291,7 @@ func (c *ComposerPane) ShowBranchList(
 		if onAccept != nil {
 			onAccept(targets[item.ID])
 		}
-	}, onDeleteItem)
+	}, onDeleteItem, nil)
 }
 
 // RefreshBranchList swaps the rows of an open branch picker in place, keeping

@@ -175,6 +175,7 @@ func (o *Overlays) beginErrorAsk(msg controller.OverlayMsg) {
 	if o.composer != nil {
 		o.composer.HideCompleters()
 		o.composer.HidePalette()
+		o.composer.HideList()
 	}
 	o.err = &errorAskState{message: msg.ErrorText}
 	// The turn is over — this dialog is the aftermath, not an in-flight ask.

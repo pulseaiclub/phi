@@ -68,6 +68,7 @@ func (o *Overlays) beginExtConfirm(msg controller.OverlayMsg) {
 	if o.composer != nil {
 		o.composer.HideCompleters()
 		o.composer.HidePalette()
+		o.composer.HideList()
 	}
 	o.confirm = newConfirmAskState(msg)
 	if o.activity != nil {

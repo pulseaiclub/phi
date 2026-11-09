@@ -351,6 +351,7 @@ func (c *EngineController) bindExtensionHost(r *extension.Runner) {
 		cwd = c.proj.Root()
 	}
 	r.Bind(ext.HostOpts{
+		HostRequest: c.extensionHostRequest,
 		UI: extension.BusUI{
 			NotifyFn: func(message, kind string) {
 				toastKind := toast.ToastSuccess

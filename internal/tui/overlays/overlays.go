@@ -16,6 +16,7 @@ import (
 type overlayComposer interface {
 	HideCompleters()
 	HidePalette()
+	HideList()
 }
 
 // Overlays owns permission, extension-confirm, and loop-error UI that replaces the composer slot.
@@ -139,6 +140,7 @@ func (o *Overlays) beginPermissionAsk(msg controller.OverlayMsg) {
 	if o.composer != nil {
 		o.composer.HideCompleters()
 		o.composer.HidePalette()
+		o.composer.HideList()
 	}
 	o.perm = newPermAskState(msg.Request, msg.Reason, msg.PermReply)
 	o.activity.Apply(controller.ActivityAwaitingApproval)

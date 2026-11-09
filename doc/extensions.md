@@ -82,6 +82,13 @@ go get github.com/pulseaiclub/phi/ext/go@v0.21.0
 
 (`scripts/bump.sh` tags both `vX.Y.Z` and `ext/go/vX.Y.Z`.)
 
+Go extensions can call `Select` from command, tool, or intercept handlers to
+open a host picker. It returns the original item index, or `OK=false` on Esc;
+host errors are returned separately. Headless hosts report an unsupported request.
+Interactive commands may wait up to one hour; each dialog retains the host's
+configured timeout. Conflicting submissions and session changes are blocked
+while an extension command is running.
+
 Slow tools (HTTP fetch, long builds, …) should set `TimeoutSec` — the host’s
 default RPC wait is **30s**. Values are clamped to 1–3600.
 

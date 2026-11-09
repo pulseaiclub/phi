@@ -67,9 +67,10 @@ func (h *ExtCommands) slashCommand(name, desc string, needsArgs bool) Command {
 		Description: desc,
 		Slash:       true,
 		NeedsArgs:   needsArgs,
-		Run: func(ctx Context, args []string) error {
-			if h.running.Load() {
-				ctx.Toast("An extension command is already running", toast.ToastWarning, 3*time.Second)
+		Run: func(_ Context, args []string) error {
+			if !h.running.CompareAndSwap(false, true) {
+				// Unreachable in production: Submitter blocks dispatch while
+				// this flag is set, and the busy toast lives at that gate.
 				return nil
 			}
 			text := strings.TrimSpace(strings.Join(args, " "))
@@ -80,34 +81,26 @@ func (h *ExtCommands) slashCommand(name, desc string, needsArgs bool) Command {
 }
 
 func (h *ExtCommands) run(name, args string) {
-	if !h.running.CompareAndSwap(false, true) {
-		h.Bus.Publish(controller.ExtCommandResultMsg{
-			Gen: h.gen.Load(),
-			Err: "An extension command is already running",
-		})
-		return
-	}
-	defer h.running.Store(false)
-
-	gen := h.gen.Load()
+	result := controller.ExtCommandResultMsg{Gen: h.gen.Load()}
+	defer func() { h.Bus.Publish(result) }()
 	// A nil extension runner is legitimate runtime state (nothing loaded yet).
 	if h.Ctrl.Extensions() == nil {
-		h.Bus.Publish(controller.ExtCommandResultMsg{Gen: gen, Err: "extensions are not loaded"})
+		result.Err = "extensions are not loaded"
 		return
 	}
 	out, err := h.Ctrl.Extensions().RunCommand(name, args)
-	if gen != h.gen.Load() {
-		return
-	}
 	if err != nil {
-		h.Bus.Publish(controller.ExtCommandResultMsg{Gen: gen, Err: err.Error()})
+		result.Err = err.Error()
 		return
 	}
-	h.Bus.Publish(controller.ExtCommandResultMsg{Gen: gen, Submit: out.Submit})
+	result.Submit = out.Submit
 }
 
 // Apply delivers a finished extension command onto the UI goroutine.
 func (h *ExtCommands) Apply(msg controller.ExtCommandResultMsg) {
+	// Keep submissions blocked until the UI receives completion, then allow
+	// the command's own prompt through the same submit path.
+	h.running.Store(false)
 	if msg.Gen != h.gen.Load() {
 		return
 	}
@@ -313,3 +306,6 @@ func (h *ExtCommands) buildExtensionList() []palette.PaletteCommand {
 
 	return out
 }
+
+// Running reports whether an extension command is in flight.
+func (h *ExtCommands) Running() bool { return h.running.Load() }

@@ -9,6 +9,7 @@ import (
 	"github.com/pulseaiclub/sev/commitmsg"
 	"github.com/pulseaiclub/xui"
 
+	"github.com/pulseaiclub/phi/ext/go/pxb"
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/components/chat"
@@ -68,6 +69,10 @@ type Editor struct {
 	updateHint string
 
 	ctrl *controller.EngineController
+
+	// extSelectReply is the channel of the extension picker currently open.
+	// It lets a late timeout dismiss only its own request.
+	extSelectReply chan pxb.HostResult
 
 	commands  *commands.CommandRegistry
 	sessions  *commands.SessionCommands
@@ -163,6 +168,7 @@ func NewEditor(
 		e.overlays.PermissionActive,
 		e.overlays.ConfirmActive,
 		e.overlays.ErrorActive,
+		e.extCmds.Running,
 		e.overlays.ResolvePermission,
 		e.overlays.ResolveConfirm,
 		e.overlays.ResolveError,
@@ -210,6 +216,8 @@ func (e *Editor) Publish(m controller.Msg) {
 // Update applies one message on the UI goroutine.
 func (e *Editor) Update(m controller.Msg) {
 	switch msg := m.(type) {
+	case controller.ExtHostRequestMsg:
+		e.applyExtensionRequest(msg)
 	case controller.SubmitMsg:
 		e.submitter.Submit(msg.Text)
 	case controller.CancelStreamMsg:
@@ -502,7 +510,7 @@ func (e *Editor) showSkillList(
 	cfg listpicker.ShowConfig,
 	onAccept func(listpicker.Item),
 ) {
-	e.composer.ShowList(items, cfg, onAccept, nil)
+	e.composer.ShowList(items, cfg, onAccept, nil, nil)
 }
 
 // Draw renders the editor surface for the given draw context.

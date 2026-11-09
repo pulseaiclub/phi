@@ -285,7 +285,13 @@ func TestEscapeUnclaimedWhenIdle(t *testing.T) {
 func TestListAcceptHandlerIsNotSharedBetweenDomains(t *testing.T) {
 	c := NewComposerPane(components.DefaultTheme(), "m", "/repo")
 	var sessions, branches []string
-	c.ShowList(nil, listpicker.ShowConfig{}, func(item listpicker.Item) { sessions = append(sessions, item.ID) }, nil)
+	c.ShowList(
+		nil,
+		listpicker.ShowConfig{},
+		func(item listpicker.Item) { sessions = append(sessions, item.ID) },
+		nil,
+		nil,
+	)
 	c.ShowBranchList([]gitx.Branch{{Name: "main", Current: true}}, nil, func(name string) {
 		branches = append(branches, name)
 	}, nil)

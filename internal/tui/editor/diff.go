@@ -31,7 +31,7 @@ func (e *Editor) showChanges(restore bool) {
 		e.diff.OpenChange(root, byID[item.ID])
 		e.composer.SetListFocusReturn(e)
 		e.captureOverlayFocus()
-	}, nil)
+	}, nil, nil)
 	if restore {
 		e.composer.RestoreListState(e.diffList)
 		if _, exists := byID[e.diffList.SelectedID]; !exists {

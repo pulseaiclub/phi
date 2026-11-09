@@ -19,6 +19,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   keyboard focus) reveals it, so a user can check what a compaction dropped
   instead of reading the session JSONL. Resumed sessions keep the same row ID,
   and the copy chord returns the marker line plus the full summary.
+- Go extensions can open host selection dialogs and wait for user input in commands.
 
 ### Fixed
 

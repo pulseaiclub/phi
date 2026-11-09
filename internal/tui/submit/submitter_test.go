@@ -56,7 +56,7 @@ func newTestSubmitter(
 		nil,
 		commands.NewContext(nil, nil),
 
-		nil, nil, nil,
+		nil, nil, nil, nil,
 		nil, nil, nil,
 	)
 }
@@ -121,4 +121,23 @@ func TestSubmitter_Submit_needsArgsRefillsComposer(t *testing.T) {
 	sub.Submit("/plan")
 	assert.Equal(t, "/plan ", comp.input)
 	assert.Empty(t, tp.Snapshot().Messages)
+}
+
+// While an extension command runs, every submit path—prompts, "!cmd" and
+// slash commands—must stay blocked so the picker it owns is not replaced.
+func TestSubmitter_Submit_blockedWhileCommandBusy(t *testing.T) {
+	th := components.DefaultTheme()
+	spin := status.NewSpinner(th.ToolName)
+	tp := transcript.NewTranscriptPane(th, spin, "Phi test")
+	comp := &stubComposer{input: "/new"}
+	busy := true
+	sub := newTestSubmitter(t, tp, controller.NewActivityHandler(), comp, nil)
+	sub.commandBusy = func() bool { return busy }
+
+	sub.Submit("/new")
+	assert.Equal(t, "/new", comp.input, "busy submit must not clear the composer")
+	assert.True(t, sub.StreamActive())
+
+	busy = false
+	assert.False(t, sub.StreamActive())
 }

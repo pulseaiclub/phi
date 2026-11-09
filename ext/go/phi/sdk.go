@@ -227,22 +227,30 @@ func (extension *ExtensionAPI) Confirm(title, message string) bool {
 
 // ConfirmOpts is Confirm with labels / danger styling.
 func (extension *ExtensionAPI) ConfirmOpts(req ext.ConfirmRequest) ext.ConfirmReply {
+	res, _ := extension.hostCall("confirm", req)
+	return ext.ConfirmReply{OK: res.OK}
+}
+
+func (extension *ExtensionAPI) hostCall(method string, arg any) (pxb.HostResult, error) {
 	if extension.wr == nil || extension.rd == nil || extension.stopped() {
-		return ext.ConfirmReply{}
+		return pxb.HostResult{}, errors.New("phi: host is not connected")
 	}
-	payload, _ := json.Marshal(req)
+	payload, err := json.Marshal(arg)
+	if err != nil {
+		return pxb.HostResult{}, err
+	}
 	id := extension.nextHostID.Add(1)
 	extension.write(pxb.TypeHostRequest, pxb.FlagHasID, id, pxb.EncodeHostRequest(pxb.HostRequest{
-		Method: "confirm", Arg: string(payload),
+		Method: method, Arg: string(payload),
 	}))
 	if extension.stopped() {
-		panic(confirmStopped{})
+		panic(hostStopped{})
 	}
 	for {
 		fr, err := extension.rd.Read()
 		if err != nil {
 			extension.fail(err)
-			panic(confirmStopped{})
+			panic(hostStopped{})
 		}
 		body := pxb.CloneBody(fr)
 		switch fr.Type {
@@ -253,27 +261,30 @@ func (extension *ExtensionAPI) ConfirmOpts(req ext.ConfirmRequest) ext.ConfirmRe
 			res, err := pxb.DecodeHostResult(body)
 			if err != nil {
 				extension.fail(err)
-				panic(confirmStopped{})
+				panic(hostStopped{})
 			}
-			return ext.ConfirmReply{OK: res.OK}
+			if res.Error != "" {
+				return res, errors.New(res.Error)
+			}
+			return res, nil
 		case pxb.TypeShutdown:
 			extension.write(pxb.TypeShutdownAck, 0, 0, nil)
 			extension.mu.Lock()
 			extension.shutdown = true
 			extension.mu.Unlock()
-			panic(confirmStopped{})
+			panic(hostStopped{})
 		case pxb.TypeToolInvoke, pxb.TypeToolDetailInvoke, pxb.TypeCommandInvoked, pxb.TypeIntercept,
 			pxb.TypeEvent, pxb.TypeSessionMeta, pxb.TypeModelInvoke, pxb.TypeModelCancel:
 			if len(extension.deferred) >= maxDeferredFrames || len(body) > maxDeferredBytes-extension.deferredBytes {
-				extension.fail(errors.New("phi: confirmation deferred request queue is full"))
-				panic(confirmStopped{})
+				extension.fail(errors.New("phi: deferred request queue is full"))
+				panic(hostStopped{})
 			}
 			fr.Body = body
 			extension.deferred = append(extension.deferred, fr)
 			extension.deferredBytes += len(body)
 		}
 		if extension.stopped() {
-			panic(confirmStopped{})
+			panic(hostStopped{})
 		}
 	}
 }
@@ -288,7 +299,7 @@ func (extension *ExtensionAPI) run(r io.Reader, w io.Writer) (err error) {
 		extension.deferred = nil
 		extension.deferredBytes = 0
 		if v := recover(); v != nil {
-			if _, ok := v.(confirmStopped); !ok {
+			if _, ok := v.(hostStopped); !ok {
 				panic(v)
 			}
 			extension.mu.Lock()

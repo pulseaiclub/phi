@@ -698,7 +698,7 @@ func (p *Proc) CallToolDetail(ctx context.Context, name string, args json.RawMes
 // CallCommand runs a slash command.
 func (p *Proc) CallCommand(ctx context.Context, name, args string) (pxb.CommandResponse, error) {
 	body := pxb.EncodeCommandInvoked(pxb.CommandInvoked{Name: name, Args: args})
-	f, err := p.rpc(ctx, pxb.TypeCommandInvoked, body, pxb.TypeCommandResponse)
+	f, err := p.rpcWait(ctx, pxb.TypeCommandInvoked, body, pxb.TypeCommandResponse, rpcTimeoutMax)
 	if err != nil {
 		return pxb.CommandResponse{}, err
 	}
