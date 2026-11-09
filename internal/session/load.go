@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -21,8 +22,18 @@ type SessionMeta struct {
 	File      string
 	Timestamp string
 	Cwd       string
-	Mtime     time.Time
-	Preview   string // truncated last user text
+	// Parent is the session id this one was forked from (empty for none).
+	Parent  string
+	Mtime   time.Time
+	Preview string // truncated last user text
+}
+
+// ShortID returns at most the first eight bytes of a session id for display.
+func ShortID(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
 }
 
 // ListSessions returns session files under dir, newest mtime first.
@@ -71,8 +82,8 @@ func readSessionMeta(path string, e os.DirEntry) (SessionMeta, error) {
 		Mtime: info.ModTime(),
 	}
 	sc := bufio.NewScanner(f)
-	// Session files can grow; allow large lines for tool payloads.
-	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+	// The writer has no entry size cap; grow on demand for image and tool payloads.
+	sc.Buffer(make([]byte, 0, 64*1024), math.MaxInt)
 
 	lineNo := 0
 	for sc.Scan() {
@@ -93,6 +104,7 @@ func readSessionMeta(path string, e os.DirEntry) (SessionMeta, error) {
 			meta.ID = e.ID
 			meta.Timestamp = e.Timestamp
 			meta.Cwd = e.Cwd
+			meta.Parent = e.ParentSession
 		case SessionMessageEntry:
 			if e.Message.Role == llm.RoleUser && strings.TrimSpace(e.Message.Content) != "" {
 				meta.Preview = truncatePreview(e.Message.Content, 72)
@@ -199,7 +211,8 @@ func OpenSession(path string) (*Manager, error) {
 	defer f.Close()
 
 	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+	// Match the writer's uncapped entries without preallocating large buffers.
+	sc.Buffer(make([]byte, 0, 64*1024), math.MaxInt)
 
 	var (
 		entries         []MessageEntry

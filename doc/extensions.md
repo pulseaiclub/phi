@@ -30,6 +30,17 @@ session_compact (after auto compaction)
 
 Tool loop order remains **ExtensionPre → Gate/Ask → Run → ExtensionPost**.
 
+Session lifecycle events carry a free-form `reason`. Current values:
+`session_start`: `startup`, `new`, `resume`, `fork`; `session_before_switch`:
+`new`, `resume`, `fork`; `session_shutdown`: `new`, `resume`, `fork`, `quit`
+(plus the target session id where one is known). A fork runs the full switch
+sequence: `session_before_switch` (cancel ⇒ nothing is written),
+`session_shutdown` for the source, then `session_start` with `reason: "fork"`
+and the new session as target. A fork allocates its id only after approval, so
+its `session_before_switch` carries an empty target; the id first appears on
+`session_shutdown`. Handlers that branch on `reason` should treat an
+unknown value as "a normal session switch".
+
 ## Why not JSON lines?
 
 PXB uses a fixed 16-byte little-endian header (`PXB\x01` + type + flags + id +

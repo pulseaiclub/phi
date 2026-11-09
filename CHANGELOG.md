@@ -32,8 +32,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- TUI: `/fork` copies the current session's branch into a new session (new id,
+  source recorded as parent) with the same compaction context and switches to
+  it; the source file is never touched and stays in `/sessions`. Forking is
+  refused while a reply or command is running, and extra arguments report
+  usage. Session listings show the fork's source as `↳ <id>`.
+  `phi sessions fork <id>` does the same headlessly and prints the new id.
+
 ### Fixed
 
+- Resuming a session sends `session_shutdown` to the outgoing extensions before
+  replacing their processes, instead of notifying the newly loaded instances.
+- Sessions with image or tool entries larger than 8 MiB can be forked, resumed,
+  and listed without hitting a per-line read limit. Failed fork reloads remove
+  the unused copy and report cleanup errors.
 - Child agents no longer overwrite shared extension host session metadata or
   the parent engine's built-in tool list.
 - Extension confirmation dialogs restore the prior activity, so idle slash

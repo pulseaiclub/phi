@@ -9,7 +9,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/transcript"
 )
 
-// SessionCommands owns /sessions and /new UI side effects.
+// SessionCommands owns session command UI side effects.
 type SessionCommands struct {
 	Ctrl          *controller.EngineController
 	Composer      BuiltinComposer
@@ -21,7 +21,7 @@ type SessionCommands struct {
 	OpenPicker func(items []session.SessionMeta, currentID string)
 	// RefreshPicker swaps rows into the open overlay (wired by Builtin.Bind).
 	RefreshPicker func(items []session.SessionMeta, currentID string)
-	// StreamActive reports whether resume/new should be blocked.
+	// StreamActive reports whether session changes should be blocked.
 	StreamActive func() bool
 	// SessionDir / SessionID override Ctrl for tests when set.
 	SessionDir func() string
@@ -43,7 +43,7 @@ func NewSessionCommands(
 	}
 }
 
-// Register wires /sessions and /new into r.
+// Register wires /sessions, /new and /fork into r.
 func (s *SessionCommands) Register(r *CommandRegistry) {
 	r.Register(Command{
 		Name:        "new",
@@ -62,6 +62,16 @@ func (s *SessionCommands) Register(r *CommandRegistry) {
 		Insert:      "/sessions",
 		Run: func(_ Context, _ []string) error {
 			s.Show()
+			return nil
+		},
+	})
+	r.Register(Command{
+		Name:        "fork",
+		Description: "Copy this session at its current point into a new one",
+		Slash:       true,
+		Insert:      "/fork",
+		Run: func(_ Context, args []string) error {
+			s.Fork(args)
 			return nil
 		},
 	})
@@ -98,8 +108,7 @@ func (s *SessionCommands) dirAndID() (dir, currentID string) {
 
 // Accept resumes the chosen session (used by the session list overlay).
 func (s *SessionCommands) Accept(id string) {
-	if s.StreamActive != nil && s.StreamActive() {
-		publishToast(s.Bus, "Cannot resume while a reply or command is running", toast.ToastWarning, 3*time.Second)
+	if s.blocked("resume") {
 		return
 	}
 	s.resume(id)
@@ -120,7 +129,7 @@ func (s *SessionCommands) resume(id string) {
 	s.Transcript.Sync()
 	s.Transcript.StickToBottom()
 	s.refreshModel()
-	msg := "Resumed " + shortSessionID(s.Ctrl.SessionID())
+	msg := "Resumed " + session.ShortID(s.Ctrl.SessionID())
 	if warn != "" {
 		publishToast(s.Bus, msg+" · "+warn, toast.ToastWarning, 4*time.Second)
 		return
@@ -132,8 +141,7 @@ func (s *SessionCommands) resume(id string) {
 // Deleting the current session also resets to a fresh one: the engine must
 // not keep appending to a file the user asked to remove.
 func (s *SessionCommands) Delete(id string) {
-	if s.StreamActive != nil && s.StreamActive() {
-		publishToast(s.Bus, "Cannot delete while a reply or command is running", toast.ToastWarning, 3*time.Second)
+	if s.blocked("delete") {
 		return
 	}
 	dir, currentID := s.dirAndID()
@@ -141,7 +149,7 @@ func (s *SessionCommands) Delete(id string) {
 		publishToast(s.Bus, err.Error(), toast.ToastError, 4*time.Second)
 		return
 	}
-	publishToast(s.Bus, "Deleted "+shortSessionID(id), toast.ToastSuccess, 3*time.Second)
+	publishToast(s.Bus, "Deleted "+session.ShortID(id), toast.ToastSuccess, 3*time.Second)
 	if id == currentID {
 		s.NewSession()
 	}
@@ -164,19 +172,56 @@ func (s *SessionCommands) refreshPicker() {
 
 // NewSession starts a new empty session. Blocks while a stream or extension command is active.
 func (s *SessionCommands) NewSession() {
-	if s.StreamActive != nil && s.StreamActive() {
-		publishToast(
-			s.Bus,
-			"Cannot start a new session while a reply or command is running",
-			toast.ToastWarning,
-			3*time.Second,
-		)
+	if s.blocked("start a new session") {
 		return
 	}
 	if err := s.Ctrl.NewSession(); err != nil {
 		publishToast(s.Bus, err.Error(), toast.ToastError, 4*time.Second)
 		return
 	}
+	s.resetSessionView()
+	publishToast(s.Bus, "New session "+session.ShortID(s.Ctrl.SessionID()), toast.ToastSuccess, 3*time.Second)
+}
+
+// Fork copies the current session at its current point: both sessions keep
+// going from here with the same history. Anything typed after /fork is
+// reported instead of ignored.
+func (s *SessionCommands) Fork(args []string) {
+	if len(args) > 0 {
+		publishToast(s.Bus, "Usage: /fork", toast.ToastWarning, 3*time.Second)
+		return
+	}
+	if s.blocked("fork") {
+		return
+	}
+	id, err := s.Ctrl.ForkSession()
+	if err != nil {
+		publishToast(s.Bus, err.Error(), toast.ToastError, 4*time.Second)
+		return
+	}
+	if s.SyncHooks != nil {
+		s.SyncHooks()
+	}
+	s.resetSessionView()
+	publishToast(s.Bus, "Forked "+session.ShortID(id), toast.ToastSuccess, 3*time.Second)
+}
+
+// blocked reports whether a session switch has to wait, and says why.
+func (s *SessionCommands) blocked(action string) bool {
+	if s.StreamActive == nil || !s.StreamActive() {
+		return false
+	}
+	publishToast(
+		s.Bus,
+		"Cannot "+action+" while a reply or command is running",
+		toast.ToastWarning,
+		3*time.Second,
+	)
+	return true
+}
+
+// resetSessionView clears transient UI state when starting a new or forked session.
+func (s *SessionCommands) resetSessionView() {
 	s.Transcript.LoadReplay(s.Ctrl.ReplaySnapshot())
 	s.Transcript.ResetSubagents()
 	s.refreshModel()
@@ -185,18 +230,10 @@ func (s *SessionCommands) NewSession() {
 	}
 	s.Transcript.Sync()
 	s.Transcript.StickToBottom()
-	publishToast(s.Bus, "New session "+shortSessionID(s.Ctrl.SessionID()), toast.ToastSuccess, 3*time.Second)
 }
 
 func (s *SessionCommands) refreshModel() {
 	if s.Composer != nil {
 		s.Composer.SetModelLabel(s.Ctrl.ModelName(), string(s.Ctrl.ThinkLevel()))
 	}
-}
-
-func shortSessionID(id string) string {
-	if len(id) > 8 {
-		return id[:8]
-	}
-	return id
 }

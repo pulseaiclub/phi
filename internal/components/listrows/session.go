@@ -20,7 +20,9 @@ func SessionConfig() listpicker.ShowConfig {
 	}
 }
 
-// SessionItems maps session metas into generic list rows.
+// SessionItems maps session metas into generic list rows, in the order the
+// listing hands them over (newest first). A fork keeps showing where it came
+// from, so its source id rides on the primary column.
 func SessionItems(list []session.SessionMeta, currentID string, now time.Time) []listpicker.Item {
 	if now.IsZero() {
 		now = time.Now()
@@ -31,12 +33,16 @@ func SessionItems(list []session.SessionMeta, currentID string, now time.Time) [
 		if detail == "" {
 			detail = "(no preview)"
 		}
+		primary := session.ShortID(m.ID)
+		if m.Parent != "" {
+			primary += " ↳ " + session.ShortID(m.Parent)
+		}
 		item := listpicker.Item{
 			ID:       m.ID,
 			Leading:  FormatRelative(m.Mtime, now),
-			Primary:  shortID(m.ID),
+			Primary:  primary,
 			Detail:   detail,
-			Keywords: m.ID + " " + m.Preview,
+			Keywords: m.ID + " " + m.Parent + " " + m.Preview,
 		}
 		if m.ID == currentID {
 			item.Badge = "current"
@@ -44,11 +50,4 @@ func SessionItems(list []session.SessionMeta, currentID string, now time.Time) [
 		out = append(out, item)
 	}
 	return out
-}
-
-func shortID(id string) string {
-	if len(id) > 8 {
-		return id[:8]
-	}
-	return id
 }

@@ -53,19 +53,21 @@ type ToolExecutionEndEvent struct {
 
 // SessionStartEvent is emitted when a session becomes active.
 type SessionStartEvent struct {
-	Reason            string // startup | reload | new | resume | quit
+	Reason            string // startup | new | resume | fork
 	PreviousSessionID string
 }
 
 // SessionShutdownEvent is emitted when leaving the active session.
 type SessionShutdownEvent struct {
-	Reason          string
+	Reason          string // new | resume | fork | quit
 	TargetSessionID string
 }
 
-// SessionBeforeSwitchEvent is emitted before /new or /resume.
+// SessionBeforeSwitchEvent is emitted before /new, /resume or /fork.
 type SessionBeforeSwitchEvent struct {
-	Reason          string // new | resume
+	Reason string // new | resume | fork
+	// TargetSessionID is empty for a fork: the fork id is allocated only after
+	// this event approves the switch, and first appears on the shutdown event.
 	TargetSessionID string
 }
 
