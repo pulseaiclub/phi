@@ -197,7 +197,6 @@ func (c *ComposerPane) ShowList(
 	cfg listpicker.ShowConfig,
 	onAccept func(listpicker.Item),
 	onDelete func(listpicker.Item),
-	onClose func(),
 ) {
 	c.HideCompleters()
 	c.HidePalette()
@@ -209,7 +208,7 @@ func (c *ComposerPane) ShowList(
 	// Assign unconditionally: a nil clears a prior domain's delete and close
 	// paths off the shared picker, mirroring the accept-leak guard above.
 	c.listPicker.OnDelete = onDelete
-	c.listPicker.OnClose = onClose
+	c.listPicker.OnClose = nil
 	c.listPicker.Show(items, cfg)
 	if c.requestFocus != nil {
 		c.requestFocus(&c.listPicker)
@@ -251,7 +250,6 @@ func (c *ComposerPane) ShowSessionList(
 				onDelete(item.ID)
 			}
 		},
-		nil,
 	)
 }
 
@@ -291,7 +289,7 @@ func (c *ComposerPane) ShowBranchList(
 		if onAccept != nil {
 			onAccept(targets[item.ID])
 		}
-	}, onDeleteItem, nil)
+	}, onDeleteItem)
 }
 
 // RefreshBranchList swaps the rows of an open branch picker in place, keeping

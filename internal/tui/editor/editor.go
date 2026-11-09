@@ -510,7 +510,7 @@ func (e *Editor) showSkillList(
 	cfg listpicker.ShowConfig,
 	onAccept func(listpicker.Item),
 ) {
-	e.composer.ShowList(items, cfg, onAccept, nil, nil)
+	e.composer.ShowList(items, cfg, onAccept, nil)
 }
 
 // Draw renders the editor surface for the given draw context.

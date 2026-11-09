@@ -8,16 +8,20 @@ import (
 )
 
 // ShowExtensionSelect opens the shared picker for an extension request.
-// onAccept reports the chosen item; onClose fires when the picker closes
-// (accept, Esc, replacement, or timeout), owned by ShowList like OnDelete.
-func (c *ComposerPane) ShowExtensionSelect(req ext.SelectRequest, onAccept func(index int), onClose func()) {
+// onResult runs once on close, with OK=false unless an item was accepted.
+func (c *ComposerPane) ShowExtensionSelect(req ext.SelectRequest, onResult func(ext.SelectReply)) {
 	items := make([]listpicker.Item, len(req.Items))
 	for i, item := range req.Items {
 		items[i] = listpicker.Item{ID: strconv.Itoa(i), Primary: item.Label, Detail: item.Detail}
 	}
+	var result ext.SelectReply
 	c.ShowList(items, listpicker.ShowConfig{Title: req.Title, PrimaryWidth: 40}, func(item listpicker.Item) {
 		if index, err := strconv.Atoi(item.ID); err == nil {
-			onAccept(index)
+			result = ext.SelectReply{Index: index, OK: true}
 		}
-	}, nil, onClose)
+	}, nil)
+	c.listPicker.OnClose = func() {
+		c.listPicker.OnClose = nil
+		onResult(result)
+	}
 }

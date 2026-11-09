@@ -10,24 +10,8 @@ import (
 
 	"github.com/pulseaiclub/phi/ext/go/pxb"
 	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/tui/codepane"
-	"github.com/pulseaiclub/phi/internal/tui/composer"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
-	"github.com/pulseaiclub/phi/internal/tui/diffpane"
-	"github.com/pulseaiclub/phi/internal/tui/overlays"
 )
-
-// newExtensionEditor wires only what extension requests touch: a composer with
-// no redraw callback and inactive overlays.
-func newExtensionEditor(t *testing.T) *Editor {
-	t.Helper()
-	return &Editor{
-		composer: composer.NewComposerPane(components.DefaultTheme(), "", t.TempDir()),
-		overlays: &overlays.Overlays{},
-		code:     &codepane.Pane{},
-		diff:     &diffpane.Pane{},
-	}
-}
 
 func openExtensionSelect(t *testing.T, e *Editor) chan pxb.HostResult {
 	t.Helper()
@@ -43,12 +27,8 @@ func openExtensionSelect(t *testing.T, e *Editor) chan pxb.HostResult {
 	return reply
 }
 
-func extensionKey(e *Editor, code xui.KeyCode) {
-	e.composer.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: code})
-}
-
 func TestExtensionRequestRejectsInvalidAndExpiredRequests(t *testing.T) {
-	e := newExtensionEditor(t)
+	e := diffEditor(t, t.TempDir())
 	for _, arg := range []string{"{", `{"items":[]}`} {
 		reply := make(chan pxb.HostResult, 1)
 		e.Update(controller.ExtHostRequestMsg{
@@ -68,46 +48,38 @@ func TestExtensionRequestRejectsInvalidAndExpiredRequests(t *testing.T) {
 }
 
 func TestExtensionSelectRepliesWithIndexOrCancellation(t *testing.T) {
-	e := newExtensionEditor(t)
+	e := diffEditor(t, t.TempDir())
 
 	reply := openExtensionSelect(t, e)
-	extensionKey(e, xui.KeyDown)
-	extensionKey(e, xui.KeyEnter)
+	diffKey(e, xui.KeyDown, 0)
+	diffKey(e, xui.KeyEnter, 0)
 	assert.Equal(t, pxb.HostResult{Body: "1", OK: true}, <-reply)
-	assert.Empty(t, reply, "accept must send exactly one reply")
+	e.composer.HideList()
+	assert.Empty(t, reply, "closing an accepted picker again must not send another reply")
 
 	reply = openExtensionSelect(t, e)
-	extensionKey(e, xui.KeyEscape)
+	diffKey(e, xui.KeyEscape, 0)
 	assert.False(t, (<-reply).OK)
 }
 
-func TestExtensionSelectStaleTimeoutLeavesNewPickerOpen(t *testing.T) {
-	e := newExtensionEditor(t)
+func TestExtensionSelectTimeoutOnlyDismissesOwnPicker(t *testing.T) {
+	e := diffEditor(t, t.TempDir())
 	old := openExtensionSelect(t, e)
 	fresh := openExtensionSelect(t, e)
 	assert.False(t, (<-old).OK, "replacement cancels the old request")
 
 	e.Update(controller.ExtHostRequestMsg{Reply: old, Dismiss: true})
 	assert.Empty(t, fresh, "stale timeout must not answer the new request")
-	extensionKey(e, xui.KeyEscape)
+	e.Update(controller.ExtHostRequestMsg{Reply: fresh, Dismiss: true})
 	assert.False(t, (<-fresh).OK)
-}
-
-func TestExtensionSelectTimeoutDismissesOwnPicker(t *testing.T) {
-	e := newExtensionEditor(t)
-	reply := openExtensionSelect(t, e)
-	e.Update(controller.ExtHostRequestMsg{Reply: reply, Dismiss: true})
-	assert.False(t, (<-reply).OK)
-	assert.Empty(t, reply)
+	assert.Empty(t, fresh)
 }
 
 func TestExtensionSelectCancelledByModal(t *testing.T) {
 	for _, kind := range []controller.OverlayKind{
 		controller.OverlayPermissionAsk, controller.OverlayExtConfirm, controller.OverlayErrorAsk,
 	} {
-		e := newExtensionEditor(t)
-		e.overlays = overlays.NewOverlays(components.DefaultTheme(), controller.NewActivityHandler(),
-			e.composer, nil, nil, nil)
+		e := diffEditor(t, t.TempDir())
 		reply := openExtensionSelect(t, e)
 		e.Update(controller.OverlayMsg{Kind: kind, ErrorText: "test error"})
 		require.NotEmpty(t, reply)

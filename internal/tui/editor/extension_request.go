@@ -43,21 +43,13 @@ func (e *Editor) applyExtensionRequest(msg controller.ExtHostRequestMsg) {
 		return
 	}
 
-	chosen := -1
-	e.composer.ShowExtensionSelect(req,
-		func(index int) { chosen = index },
-		func() {
-			// A late timeout must not answer for a newer picker.
-			if e.extSelectReply != reply {
-				return
-			}
-			e.extSelectReply = nil
-			if chosen >= 0 {
-				reply <- pxb.HostResult{Body: strconv.Itoa(chosen), OK: true}
-				return
-			}
-			reply <- pxb.HostResult{}
-		},
-	)
+	e.composer.ShowExtensionSelect(req, func(selected ext.SelectReply) {
+		e.extSelectReply = nil
+		result := pxb.HostResult{OK: selected.OK}
+		if selected.OK {
+			result.Body = strconv.Itoa(selected.Index)
+		}
+		reply <- result
+	})
 	e.extSelectReply = reply
 }

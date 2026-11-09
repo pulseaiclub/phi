@@ -26,7 +26,7 @@ func (c *EngineController) extensionHostRequest(req pxb.HostRequest) pxb.HostRes
 	case result := <-reply:
 		return result
 	case <-ctx.Done():
-		c.publish(ExtHostRequestMsg{Context: ctx, Request: req, Reply: reply, Dismiss: true})
+		c.publish(ExtHostRequestMsg{Reply: reply, Dismiss: true})
 		return pxb.HostResult{Error: ctx.Err().Error()}
 	}
 }

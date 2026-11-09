@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ext "github.com/pulseaiclub/phi/ext/go"
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/listpicker"
 	"github.com/pulseaiclub/phi/internal/components/mention"
@@ -285,13 +286,7 @@ func TestEscapeUnclaimedWhenIdle(t *testing.T) {
 func TestListAcceptHandlerIsNotSharedBetweenDomains(t *testing.T) {
 	c := NewComposerPane(components.DefaultTheme(), "m", "/repo")
 	var sessions, branches []string
-	c.ShowList(
-		nil,
-		listpicker.ShowConfig{},
-		func(item listpicker.Item) { sessions = append(sessions, item.ID) },
-		nil,
-		nil,
-	)
+	c.ShowList(nil, listpicker.ShowConfig{}, func(item listpicker.Item) { sessions = append(sessions, item.ID) }, nil)
 	c.ShowBranchList([]gitx.Branch{{Name: "main", Current: true}}, nil, func(name string) {
 		branches = append(branches, name)
 	}, nil)
@@ -301,6 +296,17 @@ func TestListAcceptHandlerIsNotSharedBetweenDomains(t *testing.T) {
 
 	assert.Equal(t, []string{"main"}, branches)
 	assert.Empty(t, sessions, "opening a second picker must replace the first accept path")
+}
+
+func TestOrdinaryListClearsExtensionCloseHandler(t *testing.T) {
+	c := NewComposerPane(components.DefaultTheme(), "", t.TempDir())
+	closed := 0
+	c.ShowExtensionSelect(ext.SelectRequest{Items: []ext.SelectItem{{Label: "first"}}},
+		func(ext.SelectReply) { closed++ })
+	c.ShowList([]listpicker.Item{{ID: "session"}}, listpicker.ShowConfig{}, nil, nil)
+	assert.Equal(t, 1, closed, "replacement closes the extension picker")
+	pressKey(t, c, xui.KeyEvent{Press: true, Code: xui.KeyEscape})
+	assert.Equal(t, 1, closed, "ordinary lists must not inherit the extension close handler")
 }
 
 func TestListDeleteHandlerIsNotSharedBetweenDomains(t *testing.T) {

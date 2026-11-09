@@ -36,7 +36,7 @@ type ExtCommands struct {
 	CommandCtx Context
 
 	gen     atomic.Uint64
-	running atomic.Bool
+	running bool // UI goroutine only.
 }
 
 // Sync replaces extension-sourced slash commands from the current Runner.
@@ -68,11 +68,10 @@ func (h *ExtCommands) slashCommand(name, desc string, needsArgs bool) Command {
 		Slash:       true,
 		NeedsArgs:   needsArgs,
 		Run: func(_ Context, args []string) error {
-			if !h.running.CompareAndSwap(false, true) {
-				// Unreachable in production: Submitter blocks dispatch while
-				// this flag is set, and the busy toast lives at that gate.
+			if h.running {
 				return nil
 			}
+			h.running = true
 			text := strings.TrimSpace(strings.Join(args, " "))
 			go h.run(name, text)
 			return nil
@@ -100,7 +99,7 @@ func (h *ExtCommands) run(name, args string) {
 func (h *ExtCommands) Apply(msg controller.ExtCommandResultMsg) {
 	// Keep submissions blocked until the UI receives completion, then allow
 	// the command's own prompt through the same submit path.
-	h.running.Store(false)
+	h.running = false
 	if msg.Gen != h.gen.Load() {
 		return
 	}
@@ -307,5 +306,5 @@ func (h *ExtCommands) buildExtensionList() []palette.PaletteCommand {
 	return out
 }
 
-// Running reports whether an extension command is in flight.
-func (h *ExtCommands) Running() bool { return h.running.Load() }
+// Running reports whether an extension command is in flight. UI goroutine only.
+func (h *ExtCommands) Running() bool { return h.running }
