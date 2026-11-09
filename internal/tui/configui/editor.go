@@ -730,10 +730,11 @@ func (e *ConfigEditor) openKeyPicker(title, key string, options []option) {
 		Theme:    e.theme,
 		OnAccept: func(item listpicker.Item) { e.commit(key, item.ID) },
 	}
+	// Rows carry no leading column, so the picker collapses it on its own;
+	// setting a width here would only promise a gutter that is never drawn.
 	e.picker.Show(items, listpicker.ShowConfig{
 		Title:        title,
 		PrimaryWidth: pickerPrimaryWidth,
-		LeadingWidth: 1,
 	})
 }
 

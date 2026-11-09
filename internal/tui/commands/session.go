@@ -46,22 +46,22 @@ func NewSessionCommands(
 // Register wires /sessions and /new into r.
 func (s *SessionCommands) Register(r *CommandRegistry) {
 	r.Register(Command{
-		Name:        "sessions",
-		Description: "Browse and resume sessions for this directory",
-		Slash:       true,
-		Insert:      "/sessions",
-		Run: func(_ Context, _ []string) error {
-			s.Show()
-			return nil
-		},
-	})
-	r.Register(Command{
 		Name:        "new",
 		Description: "Start a fresh empty session",
 		Slash:       true,
 		Insert:      "/new",
 		Run: func(_ Context, _ []string) error {
 			s.NewSession()
+			return nil
+		},
+	})
+	r.Register(Command{
+		Name:        "sessions",
+		Description: "Browse and resume sessions for this directory",
+		Slash:       true,
+		Insert:      "/sessions",
+		Run: func(_ Context, _ []string) error {
+			s.Show()
 			return nil
 		},
 	})

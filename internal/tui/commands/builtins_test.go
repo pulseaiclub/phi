@@ -66,14 +66,16 @@ func TestNewBuiltinRegistry_RegistersDomains(t *testing.T) {
 	assert.True(t, ids["settings-permissions"])
 	assert.True(t, ids["settings-agents"])
 	assert.True(t, ids["extensions"])
-	assert.True(t, ids["skills"])
+	assert.False(t, ids["skills"], "/skill is a slash command, not a palette entry")
 
+	assert.Equal(t, "/sessions", b.Registry.LookupInsert("sessions"))
+	assert.Equal(t, "/skill", b.Registry.LookupInsert("skill"))
 	assert.Equal(t, "/branch ", b.Registry.LookupInsert("branch"))
 
 	assert.True(t, b.Registry.DispatchSlash("/diff staged", ctx))
 	assert.Equal(t, []string{"staged"}, opened)
 
-	b.Bind(nil, nil, nil, nil, nil, nil, "", func() bool { return true })
+	b.Bind(nil, nil, nil, nil, nil, nil, nil, "", func() bool { return true })
 
 	b.Sessions.NewSession()
 	assert.Contains(t, drainToast(t, bus), "Cannot start a new session")

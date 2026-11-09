@@ -77,6 +77,7 @@ func branchEditor(t *testing.T) *Editor {
 		nil,
 		e.composer.ShowBranchList,
 		e.composer.RefreshBranchList,
+		nil,
 		dir,
 		func() bool { return false },
 	)

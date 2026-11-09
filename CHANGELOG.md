@@ -21,6 +21,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- `/new` now lists before `/sessions` in the slash command menu, so the
+  frequent "fresh session" action comes first.
+- Skills picker moved from the Ctrl+K command palette to a `/skill` slash
+  command. Typing `/skill` opens a filterable list overlay (same picker as
+  `/sessions` and `/branch`); accepting a row attaches the skill to the next
+  turn. The skill no longer appears in the palette root, the list drops the
+  blank leading column, and long descriptions elide with `…` instead of a hard
+  cut.
+
 ### Added
 
 - TUI: `/fork` copies the current session's branch into a new session (new id,
