@@ -70,7 +70,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Security
 
-
 ## [0.29.7] - 2026-11-05
 
 ### Removed
