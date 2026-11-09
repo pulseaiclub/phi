@@ -28,8 +28,7 @@ type SessionMeta struct {
 	Preview string // truncated last user text
 }
 
-// ShortID trims a session id for display. Random ids share no prefix, so the
-// first eight runes stay unique within a listing.
+// ShortID returns at most the first eight bytes of a session id for display.
 func ShortID(id string) string {
 	if len(id) > 8 {
 		return id[:8]

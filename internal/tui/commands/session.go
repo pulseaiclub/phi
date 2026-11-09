@@ -9,7 +9,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/transcript"
 )
 
-// SessionCommands owns /sessions and /new UI side effects.
+// SessionCommands owns session command UI side effects.
 type SessionCommands struct {
 	Ctrl          *controller.EngineController
 	Composer      BuiltinComposer
@@ -21,7 +21,7 @@ type SessionCommands struct {
 	OpenPicker func(items []session.SessionMeta, currentID string)
 	// RefreshPicker swaps rows into the open overlay (wired by Builtin.Bind).
 	RefreshPicker func(items []session.SessionMeta, currentID string)
-	// StreamActive reports whether resume/new should be blocked.
+	// StreamActive reports whether session changes should be blocked.
 	StreamActive func() bool
 	// SessionDir / SessionID override Ctrl for tests when set.
 	SessionDir func() string
@@ -43,7 +43,7 @@ func NewSessionCommands(
 	}
 }
 
-// Register wires /sessions and /new into r.
+// Register wires /sessions, /new and /fork into r.
 func (s *SessionCommands) Register(r *CommandRegistry) {
 	r.Register(Command{
 		Name:        "new",
@@ -179,14 +179,7 @@ func (s *SessionCommands) NewSession() {
 		publishToast(s.Bus, err.Error(), toast.ToastError, 4*time.Second)
 		return
 	}
-	s.Transcript.LoadReplay(s.Ctrl.ReplaySnapshot())
-	s.Transcript.ResetSubagents()
-	s.refreshModel()
-	if s.ResetActivity != nil {
-		s.ResetActivity()
-	}
-	s.Transcript.Sync()
-	s.Transcript.StickToBottom()
+	s.resetSessionView()
 	publishToast(s.Bus, "New session "+session.ShortID(s.Ctrl.SessionID()), toast.ToastSuccess, 3*time.Second)
 }
 
@@ -206,7 +199,10 @@ func (s *SessionCommands) Fork(args []string) {
 		publishToast(s.Bus, err.Error(), toast.ToastError, 4*time.Second)
 		return
 	}
-	s.afterSessionSwitch()
+	if s.SyncHooks != nil {
+		s.SyncHooks()
+	}
+	s.resetSessionView()
 	publishToast(s.Bus, "Forked "+session.ShortID(id), toast.ToastSuccess, 3*time.Second)
 }
 
@@ -224,13 +220,8 @@ func (s *SessionCommands) blocked(action string) bool {
 	return true
 }
 
-// afterSessionSwitch rebuilds the UI for the session that just became active:
-// extension commands re-register, sub-agent rows from the source go away, and
-// the transcript is rebuilt from replay.
-func (s *SessionCommands) afterSessionSwitch() {
-	if s.SyncHooks != nil {
-		s.SyncHooks()
-	}
+// resetSessionView clears transient UI state when starting a new or forked session.
+func (s *SessionCommands) resetSessionView() {
 	s.Transcript.LoadReplay(s.Ctrl.ReplaySnapshot())
 	s.Transcript.ResetSubagents()
 	s.refreshModel()

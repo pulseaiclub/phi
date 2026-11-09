@@ -350,12 +350,6 @@ func (c *ComposerPane) SetInput(text string) {
 	c.Chat.ResetHistoryBrowse()
 }
 
-// Input returns the composer's current text, so callers can avoid clobbering a
-// half-typed draft.
-func (c *ComposerPane) Input() string {
-	return c.Chat.Value
-}
-
 // PendingSkills returns attached skill names awaiting submit.
 func (c *ComposerPane) PendingSkills() []string {
 	out := make([]string, 0, len(c.Chat.PendingSkills))

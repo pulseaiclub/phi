@@ -607,11 +607,7 @@ func (c *EngineController) Resume(id string) (cwdWarning string, err error) {
 	if sessCwd := eng.SessionCwd(); sessCwd != "" && c.cwd != "" && sessCwd != c.cwd {
 		cwdWarning = fmt.Sprintf("cwd %s ≠ %s", filepath.Base(sessCwd), filepath.Base(c.cwd))
 	}
-	c.modelMu.Lock()
-	c.engine = eng
-	c.modelCfg = cfg
-	c.modelMu.Unlock()
-	c.emitSessionStart("resume", eng.SessionID(), prevID)
+	c.activateSession(eng, cfg, "resume", prevID)
 	return cwdWarning, nil
 }
 
@@ -631,11 +627,7 @@ func (c *EngineController) NewSession() error {
 	if err != nil {
 		return err
 	}
-	c.modelMu.Lock()
-	c.engine = engine
-	c.modelCfg = cfg
-	c.modelMu.Unlock()
-	c.emitSessionStart("new", engine.SessionID(), prevID)
+	c.activateSession(engine, cfg, "new", prevID)
 	return nil
 }
 
@@ -664,12 +656,17 @@ func (c *EngineController) ForkSession() (string, error) {
 		return "", err
 	}
 	c.commitSessionSwitch("fork", prevID, forked.ID())
+	c.activateSession(eng, cfg, "fork", prevID)
+	return forked.ID(), nil
+}
+
+// activateSession publishes the new session only after installing its engine and model together.
+func (c *EngineController) activateSession(eng *agent.Engine, cfg llm.ModelConfig, reason, prevID string) {
 	c.modelMu.Lock()
 	c.engine = eng
 	c.modelCfg = cfg
 	c.modelMu.Unlock()
-	c.emitSessionStart("fork", forked.ID(), prevID)
-	return forked.ID(), nil
+	c.emitSessionStart(reason, eng.SessionID(), prevID)
 }
 
 // discardFork drops a fork the controller never switched to, so a failed switch
