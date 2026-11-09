@@ -189,7 +189,6 @@ models:
     think_level: high       # optional: off | minimal | low | medium | high | …
 
 skill_path: ~/.phi/skills # where SKILL.md files are loaded from; "~/…" is expanded
-max_rounds: 64            # tool round budget; 0 → engine default (64)
 
 agents:
   enabled: true           # default; set false to disable agent_* sub-agent tools
@@ -388,7 +387,6 @@ Flags:
 | `-p, --prompt STRING`| Prompt to run (required)                       |
 | `--jsonl`            | Emit JSONL events to stdout                    |
 | `--yolo`             | Skip all permission checks for this run (benchmarks / CI only) |
-| `--max-rounds N`     | Cap tool rounds (default 64)                   |
 | `--timeout DURATION` | Limit the agent run wall-clock time (e.g. `10m`; disabled by default) |
 | `--session ID`       | Resume a persisted session by id or unique prefix |
 | `--continue-last`    | Resume the newest persisted session for this directory |
@@ -398,11 +396,8 @@ Flags:
 `--tools` accepts built-in names such as `read,ls,grep`. MCP and agent tools
 still append when configured; the flag only scopes the built-in toolset.
 
-Exit codes: `0` success · `1` runtime/LLM error · `2` max rounds reached ·
+Exit codes: `0` success · `1` runtime/LLM error ·
 `3` config/usage error.
-
-Exhausting the tool-round budget stops the run with exit code 2, both in
-the interactive TUI and in headless `phi run`.
 
 In headless mode, permission `ask` decisions are denied (there is no approval
 UI), so `readonly`-style safety applies without extra flags. For benchmarks

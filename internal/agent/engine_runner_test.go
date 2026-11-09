@@ -53,7 +53,6 @@ func TestEngineRunnerViaJobManager(t *testing.T) {
 			BaseURL: srv.URL,
 			APIKey:  "x",
 		},
-		MaxRounds: 4,
 	}
 	mgr, err := job.New(job.Options{
 		Root:   jobsRoot,

@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -27,12 +26,11 @@ var runCommand = cli.Command{
 stdout (one JSON object per line).
 
 exit codes:
-  0 success   1 runtime/LLM error   2 max rounds   3 config/usage`,
+  0 success   1 runtime/LLM error   3 config/usage`,
 	Flags: []cli.Flag{
 		cli.String("prompt", "p", "prompt to run (required)", ""),
 		cli.Bool("jsonl", "", "emit JSONL events to stdout"),
 		cli.Bool("yolo", "", "skip all permission checks for this run (benchmarks / CI only)"),
-		cli.Var("max-rounds", "", "N", "cap tool rounds (default 64)", 0, parsePositiveInt),
 		cli.Var(
 			"timeout",
 			"",
@@ -65,7 +63,6 @@ func runOptionsFromFlags(f cli.Flags) (runOptions, error) {
 		prompt:       f.String("prompt"),
 		jsonl:        f.Bool("jsonl"),
 		yolo:         f.Bool("yolo"),
-		maxRounds:    f.Int("max-rounds"),
 		timeout:      f.Duration("timeout"),
 		session:      f.String("session"),
 		continueLast: f.Bool("continue-last"),
@@ -81,14 +78,6 @@ func runOptionsFromFlags(f cli.Flags) (runOptions, error) {
 		return opts, runCommand.Usagef("--continue-last and --session are mutually exclusive")
 	}
 	return opts, nil
-}
-
-func parsePositiveInt(s string) (int, error) {
-	n, err := strconv.Atoi(s)
-	if err != nil || n <= 0 {
-		return 0, fmt.Errorf("must be a positive integer, got %q", s)
-	}
-	return n, nil
 }
 
 func parsePositiveDuration(s string) (time.Duration, error) {

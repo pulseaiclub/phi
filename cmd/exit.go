@@ -2,10 +2,9 @@ package main
 
 // Process exit codes (shared by TUI and headless entrypoints).
 const (
-	ExitOK        = 0 // loop finished without errors
-	ExitError     = 1 // runtime / LLM / session error
-	ExitMaxRounds = 2 // model exceeded --max-rounds
-	ExitUsage     = 3 // config or CLI usage error
+	ExitOK    = 0 // loop finished without errors
+	ExitError = 1 // runtime / LLM / session error
+	ExitUsage = 3 // config or CLI usage error
 )
 
 // exitError carries a process exit code. Commands that already printed their

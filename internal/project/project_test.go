@@ -110,52 +110,6 @@ models:
 	assert.Equal(t, cfg.SkillPaths, cfg.Model().SkillPaths)
 }
 
-func TestConfigModelRoundBudget(t *testing.T) {
-	for name, budget := range map[string]int{"unset": 0, "configured": 7} {
-		t.Run(name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "config.yaml")
-			require.NoError(t, os.WriteFile(path, []byte(`
-models:
-  - name: first
-    api_key: first-key
-  - name: selected
-    api_key: selected-key
-    default: true
-skill_path: /skills
-max_rounds: 7
-`), 0o600))
-			cfg, err := parseConfigFile(path)
-			require.NoError(t, err)
-			assert.Equal(t, 7, cfg.MaxRounds)
-			cfg.MaxRounds = budget
-
-			selected := cfg.Model()
-			assert.Equal(t, "selected", selected.Name)
-			assert.Equal(t, budget, selected.MaxRounds)
-			// parseConfigFile reads keys only; loadConfig resolves the roots.
-			assert.Equal(t, "/skills", cfg.SkillPath)
-			assert.Nil(t, selected.SkillPaths)
-			for _, m := range cfg.AllModels() {
-				assert.Equal(t, budget, m.MaxRounds)
-				found, ok := cfg.FindModel(m.Name)
-				require.True(t, ok)
-				assert.Equal(t, m, found)
-			}
-			_, ok := cfg.FindModel("missing")
-			assert.False(t, ok)
-
-			selected.MaxRounds = 99
-			all := cfg.AllModels()
-			all[0].MaxRounds = 99
-			assert.Equal(t, budget, cfg.Model().MaxRounds)
-			for _, raw := range cfg.Models {
-				assert.Zero(t, raw.MaxRounds)
-				assert.Empty(t, raw.SkillPaths)
-			}
-		})
-	}
-}
-
 func TestLoadConfigEnvOverrides(t *testing.T) {
 	p := discoverInTempHome(t)
 	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`

@@ -58,7 +58,6 @@ func testConfig() *project.Config {
 			Name: "primary", APIKey: "sk-p", BaseURL: "http://primary.example/v1", ContextWindow: 8,
 		}},
 		SkillPaths: []string{"/skills"},
-		MaxRounds:  7,
 	}
 }
 
@@ -66,8 +65,8 @@ func TestResolveModelConfigExtensionShadowing(t *testing.T) {
 	r := loadResolveModelRunner(t)
 	cfg := testConfig()
 
-	// Extension-served model: registration drives the config; skills/rounds
-	// come from the session config.
+	// Extension-served model: registration drives the config; skills come
+	// from the session config.
 	m, err := resolveModelConfig(cfg, r, "echo")
 	require.NoError(t, err)
 	assert.Equal(t, "echo", m.Name)
@@ -76,7 +75,6 @@ func TestResolveModelConfigExtensionShadowing(t *testing.T) {
 	assert.Equal(t, llm.High, m.Think.Mode)
 	assert.True(t, m.Think.Enabled)
 	assert.Equal(t, []string{"/skills"}, m.SkillPaths)
-	assert.Equal(t, 7, m.MaxRounds)
 
 	// Direct-connect registration: host dials the registered endpoint.
 	m, err = resolveModelConfig(cfg, r, "gw")
@@ -112,7 +110,7 @@ func TestExtensionModelConfigValidation(t *testing.T) {
 	t.Run("direct-connect needs base_url", func(t *testing.T) {
 		_, err := extensionModelConfig(
 			extension.ModelRoute{Reg: pxb.RegisterModel{Name: "x"}},
-			cfg, 7,
+			cfg,
 		)
 		require.ErrorContains(t, err, "needs base_url")
 	})
@@ -120,14 +118,14 @@ func TestExtensionModelConfigValidation(t *testing.T) {
 	t.Run("unknown preset rejected", func(t *testing.T) {
 		_, err := extensionModelConfig(extension.ModelRoute{Reg: pxb.RegisterModel{
 			Name: "x", Conn: pxb.ConnExt, Preset: "not-a-model",
-		}}, cfg, 7)
+		}}, cfg)
 		require.ErrorContains(t, err, "unknown preset")
 	})
 
 	t.Run("ext-served without base_url is fine", func(t *testing.T) {
 		m, err := extensionModelConfig(extension.ModelRoute{Reg: pxb.RegisterModel{
 			Name: "x", Conn: pxb.ConnExt, ContextWindow: 5,
-		}}, cfg, 7)
+		}}, cfg)
 		require.NoError(t, err)
 		assert.Equal(t, 5, m.ContextWindow)
 	})

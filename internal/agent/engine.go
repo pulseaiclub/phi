@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"iter"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/pulseaiclub/phi/ext/go/pxb"
@@ -27,20 +26,12 @@ import (
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
-// ErrMaxRounds is returned (wrapped) by Loop when the model exceeds the
-// configured tool-round budget. Callers can distinguish it from other runtime
-// errors with errors.Is, e.g. for a dedicated exit code.
-var ErrMaxRounds = errors.New("exceeded maximum tool rounds")
-
-const defaultMaxToolRounds = 64
-
 // Engine drives the agent loop: stream → tools → stream…
 // and yields session.Event for the TUI reducer. Context compaction is owned
 // here so Session stays a thin message store.
 type Engine struct {
 	client       llm.ChatClient
 	executor     *Executor
-	maxRounds    atomic.Int64
 	modelCfg     llm.ModelConfig
 	hooks        llmclient.Hooks
 	gate         permission.Gate
@@ -74,11 +65,6 @@ func NewEngine(model llm.ModelConfig, sess *Session, opts ...EngineOption) (*Eng
 		omitExtTools: cfg.omitExtTools,
 		mcp:          cfg.mcp,
 	}
-	maxRounds := model.MaxRounds
-	if cfg.maxRounds > 0 {
-		maxRounds = cfg.maxRounds
-	}
-	engine.SetMaxRounds(maxRounds)
 	engine.baseTools = cfg.tools
 	engine.rebindTools()
 	return engine, nil
@@ -158,15 +144,6 @@ func (engine *Engine) SetModelWithHooks(cfg llm.ModelConfig, hooks llmclient.Hoo
 func (engine *Engine) SetJobs(jobs *job.Manager) {
 	engine.jobs = jobs
 	engine.rebindTools()
-}
-
-// SetMaxRounds updates the tool-round budget and is safe to call during Loop.
-// Non-positive values restore the package default.
-func (engine *Engine) SetMaxRounds(n int) {
-	if n <= 0 {
-		n = defaultMaxToolRounds
-	}
-	engine.maxRounds.Store(int64(n))
 }
 
 func (engine *Engine) rebindTools() {
@@ -381,14 +358,6 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 				return
 			}
 
-			// Defer publishing and persisting the terminal assistant update until
-			// the tool budget is checked. An over-budget tool request must not
-			// leave an unexecuted tool call in the session or UI.
-			maxRounds := int(engine.maxRounds.Load())
-			if len(msg.ToolCalls) > 0 && toolRounds >= maxRounds {
-				yield(nil, fmt.Errorf("agent: %w (%d)", ErrMaxRounds, maxRounds))
-				return
-			}
 			if !yield(completeEvent, nil) {
 				return
 			}

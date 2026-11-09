@@ -33,7 +33,6 @@ type EngineRunner struct {
 	ModelFn      func(role job.Role) llm.ModelConfig // if set, preferred over Model
 	Gate         permission.Gate                     // additional constraint alongside role and parent gates
 	Tools        []tooldef.Tool                      // nil → SpecForRole(job.Role).Tools
-	MaxRounds    int                                 // <=0 → model budget or Engine default
 	Extensions   *extension.Runner
 	ExtensionsFn func() *extension.Runner
 }
@@ -150,7 +149,6 @@ func (r EngineRunner) newEngine(meta job.Meta, spec ChildSpec, parentGate permis
 	return NewEngine(cfg, sess,
 		WithGate(permission.Intersect(parentGate, gate)),
 		WithTools(toolList),
-		WithMaxRounds(r.MaxRounds),
 		WithExtensions(extRunner),
 		WithOmitExtensionTools(true),
 		WithHooks(model.HooksForConfig(cfg)),

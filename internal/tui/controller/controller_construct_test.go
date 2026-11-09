@@ -55,11 +55,3 @@ func TestUnsupportedThinkingChangeKeepsSessionConfig(t *testing.T) {
 	assert.Equal(t, llm.Max, ctrl.ThinkLevel())
 	assert.Equal(t, []llm.ThinkMode{llm.Low, llm.High, llm.Max}, ctrl.ThinkingModes())
 }
-
-func TestThinkingChangeKeepsSessionBudget(t *testing.T) {
-	ctrl := newRoundsController(t, "http://127.0.0.1:9", 3)
-	require.NoError(t, ctrl.SetMaxRounds(2))
-	require.NoError(t, ctrl.SetThinkLevel(llm.High))
-	assert.Equal(t, llm.High, ctrl.ThinkLevel())
-	assert.Equal(t, 2, ctrl.MaxRounds())
-}

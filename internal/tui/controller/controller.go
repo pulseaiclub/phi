@@ -210,7 +210,7 @@ func (c *EngineController) modelForRole(role job.Role) llm.ModelConfig {
 		return c.modelSnapshot()
 	}
 	if route, ok := c.Extensions().LookupModel(name); ok {
-		m, err := extensionModelConfig(route, c.proj.Config(), c.MaxRounds())
+		m, err := extensionModelConfig(route, c.proj.Config())
 		if err != nil {
 			debuglog.Logf("agents: extension role model %q: %v; using parent", name, err)
 			return c.modelSnapshot()
@@ -218,7 +218,6 @@ func (c *EngineController) modelForRole(role job.Role) llm.ModelConfig {
 		return m
 	}
 	if m, ok := c.proj.Config().FindModel(name); ok {
-		m.MaxRounds = c.MaxRounds()
 		return m
 	}
 	debuglog.Logf("agents: unknown role model %q for %s; using parent", name, role)
@@ -487,8 +486,6 @@ func (c *EngineController) SetModel(name string) error {
 	}
 	c.modelMu.Lock()
 	defer c.modelMu.Unlock()
-	// The palette budget belongs to the session, independent of the model.
-	cfg.MaxRounds = c.modelCfg.MaxRounds
 	if err := c.engine.Session().SetModel(name); err != nil {
 		return err
 	}
@@ -532,27 +529,10 @@ func (c *EngineController) ContextWindow() int {
 	return c.modelSnapshot().ContextWindow
 }
 
-// MaxRounds returns the session's tool round budget; zero means the engine default.
-func (c *EngineController) MaxRounds() int {
-	return c.modelSnapshot().MaxRounds
-}
-
 func (c *EngineController) modelSnapshot() llm.ModelConfig {
 	c.modelMu.RLock()
 	defer c.modelMu.RUnlock()
 	return c.modelCfg
-}
-
-// SetMaxRounds updates the session-only max rounds budget.
-func (c *EngineController) SetMaxRounds(n int) error {
-	if n <= 0 {
-		return fmt.Errorf("max rounds must be positive, got %d", n)
-	}
-	c.modelMu.Lock()
-	defer c.modelMu.Unlock()
-	c.modelCfg.MaxRounds = n
-	c.engine.SetMaxRounds(n)
-	return nil
 }
 
 func (c *EngineController) ImageEnabled() bool {
@@ -737,7 +717,6 @@ func (c *EngineController) openEngine(
 		if err != nil {
 			return nil, llm.ModelConfig{}, fmt.Errorf("restore session model %q: %w", name, err)
 		}
-		cfg.MaxRounds = c.MaxRounds()
 	}
 	eng, err := c.newEngine(cfg, extRunner, sess)
 	if err != nil {

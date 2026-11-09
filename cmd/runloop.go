@@ -30,7 +30,6 @@ type runOptions struct {
 	prompt       string
 	jsonl        bool
 	yolo         bool
-	maxRounds    int
 	timeout      time.Duration
 	session      string
 	continueLast bool
@@ -95,9 +94,6 @@ func runHeadless(opts runOptions) error {
 			return exitCode(ExitUsage)
 		}
 		engineOpts = append(engineOpts, agent.WithTools(selected))
-	}
-	if opts.maxRounds > 0 {
-		engineOpts = append(engineOpts, agent.WithMaxRounds(opts.maxRounds))
 	}
 	primary := bs.Config.Model()
 	engineOpts = append(engineOpts, agent.WithHooks(model.HooksForConfig(primary)))
@@ -199,7 +195,7 @@ func runLoop(ctx context.Context, engine *agent.Engine, opts runOptions) int {
 
 	for ev, err := range engine.Loop(ctx, opts.prompt, agent.LoopOpts{}) {
 		if err != nil {
-			exit = classifyRunError(err)
+			exit = ExitError
 			enc.errorEvent(err.Error())
 			fmt.Fprintln(os.Stderr, "error:", err)
 			break
@@ -444,13 +440,4 @@ func assistantText(m session.Message) string {
 		return m.Text
 	}
 	return out.String()
-}
-
-// classifyRunError maps a loop error to the exit-code contract:
-// max rounds → 2, anything else → 1.
-func classifyRunError(err error) int {
-	if errors.Is(err, agent.ErrMaxRounds) {
-		return ExitMaxRounds
-	}
-	return ExitError
 }

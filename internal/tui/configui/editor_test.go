@@ -75,7 +75,7 @@ func TestBuildRowsCoverEverySection(t *testing.T) {
 		}
 	}
 	assert.Equal(t, []string{
-		"Models", "Skills", "Agent Loop", "Permissions", "Bash", "Rules", "Sub-agents",
+		"Models", "Skills", "Permissions", "Bash", "Rules", "Sub-agents",
 	}, sections)
 
 	// Every row key must be addressable, and the first model's default badge
