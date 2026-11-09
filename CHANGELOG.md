@@ -41,6 +41,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Resuming a session sends `session_shutdown` to the outgoing extensions before
+  replacing their processes, instead of notifying the newly loaded instances.
 - Sessions with image or tool entries larger than 8 MiB can be forked, resumed,
   and listed without hitting a per-line read limit. Failed fork reloads remove
   the unused copy and report cleanup errors.

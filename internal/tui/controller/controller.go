@@ -598,8 +598,8 @@ func (c *EngineController) Resume(id string) (cwdWarning string, err error) {
 	}
 
 	extRunner := loadExtensions(c.proj)
-	c.swapExtensionRunner(extRunner)
 	c.commitSessionSwitch("resume", prevID, id)
+	c.swapExtensionRunner(extRunner)
 	eng, cfg, err := c.openEngine(cfg, extRunner, id)
 	if err != nil {
 		return "", err
