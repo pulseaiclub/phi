@@ -255,7 +255,7 @@ syntax highlighting. Structural markers (`#`, `` ` ``, `*`) are stripped.
 The editor supports:
 
 - `@` — fuzzy file mention picker (type `@` and start typing a path)
-- `/` — slash command picker (`/sessions`, `/branch`, `/skill`, `/new`, `/diff`, `/code`)
+- `/` — slash command picker (`/sessions`, `/branch`, `/skill`, `/new`, `/fork`, `/diff`, `/code`)
 - `?` — shortcut help picker (lists `/`, `!`, `@`, and key bindings; `Esc` closes)
 - `!command` — run a shell command locally and stream its output into the
   transcript (see [Commands](#commands))
@@ -342,9 +342,11 @@ unfinished.
 | `phi update`       | Download and install the latest GitHub release |
 | `phi update --check` | Query the latest release without installing |
 | `phi sessions`     | List persisted sessions for this directory    |
+| `phi sessions fork <id>` | Copy a session at its current point, print the new id |
 | `/sessions`        | List sessions for this directory (TUI)        |
 | `/branch`          | Switch the working branch — see [Branch switching](#branch-switching) |
 | `/new`             | Start a fresh empty session (TUI)             |
+| `/fork`            | Copy this session at its current point into a new one (TUI) |
 | `/diff`            | Full-screen git review — see [Diff review](#diff-review) |
 | `/code`            | Full-screen source viewer — see [Code viewer](#code-viewer) |
 | `!command`         | Run a shell command locally, stream output into the transcript; `Esc` cancels it |
@@ -362,6 +364,11 @@ Sessions persist automatically per working directory under
   directory
 - `/sessions` in the TUI — same, in-app
 - `/new` — start a fresh session (new id, empty transcript)
+- `/fork` — copy the current session at its current point into a new session
+  (new id, same conversation) and switch to it; the source keeps running
+  untouched
+- `phi sessions fork <id>` — copy a session at its current point and print the
+  new id; continue it headlessly with `phi run --session <new-id>`
 - `phi run --session <id>` / `phi run --continue-last` — resume headlessly
 
 ## Headless mode

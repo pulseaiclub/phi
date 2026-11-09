@@ -115,7 +115,7 @@ func NewSession(opts ...SessionOption) (*Session, error) {
 	return &Session{manager: m, lastID: m.LeafID()}, nil
 }
 
-// Fork copies the selected branch into an independent persisted session.
+// Fork copies the current branch into an independent persisted session.
 func (s *Session) Fork() (*Session, error) {
 	fork, err := s.manager.Fork()
 	if err != nil {

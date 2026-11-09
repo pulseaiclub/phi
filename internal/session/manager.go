@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -227,66 +228,66 @@ func (sm *Manager) AppendBash(command, output string, exitCode int, cancelled bo
 	return entry.ID, nil
 }
 
-// Fork copies the selected branch into an independent persisted session.
+// Fork copies this session's current branch to a new, independent session file
+// and returns a manager open on it. Entry IDs are copied verbatim, so the fork
+// rebuilds the same context, compaction boundary included. The source file is
+// never written to.
 func (sm *Manager) Fork() (*Manager, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	newID := generateSessionID()
 
-	parentID := sm.sessionID
-	header := SessionHeader{
-		Type:          EntrySession,
-		ID:            newID,
-		Timestamp:     time.Now().Format("2006-01-02T15-04-05"),
-		Cwd:           sm.cwd,
-		ParentSession: parentID,
+	// Without a session file the fork would invent a relative path and drop the
+	// copy into the process cwd.
+	if sm.sessionFile == "" {
+		return nil, errors.New("session: fork requires a persisted session")
 	}
+
 	var branch []MessageEntry
 	if sm.leafID != nil {
-		branch = sm.getBranch(*sm.leafID)
-	}
-	copied := make([]MessageEntry, 0, len(branch)+1)
-	copied = append(copied, header)
-	for _, entry := range slices.Backward(branch) {
-		copied = append(copied, entry)
-	}
-
-	byIDs := make(map[string]MessageEntry, len(copied))
-	for _, entry := range copied[1:] {
-		byIDs[entry.GetID()] = entry
+		branch = sm.getBranch(*sm.leafID) // newest first
+		if len(branch) == 0 {
+			// A header-only fork would point its leaf at an entry it does not hold.
+			return nil, fmt.Errorf("session: fork could not resolve branch at leaf %q", *sm.leafID)
+		}
+		slices.Reverse(branch)
 	}
 
-	var leafCopy *string
-	if sm.leafID != nil {
-		id := *sm.leafID
-		leafCopy = &id
-	}
+	id := generateSessionID()
+	stamp := time.Now().Format("2006-01-02T15-04-05")
+	entries := make([]MessageEntry, 0, len(branch)+1)
+	entries = append(entries, SessionHeader{
+		Type:          EntrySession,
+		ID:            id,
+		Timestamp:     stamp,
+		Cwd:           sm.cwd,
+		ParentSession: sm.sessionID,
+	})
+	entries = append(entries, branch...)
 
-	config := ManagerConfig{
-		sessionDir:  sm.config.sessionDir,
-		shouldFlush: true,
-		parentID:    parentID,
+	path := filepath.Join(filepath.Dir(sm.sessionFile), fmt.Sprintf("%s_%s.jsonl", stamp, id))
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("session: create fork %s: %w", path, err)
 	}
-
-	file := filepath.Join(sm.config.sessionDir,
-		fmt.Sprintf("%s_%s.jsonl", time.Now().Format("2006-01-02T15-04-05"), newID))
-
-	dst := &Manager{
-		cwd:             sm.cwd,
-		config:          config,
-		entries:         copied,
-		byIDs:           byIDs,
-		leafID:          leafCopy,
-		sessionID:       newID,
-		shouldFlush:     true,
-		sessionFile:     file,
-		hasAssistantMsg: sm.hasAssistantMsg,
+	err = sm.encodeEntries(f, entries)
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
 	}
-	if err := dst.flushAllEntries(); err != nil {
-		return nil, err
+	if err != nil {
+		// A truncated fork would be listed with a short preview, so drop it.
+		_ = os.Remove(path)
+		return nil, fmt.Errorf("session: write fork %s: %w", path, err)
 	}
-	dst.flushed = true
-	return dst, nil
+	// The loader is the only reader of a session file, so let it build the
+	// manager: leaf, parents, assistant flag, and cwd come out by construction.
+	fork, err := OpenSession(path)
+	if err != nil {
+		if removeErr := os.Remove(path); removeErr != nil {
+			err = errors.Join(err, fmt.Errorf("remove unused fork %s: %w", path, removeErr))
+		}
+		return nil, fmt.Errorf("session: reopen fork %s: %w", path, err)
+	}
+	return fork, nil
 }
 
 // ModelName returns the latest model selection on the current branch.

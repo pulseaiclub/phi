@@ -52,6 +52,7 @@ func TestNewBuiltinRegistry_RegistersDomains(t *testing.T) {
 
 	assert.Equal(t, "/sessions", b.Registry.LookupInsert("sessions"))
 	assert.Equal(t, "/new", b.Registry.LookupInsert("new"))
+	assert.Equal(t, "/fork", b.Registry.LookupInsert("fork"))
 	assert.Equal(t, "/diff ", b.Registry.LookupInsert("diff"))
 
 	ctx := NewContext(bus, nil)

@@ -72,6 +72,28 @@ func TestSessionCommands_NewSessionBlocksWhenBusy(t *testing.T) {
 	assert.Contains(t, drainToast(t, bus), "Cannot start a new session")
 }
 
+func TestSessionCommands_ForkBlocksWhenBusy(t *testing.T) {
+	bus := controller.NewBus(nil)
+	s := &SessionCommands{
+		Bus:          bus,
+		StreamActive: func() bool { return true },
+	}
+	s.Fork(nil)
+	assert.Contains(t, drainToast(t, bus), "Cannot fork while a reply or command is running")
+}
+
+func TestSessionCommands_ForkRejectsArguments(t *testing.T) {
+	bus := controller.NewBus(nil)
+	s := &SessionCommands{Bus: bus, StreamActive: func() bool { return false }}
+	s.Fork([]string{"later"})
+	assert.Contains(t, drainToast(t, bus), "Usage: /fork")
+
+	reg := NewCommandRegistry()
+	s.Register(reg)
+	assert.True(t, reg.DispatchSlash("/fork now", NewContext(bus, nil)))
+	assert.Contains(t, drainToast(t, bus), "Usage: /fork", "arguments must not fall through to a prompt")
+}
+
 func TestSessionCommands_DeleteRemovesAndRefreshes(t *testing.T) {
 	dir := t.TempDir()
 	// Managers only persist once an assistant message exists (hasAssistantMsg
