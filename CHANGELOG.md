@@ -15,8 +15,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Added
 
 - Sub-agents receive bounded parent conversation background before their assigned
-  task when launched with handoff context. Clean mode omits background; child
-  permissions and independent sessions remain unchanged.
+  task in handoff mode. `agent_spawn` defaults to handoff for explore/worker and
+  clean for review; `context_mode` overrides either default. Clean mode skips
+  background capture. Child permissions and independent sessions remain unchanged.
 
 ### Fixed
 

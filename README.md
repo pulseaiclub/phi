@@ -578,6 +578,12 @@ Sub-agents themselves use a **role** (`explore` default | `review` | `worker`):
 
 Default stays explore (no edits). Prefer worker when the task is to implement a scoped change in an isolated context.
 
+`agent_spawn` defaults to `context_mode: "handoff"` for explore/worker and
+`"clean"` for review. Handoff passes bounded parent conversation background;
+clean skips capture entirely. Set `context_mode` explicitly to override either
+role default. Always specify the task scope and constraints: background can be
+incomplete. Context inheritance does not change tools or permissions.
+
 ## Tools
 
 Built-in tools the model can call (see `internal/tools/`):

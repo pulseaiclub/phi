@@ -517,6 +517,11 @@ agents:
 
 默认保持 explore（不可编辑）。任务是在隔离上下文里落地一块改动时，再用 worker。
 
+`agent_spawn` 对 explore/worker 默认使用 `context_mode: "handoff"`，对 review
+默认使用 `"clean"`。handoff 传递有大小上限的父会话背景；clean 不捕获背景。
+显式传入 `context_mode` 可以覆盖角色默认值。任务仍须明确范围和约束，因为背景会有省略。
+上下文继承不改变工具或权限。
+
 ## 工具
 
 模型可调用的内置工具（见 `internal/tools/`）：

@@ -28,7 +28,7 @@ When NOT to use any sub-agent:
 
 How to use:
 1. Spawn jobs first, do any independent work, then use agent_wait with only job_id when you need a result. It wakes on completion; do not guess a timeout or poll. For parallel jobs, spawn all first, then wait each.
-2. Children may receive bounded parent background. Still provide a self-contained task with scope, constraints, and the required final summary; background can be incomplete.
+2. explore/worker default to handoff (bounded parent background); review defaults to clean (no parent background). Set context_mode to override. Still provide a self-contained task with scope, constraints, and the required final summary; background can be incomplete.
 3. You only receive the final summary. Summarize for the user if needed.
 4. Sub-agents cannot spawn further agents. Do not put secrets in the prompt.
 5. Verify before relying on a worker's edits in follow-up work.`
@@ -120,6 +120,11 @@ Concurrency cap: at most %d sub-agents run concurrently; spawning more fails (jo
 						"description": "explore (default) | review | worker. See tool description for when to pick each.",
 						"enum":        []string{"explore", "review", "worker"},
 					},
+					"context_mode": llm.Object{
+						"type":        "string",
+						"description": "clean: no parent background; handoff: bounded parent background. Default: handoff for explore/worker, clean for review.",
+						"enum":        []string{"clean", "handoff"},
+					},
 					"workdir": llm.Object{
 						"type":        "string",
 						"description": "Working directory for the sub-agent (default: parent session cwd).",
@@ -144,6 +149,13 @@ Concurrency cap: at most %d sub-agents run concurrently; spawning more fails (jo
 			if err != nil {
 				return tooldef.Result{}, err
 			}
+			mode, err := job.ParseContextMode(in.ContextMode)
+			if err != nil {
+				return tooldef.Result{}, err
+			}
+			if strings.TrimSpace(in.ContextMode) == "" && role != job.RoleReview {
+				mode = job.ContextModeHandoff
+			}
 			wd, err := permission.AbsCleanAt(strings.TrimSpace(in.WorkDir), cfg.workDir())
 			if err != nil {
 				return tooldef.Result{}, fmt.Errorf("agent_spawn workdir: %w", err)
@@ -161,9 +173,10 @@ Concurrency cap: at most %d sub-agents run concurrently; spawning more fails (jo
 			if in.TimeoutSec > 0 {
 				req.Timeout = time.Duration(in.TimeoutSec) * time.Second
 			}
-			if cfg.parentContext != nil {
-				req.ParentContext = cfg.parentContext()
+			if mode == job.ContextModeHandoff && cfg.parentContext != nil {
+				req.ParentContext.Text = cfg.parentContext().Text
 			}
+			req.ParentContext.Mode = mode
 			info, err := cfg.manager.Spawn(ctx, req)
 			if err != nil {
 				return tooldef.Result{}, err
@@ -186,6 +199,7 @@ type spawnInput struct {
 	Prompt      string `json:"prompt"`
 	Description string `json:"description"`
 	Role        string `json:"role"`
+	ContextMode string `json:"context_mode"`
 	WorkDir     string `json:"workdir"`
 	TimeoutSec  int    `json:"timeout_sec"`
 }
