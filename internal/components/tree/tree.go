@@ -49,35 +49,6 @@ type Flat[T any] struct {
 	AncestorsAreLast []bool // len == Depth; true means that ancestor was last (no vertical)
 }
 
-// Node is a tree node for Flatten.
-type Node[T any] struct {
-	Item     T
-	Children []Node[T]
-}
-
-// Flatten DFS-walks roots into display order.
-func Flatten[T any](roots []Node[T]) []Flat[T] {
-	var out []Flat[T]
-	var walk func(nodes []Node[T], depth int, ancestors []bool)
-	walk = func(nodes []Node[T], depth int, ancestors []bool) {
-		for i, n := range nodes {
-			isLast := i == len(nodes)-1
-			anc := append([]bool(nil), ancestors...)
-			out = append(out, Flat[T]{
-				Item:             n.Item,
-				Depth:            depth,
-				IsLast:           isLast,
-				AncestorsAreLast: anc,
-			})
-			if len(n.Children) > 0 {
-				walk(n.Children, depth+1, append(anc, isLast))
-			}
-		}
-	}
-	walk(roots, 0, nil)
-	return out
-}
-
 // Prefix returns the box-drawing prefix for a flat row (e.g. "│   ╰── ").
 func Prefix[T any](f Flat[T], style Style) string {
 	style = style.normalized()

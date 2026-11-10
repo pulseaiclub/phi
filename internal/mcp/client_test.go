@@ -33,7 +33,6 @@ func TestConfigLoadSave(t *testing.T) {
 }
 
 func TestCompactAndSlim(t *testing.T) {
-	require.Equal(t, "a b", mcp.CompactServerList([]string{"a", "b"}))
 	tools := []mcp.ToolDefinition{
 		{
 			Name:        "echo",
@@ -43,7 +42,6 @@ func TestCompactAndSlim(t *testing.T) {
 			),
 		},
 	}
-	require.Equal(t, "echo", mcp.CompactToolNames(tools))
 	slim := mcp.SlimTool(tools[0])
 	require.Contains(t, slim, "echo")
 	require.Contains(t, slim, "message:s*")
