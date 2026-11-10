@@ -116,7 +116,8 @@ func NewSession(opts ...SessionOption) (*Session, error) {
 	if cfg.persist && cfg.sessionDir == "" {
 		return nil, errors.New("agent: SessionDir required when Persist is true")
 	}
-	m, err := session.NewSessionManager(cfg.cwd,
+	m, err := session.NewSessionManager(
+		cfg.cwd,
 		session.WithSessionDir(cfg.sessionDir),
 		session.WithShouldFlush(cfg.persist),
 		session.WithParent(cfg.parentID),
@@ -405,4 +406,3 @@ func handoffText(text string, limit int) (string, bool) {
 	}
 	return text[:end] + handoffTruncated, true
 }
-
