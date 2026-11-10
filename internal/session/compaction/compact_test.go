@@ -326,3 +326,72 @@ func TestCompact_AppendsFileOpsBlock(t *testing.T) {
 	assert.Equal(t, []string{"history.go", "prefix.go"}, comp.Details.ModifiedFiles)
 	assert.Empty(t, comp.Details.ReadFiles)
 }
+
+// Round 1 stores hook preserve data on the compaction entry, round 2 must
+// still see it. Nothing produces preserve data yet, so round 1 stands in for
+// the hook by setting it on the compaction Compact returns; Compact must
+// carry preparation.PreviousPreserveData into the new entry and the write
+// path must persist it, or hook data dies after a single compaction round.
+func TestCompact_TwoRounds_CarryPreserveData(t *testing.T) {
+	dir := t.TempDir()
+	m, err := session.NewSessionManager(dir, session.WithSessionDir(dir), session.WithShouldFlush(true))
+	require.NoError(t, err)
+	// Same budget as TestPrepareCompact_WithPreviousCompaction: four 10-token
+	// messages reach it on the third, so the first two are summarized.
+	settings := Settings{keepRecentTokens: 20}
+	roles := []llm.Role{llm.RoleUser, llm.RoleAssistant, llm.RoleUser, llm.RoleAssistant}
+
+	// Round 1: fresh history, no previous compaction.
+	for i, role := range roles {
+		_, err = m.Append(
+			llm.Message{Role: role, Content: sizedContent(10), Usage: llm.Usage{TotalTokens: 10 * (i + 1)}},
+		)
+		require.NoError(t, err)
+	}
+	prep1, err := PrepareCompact(m.BuildContext(), settings)
+	require.NoError(t, err)
+	require.NotEmpty(t, prep1.FirstKeptEntryId)
+	require.Len(t, prep1.MessagesToSummarize, 2)
+	require.Nil(t, prep1.PreviousPreserveData)
+
+	comp1, err := Compact(t.Context(), *prep1, &captureCompactor{text: "Round one."})
+	require.NoError(t, err)
+	require.Nil(t, comp1.PreserveData)
+	comp1.PreserveData = map[string]any{"key": "value"}
+	_, err = m.AppendCompaction(comp1)
+	require.NoError(t, err)
+
+	// Round 2: fresh history after the compaction blows the budget again.
+	for i, role := range roles {
+		_, err = m.Append(llm.Message{Role: role, Content: sizedContent(10), Usage: llm.Usage{TotalTokens: 100 + 10*i}})
+		require.NoError(t, err)
+	}
+	// Reload so the previous entry reaches round 2 through the persisted file.
+	reloaded, err := session.OpenSession(m.File())
+	require.NoError(t, err)
+
+	prep2, err := PrepareCompact(reloaded.BuildContext(), settings)
+	require.NoError(t, err)
+	require.NotEmpty(t, prep2.FirstKeptEntryId)
+	require.NotEmpty(t, prep2.MessagesToSummarize, "round 2 must summarize real history")
+	require.Equal(t, map[string]any{"key": "value"}, prep2.PreviousPreserveData)
+
+	comp2, err := Compact(t.Context(), *prep2, &captureCompactor{text: "Round two."})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{"key": "value"}, comp2.PreserveData,
+		"preserve data must survive into the second compaction")
+
+	_, err = reloaded.AppendCompaction(comp2)
+	require.NoError(t, err)
+
+	final, err := session.OpenSession(reloaded.File())
+	require.NoError(t, err)
+	var last session.CompactionEntry
+	for _, e := range final.BuildContext() {
+		if ce, ok := e.(session.CompactionEntry); ok {
+			last = ce
+		}
+	}
+	assert.Equal(t, map[string]any{"key": "value"}, last.Compaction.PreserveData,
+		"the persisted second entry keeps preserve data for round 3")
+}

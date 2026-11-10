@@ -28,8 +28,9 @@ type CompactionPreparation struct {
 	ReserveTokens int
 	// Limits size each summary request from the model's output limit.
 	Limits OutputLimits
-	// TODO: wire into Compact / AppendCompaction so hook preserveData
-	// survives across compaction rounds (currently collected but unused).
+	// PreviousPreserveData is the preserve data read from the previous
+	// compaction entry; Compact carries it into the next entry so
+	// hook-provided preserve data survives across compaction rounds.
 	PreviousPreserveData map[string]any
 	FileOps              FileOperation
 }
@@ -177,6 +178,9 @@ func Compact(
 			ReadFiles:     readFiles,
 			ModifiedFiles: modifiedFiles,
 		},
+		// Carry the previous round hook preserve data into the new entry;
+		// dropping it here killed it after a single compaction round.
+		PreserveData: preparation.PreviousPreserveData,
 	}, nil
 }
 
