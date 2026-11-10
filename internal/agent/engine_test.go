@@ -595,7 +595,7 @@ func (c fakeCompactClient) Compact(ctx context.Context, _ llm.CompactRequest) (l
 // during, and reports whether a Failed event was emitted.
 func runCompactWith(
 	t *testing.T, ctx context.Context, during func(sess *Session),
-) (sess *Session, did, failed bool, err error) {
+) (sess *Session, did, failed bool, complete session.CompactionComplete, err error) {
 	t.Helper()
 	sess, err = NewSession(WithCwd(t.TempDir()))
 	require.NoError(t, err)
@@ -616,12 +616,13 @@ func runCompactWith(
 		return nil
 	}}
 	did, err = engine.runCompact(ctx, func(ev session.Event, _ error) bool {
-		if c, ok := ev.(session.CompactionComplete); ok && c.Failed {
-			failed = true
+		if c, ok := ev.(session.CompactionComplete); ok {
+			complete = c
+			failed = c.Failed
 		}
 		return true
 	}, 0, true)
-	return sess, did, failed, err
+	return sess, did, failed, complete, err
 }
 
 func requireNoCompactionEntry(t *testing.T, sess *Session) {
@@ -633,7 +634,7 @@ func requireNoCompactionEntry(t *testing.T, sess *Session) {
 
 func TestRunCompactDropsSummaryAfterCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
-	sess, did, failed, err := runCompactWith(t, ctx, func(*Session) { cancel() })
+	sess, did, failed, _, err := runCompactWith(t, ctx, func(*Session) { cancel() })
 	require.ErrorIs(t, err, context.Canceled)
 	require.False(t, did)
 	require.True(t, failed)
@@ -641,13 +642,31 @@ func TestRunCompactDropsSummaryAfterCancel(t *testing.T) {
 }
 
 func TestRunCompactDropsSummaryWhenSessionAdvanced(t *testing.T) {
-	sess, did, failed, err := runCompactWith(t, t.Context(), func(sess *Session) {
+	sess, did, failed, _, err := runCompactWith(t, t.Context(), func(sess *Session) {
 		require.NoError(t, sess.Append(llm.Message{Role: llm.RoleUser, Content: "raced"}))
 	})
 	require.ErrorContains(t, err, "session advanced")
 	require.False(t, did)
 	require.True(t, failed)
 	requireNoCompactionEntry(t, sess)
+}
+
+// The marker event carries the summary text and the entry ID the session will
+// replay: the transcript expands the summary, and a caller-invented ID would
+// lose that expanded state on resume.
+func TestRunCompactReportsSummaryAndEntryID(t *testing.T) {
+	sess, did, failed, complete, err := runCompactWith(t, t.Context(), func(*Session) {})
+	require.NoError(t, err)
+	require.True(t, did)
+	require.False(t, failed)
+	require.Contains(t, complete.Summary, "summary", "the marker carries the generated text")
+
+	entries := sess.PathEntries()
+	require.NotEmpty(t, entries)
+	require.Equal(t, session.EntryCompaction, entries[0].GetType())
+	persisted := entries[0].(session.CompactionEntry).Compaction
+	require.Equal(t, entries[0].GetID(), complete.ID, "marker must point at the persisted entry")
+	require.Equal(t, persisted.Summary, complete.Summary, "marker must show what the model reads")
 }
 
 func TestLoopNonOverflowErrorDoesNotCompact(t *testing.T) {

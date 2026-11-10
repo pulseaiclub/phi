@@ -244,6 +244,37 @@ func TestReplaySnapshotCompactionTokensBefore(t *testing.T) {
 	assert.Equal(t, 15000, items[0].TokensBefore)
 }
 
+// The summary survives the round trip the same way: a resumed marker must still
+// reveal what replaced the cut history.
+func TestReplaySnapshotCompactionSummary(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	require.NoError(t, err)
+
+	keptID, err := m.Append(llm.Message{Role: llm.RoleAssistant, Content: "kept"})
+	require.NoError(t, err)
+	compactionID, err := m.AppendCompaction(Compaction{
+		Summary:          "conversation summary",
+		FirstKeptEntryID: keptID,
+		TokensBefore:     15000,
+	})
+	require.NoError(t, err)
+
+	loaded, err := OpenSession(m.File())
+	require.NoError(t, err)
+
+	snap := ReplaySnapshot(loaded.BuildContext(), nil)
+	require.NotEmpty(t, snap.Messages)
+	marker := snap.Messages[0]
+	assert.Equal(t, RoleCompaction, marker.Role)
+	assert.Equal(t, "conversation summary", marker.Summary)
+
+	items := Project(snap)
+	require.NotEmpty(t, items)
+	assert.Equal(t, "conversation summary", items[0].Summary)
+	assert.Equal(t, compactionID, items[0].ID, "the marker keeps the persisted entry ID across a resume")
+}
+
 func TestFindSessionFilePrefix(t *testing.T) {
 	dir := t.TempDir()
 

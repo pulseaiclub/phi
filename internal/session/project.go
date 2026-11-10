@@ -33,6 +33,8 @@ type Item struct {
 
 	// TokensBefore is the pre-cut context size on ItemCompaction rows.
 	TokensBefore int
+	// Summary is the compaction handoff text on ItemCompaction rows.
+	Summary string
 }
 
 // Project flattens Snapshot into list items in content order:
@@ -56,6 +58,7 @@ func Project(s Snapshot) []Item {
 				ID:           m.ID,
 				Kind:         ItemCompaction,
 				TokensBefore: m.TokensBefore,
+				Summary:      m.Summary,
 			})
 		case RoleLocalBash:
 			items = append(items, Item{

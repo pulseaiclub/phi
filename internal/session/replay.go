@@ -19,10 +19,15 @@ func ReplaySnapshot(entries []MessageEntry, detail ToolDetail) Snapshot {
 	for _, entry := range entries {
 		switch entry.GetType() {
 		case EntryCompaction:
-			// TokensBefore is persisted on the entry; carry it through so a resumed
-			// session's marker still shows the pre-cut context size.
+			// TokensBefore and Summary are persisted on the entry; carry both
+			// through so a resumed session's marker still shows the pre-cut
+			// context size and can still reveal what replaced it.
 			comp := entry.(CompactionEntry).Compaction
-			snap = Apply(snap, CompactionComplete{ID: entry.GetID(), TokensBefore: comp.TokensBefore})
+			snap = Apply(snap, CompactionComplete{
+				ID:           entry.GetID(),
+				TokensBefore: comp.TokensBefore,
+				Summary:      comp.Summary,
+			})
 		case EntryMessage:
 			snap = replayEntry(snap, entry.(SessionMessageEntry), detail)
 		}

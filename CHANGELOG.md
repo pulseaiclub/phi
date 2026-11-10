@@ -14,6 +14,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- The compaction marker in the transcript now expands to show the summary that
+  replaced the cut history. Clicking the marker (or Enter, where the block has
+  keyboard focus) reveals it, so a user can check what a compaction dropped
+  instead of reading the session JSONL. Resumed sessions keep the same row ID,
+  and the copy chord returns the marker line plus the full summary.
+
 ### Fixed
 
 ### Security

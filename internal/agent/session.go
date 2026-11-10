@@ -208,16 +208,18 @@ func (s *Session) AppendBash(command, output string, exitCode int, cancelled boo
 }
 
 // AppendCompaction records a compaction entry and invalidates the context cache.
-func (s *Session) AppendCompaction(c session.Compaction) error {
+// It returns the entry ID so callers can report the marker row the session will
+// replay; a caller-invented ID would not match the resumed transcript.
+func (s *Session) AppendCompaction(c session.Compaction) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.contextCacheValid = false
 	id, err := s.manager.AppendCompaction(c)
 	if err != nil {
-		return err
+		return "", err
 	}
 	s.lastID = id
-	return nil
+	return id, nil
 }
 
 // PathEntries returns the current leaf-to-root session entries for compaction.

@@ -99,7 +99,8 @@ func TestSessionBuildContextLabelsCompactionSummary(t *testing.T) {
 
 	require.NoError(t, sess.Append(llm.Message{Role: llm.RoleUser, Content: "first"}))
 	require.NoError(t, sess.Append(llm.Message{Role: llm.RoleAssistant, Content: "answer"}))
-	require.NoError(t, sess.AppendCompaction(session.Compaction{Summary: "we renamed the SDK"}))
+	_, err = sess.AppendCompaction(session.Compaction{Summary: "we renamed the SDK"})
+	require.NoError(t, err)
 	require.NoError(t, sess.Append(llm.Message{Role: llm.RoleUser, Content: "carry on"}))
 
 	msgs := sess.BuildContext()

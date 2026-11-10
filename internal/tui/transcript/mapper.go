@@ -142,9 +142,17 @@ func (m *Mapper) patchItem(w components.Widget, it session.Item) (ok, dirty bool
 		if !ok {
 			return false, false
 		}
+		prevExp := c.Expanded
+		dirty := c.TokensBefore != it.TokensBefore || c.Summary != it.Summary
 		c.Theme = m.theme
-		dirty := c.TokensBefore != it.TokensBefore
 		c.TokensBefore = it.TokensBefore
+		c.Summary = it.Summary
+		if exp, ok := m.expanded[it.ID]; ok {
+			c.Expanded = exp
+		}
+		if c.Expanded != prevExp {
+			dirty = true
+		}
 		return true, dirty
 	case session.ItemTool:
 		return m.patchTool(w, it)
@@ -276,7 +284,18 @@ func (m *Mapper) widgetFor(it session.Item) components.Widget {
 			},
 		}
 	case session.ItemCompaction:
-		return &block.CompactionBlock{Theme: m.theme, TokensBefore: it.TokensBefore}
+		return &block.CompactionBlock{
+			Theme:        m.theme,
+			TokensBefore: it.TokensBefore,
+			Summary:      it.Summary,
+			Expanded:     exp,
+			OnToggle: func(expanded bool) {
+				m.expanded[id] = expanded
+				if m.onInvalidate != nil {
+					m.onInvalidate()
+				}
+			},
+		}
 	case session.ItemTool:
 		return m.toolWidget(it, exp)
 	default:

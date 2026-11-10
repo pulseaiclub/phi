@@ -458,11 +458,15 @@ func (engine *Engine) runCompact(
 		_ = yield(session.CompactionComplete{ID: id, Failed: true}, nil)
 		return false, err
 	}
-	if err := engine.session.AppendCompaction(comp); err != nil {
+	entryID, err := engine.session.AppendCompaction(comp)
+	if err != nil {
 		_ = yield(session.CompactionComplete{ID: id, Failed: true}, nil)
 		return false, err
 	}
-	if !yield(session.CompactionComplete{ID: id, TokensBefore: comp.TokensBefore}, nil) {
+	// Report the entry ID, not the local counter: the marker row must keep its
+	// identity across a resume, or its expanded state is lost on reload.
+	complete := session.CompactionComplete{ID: entryID, TokensBefore: comp.TokensBefore, Summary: comp.Summary}
+	if !yield(complete, nil) {
 		return false, context.Canceled
 	}
 	engine.extensions.EmitSessionCompact("auto")

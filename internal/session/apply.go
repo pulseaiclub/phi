@@ -140,6 +140,7 @@ func Apply(s Snapshot, ev Event) Snapshot {
 				ID:           id,
 				Role:         RoleCompaction,
 				TokensBefore: e.TokensBefore,
+				Summary:      e.Summary,
 			})
 		}
 	}

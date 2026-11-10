@@ -103,7 +103,7 @@ func (bashBlock *BashBlock) Draw(ctx components.DrawContext) components.Surface 
 
 	var bodyLines []components.RichLine
 	if bashBlock.Expanded && bashBlock.hasBody() {
-		bodyLines = bashBodyLines(bashBlock.Output, th, w-2, ctx.Method)
+		bodyLines = dimTextLines(bashBlock.Output, th, w-2, ctx.Method)
 	}
 
 	h := titleH + len(bodyLines)
@@ -199,7 +199,9 @@ func wrapCommand(
 	return lines
 }
 
-func bashBodyLines(output string, th components.Theme, width int, method xui.WidthMethod) []components.RichLine {
+// dimTextLines wraps an expanded body — bash output, a compaction summary —
+// into dim lines at the caller's inset width.
+func dimTextLines(output string, th components.Theme, width int, method xui.WidthMethod) []components.RichLine {
 	if output == "" {
 		return nil
 	}
