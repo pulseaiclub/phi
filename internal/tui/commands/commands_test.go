@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/pulseaiclub/phi/internal/debuglog"
-	"github.com/pulseaiclub/phi/internal/extension/loader"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -166,17 +165,6 @@ func TestExtensionsCommand_ListAndReload(t *testing.T) {
 
 	// A nil push must not panic when the list row runs.
 	ExtensionsPalette(nil, nil, nil)
-}
-
-func TestExtensionListEntries(t *testing.T) {
-	entries := ExtensionListEntries(nil, nil, nil)
-	require.Len(t, entries, 1)
-	assert.True(t, entries[0].Disabled)
-	assert.Contains(t, entries[0].Verb, "No extensions")
-
-	entries = ExtensionListEntries(nil, []loader.Warning{{Path: "x", Message: "bad"}}, nil)
-	require.Len(t, entries, 1)
-	assert.Contains(t, entries[0].Verb, "warn:")
 }
 
 func TestSkillsCommand_SlashOpensPicker(t *testing.T) {

@@ -5,29 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-
-	"github.com/pulseaiclub/phi/internal/util"
 )
-
-// CompactServerList returns space-separated server names.
-func CompactServerList(names []string) string {
-	if len(names) == 0 {
-		return "(no mcp servers configured)"
-	}
-	return strings.Join(names, " ")
-}
-
-// CompactToolNames returns space-separated tool names.
-func CompactToolNames(tools []ToolDefinition) string {
-	if len(tools) == 0 {
-		return "(no tools)"
-	}
-	names := make([]string, 0, len(tools))
-	for _, t := range tools {
-		names = append(names, t.Name)
-	}
-	return strings.Join(names, " ")
-}
 
 // SlimTool renders a compact one-line schema for inspect.
 // Example: echo|env:s{dev|prod}*  — name|param:type[{enum}][*required].
@@ -140,15 +118,4 @@ func enumHint(values []any) string {
 		parts = append(parts, fmt.Sprintf("+%d", more))
 	}
 	return "{" + strings.Join(parts, "|") + "}"
-}
-
-// FormatCallResult keeps call output bounded for the model.
-func FormatCallResult(s string, maxChars int) string {
-	if maxChars <= 0 {
-		maxChars = 32_000
-	}
-	if len(s) <= maxChars {
-		return s
-	}
-	return util.TruncateBytes(s, maxChars, fmt.Sprintf("\n… truncated (%d chars total)", len(s)))
 }

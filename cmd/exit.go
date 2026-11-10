@@ -9,15 +9,11 @@ const (
 
 // exitError carries a process exit code. Commands that already printed their
 // own diagnostics return this so main can os.Exit without a second message.
-// It implements silent() so pli does not wrap it in *RunError.
 type exitError struct {
 	code int
 }
 
 func (*exitError) Error() string { return "" }
-
-//nolint:unused // pli checks it through interface{ silent() bool } (cli.go).
-func (*exitError) silent() bool { return true }
 
 func exitCode(code int) error {
 	if code == ExitOK {

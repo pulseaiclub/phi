@@ -1,6 +1,5 @@
 # Baseline format: "<file> <func>" (no line numbers). Unreachable from the
 # phi binary by design; kept for API or external consumers.
-cmd/exit.go exitError.silent
 
 # ext/go/pxb wire helpers are a public SDK consumed by external extension
 # binaries (and by the nested module's own tests, which deadcode -test cannot
