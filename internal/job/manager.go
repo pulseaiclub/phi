@@ -41,6 +41,7 @@ type Manager struct {
 type liveJob struct {
 	meta            Meta
 	parentToolUseID string
+	parentContext   ParentContext
 	gate            permission.Gate
 	cancel          context.CancelFunc
 	done            chan struct{}
@@ -205,6 +206,7 @@ func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (Info, error) {
 	lj := &liveJob{
 		meta:            meta,
 		parentToolUseID: req.ParentToolUseID,
+		parentContext:   req.ParentContext,
 		gate:            req.Gate,
 		cancel:          cancel,
 		done:            make(chan struct{}),
@@ -229,8 +231,9 @@ func (m *Manager) run(ctx context.Context, lj *liveJob) {
 	m.persistEvent(meta, "running")
 
 	env := RunEnv{
-		Job:  meta,
-		Gate: lj.gate,
+		Job:           meta,
+		ParentContext: lj.parentContext,
+		Gate:          lj.gate,
 		Log: func(message string) {
 			m.persistEvent(meta, message)
 		},
