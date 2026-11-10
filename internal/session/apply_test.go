@@ -146,6 +146,20 @@ func TestCompactionMarkerCarriesTokensBefore(t *testing.T) {
 	require.Equal(t, 15000, items[0].TokensBefore)
 }
 
+// The summary rides on the marker too: it is the only record of what the cut
+// dropped, so the transcript needs it to show anything at all.
+func TestCompactionMarkerCarriesSummary(t *testing.T) {
+	var s Snapshot
+	s = Apply(s, CompactionComplete{ID: "c1", TokensBefore: 15000, Summary: "## Goal\nship it"})
+
+	require.Len(t, s.Messages, 1)
+	require.Equal(t, "## Goal\nship it", s.Messages[0].Summary)
+
+	items := Project(s)
+	require.Len(t, items, 1)
+	require.Equal(t, "## Goal\nship it", items[0].Summary)
+}
+
 func TestLocalBash(t *testing.T) {
 	var s Snapshot
 	s = Apply(s, LocalBashStart{ID: "b1", Command: "echo hi"})

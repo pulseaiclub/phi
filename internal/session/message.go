@@ -160,6 +160,10 @@ type Message struct {
 	Usage TokenUsage
 	// TokensBefore is the context size before a compaction cut (RoleCompaction rows).
 	TokensBefore int
+	// Summary is the handoff text that replaced the summarized history
+	// (RoleCompaction rows). It is what the model reads, so the marker can
+	// show it instead of hiding what the cut dropped.
+	Summary string
 }
 
 // TokenUsage is a UI-facing copy of provider token counts for one completion.
@@ -273,10 +277,12 @@ func (CompactionStarted) isSessionEvent() {}
 
 // CompactionComplete clears the compacting activity and, when Failed is false,
 // appends a compaction transcript marker. TokensBefore is the context size
-// before the cut, which that marker shows.
+// before the cut, which that marker shows. Summary is the text that replaced
+// the cut history, which the marker shows when expanded.
 type CompactionComplete struct {
 	ID           string
 	TokensBefore int
+	Summary      string
 	Failed       bool
 }
 

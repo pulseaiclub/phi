@@ -108,6 +108,35 @@ func TestCompactionBlockWithoutTokens(t *testing.T) {
 	require.NotContains(t, got, "tokens")
 }
 
+// The compaction marker hides the one thing a user needs after a cut: the
+// summary that replaced the summarized history.
+func TestCompactionBlockRevealsSummary(t *testing.T) {
+	b := &block.CompactionBlock{
+		TokensBefore: 43000,
+		Summary:      "## Goal\nship it",
+		Theme:        components.DefaultTheme(),
+	}
+	dctx := components.DrawContext{Max: components.Size{Width: 60, Height: 10}}
+
+	collapsed := components.SurfaceText(b.Draw(dctx))
+	require.Contains(t, collapsed, "Compacted from 43k tokens")
+	require.NotContains(t, collapsed, "ship it")
+
+	b.Expanded = true
+	expanded := components.SurfaceText(b.Draw(dctx))
+	require.Contains(t, expanded, "ship it")
+
+	require.Equal(t, "Compacted from 43k tokens\n## Goal\nship it", b.CopyText())
+}
+
+func TestCompactionBlockWithoutSummaryIsNotInteractive(t *testing.T) {
+	b := &block.CompactionBlock{Theme: components.DefaultTheme()}
+	drawn := components.SurfaceText(b.Draw(components.DrawContext{Max: components.Size{Width: 60}}))
+	require.NotContains(t, drawn, "▶")
+	require.False(t, b.ClickAt(2, 0), "no summary means nothing to reveal")
+	require.Equal(t, "Compacted", b.CopyText())
+}
+
 // collapsible is one block with a disclosure title — the row the transcript pane
 // has to tell apart from the start of a drag-selection.
 type collapsible struct {
@@ -128,11 +157,13 @@ func collapsibleBlocks() []collapsible {
 		Children: []block.ChildTool{{Name: "read", Detail: "a.go", Status: status.ToolDone}},
 		Theme:    th,
 	}
+	compaction := &block.CompactionBlock{TokensBefore: 43000, Summary: "## Goal\nship it", Theme: th}
 	return []collapsible{
 		{"tool", tool, tool, func() bool { return tool.Expanded }},
 		{"thinking", thinking, thinking, func() bool { return thinking.Expanded }},
 		{"bash", bash, bash, func() bool { return bash.Expanded }},
 		{"agent", agent, agent, func() bool { return agent.Expanded }},
+		{"compaction", compaction, compaction, func() bool { return compaction.Expanded }},
 	}
 }
 
