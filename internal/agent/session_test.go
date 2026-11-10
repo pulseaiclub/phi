@@ -205,7 +205,8 @@ func TestBuildHandoffExcludesUnsettledBatch(t *testing.T) {
 		assert.NotContains(t, got, "Unsettled")
 		assert.NotContains(t, got, "sibling")
 		assert.NotContains(t, got, "orphan")
-		assert.NotContains(t, got, "After incomplete")
+		assert.Contains(t, got, "After incomplete batch")
+		assert.Contains(t, got, handoffOmitted)
 	}
 }
 

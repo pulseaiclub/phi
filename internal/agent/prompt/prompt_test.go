@@ -10,8 +10,11 @@ import (
 )
 
 func TestBuildAgentsEnabledToggle(t *testing.T) {
-	with := Build("", nil, true, 4, nil)
-	without := Build("", nil, false, 0, nil)
+	// Project instructions may mention tools even when delegation is disabled.
+	t.Setenv("HOME", t.TempDir())
+	cwd := t.TempDir()
+	with := Build(cwd, nil, true, 4, nil)
+	without := Build(cwd, nil, false, 0, nil)
 
 	require.Contains(t, with, "agent_spawn")
 	require.Contains(t, with, "Sub-agents:")

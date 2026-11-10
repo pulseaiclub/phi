@@ -302,13 +302,10 @@ func (s *Session) AddUser(text string) error {
 // It preserves the opening background and then prefers recent messages. This is
 // a mechanical projection, not a model-generated summary of important decisions.
 func (s *Session) BuildHandoff() job.ParentContext {
-	messages := s.BuildContext()
-	end := handoffCompletePrefix(messages)
-	messages = messages[:end]
+	messages, omitted := handoffCompleteMessages(s.BuildContext())
 	context := job.ParentContext{Mode: job.ContextModeHandoff}
 	remaining := handoffMaxBytes - len(handoffHeader) - len(handoffOmitted)
 	parts := make([]string, len(messages))
-	omitted := false
 
 	add := func(i int) {
 		msg := messages[i]
@@ -361,21 +358,26 @@ func (s *Session) BuildHandoff() job.ParentContext {
 	return context
 }
 
-// A spawn runs before its tool batch has settled. Stop before that entire batch,
-// including completed siblings, so scheduling cannot change the snapshot.
-func handoffCompletePrefix(messages []llm.Message) int {
+// Exclude whole unsettled batches, including completed siblings. Historical
+// interrupted batches must not hide later user corrections or completed work.
+func handoffCompleteMessages(messages []llm.Message) ([]llm.Message, bool) {
+	kept := make([]llm.Message, 0, len(messages))
+	omitted := false
 	for i := 0; i < len(messages); i++ {
 		msg := messages[i]
 		if msg.Role == llm.RoleTool {
-			return i // Orphan results are not reliable background.
+			omitted = true
+			continue
 		}
 		if msg.Role != llm.RoleAssistant || len(msg.ToolCalls) == 0 {
+			kept = append(kept, msg)
 			continue
 		}
 		pending := make(map[string]bool, len(msg.ToolCalls))
+		valid := true
 		for _, call := range msg.ToolCalls {
 			if call.ID == "" || pending[call.ID] {
-				return i
+				valid = false
 			}
 			pending[call.ID] = true
 		}
@@ -383,17 +385,19 @@ func handoffCompletePrefix(messages []llm.Message) int {
 		for j < len(messages) && messages[j].Role == llm.RoleTool {
 			id := messages[j].ToolCallID
 			if !pending[id] {
-				return i
+				valid = false
 			}
 			delete(pending, id)
 			j++
 		}
-		if len(pending) > 0 {
-			return i
+		if valid && len(pending) == 0 {
+			kept = append(kept, messages[i:j]...)
+		} else {
+			omitted = true
 		}
 		i = j - 1
 	}
-	return len(messages)
+	return kept, omitted
 }
 
 func handoffText(text string, limit int) (string, bool) {
