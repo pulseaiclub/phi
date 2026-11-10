@@ -109,7 +109,7 @@ make build          # 生成 ./phi
 make install        # 构建并安装到 $GOBIN
 ```
 
-首次启动时，phi 会自动创建 `~/.phi/{bin,skills,hooks,session}`。搜索工具
+首次启动时，phi 会自动创建 `~/.phi/{bin,skills,extensions,session,jobs}`。搜索工具
 （`fd`、`rg`）缺失时会在后台下载到 `~/.phi/bin`。
 
 TUI 给模型提供四个核心工具——`read`、`write`、`edit` 和 `bash`——外加 `grep`、`find`、`ls`。模型用这些工具来完成你的请求。外部 HTTP 抓取在配置 MCP 后可用。

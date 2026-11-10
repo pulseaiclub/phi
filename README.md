@@ -105,8 +105,15 @@ make build          # produces ./phi
 make install        # build and install into $GOBIN
 ```
 
-On first start, phi automatically creates `~/.phi/{bin,skills,hooks,session}`. Search
-tools (`fd`, `rg`) download into `~/.phi/bin` in the background when missing.
+On first start, phi automatically creates these directories under `~/.phi/`:
+
+- `bin/` — downloaded search tools (`fd`, `rg`)
+- `skills/` — global `SKILL.md` files
+- `extensions/` — installed extensions (see [doc/extensions.md](doc/extensions.md))
+- `session/` — persisted sessions, one folder per project directory
+- `jobs/` — sub-agent transcripts, one folder per job
+
+Search tools (`fd`, `rg`) download into `~/.phi/bin` in the background when missing.
 
 The TUI gives the model four core tools — `read`, `write`, `edit`, and
 `bash` — plus `grep`, `find`, and `ls`. The model uses these to
