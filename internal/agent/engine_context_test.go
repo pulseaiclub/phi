@@ -29,12 +29,11 @@ func TestEngineSpawnCapturesCurrentSession(t *testing.T) {
 	t.Cleanup(func() { _ = mgr.Close(context.WithoutCancel(t.Context())) })
 	s, err := NewSession(WithCwd(t.TempDir()))
 	require.NoError(t, err)
-	engine, err := NewEngine(llm.ModelConfig{Name: "fake"}, s, WithJobs(mgr), WithGate(permission.AllowAll{}))
-	require.NoError(t, err)
 	for _, goal := range []string{"First session goal", "Second session goal"} {
 		current, err := NewSession(WithCwd(s.Cwd()))
 		require.NoError(t, err)
-		engine.session = current
+		engine, err := NewEngine(llm.ModelConfig{Name: "fake"}, current, WithJobs(mgr), WithGate(permission.AllowAll{}))
+		require.NoError(t, err)
 		require.NoError(t, current.AddUser(goal))
 		call := llm.ToolCall{ID: "spawn", Function: llm.Function{
 			Name:      "agent_spawn",

@@ -116,7 +116,7 @@ func (engine *Engine) buildCoreTools(base []tooldef.Tool) []tooldef.Tool {
 	agentTools := agenttool.AgentTools(
 		agenttool.WithManager(engine.jobs),
 		agenttool.WithParentID(engine.SessionID),
-		agenttool.WithParentContext(func() job.ParentContext { return engine.session.BuildHandoff() }),
+		agenttool.WithParentContext(engine.session.BuildHandoff),
 		agenttool.WithWorkDir(engine.SessionCwd),
 		agenttool.WithGate(engine.gate),
 	)
