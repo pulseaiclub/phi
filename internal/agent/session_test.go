@@ -214,7 +214,8 @@ func TestBuildHandoffUsesCompactedBranch(t *testing.T) {
 	s, err := NewSession()
 	require.NoError(t, err)
 	require.NoError(t, s.AddUser("Obsolete history"))
-	require.NoError(t, s.AppendCompaction(session.Compaction{Summary: "Keep the approved design"}))
+	_, err = s.AppendCompaction(session.Compaction{Summary: "Keep the approved design"})
+	require.NoError(t, err)
 	require.NoError(t, s.AddUser("Implement login limits"))
 	got := s.BuildHandoff().Text
 	assert.Contains(t, got, compactionSummaryContent("Keep the approved design"))
