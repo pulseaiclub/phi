@@ -17,13 +17,12 @@ import (
 
 // Submitter owns submit / cancel / slash dispatch and coordinates bash runs.
 type Submitter struct {
-	commandBusy func() bool
-	ctrl        *controller.EngineController
-	commands    *commands.CommandRegistry
-	transcript  *transcript.TranscriptPane
-	activity    *controller.ActivityHandler
-	composer    composer.Input
-	bash        *BashRunner
+	ctrl       *controller.EngineController
+	commands   *commands.CommandRegistry
+	transcript *transcript.TranscriptPane
+	activity   *controller.ActivityHandler
+	composer   composer.Input
+	bash       *BashRunner
 
 	commandContext commands.Context
 
@@ -32,6 +31,7 @@ type Submitter struct {
 	permissionActive  func() bool
 	confirmActive     func() bool
 	errorActive       func() bool
+	commandBusy       func() bool
 	resolvePermission func(controller.AskReply)
 	resolveConfirm    func(controller.ExtConfirmReply)
 	resolveError      func(controller.ErrorReply)

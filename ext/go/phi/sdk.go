@@ -231,6 +231,26 @@ func (extension *ExtensionAPI) ConfirmOpts(req ext.ConfirmRequest) ext.ConfirmRe
 	return ext.ConfirmReply{OK: res.OK}
 }
 
+// Select opens a host picker. Esc returns OK=false without an error.
+// Call from a command, tool, or intercept handler, like Confirm.
+func (extension *ExtensionAPI) Select(req ext.SelectRequest) (ext.SelectReply, error) {
+	res, err := extension.hostCall("select", req)
+	if err != nil || !res.OK {
+		return ext.SelectReply{}, err
+	}
+	var index *int
+	if err := json.Unmarshal([]byte(res.Body), &index); err != nil {
+		return ext.SelectReply{}, fmt.Errorf("phi: decode selection: %w", err)
+	}
+	if index == nil {
+		return ext.SelectReply{}, errors.New("phi: missing selection index")
+	}
+	if *index < 0 || *index >= len(req.Items) {
+		return ext.SelectReply{}, fmt.Errorf("phi: selection index %d is out of range", *index)
+	}
+	return ext.SelectReply{Index: *index, OK: true}, nil
+}
+
 func (extension *ExtensionAPI) hostCall(method string, arg any) (pxb.HostResult, error) {
 	if extension.wr == nil || extension.rd == nil || extension.stopped() {
 		return pxb.HostResult{}, errors.New("phi: host is not connected")

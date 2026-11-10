@@ -1,8 +1,10 @@
 package controller
 
 import (
+	"context"
 	"time"
 
+	"github.com/pulseaiclub/phi/ext/go/pxb"
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/permission"
@@ -160,6 +162,17 @@ type OverlayMsg struct {
 }
 
 func (OverlayMsg) isMsg() {}
+
+// ExtHostRequestMsg keeps extension requests on the UI goroutine, which owns
+// the session and picker. Dismiss only closes the matching timed-out picker.
+type ExtHostRequestMsg struct {
+	Context context.Context
+	Request pxb.HostRequest
+	Reply   chan pxb.HostResult
+	Dismiss bool
+}
+
+func (ExtHostRequestMsg) isMsg() {}
 
 // ExtCommandResultMsg delivers the result of an extension slash command.
 type ExtCommandResultMsg struct {

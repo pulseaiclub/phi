@@ -13,6 +13,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/extension/loader"
 
 	ext "github.com/pulseaiclub/phi/ext/go"
+	"github.com/pulseaiclub/phi/ext/go/pxb"
 	"github.com/pulseaiclub/phi/internal/agent"
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/debuglog"
@@ -459,6 +460,20 @@ func (c *EngineController) askExtConfirm(req ext.ConfirmRequest) ext.ConfirmRepl
 		c.publish(OverlayMsg{Kind: OverlayExtConfirmDismiss})
 	})
 	return ext.ConfirmReply{OK: r.OK}
+}
+
+func (c *EngineController) extensionHostRequest(req pxb.HostRequest) pxb.HostResult {
+	ctx, cancel := context.WithTimeout(context.Background(), c.askTimeout())
+	defer cancel()
+	reply := make(chan pxb.HostResult, 1)
+	c.publish(ExtHostRequestMsg{Context: ctx, Request: req, Reply: reply})
+	select {
+	case result := <-reply:
+		return result
+	case <-ctx.Done():
+		c.publish(ExtHostRequestMsg{Reply: reply, Dismiss: true})
+		return pxb.HostResult{Error: ctx.Err().Error()}
+	}
 }
 
 // SaveDefaultModel changes the global default without rewriting any session.

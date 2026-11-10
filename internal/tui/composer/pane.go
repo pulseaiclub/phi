@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/pulseaiclub/xui"
 
+	ext "github.com/pulseaiclub/phi/ext/go"
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/chat"
 	"github.com/pulseaiclub/phi/internal/components/layout"
@@ -301,6 +303,25 @@ func (c *ComposerPane) RefreshBranchList(branches []gitx.Branch, recent []string
 	c.listPicker.SetItems(listrows.BranchItems(branches, recent))
 	if c.onRedraw != nil {
 		c.onRedraw()
+	}
+}
+
+// ShowExtensionSelect opens the shared picker for an extension request.
+// onResult runs once on close, with OK=false unless an item was accepted.
+func (c *ComposerPane) ShowExtensionSelect(req ext.SelectRequest, onResult func(ext.SelectReply)) {
+	items := make([]listpicker.Item, len(req.Items))
+	for i, item := range req.Items {
+		items[i] = listpicker.Item{ID: strconv.Itoa(i), Primary: item.Label, Detail: item.Detail}
+	}
+	var result ext.SelectReply
+	c.ShowList(items, listpicker.ShowConfig{Title: req.Title, PrimaryWidth: 40}, func(item listpicker.Item) {
+		if index, err := strconv.Atoi(item.ID); err == nil {
+			result = ext.SelectReply{Index: index, OK: true}
+		}
+	}, nil)
+	c.listPicker.OnClose = func() {
+		c.listPicker.OnClose = nil
+		onResult(result)
 	}
 }
 
