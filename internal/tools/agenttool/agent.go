@@ -33,13 +33,14 @@ How to use:
 4. Sub-agents cannot spawn further agents. Do not put secrets in the prompt.
 5. Verify before relying on a worker's edits in follow-up work.`
 
-// agentConfig is the resolved wiring of the agent_* tools. ParentID/WorkDir stay
+// agentConfig is the resolved wiring of the agent_* tools. Session values stay
 // callbacks because the session can change under us (/resume).
 type agentConfig struct {
-	manager  *job.Manager
-	parentID func() string
-	workDir  func() string
-	gate     permission.Gate
+	manager       *job.Manager
+	parentID      func() string
+	parentContext func() job.ParentContext
+	workDir       func() string
+	gate          permission.Gate
 }
 
 // AgentOption configures [AgentTools].
@@ -54,6 +55,12 @@ func WithManager(manager *job.Manager) AgentOption {
 // WithParentID sets the parent session attributed to spawned jobs.
 func WithParentID(parentID func() string) AgentOption {
 	return func(cfg *agentConfig) { cfg.parentID = parentID }
+}
+
+// WithParentContext captures trusted parent background synchronously when spawn
+// runs, after the executor's permission gate. Nil leaves the context empty.
+func WithParentContext(parentContext func() job.ParentContext) AgentOption {
+	return func(cfg *agentConfig) { cfg.parentContext = parentContext }
 }
 
 // WithWorkDir sets the session cwd that relative sub-agent workdirs resolve against.
@@ -153,6 +160,9 @@ Concurrency cap: at most %d sub-agents run concurrently; spawning more fails (jo
 			}
 			if in.TimeoutSec > 0 {
 				req.Timeout = time.Duration(in.TimeoutSec) * time.Second
+			}
+			if cfg.parentContext != nil {
+				req.ParentContext = cfg.parentContext()
 			}
 			info, err := cfg.manager.Spawn(ctx, req)
 			if err != nil {
