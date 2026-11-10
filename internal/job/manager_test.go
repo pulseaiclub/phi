@@ -25,7 +25,10 @@ func newMgr(t *testing.T, runner job.Runner, opts job.Options) *job.Manager {
 	m, err := job.New(opts)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_ = m.Close(t.Context())
+		// t.Context is canceled before cleanup; Close must still wait for job writes.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 5*time.Second)
+		defer cancel()
+		require.NoError(t, m.Close(ctx))
 	})
 	return m
 }
