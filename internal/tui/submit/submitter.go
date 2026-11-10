@@ -83,14 +83,14 @@ func (s *Submitter) Submit(text string) {
 			return
 		}
 	}
-	if strings.HasPrefix(text, "/") {
-		if insert, ok := s.incompleteSlash(text); ok {
+	if strings.HasPrefix(text, "/") && s.commands != nil {
+		if insert, ok := s.commands.IncompleteSlash(text); ok {
 			s.composer.HideCompleters()
 			s.composer.SetInput(insert)
 			s.composer.SyncBashBorder("")
 			return
 		}
-		if s.dispatchSlash(text) {
+		if s.commandContext != nil && s.commands.DispatchSlash(text, s.commandContext) {
 			s.composer.HideCompleters()
 			s.composer.ClearInput()
 			s.composer.ClearPendingImages()
@@ -230,18 +230,4 @@ func (s *Submitter) StreamActive() bool {
 	default:
 		return false
 	}
-}
-
-func (s *Submitter) dispatchSlash(text string) bool {
-	if s.commands == nil || s.commandContext == nil {
-		return false
-	}
-	return s.commands.DispatchSlash(text, s.commandContext)
-}
-
-func (s *Submitter) incompleteSlash(text string) (string, bool) {
-	if s.commands == nil {
-		return "", false
-	}
-	return s.commands.IncompleteSlash(text)
 }
