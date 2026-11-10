@@ -28,7 +28,7 @@ When NOT to use any sub-agent:
 
 How to use:
 1. Spawn jobs first, do any independent work, then use agent_wait with only job_id when you need a result. It wakes on completion; do not guess a timeout or poll. For parallel jobs, spawn all first, then wait each.
-2. Stateless: put a highly detailed, self-contained prompt and say what the final summary must include.
+2. Children may receive bounded parent background. Still provide a self-contained task with scope, constraints, and the required final summary; background can be incomplete.
 3. You only receive the final summary. Summarize for the user if needed.
 4. Sub-agents cannot spawn further agents. Do not put secrets in the prompt.
 5. Verify before relying on a worker's edits in follow-up work.`

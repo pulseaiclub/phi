@@ -14,6 +14,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Sub-agents receive bounded parent conversation background before their assigned
+  task when launched with handoff context. Clean mode omits background; child
+  permissions and independent sessions remain unchanged.
+
 ### Fixed
 
 ### Security
