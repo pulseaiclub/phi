@@ -19,7 +19,7 @@ var (
 	mcpCommand = cli.Command{
 		Name: "mcp",
 		Desc: "manage MCP servers (list, add, remove, call, doctor)",
-		Long: `Set PHI_MCP=off to disable MCP meta-tools in the agent.
+		Long: `Set PHI_MCP=off to disable MCP in the agent (mcp:// URLs on ls/read/write).
 See doc/mcp.md.`,
 	}
 

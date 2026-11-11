@@ -2,7 +2,7 @@
 
 | Path                     | Purpose                                        |
 | ------------------------ | ---------------------------------------------- |
-| `cmd/`                   | Entry points (`main.go` via pli: `phi run`, `phi update`, `phi sessions`, …) |
+| `cmd/`                   | Entry points (`main.go` via `phi`: `phi run`, `phi update`, `phi sessions`, …) |
 | `ext/`                   | Public extension API, PXB protocol (`ext/go/pxb`), author SDK (`ext/go/phi`) — nested Go module `github.com/pulseaiclub/phi/ext/go` |
 | `internal/util/update/`  | Self-update check + GitHub Releases install    |
 | `internal/agent/`        | Agent engine, executor, jobs                     |
@@ -32,14 +32,14 @@
 | `internal/util/diffreview/` | Unified-diff parse/render, in-memory review notes, git load |
 | `internal/permission/`   | Permission policy and ask gate                 |
 | `internal/extension/`    | PXB extension host: runner + layers (`core`/`loader`/`install`/`create`) |
-| `internal/mcp/`          | MCP config + stdio client + pool (meta-tool route) |
+| `internal/mcp/`          | MCP config + stdio client + pool (mcp:// URL route) |
 
 ## Design docs
 
 | Path | Purpose |
 | ---- | ------- |
 | [`extensions.md`](extensions.md) | Extensions: discover, API, events, migration from hooks |
-| [`mcp.md`](mcp.md) | MCP: zero schema pollution, meta-tools, config, CLI |
+| [`mcp.md`](mcp.md) | MCP: zero schema pollution, mcp:// URLs, config, CLI |
 | [`models.md`](models.md) | Supported models, presets, explicit `api`, thinking config |
 | [`tui.md`](tui.md) | TUI: package layout, aggregation, interaction flows |
 | [`session-context-building.md`](session-context-building.md) | Sessions: tree model, compaction, context building |
