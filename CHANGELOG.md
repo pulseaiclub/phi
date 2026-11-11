@@ -24,6 +24,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - Close the original HTTP request body when reading it fails before retrying.
 - `phi mcp list` now shows the configured URL for HTTP servers.
+- Compaction rounds now carry the hook's `preserveData` through, so data a hook
+  asked to keep survives when a later round runs on the same session.
 
 ### Security
 

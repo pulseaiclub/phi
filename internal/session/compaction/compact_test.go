@@ -1,7 +1,6 @@
 package compaction
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -352,7 +351,7 @@ func TestCompact_PreservesDataAcrossRounds(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, preserveData, prep1.PreviousPreserveData)
 
-	comp1, err := Compact(context.Background(), *prep1, compactor)
+	comp1, err := Compact(t.Context(), *prep1, compactor)
 	assert.NoError(t, err)
 	assert.Equal(t, preserveData, comp1.PreserveData, "round 1 compaction must preserve data")
 
@@ -373,7 +372,7 @@ func TestCompact_PreservesDataAcrossRounds(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, preserveData, prep2.PreviousPreserveData, "round 2 preparation must see previous preserve data")
 
-	comp2, err := Compact(context.Background(), *prep2, compactor2)
+	comp2, err := Compact(t.Context(), *prep2, compactor2)
 	assert.NoError(t, err)
 	assert.Equal(t, preserveData, comp2.PreserveData, "round 2 compaction must preserve data across rounds")
 }
