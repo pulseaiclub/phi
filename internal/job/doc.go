@@ -1,8 +1,8 @@
 // Package job is a sub-agent job manager (spawn / list / wait / log / cancel).
 //
-// Not yet wired into the agent Engine or tool registry. Later integration
-// should call [Manager] from tools and supply a [Runner] that drives a child
-// Engine.
+// The agent Engine registers the agent_* tools against a [Manager] and drives
+// each spawned job through a [Runner] that runs a child Engine; the TUI consumes
+// job state to report sub-agent progress.
 //
 // Disk layout per job:
 //
