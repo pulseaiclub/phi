@@ -2,6 +2,7 @@ package listrows
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/pulseaiclub/xui"
@@ -31,8 +32,7 @@ func TestFileConfig(t *testing.T) {
 	assert.Equal(t, "filename or path", cfg.FilterHint)
 	assert.Equal(t, "No files found", cfg.Empty)
 	assert.Equal(t, chrome.ListHint("open"), cfg.Hint)
-	assert.True(t, cfg.InlineDetail)
-	assert.True(t, cfg.MutedDetail)
+	assert.Equal(t, 30, cfg.PrimaryWidth)
 }
 
 func TestFilePickerFiltersFullPath(t *testing.T) {
@@ -45,7 +45,7 @@ func TestFilePickerFiltersFullPath(t *testing.T) {
 	require.Len(t, s.Children, 1)
 	text := components.SurfaceText(s.Children[0].Surface)
 	assert.Contains(t, text, "Files · 1/3")
-	assert.Contains(t, text, "main.go internal/b")
+	assert.Contains(t, strings.Join(strings.Fields(text), " "), "main.go internal/b")
 	assert.NotContains(t, text, "internal/a")
 	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
 	assert.Equal(t, "internal/b/main.go", accepted.ID)

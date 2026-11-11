@@ -31,7 +31,6 @@ func FileConfig() listpicker.ShowConfig {
 		Empty:        "No files found",
 		EmptyFilter:  "No files match %q",
 		Hint:         chrome.ListHint("open"),
-		InlineDetail: true,
-		MutedDetail:  true,
+		PrimaryWidth: 30,
 	}
 }

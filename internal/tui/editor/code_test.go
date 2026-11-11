@@ -3,6 +3,7 @@ package editor
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -93,7 +94,7 @@ func TestCodeCommandWithoutPathOpensPicker(t *testing.T) {
 	e := diffEditor(t, dir)
 	require.True(t, e.commands.DispatchSlash("/code", commands.NewContext(e.bus, nil)))
 	assert.False(t, e.code.Active())
-	text := branchOverlay(t, e)
+	text := strings.Join(strings.Fields(branchOverlay(t, e)), " ")
 	assert.Contains(t, text, "Files")
 	assert.Contains(t, text, "a.go .")
 	assert.Contains(t, text, "a.go internal")

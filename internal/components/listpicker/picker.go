@@ -62,8 +62,6 @@ type ShowConfig struct {
 	EmptyCommand   string // no command matches; may contain %q for the typed name
 	LeadingWidth   int    // fixed leading column; 0 = auto from content / 10
 	PrimaryWidth   int    // fixed primary column; 0 = 8
-	InlineDetail   bool   // size primary to content with a one-space gap; reserve room for detail
-	MutedDetail    bool   // render detail muted, retaining the selected row background
 }
 
 // Picker is a filterable list overlay. Enter accepts the selection.
@@ -803,22 +801,10 @@ func (p *Picker) drawRow(
 	}
 	x += leadW
 
-	primary := components.TruncateToWidth(item.Primary, primW, ctx.Method)
-	gap := 2
-	inline := p.cfg.InlineDetail && !p.commandMode
-	if inline {
-		avail := max(boxW-1-x, 0)
-		// Keep part of the directory visible even when the filename is long.
-		detailW := min(xui.StringWidth(item.Detail, ctx.Method), max(avail/3, 3))
-		primW = max(avail-detailW-1, 0)
-		primary = components.TruncateToWidthSuffix(item.Primary, primW, "…", ctx.Method)
-		primW = xui.StringWidth(primary, ctx.Method)
-		gap = 1
-	}
 	idSt := base
 	idSt.Bold = true
-	panel.Print(x, y, primary, idSt, ctx.Method)
-	x += primW + gap
+	panel.Print(x, y, components.TruncateToWidth(item.Primary, primW, ctx.Method), idSt, ctx.Method)
+	x += primW + 2
 
 	if item.Badge != "" {
 		tag := "· " + item.Badge + "  "
@@ -835,19 +821,9 @@ func (p *Picker) drawRow(
 		detail = "—"
 	}
 	avail := max(boxW-1-x, 1)
-	if inline {
-		avail = max(boxW-1-x, 0)
-	}
-	detailSt := base
-	if p.cfg.MutedDetail && !p.commandMode {
-		detailSt = th.Muted
-		if sel {
-			detailSt.Bg = th.SelectionBg.Bg
-		}
-	}
 	// A visible ellipsis, so a long description reads as elided rather than
 	// clipped by a rendering bug.
-	panel.Print(x, y, components.TruncateToWidthSuffix(detail, avail, "…", ctx.Method), detailSt, ctx.Method)
+	panel.Print(x, y, components.TruncateToWidthSuffix(detail, avail, "…", ctx.Method), base, ctx.Method)
 }
 
 func (p *Picker) drawHint(
