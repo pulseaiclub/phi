@@ -607,7 +607,6 @@ Built-in tools the model can call (see `internal/tools/`):
 | `agent_spawn`  | Start an isolated sub-agent job (async)      |
 | `agent_wait`   | Wait for a job; returns short summary only   |
 
-
 Sub-agent transcripts live under `~/.phi/jobs/<id>/` and are **not** injected
 into the parent context — only the wait/task summary is.
 
