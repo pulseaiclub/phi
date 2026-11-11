@@ -6,13 +6,10 @@ import (
 )
 
 // The facade below re-exports the subpackage surface so agent/tui/cmd can
-// import just this package (see doc.go for the layer map). Runner, Fiber and
+// import just this package (see doc.go for the layer map). Runner and
 // FiberState live in core, mirroring cordis's single core package.
 
 type (
-	// Fiber is one extension's lifecycle state machine.
-	Fiber = core.Fiber
-
 	// FiberState is a fiber lifecycle state (pending/loading/active/failed/disposed/unloading).
 	FiberState = core.FiberState
 
@@ -25,13 +22,4 @@ type (
 
 	// BusUI publishes extension UI effects onto host callbacks.
 	BusUI = ui.BusUI
-)
-
-// Fiber states.
-const (
-	FiberPending  = core.FiberPending
-	FiberLoading  = core.FiberLoading
-	FiberActive   = core.FiberActive
-	FiberFailed   = core.FiberFailed
-	FiberDisposed = core.FiberDisposed
 )
