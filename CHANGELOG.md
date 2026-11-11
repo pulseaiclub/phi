@@ -10,6 +10,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Removed
 
+- `agent_cancel` tool. `agent_wait` without `timeout_sec` blocks the turn until
+  the job finishes, so the model never got a turn to call it; hung sub-agents
+  now run until the session closes, which cancels all live jobs.
+
 ### Changed
 
 - `/code` now opens a searchable file picker, with filenames and directory paths

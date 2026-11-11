@@ -28,11 +28,6 @@ type WaitArgs struct {
 	TimeoutSec int    `json:"timeout_sec,omitempty"`
 }
 
-// CancelArgs is the JSON argument shape for agent_cancel.
-type CancelArgs struct {
-	JobID string `json:"job_id"`
-}
-
 // HandleSpawn is a JSON-tool style entry for agent_spawn.
 func (m *Manager) HandleSpawn(ctx context.Context, raw json.RawMessage) (Info, error) {
 	var args SpawnArgs
@@ -81,16 +76,4 @@ func (m *Manager) HandleWait(ctx context.Context, raw json.RawMessage) (WaitResu
 		return WaitResult{Info: info}, nil
 	}
 	return result, err
-}
-
-// HandleCancel is a JSON-tool style entry for agent_cancel.
-func (m *Manager) HandleCancel(ctx context.Context, raw json.RawMessage) error {
-	var args CancelArgs
-	if err := json.Unmarshal(raw, &args); err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalid, err)
-	}
-	if args.JobID == "" {
-		return fmt.Errorf("%w: job_id is required", ErrInvalid)
-	}
-	return m.Cancel(ctx, args.JobID)
 }

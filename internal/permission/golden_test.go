@@ -162,7 +162,7 @@ func TestDecisionTable(t *testing.T) {
 		},
 
 		{"control", defaults, control("agent_wait"), Allow, ""},
-		{"control readonly", readonly, control("agent_cancel"), Allow, ""},
+		{"control readonly", readonly, control("agent_wait"), Allow, ""},
 
 		{"unknown", defaults, unknown("custom_tool"), Ask, `unknown action "custom_tool" requires approval`},
 		{

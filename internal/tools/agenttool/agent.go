@@ -66,7 +66,7 @@ func WithGate(gate permission.Gate) AgentOption {
 	return func(cfg *agentConfig) { cfg.gate = gate }
 }
 
-// AgentTools returns agent_spawn / list / wait / cancel.
+// AgentTools returns agent_spawn and agent_wait.
 // Depth is forced to 0; the parent id comes from WithParentID, not model args.
 func AgentTools(opts ...AgentOption) []tooldef.Tool {
 	cfg := agentConfig{
@@ -84,7 +84,6 @@ func AgentTools(opts ...AgentOption) []tooldef.Tool {
 	return []tooldef.Tool{
 		agentSpawnTool(cfg),
 		agentWaitTool(cfg),
-		agentCancelTool(cfg),
 	}
 }
 
@@ -199,7 +198,7 @@ func oneLine(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-// jobIDInput is the shared {job_id} payload of agent_wait and agent_cancel.
+// jobIDInput is the {job_id} payload of agent_wait.
 type jobIDInput struct {
 	JobID string `json:"job_id"`
 }
@@ -229,7 +228,7 @@ Normally call with only job_id: {"job_id":"..."}. With timeout_sec omitted or 0,
 
 Do independent work before waiting. For parallel jobs, spawn all first, then wait for each result you need.
 Set timeout_sec only when you need control back before completion. If it returns a non-terminal status, the job is still running; omit timeout_sec on the next wait to receive the result.
-A wait timeout or interrupted wait does NOT cancel the job. Use agent_cancel to stop it.`,
+A wait timeout or interrupted wait does NOT cancel the job; it keeps running until the session ends.`,
 			Params: &llm.FunctionParameters{
 				Type: "object",
 				Properties: llm.Object{
@@ -271,35 +270,6 @@ A wait timeout or interrupted wait does NOT cancel the job. Use agent_cancel to 
 				Detail:  label,
 				Output:  body,
 			}, nil
-		}),
-	)
-}
-
-func agentCancelTool(cfg agentConfig) tooldef.Tool {
-	return tooldef.NewTool(
-		tooldef.WithDefinition(llm.ToolDefinition{
-			Name:        "agent_cancel",
-			Description: `Cancel a running or starting sub-agent job and wait until it stops.`,
-			Params: &llm.FunctionParameters{
-				Type: "object",
-				Properties: llm.Object{
-					"job_id": llm.Object{
-						"type": "string",
-					},
-				},
-				Required: []string{"job_id"},
-			},
-		}),
-		tooldef.WithDetail(jobIDDetail),
-		tooldef.WithPermission(tooldef.Declaration[jobIDInput]{
-			Kind: permission.KindControl,
-		}),
-		tooldef.WithRun(func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
-			if err := cfg.manager.HandleCancel(ctx, input); err != nil {
-				return tooldef.Result{}, err
-			}
-			body := mustJSON(map[string]any{"ok": true})
-			return tooldef.Result{Content: body, Detail: "stopped", Output: body}, nil
 		}),
 	)
 }

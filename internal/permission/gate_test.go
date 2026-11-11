@@ -197,15 +197,11 @@ func TestCheckReadonlyDeniesAgentSpawn(t *testing.T) {
 	require.Equal(t, Deny, dec, reason)
 }
 
-func TestCheckAgentWaitAndCancelStayAllowed(t *testing.T) {
+func TestCheckAgentWaitStaysAllowed(t *testing.T) {
 	g, err := NewGate(DefaultPolicy(), t.TempDir())
 	require.NoError(t, err)
-	ctx := t.Context()
-
-	for _, tool := range []string{"agent_wait", "agent_cancel"} {
-		dec, reason := g.Check(ctx, Request{Tool: tool, Kind: KindControl})
-		require.Equal(t, Allow, dec, "%s: %s", tool, reason)
-	}
+	dec, reason := g.Check(t.Context(), Request{Tool: "agent_wait", Kind: KindControl})
+	require.Equal(t, Allow, dec, reason)
 }
 
 func TestCheckWriteSensitiveConfig(t *testing.T) {

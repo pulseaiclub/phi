@@ -257,38 +257,6 @@ func TestAgentToolsDualSpawnWaitKeepsTranscriptsInJobLog(t *testing.T) {
 	assert.Greater(t, len(joined), 1000) // bulky transcript stayed in job log, not parent summary
 }
 
-func TestAgentToolsCancelRunningJob(t *testing.T) {
-	started := make(chan struct{})
-	_, reg := newAgentTestRegistry(t, func(ctx context.Context, _ job.RunEnv) (string, error) {
-		close(started)
-		<-ctx.Done()
-		return "", ctx.Err()
-	})
-
-	raw, _ := json.Marshal(map[string]any{"prompt": "hang"})
-	spawnRes, err := reg["agent_spawn"].Run(t.Context(), raw)
-	require.NoError(t, err)
-	var spawned struct {
-		JobID string `json:"job_id"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(spawnRes.Content), &spawned))
-
-	select {
-	case <-started:
-	case <-time.After(2 * time.Second):
-		require.Fail(t, "job did not start")
-	}
-
-	cancelRaw, _ := json.Marshal(map[string]any{"job_id": spawned.JobID})
-	_, err = reg["agent_cancel"].Run(t.Context(), cancelRaw)
-	require.NoError(t, err)
-
-	waitRaw, _ := json.Marshal(map[string]any{"job_id": spawned.JobID})
-	waitRes, err := reg["agent_wait"].Run(t.Context(), waitRaw)
-	require.NoError(t, err)
-	assert.Contains(t, waitRes.Content, `"status": "cancelled"`)
-}
-
 func TestChildToolsExcludeAgentAndWriteTools(t *testing.T) {
 	for _, tool := range agent.ChildTools() {
 		assert.NotEqual(t, "agent_spawn", tool.Definition.Name)
