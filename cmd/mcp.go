@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -74,16 +76,24 @@ func mcpList() error {
 	if err != nil {
 		return err
 	}
+	writeMCPList(os.Stdout, servers)
+	return nil
+}
+
+func writeMCPList(w io.Writer, servers map[string]mcp.ServerConfig) {
 	if len(servers) == 0 {
-		fmt.Println("(no servers — try: phi mcp add fetch -- npx -y @modelcontextprotocol/server-fetch)")
-		return nil
+		fmt.Fprintln(w, "(no servers — try: phi mcp add fetch -- npx -y @modelcontextprotocol/server-fetch)")
+		return
 	}
 	for _, name := range sortedKeys(servers) {
 		cfg := servers[name]
-		cmd, _ := cfg.CmdLine()
-		fmt.Printf("%s\t%s\n", name, strings.Join(cmd, " "))
+		address := cfg.URL
+		if !cfg.IsHTTP() {
+			cmd, _ := cfg.CmdLine()
+			address = strings.Join(cmd, " ")
+		}
+		fmt.Fprintf(w, "%s\t%s\n", name, address)
 	}
-	return nil
 }
 
 func sortedKeys(m map[string]mcp.ServerConfig) []string {
