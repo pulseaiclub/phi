@@ -68,6 +68,50 @@ func TestPaneOpenCommentSearchAndSend(t *testing.T) {
 	assert.Contains(t, submitted, "please rename")
 }
 
+func TestPanePasteReviewNote(t *testing.T) {
+	p := New(components.DefaultTheme(), t.TempDir(), nil, nil, nil)
+	p.OpenText(sampleDiff, nil)
+
+	ctx := &components.EventContext{}
+	key := func(r rune) {
+		p.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: r})
+	}
+	for i := 0; i < 20 && (p.cursor >= len(p.rows) || p.rows[p.cursor].Code != "new"); i++ {
+		key('j')
+	}
+	require.Equal(t, "new", p.rows[p.cursor].Code)
+
+	paste := xui.PasteEvent{Text: "中文\n第二行"}
+	*ctx = components.EventContext{}
+	p.Handle(ctx, paste)
+	assert.True(t, ctx.Consume)
+	assert.False(t, ctx.Redraw)
+	require.Empty(t, p.drafts)
+
+	key('i')
+	require.True(t, p.commentEdit)
+	key('[')
+	key(']')
+	p.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyLeft})
+
+	*ctx = components.EventContext{}
+	p.Handle(ctx, paste)
+	assert.True(t, ctx.Consume)
+	assert.True(t, ctx.Redraw)
+	assert.True(t, p.commentEdit)
+	assert.Empty(t, p.drafts)
+
+	surface := p.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 24}, Method: xui.WidthUnicode})
+	// The one-line preview uses one column for the line break and two per CJK rune.
+	assert.Equal(t, &components.Point{X: 17, Y: 23}, surface.Cursor)
+
+	key('!')
+	p.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyEnter})
+	assert.False(t, p.commentEdit)
+	require.Len(t, p.drafts, 1)
+	assert.Equal(t, "[中文\n第二行!]", p.drafts[0].Body)
+}
+
 func TestPaneDropsNotesWhenDiffChanges(t *testing.T) {
 	p := New(components.DefaultTheme(), t.TempDir(), nil, nil, nil)
 	p.OpenText(sampleDiff, nil)
