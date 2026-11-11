@@ -366,9 +366,11 @@ phi run -p "fix the failing test in internal/tools"
 退出码：`0` 成功 · `1` 运行时/LLM 错误 ·
 `3` 配置/用法错误。
 
-无头模式下，权限 `ask` 的决策会被拒绝（没有审批界面），因此无需额外参数
-即可获得 `readonly` 级别的安全性。跑 benchmark 需要任意 shell（`pytest`、
-`npm test` 等）时，对该次运行加 `--yolo` 即可跳过权限门控。
+无头模式下，权限 `ask` 的决策会被拒绝（没有审批界面）：未设置
+`permissions.mode` 时，`phi run` 使用 `headless-strict`。这并不等同于
+`readonly`——策略本已允许的操作仍会执行，包括工作区内的写入和白名单中的
+bash。跑 benchmark 需要任意 shell（`pytest`、`npm test` 等）时，对该次运行加
+`--yolo` 即可跳过权限门控。
 
 ## Skills（技能）
 
@@ -415,12 +417,16 @@ Instructions the agent should follow when this skill is relevant.
 | 模式 | 行为 |
 | ------------------ | --------------------------------------------------- |
 | `interactive` | 默认。`ask` 决策在 TUI 中弹出询问。 |
-| `readonly` | 拒绝写入 / bash；只读工具仍可用。 |
-| `autopilot` | 把 `ask` 折叠为 allow，无人值守运行。 |
+| `readonly` | 拒绝写入和 `ask`；策略允许的 bash 仍可执行。 |
+| `autopilot` | 把 `ask` 折叠为 deny（目前与 `headless-strict` 相同）。 |
 | `headless-strict` | 把 `ask` 折叠为 deny（`phi run` 使用）。 |
 | `allow-all` | 跳过所有权限检查。 |
 
-按工具的规则：`bash.default` / `bash.allow` / `bash.deny`（精确命令前缀匹配）。
+`readonly` 并不会拦截所有 bash 命令：底层策略允许的命令（`bash.allow`，或
+`bash.default: allow`）在通过拒绝列表检查后仍会执行。写入、其余 `ask` 决策以及
+`agent_spawn` 都会被拒绝。
+
+按工具的规则：`bash.default` / `bash.allow` / `bash.deny`（对整条命令做正则匹配）。
 全局键：`workspace_only_writes`（默认 true）和 `ask_timeout_sec`。
 已弃用的 `dangerously_allow_all: true` 仍按 `mode: allow-all` 加载。
 
