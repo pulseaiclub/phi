@@ -152,10 +152,21 @@ figures.
 | Time to first frame | **~31 ms** (26–49 ms) |
 | Cold `go build` (empty `GOCACHE`) | **~5.5 s** |
 | Warm rebuild | **~0.7 s** |
-| Go source (excl. tests) | **~22k LOC** / 107 files |
-| Go packages | **32** |
-| Direct module deps | **6** (15 modules total) |
+| Go source (excl. tests) | **~54k lines** (~49k non-blank) / 345 files |
+| Go packages | **84** |
+| Direct module deps | **8** |
 | Linked runtimes | system libs only (no Node / Electron / Python) |
+
+Timing, memory, and size rows were measured on the macOS arm64 setup above
+and have not been re-run since they were first published. The source, package, and
+dependency rows were re-measured in November 2026 (2026-11-11) against the main branch:
+
+- Source: non-test `*.go` files tracked by git in the root module (excluding
+  `ext/`), counted with `wc -l` (lines) and `grep -cv '^\s*$'` (non-blank lines),
+  because `cloc` and `tokei` were not available.
+- Packages: directories containing `.go` files in the root module (excluding
+  `ext/`, a separate module), equivalent to `go list ./...`.
+- Direct deps: non-`// indirect` entries in the `require` blocks of `go.mod`.
 
 ## Configuration
 
@@ -263,7 +274,7 @@ The editor supports:
 
 - `@` — fuzzy file mention picker (type `@` and start typing a path)
 - `/` — slash command picker (`/sessions`, `/branch`, `/skill`, `/new`, `/fork`, `/diff`, `/code`)
-- `?` — shortcut help picker (lists `/`, `!`, `@`, and key bindings; `Esc` closes)
+- `?` — shortcut help picker (lists `/`, `!`, `!!`, `@`, and key bindings; `Esc` closes)
 - `!command` — run a shell command locally and stream its output into the
   transcript (see [Commands](#commands))
 - `Ctrl+K` — command palette: settings → model / theme / permissions / agents (incl. per-role models), hooks
@@ -278,6 +289,8 @@ The editor supports:
 | `Ctrl+A`       | Jump to the start of the line   |
 | `Ctrl+E`       | Jump to the end of the line     |
 | `Ctrl+U`       | Clear the composer input, images, and skills |
+| `Ctrl+V`       | Paste text, or attach an image from the clipboard |
+| `Shift+Enter`  | Insert a newline in the composer |
 | `Ctrl+Shift+C` | Copy the selected transcript text |
 
 Themes: `Dark` (default), `Darcula`, `Pink`, and `Terminal`, switchable from
@@ -350,6 +363,7 @@ unfinished.
 | `phi update --check` | Query the latest release without installing |
 | `phi sessions`     | List persisted sessions for this directory    |
 | `phi sessions fork <id>` | Copy a session at its current point, print the new id |
+| `phi sessions remove <id>` | Delete a persisted session for this directory (alias `rm`; unique id prefix ok) |
 | `/sessions`        | List sessions for this directory (TUI)        |
 | `/branch`          | Switch the working branch — see [Branch switching](#branch-switching) |
 | `/new`             | Start a fresh empty session (TUI)             |
@@ -357,6 +371,7 @@ unfinished.
 | `/diff`            | Full-screen git review — see [Diff review](#diff-review) |
 | `/code`            | Full-screen source viewer — see [Code viewer](#code-viewer) |
 | `!command`         | Run a shell command locally, stream output into the transcript; `Esc` cancels it |
+| `!!command`        | Same as `!command`, and also adds the output to the model context |
 
 In the TUI, `!command` runs locally via `bash -c` — outside the agent loop. It
 doesn't count toward agent busy state, and the running command can be cancelled
@@ -374,6 +389,8 @@ Sessions persist automatically per working directory under
 - `/fork` — copy the current session at its current point into a new session
   (new id, same conversation) and switch to it; the source keeps running
   untouched
+- `phi sessions remove <id>` — delete a session (`rm` also works; a unique id
+  prefix is enough)
 - `phi sessions fork <id>` — copy a session at its current point and print the
   new id; continue it headlessly with `phi run --session <new-id>`
 - `phi run --session <id>` / `phi run --continue-last` — resume headlessly
