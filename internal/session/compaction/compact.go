@@ -3,6 +3,7 @@ package compaction
 import (
 	"context"
 	"errors"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -28,8 +29,7 @@ type CompactionPreparation struct {
 	ReserveTokens int
 	// Limits size each summary request from the model's output limit.
 	Limits OutputLimits
-	// TODO: wire into Compact / AppendCompaction so hook preserveData
-	// survives across compaction rounds (currently collected but unused).
+	// PreviousPreserveData carries hook preserveData forward across compaction rounds.
 	PreviousPreserveData map[string]any
 	FileOps              FileOperation
 }
@@ -169,6 +169,11 @@ func Compact(
 		summary += fileOperations // formatFileOperations returns its own separator
 	}
 
+	var preserveData map[string]any
+	if preparation.PreviousPreserveData != nil {
+		preserveData = maps.Clone(preparation.PreviousPreserveData)
+	}
+
 	return session.Compaction{
 		Summary:          summary,
 		FirstKeptEntryID: preparation.FirstKeptEntryId,
@@ -177,6 +182,7 @@ func Compact(
 			ReadFiles:     readFiles,
 			ModifiedFiles: modifiedFiles,
 		},
+		PreserveData: preserveData,
 	}, nil
 }
 
