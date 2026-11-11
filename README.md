@@ -407,8 +407,10 @@ Exit codes: `0` success · `1` runtime/LLM error ·
 `3` config/usage error.
 
 In headless mode, permission `ask` decisions are denied (there is no approval
-UI), so `readonly`-style safety applies without extra flags. For benchmarks
-that need arbitrary shell (`pytest`, `npm test`, …), pass `--yolo` to skip the
+UI): unless `permissions.mode` is set, `phi run` uses `headless-strict`. This
+is not `readonly` — anything the policy already allows still runs, including
+writes inside the workspace and allowlisted bash. For benchmarks that need
+arbitrary shell (`pytest`, `npm test`, …), pass `--yolo` to skip the
 permission gate for that run only.
 
 ## Skills
@@ -462,10 +464,14 @@ Modes:
 | Mode               | Behavior                                            |
 | ------------------ | --------------------------------------------------- |
 | `interactive`      | Default. `ask` decisions prompt in the TUI.         |
-| `readonly`         | Deny writes / bash; read tools still work.          |
-| `autopilot`        | Fold `ask` → allow, run unattended.                 |
+| `readonly`         | Deny writes and `ask`; policy-allowed bash still runs. |
+| `autopilot`        | Fold `ask` → deny (same as `headless-strict` today). |
 | `headless-strict`  | Fold `ask` → deny (used by `phi run`).              |
 | `allow-all`        | Skip every permission check.                        |
+
+`readonly` does not block every bash command: a command the underlying policy
+allows (`bash.allow`, or `bash.default: allow`) still runs after the deny list
+is checked. Writes, other `ask` decisions, and `agent_spawn` are denied.
 
 Per-tool rules: `bash.default` / `bash.allow` / `bash.deny` (regexes against
 the command). `permissions.rules` adds your own rules by tool, kind, command,
