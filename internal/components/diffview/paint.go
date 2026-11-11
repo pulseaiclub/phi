@@ -89,7 +89,14 @@ func Paint(ctx components.DrawContext, model Model) components.Surface {
 			method,
 		)
 		if model.PromptKind == "note" {
-			col := len(prefix) + xui.StringWidth(model.Prompt[:min(model.CursorByte, len(model.Prompt))], method)
+			col := len(prefix)
+			rest := model.Prompt[:min(model.CursorByte, len(model.Prompt))]
+			// Match Surface.Print, which gives line breaks a cell in the one-line preview.
+			for rest != "" && col < w {
+				_, width, next := xui.FirstGrapheme(rest, method)
+				col += max(width, 1)
+				rest = next
+			}
 			if col < w {
 				s.Cursor = &components.Point{X: col, Y: statusY}
 			}

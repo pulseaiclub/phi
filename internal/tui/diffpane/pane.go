@@ -260,7 +260,7 @@ func (p *Pane) Close() {
 	p.picker.Hide()
 }
 
-// Handle consumes keyboard input while the overlay is active.
+// Handle routes input while the overlay is active.
 func (p *Pane) Handle(ctx *components.EventContext, ev xui.Event) {
 	if !p.active {
 		return
@@ -271,6 +271,13 @@ func (p *Pane) Handle(ctx *components.EventContext, ev xui.Event) {
 			return
 		}
 		p.handleKey(ctx, e)
+	case xui.PasteEvent:
+		if p.commentEdit {
+			p.insertComment(e.Text)
+			ctx.ConsumeAndRedraw()
+			return
+		}
+		ctx.Consume = true
 	default:
 		ctx.Consume = true
 	}
