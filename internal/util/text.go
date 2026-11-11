@@ -12,12 +12,19 @@ func NormalizeLF(text string) string {
 }
 
 // TruncateBytes retains at most n bytes of s, appending suffix only when truncated.
-// The suffix is outside the budget. n must be nonnegative; UTF-8 may be split.
+// The suffix is outside the budget. n must be nonnegative. The cut backs off to
+// a rune boundary, so valid input yields valid UTF-8: a byte clipped out of a
+// multi-byte rune would reach the tty raw and desync the terminal's parser
+// (stray replacement glyphs, drifted columns).
 func TruncateBytes(s string, n int, suffix string) string {
 	if len(s) <= n {
 		return s
 	}
-	return s[:n] + suffix
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + suffix
 }
 
 // TruncateRunes retains at most n runes of s, appending suffix only when truncated.

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -384,6 +385,17 @@ func TestOpenSessionFailFastBadLine(t *testing.T) {
 	_, err := OpenSession(path)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "line 2")
+}
+
+// A byte-budget cut inside a CJK rune used to leave orphan continuation bytes
+// in the preview; the sessions picker then wrote them to the tty raw and the
+// terminal's parser desynced (garbled rows, stale columns).
+func TestTruncatePreviewStaysValidUTF8(t *testing.T) {
+	msg := "示例 fake preview 文本：ASCII 与 中文 mixed，验证 UTF-8 截断边界保持合法"
+	got := truncatePreview(msg, 72)
+	assert.True(t, utf8.ValidString(got), "preview must stay valid UTF-8: %q", got)
+	assert.Equal(t, "示例 fake preview 文本：ASCII 与 中文 mixed，验证 UTF-8 截…", got)
+	assert.Equal(t, msg, truncatePreview(msg, len(msg)))
 }
 
 func messageContents(entries []MessageEntry) []string {
