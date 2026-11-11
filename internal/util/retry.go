@@ -105,10 +105,10 @@ func DoWithRetry(client *http.Client, req *http.Request) (*http.Response, error)
 	if hasBody {
 		var err error
 		bodyBytes, err = io.ReadAll(req.Body)
+		_ = req.Body.Close()
 		if err != nil {
 			return nil, err
 		}
-		_ = req.Body.Close()
 	}
 
 	newAttempt := func() *http.Request {

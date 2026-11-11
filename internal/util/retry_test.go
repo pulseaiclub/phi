@@ -320,6 +320,39 @@ func TestDoWithRetryStaleConn(t *testing.T) {
 	}
 }
 
+func TestDoWithRetryClosesBodyOnReadError(t *testing.T) {
+	readErr := errors.New("request body read failed")
+	body := &failingRequestBody{err: readErr}
+	transport := &scriptedTransport{}
+	client := &http.Client{Transport: transport}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://example.test", body)
+	require.NoError(t, err)
+
+	resp, err := DoWithRetry(client, req)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+
+	require.ErrorIs(t, err, readErr)
+	require.Nil(t, resp)
+	require.Equal(t, 1, body.closeCalls)
+	require.Zero(t, transport.calls)
+}
+
+type failingRequestBody struct {
+	err        error
+	closeCalls int
+}
+
+func (b *failingRequestBody) Read(_ []byte) (int, error) {
+	return 0, b.err
+}
+
+func (b *failingRequestBody) Close() error {
+	b.closeCalls++
+	return nil
+}
+
 // scriptedTransport replays one error per RoundTrip. A nil error is 200 OK.
 // Calls past the script also succeed, so an unexpected extra retry is visible.
 type scriptedTransport struct {
