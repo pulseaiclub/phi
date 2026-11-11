@@ -12,6 +12,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- `/code` now opens a searchable file picker, with filenames and directory paths
+  in the shared name/description layout. Selecting a file opens the source viewer; explicit
+  `/code path[:line]` and `/code @path` still work.
+
 ### Added
 
 - The compaction marker in the transcript now expands to show the summary that

@@ -386,7 +386,9 @@ func (e *Editor) openCode(args []string) {
 		path = "./" + path[1:]
 	}
 	if path == "" {
-		e.toast.Show("usage: /code <path>[:line]", toast.ToastWarning, 2*time.Second)
+		e.diff.Close()
+		e.code.Close()
+		e.showCodeFiles()
 		return
 	}
 	line := 0
