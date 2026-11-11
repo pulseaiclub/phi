@@ -26,6 +26,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Session previews no longer cut CJK text mid-rune when trimming to the byte
+  budget, which corrupted the terminal output of the sessions picker (garbled
+  glyphs and misplaced rows). `TruncateBytes` now backs off to a rune boundary,
+  so every display path emits valid UTF-8.
 - Pasting into a diff review note now inserts text at the cursor and preserves line breaks.
 - Close the original HTTP request body when reading it fails before retrying.
 - `phi mcp list` now shows the configured URL for HTTP servers.
