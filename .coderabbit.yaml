@@ -1,0 +1,217 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+# Durable repository guidance lives in AGENTS.md. The path rules below cover
+# review concerns that need a narrower lens for particular subsystems.
+language: "en-US"
+early_access: false
+reviews:
+  profile: "chill"
+  request_changes_workflow: false
+  high_level_summary: true
+  in_progress_fortune: false
+  poem: false
+  review_status: true
+  review_details: false
+  auto_review:
+    enabled: true
+    drafts: false
+
+  path_instructions:
+    - path: "cmd/**"
+      instructions: |
+        Review command and startup changes against the repository assembly rules.
+
+        - Keep project/config loading and dependency construction in cmd. The TUI
+          root must receive already constructed collaborators.
+        - Keep command entrypoints thin. Product behavior belongs in the relevant
+          internal package, not in flag parsing or startup glue.
+        - Preserve actionable errors and correct exit codes. Check cancellation,
+          cleanup, and behavior on Windows, macOS, and Linux when relevant.
+        - User-visible behavior changes should update CHANGELOG.md under
+          `## [Unreleased]`, unless the PR is explicitly exempted by repository
+          policy.
+
+    - path: "internal/agent/**"
+      instructions: |
+        Review agent lifecycle and executor changes as stateful, concurrent code.
+
+        - Trace the full path from user input through extension pre-hooks, the
+          permission gate, tool execution, extension post-hooks, and final events.
+          Preserve the order: ExtensionPre -> Gate/Ask -> Run -> ExtensionPost.
+        - Check cancellation, retry, timeout, goroutine ownership, channel closure,
+          session persistence, and failure recovery. Do not report success merely
+          because the happy path compiles.
+        - Preserve prompt/context boundaries. Do not leak credentials, hidden
+          instructions, internal tool schemas, or unrelated session data into LLM
+          requests.
+        - Changes to public engine behavior need focused tests at the public
+          boundary, including the relevant error or cancellation path.
+
+    - path: "internal/{permission,tools,toolmanager}/**"
+      instructions: &security-boundary |
+        Treat this code as a security boundary.
+
+        - Trace untrusted model or user input, filesystem paths, subprocess
+          arguments, network targets, extension metadata, and credentials through
+          the complete changed flow.
+        - Preserve deny-by-default behavior, least privilege, workspace-only
+          restrictions, redaction, and fail-closed error handling.
+        - Prefer structured argv/process APIs over shell string construction. Check
+          quoting, path traversal, symlink or workspace escapes, environment leaks,
+          and command injection risks.
+        - Permission checks must happen before mutation or execution. A failure or
+          cancellation must not leave a partially applied edit, stale approval, or
+          inconsistent state.
+        - Require negative-path coverage for bypasses and for secrets appearing in
+          errors, logs, tool results, persisted state, or process arguments.
+
+    - path: "internal/extension/**"
+      instructions: |
+        Review extension-host changes against the PXB subprocess architecture.
+
+        - Preserve discovery precedence, project-local versus global extension
+          behavior, disabled extensions, process lifecycle, RPC timeouts, and
+          cancellation semantics.
+        - Keep extension calls inside the documented event chain. Tool calls must
+          retain ExtensionPre -> Gate/Ask -> Run -> ExtensionPost ordering.
+        - Treat extension processes as code with the user's permissions. Validate
+          executable paths and metadata, avoid leaking secrets, and fail closed on
+          malformed frames, protocol errors, timeouts, and oversized payloads.
+        - Check concurrent calls, queued confirmation requests, process teardown,
+          reload behavior, and cleanup after a failed or cancelled RPC.
+        - Add or update focused tests for the changed lifecycle or security
+          invariant rather than relying only on a compile check.
+
+    - path: "ext/go/pxb/schema.go"
+      instructions: &pxb-schema |
+        This file is the source of truth for generated Go PXB message fields.
+
+        - Review tag numbers, optional fields, wire kinds, and compatibility rules
+          as a versioned binary protocol. Existing tags must not be reused or
+          silently changed.
+        - New fields and messages must remain forward and backward compatible:
+          unknown tagged fields and unknown frame types must be safely skipped.
+        - Changes must be reflected through `make generate`; do not hand-edit
+          ext/go/pxb/msg_gen.go or add manual encode/decode switches.
+        - Check Go, Rust, and TypeScript SDK compatibility and golden/round-trip
+          coverage for every changed wire shape.
+
+    - path: "ext/go/pxb/msg_gen.go"
+      instructions: *pxb-schema
+
+    - path: "ext/{go,rust,ts}/**"
+      instructions: |
+        Review SDK changes as one cross-language public protocol surface.
+
+        - Keep Go, Rust, and TypeScript behavior byte-compatible with the PXB wire
+          format, including field tags, optional values, unknown-field handling,
+          framing, payload limits, and error behavior.
+        - Check public API compatibility, documented examples, and the SDK's own
+          tests. Do not introduce a dependency or runtime requirement without a
+          clear need for the lean extension modules.
+        - A protocol or public SDK change should include matching fixtures,
+          golden tests, or round-trip tests where the repository already uses them.
+        - Keep generated or mirrored protocol code aligned with its declared source
+          of truth. Flag hand edits that will be overwritten by generation.
+
+    - path: "internal/tui/**"
+      instructions: &tui-architecture |
+        Review TUI changes against doc/tui.md and the repository's split between
+        rendering, wiring, and domain behavior.
+
+        - `internal/components` renders. `internal/tui` wires the shell. Engine
+          lifecycle belongs in controller, session-to-widget projection belongs
+          in transcript, and command behavior belongs in commands or its domain
+          package.
+        - Keep widgets dumb and free of domain imports. Do not add Editor
+          back-pointers to handlers. Use injected collaborators, method values,
+          callbacks, or Bus messages for cross-domain work.
+        - Any goroutine-to-UI update must cross the controller Bus and be applied
+          on the UI goroutine. Check redraw coalescing, ordering, locking, and
+          shutdown behavior.
+        - Do not hide project loading in TUI constructors or create partially
+          initialized controllers. Preserve the documented cmd -> Bus ->
+          Controller -> Editor assembly.
+        - Review keyboard, overlay, cancellation, and terminal resize behavior
+          when input or layout paths change.
+
+    - path: "internal/components/**"
+      instructions: *tui-architecture
+
+    - path: "internal/{session,project}/**"
+      instructions: |
+        Review persistence and workspace changes as compatibility-sensitive code.
+
+        - Trace fresh sessions, resume, fork, compaction, switching, interrupted
+          writes, and corrupted or older persisted data.
+        - Keep persisted state serializable, bounded, and free of secrets. Use
+          atomic writes and preserve backup or recovery invariants where relevant.
+        - Workspace paths must remain scoped to the intended project and must work
+          across supported operating systems.
+        - Public session behavior needs tests through the package boundary, with
+          failure and recovery cases when persistence changes.
+
+    - path: "doc/**"
+      instructions: |
+        Review documentation against the implementation and repository layout.
+
+        - Commands, paths, environment variables, protocol details, event ordering,
+          limits, and platform claims must match current code and CI.
+        - Prefer links to existing repository documents and stable published URLs.
+          Flag stale commands, missing required steps, invalid anchors, and examples
+          that would not compile or run as documented.
+        - Keep comments and documentation in English, consistent with repository
+          policy.
+
+    - path: "**/*_test.go"
+      instructions: |
+        Review tests for behavioral confidence and useful failure signals.
+
+        - Prefer observable behavior through exported or package boundaries over
+          private implementation shape, source-text checks, or mock-call counts.
+        - Flag tests that copy production algorithms, use broad mocks that bypass
+          the behavior under test, or pass without exercising their stated claim.
+        - Cover cancellation, malformed input, permission denial, persistence
+          failure, platform differences, and concurrency when the changed code
+          makes those cases relevant.
+        - Follow repository conventions: use testify assertions and keep testing
+          dependencies in test files.
+
+    - path: ".github/workflows/**"
+      instructions: |
+        Review workflow changes as trusted automation.
+
+        - Keep permissions least-privileged and preserve the repository's
+          `contents: read` default unless a narrowly justified job needs more.
+        - Do not execute pull-request-controlled code with base-repository secrets
+          or write permissions. Treat shell interpolation and artifact handling as
+          untrusted-input boundaries.
+        - Keep CI aligned with the actual gates: `make test`, nested Go SDK tests,
+          Rust tests plus fmt/clippy, TypeScript check/build, and `make check`.
+          Flag a workflow change that silently drops a platform or language check.
+        - Pin third-party actions and tool versions consistently with existing
+          workflows, and keep cache or generated-file behavior deterministic.
+
+    - path: "scripts/**"
+      instructions: *security-boundary
+
+    - path: "Dockerfile*"
+      instructions: *security-boundary
+
+    - path: "go.mod"
+      instructions: |
+        Review dependency changes carefully.
+
+        - Keep direct dependencies lean and justified. Preserve the nested
+          `ext/go` module boundary and the local replace used by the main module.
+        - Require go.mod/go.sum consistency and `go mod tidy` after dependency
+          changes. Check license, maintenance, transitive footprint, and startup
+          or binary-size impact when a new dependency is proposed.
+        - Do not move test-only dependencies into production code.
+
+knowledge_base:
+  code_guidelines:
+    enabled: true
+
+chat:
+  auto_reply: true
