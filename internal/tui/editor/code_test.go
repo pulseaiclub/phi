@@ -14,6 +14,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/pulseaiclub/phi/internal/util/filesearch"
 )
 
 // newTestEditor builds the shell the way cmd does:
@@ -81,10 +82,70 @@ func TestCodeCommandExpandsAtPrefix(t *testing.T) {
 	assert.Contains(t, components.SurfaceText(frame(t, e)), "a.go")
 }
 
-// With no path the command explains itself instead of opening an empty pane.
-func TestCodeCommandWithoutPathToasts(t *testing.T) {
-	e := newTestEditor(t)
+func TestCodeCommandWithoutPathOpensPicker(t *testing.T) {
+	if _, err := filesearch.ResolveFD(); err != nil {
+		t.Skip(err)
+	}
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "internal"), 0o755))
+	writeDiffFile(t, dir, "a.go", "root file\n")
+	writeDiffFile(t, dir, "internal/a.go", "nested file\n")
+	e := diffEditor(t, dir)
 	require.True(t, e.commands.DispatchSlash("/code", commands.NewContext(e.bus, nil)))
+	assert.False(t, e.code.Active())
+	text := branchOverlay(t, e)
+	assert.Contains(t, text, "Files")
+	assert.Contains(t, text, "a.go .")
+	assert.Contains(t, text, "a.go internal")
+	for _, r := range "internal/a.go" {
+		diffKey(e, xui.KeyRune, r)
+	}
+	ctx := diffKey(e, xui.KeyEnter, 0)
+	assert.Same(t, e, ctx.Focus)
+	require.True(t, e.code.Active())
+	assert.Contains(t, components.SurfaceText(frame(t, e)), "nested file")
+	diffKey(e, xui.KeyEscape, 0)
+	assert.False(t, e.code.Active())
+	assert.False(t, e.blocksComposer())
+}
+
+func TestCodePickerEmptyAndCancel(t *testing.T) {
+	if _, err := filesearch.ResolveFD(); err != nil {
+		t.Skip(err)
+	}
+	e := diffEditor(t, t.TempDir())
+	e.diff.OpenText("", nil)
+	e.openCode(nil)
+	assert.False(t, e.diff.Active())
+	assert.Contains(t, branchOverlay(t, e), "No files found")
+	diffKey(e, xui.KeyEscape, 0)
+	_, open := e.composer.ListOverlay(components.DrawContext{})
+	assert.False(t, open)
+	assert.False(t, e.code.Active())
+}
+
+func TestCodePickerOpensLiteralPath(t *testing.T) {
+	if _, err := filesearch.ResolveFD(); err != nil {
+		t.Skip(err)
+	}
+	dir := t.TempDir()
+	writeDiffFile(t, dir, "@file with spaces.go", "literal path\n")
+	e := diffEditor(t, dir)
+	e.openCode(nil)
+	diffKey(e, xui.KeyEnter, 0)
+	require.True(t, e.code.Active())
+	assert.Contains(t, components.SurfaceText(frame(t, e)), "literal path")
+}
+
+func TestCodePickerSearchError(t *testing.T) {
+	if _, err := filesearch.ResolveFD(); err != nil {
+		t.Skip(err)
+	}
+	e := diffEditor(t, filepath.Join(t.TempDir(), "missing"))
+	e.openCode(nil)
+	assert.Contains(t, e.toast.Message, "List files:")
+	_, open := e.composer.ListOverlay(components.DrawContext{})
+	assert.False(t, open)
 	assert.False(t, e.code.Active())
 }
 

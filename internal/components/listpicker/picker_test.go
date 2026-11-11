@@ -516,6 +516,66 @@ func TestPickerDrawElidesLongDetail(t *testing.T) {
 	assert.NotContains(t, lines[2], "any change", "the cut tail is gone")
 }
 
+func TestPickerInlineDetail(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		width   int
+		primary string
+		detail  string
+		want    string
+	}{
+		{"short", 60, "a.go", "internal", "a.go internal"},
+		{"long", 60, "filename-longer-than-eight.go", "internal", "filename-longer-than-eight.go internal"},
+		{"narrow", 20, "very-long-filename.go", "internal/components", "very-long-… inte…"},
+		{"wide", 30, "文件.go", "目录", "文件.go 目录"},
+		{"wide elided", 20, "文件文件文件文件.go", "目录目录目录", "文件文件文… 目录…"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &Picker{Width: tc.width}
+			p.Show([]Item{{Primary: tc.primary, Detail: tc.detail}}, ShowConfig{InlineDetail: true})
+			line := drawRowLines(t, p)[2]
+			assert.Contains(t, line, tc.want)
+			assert.True(t, strings.HasSuffix(line, "│"), "row must preserve the border: %q", line)
+			assert.Equal(t, tc.width, xui.StringWidth(line, xui.WidthUnicode))
+		})
+	}
+}
+
+func TestPickerMutedDetail(t *testing.T) {
+	for _, inline := range []bool{false, true} {
+		for _, muted := range []bool{false, true} {
+			th := components.DefaultTheme()
+			p := &Picker{Theme: th}
+			p.Show([]Item{
+				{Primary: "a.go", Detail: "internal"},
+				{Primary: "a.go", Detail: "internal"},
+			}, ShowConfig{InlineDetail: inline, MutedDetail: muted})
+			s := p.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 24}, Method: xui.WidthUnicode})
+			panel := s.Children[0].Surface
+			x := 12
+			if inline {
+				x = 7
+			}
+			for row := range 2 {
+				want := th.Foreground
+				if row == 0 {
+					want = th.SelectionFg
+					want.Bg = th.SelectionBg.Bg
+				}
+				if muted {
+					want = th.Muted
+					if row == 0 {
+						want.Bg = th.SelectionBg.Bg
+					}
+				}
+				cell := panel.Buffer[(row+2)*panel.Size.Width+x]
+				assert.Equal(t, "i", cell.Char)
+				assert.Equal(t, want, cell.Style, "inline=%v muted=%v row=%d", inline, muted, row)
+			}
+		}
+	}
+}
+
 func TestPickerDrawConfirmChrome(t *testing.T) {
 	p := &Picker{Theme: components.DefaultTheme(), OnDelete: func(Item) {}}
 	p.Show([]Item{{ID: "a", Primary: "a"}}, ShowConfig{

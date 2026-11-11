@@ -10,10 +10,9 @@ type CodeCommands struct {
 func (c *CodeCommands) Register(r *CommandRegistry) {
 	r.Register(Command{
 		Name:        "code",
-		Description: "Open a file in the viewer — /code path[:line]",
+		Description: "Pick a file to view — /code [path[:line]]",
 		Slash:       true,
-		NeedsArgs:   true,
-		Insert:      "/code ",
+		Insert:      "/code",
 		Run: func(_ Context, args []string) error {
 			if c.Open != nil {
 				c.Open(args)
