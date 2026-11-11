@@ -1,6 +1,7 @@
 package compaction
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -325,4 +326,54 @@ func TestCompact_AppendsFileOpsBlock(t *testing.T) {
 	assert.NotContains(t, comp.Summary, "\n\n\n\n")
 	assert.Equal(t, []string{"history.go", "prefix.go"}, comp.Details.ModifiedFiles)
 	assert.Empty(t, comp.Details.ReadFiles)
+}
+
+func TestCompact_PreservesDataAcrossRounds(t *testing.T) {
+	preserveData := map[string]any{"hook_key": "val1", "count": 42}
+	entries := []session.MessageEntry{
+		session.CompactionEntry{
+			SessionBaseEntry: session.SessionBaseEntry{ID: "comp0"},
+			Compaction: session.Compaction{
+				Summary:      "initial summary",
+				PreserveData: preserveData,
+			},
+		},
+		msgEntry("e1", llm.RoleUser, 10, 0),
+		msgEntry("e2", llm.RoleAssistant, 10, 10),
+		msgEntry("e3", llm.RoleUser, 10, 0),
+		msgEntry("e4", llm.RoleAssistant, 10, 40),
+	}
+
+	settings := Settings{keepRecentTokens: 20}
+	compactor := &captureCompactor{text: "round 1 summary"}
+
+	// Round 1
+	prep1, err := PrepareCompact(entries, settings)
+	assert.NoError(t, err)
+	assert.Equal(t, preserveData, prep1.PreviousPreserveData)
+
+	comp1, err := Compact(context.Background(), *prep1, compactor)
+	assert.NoError(t, err)
+	assert.Equal(t, preserveData, comp1.PreserveData, "round 1 compaction must preserve data")
+
+	// Round 2: append comp1 and more messages to entries
+	round2Entries := []session.MessageEntry{
+		session.CompactionEntry{
+			SessionBaseEntry: session.SessionBaseEntry{ID: "comp1"},
+			Compaction:       comp1,
+		},
+		msgEntry("e5", llm.RoleUser, 10, 0),
+		msgEntry("e6", llm.RoleAssistant, 10, 10),
+		msgEntry("e7", llm.RoleUser, 10, 0),
+		msgEntry("e8", llm.RoleAssistant, 10, 40),
+	}
+
+	compactor2 := &captureCompactor{text: "round 2 summary"}
+	prep2, err := PrepareCompact(round2Entries, settings)
+	assert.NoError(t, err)
+	assert.Equal(t, preserveData, prep2.PreviousPreserveData, "round 2 preparation must see previous preserve data")
+
+	comp2, err := Compact(context.Background(), *prep2, compactor2)
+	assert.NoError(t, err)
+	assert.Equal(t, preserveData, comp2.PreserveData, "round 2 compaction must preserve data across rounds")
 }
