@@ -6,8 +6,17 @@ language: "en-US"
 early_access: false
 reviews:
   profile: "chill"
-  request_changes_workflow: false
+  # Modern equivalent of the deprecated `request_changes_workflow`. Keep the
+  # review advisory: CodeRabbit comments, it does not block or approve PRs.
+  auto_approvals:
+    enabled: false
+  # The summary goes to CodeRabbit's own walkthrough comment instead of the PR
+  # description, which authors own. In the description, `@coderabbitai summary`
+  # stays an explicit opt-in for anyone who wants it inline.
   high_level_summary: true
+  high_level_summary_in_walkthrough: true
+  # Default placeholder is `@coderabbitai summary`; keep it so the opt-in works.
+  high_level_summary_placeholder: "@coderabbitai summary"
   in_progress_fortune: false
   poem: false
   review_status: true
