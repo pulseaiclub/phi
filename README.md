@@ -153,8 +153,8 @@ figures.
 | Cold `go build` (empty `GOCACHE`) | **~5.5 s** |
 | Warm rebuild | **~0.7 s** |
 | Go source (excl. tests) | **~54k lines** (~49k non-blank) / 345 files |
-| Go packages | **91** |
-| Direct module deps | **8** (18 modules total) |
+| Go packages | **84** |
+| Direct module deps | **8** |
 | Linked runtimes | system libs only (no Node / Electron / Python) |
 
 Timing, memory, and size rows were measured on the macOS arm64 setup above
@@ -164,9 +164,9 @@ dependency rows were re-measured in November 2026 (2026-11-11) against the main 
 - Source: non-test `*.go` files tracked by git in the root module (excluding
   `ext/`), counted with `wc -l` (lines) and `grep -cv '^\s*$'` (non-blank lines),
   because `cloc` and `tokei` were not available.
-- Packages: `go list ./... | wc -l`.
-- Direct deps: non-`// indirect` entries in the `require` blocks of `go.mod`;
-  total modules: `go list -m all | wc -l` (includes phi itself).
+- Packages: directories containing `.go` files in the root module (excluding
+  `ext/`, a separate module), equivalent to `go list ./...`.
+- Direct deps: non-`// indirect` entries in the `require` blocks of `go.mod`.
 
 ## Configuration
 
