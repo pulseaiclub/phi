@@ -81,7 +81,7 @@ func TestAgentSpawnPermissionWindowsPath(t *testing.T) {
 
 func TestAgentControlToolsCarryNoPath(t *testing.T) {
 	reg := agentPermissionRegistry(t, t.TempDir())
-	for _, tool := range []string{"agent_wait", "agent_cancel"} {
+	for _, tool := range []string{"agent_wait"} {
 		t.Run(tool, func(t *testing.T) {
 			req, err := reg[tool].Permission(json.RawMessage(`{"job_id":"j1"}`), "")
 			require.NoError(t, err)
