@@ -143,14 +143,25 @@ func CreateAt(ctx context.Context, dir, name, base string) error {
 	return err
 }
 
-// Delete removes local branch name. -d and never -D: git refuses to drop
-// commits that are not merged, so a mistyped row cannot destroy work.
+// Delete removes a local branch after the picker confirms the user's intent.
 func Delete(ctx context.Context, dir, name string) error {
 	if !ValidRef(name) {
 		return fmt.Errorf("invalid branch name %q", name)
 	}
-	_, err := run(ctx, dir, "branch", "-d", name)
-	return err
+	cctx, cancel := withTimeout(ctx)
+	defer cancel()
+	cmd := exec.CommandContext(cctx, "git", "branch", "-D", name)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return nil
+	}
+	text := strings.TrimSpace(string(out))
+	if text == "" {
+		return FormatError([]string{"git", "branch", "-D", name}, "", err)
+	}
+	// Wrapped toasts can show the entire diagnostic, including worktree paths.
+	return fmt.Errorf("git branch -D %s: %s", name, text)
 }
 
 // ValidRef accepts names git can treat as a ref argument and nothing else.

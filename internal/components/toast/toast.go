@@ -1,6 +1,7 @@
 package toast
 
 import (
+	"strings"
 	"time"
 
 	"github.com/pulseaiclub/xui"
@@ -8,6 +9,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/chrome"
 	"github.com/pulseaiclub/phi/internal/components/layout"
+	"github.com/pulseaiclub/phi/internal/components/text"
 )
 
 // ToastKind selects border/icon colors for a toast.
@@ -77,12 +79,14 @@ func (t *Toast) Draw(ctx components.DrawContext) components.Surface {
 	border, icon := toastChrome(t.Kind, th)
 	fg := th.Foreground
 
-	msg := t.Message
-	inner := " " + icon
+	iconWidth := 0
 	if icon != "" {
-		inner += " "
+		iconWidth = xui.StringWidth(icon+" ", ctx.Method)
 	}
-	inner += msg + " "
+	messageWidth := 0
+	for line := range strings.SplitSeq(t.Message, "\n") {
+		messageWidth = max(messageWidth, xui.StringWidth(line, ctx.Method))
+	}
 
 	// width = max(floor(screen*0.95), 40), shrink to content.
 	boxW := maxW * 95 / 100
@@ -96,33 +100,41 @@ func (t *Toast) Draw(ctx components.DrawContext) components.Surface {
 			boxW = maxW
 		}
 	}
-	tw := xui.StringWidth(inner, ctx.Method) + 2 // + borders
-	if tw < boxW {
-		boxW = tw
+	boxW = min(maxW, max(8, min(boxW, messageWidth+iconWidth+4)))
+	inset := 1
+	if boxW < 4 || maxH < 3 {
+		inset = 0
 	}
-	if boxW < 8 {
-		boxW = 8
+	// Leave room for a wide glyph before reserving space for the icon.
+	if boxW-2*inset-iconWidth < 2 {
+		icon = ""
+		iconWidth = 0
 	}
-	boxH := 3
-	boxH = min(boxH, maxH)
+	textX := inset + iconWidth
+	avail := boxW - inset - textX
+	lines := text.WrapEditorLines(t.Message, avail, ctx.Method)
+	boxH := min(len(lines)+2*inset, maxH)
+	visibleLines := boxH - 2*inset
 
 	panel := components.NewSurface(boxW, boxH, t)
 	fill := xui.Style{Fg: fg.Fg}
-	for y := 0; y < boxH; y++ {
-		for x := 0; x < boxW; x++ {
+	for y := range boxH {
+		for x := range boxW {
 			panel.SetCell(x, y, xui.Cell{Char: " ", Width: 1, Style: fill})
 		}
 	}
-	layout.DrawRoundedBorder(&panel, layout.BorderRounded, border, nil, nil, nil, nil, ctx.Method)
-
-	textX := 1
-	if icon != "" {
-		panel.Print(textX, 1, icon+" ", border, ctx.Method)
-		textX += xui.StringWidth(icon+" ", ctx.Method)
+	if inset > 0 {
+		layout.DrawRoundedBorder(&panel, layout.BorderRounded, border, nil, nil, nil, nil, ctx.Method)
 	}
-	avail := boxW - 1 - textX
-	avail = max(avail, 1)
-	panel.Print(textX, 1, components.TruncateToWidth(msg, avail, ctx.Method), fg, ctx.Method)
+	if icon != "" {
+		panel.Print(inset, inset, icon+" ", border, ctx.Method)
+	}
+	for y, line := range lines[:visibleLines] {
+		if y == visibleLines-1 && len(lines) > visibleLines {
+			line = components.TruncateToWidth(line, avail-1, ctx.Method) + "…"
+		}
+		panel.Print(textX, inset+y, components.TruncateToWidth(line, avail, ctx.Method), fg, ctx.Method)
+	}
 
 	ox := (maxW - boxW) / 2
 	oy := 1
