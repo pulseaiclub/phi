@@ -10,6 +10,21 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Removed
 
+### Changed
+
+### Added
+
+### Fixed
+
+### Security
+
+<!-- Released section -->
+<!-- Don't change this section unless doing release -->
+
+## [0.29.9] - 2026-11-12
+
+### Removed
+
 - `agent_cancel` tool. `agent_wait` without `timeout_sec` blocks the turn until
   the job finishes, so the model never got a turn to call it; hung sub-agents
   now run until the session closes, which cancels all live jobs.
@@ -45,9 +60,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   asked to keep survives when a later round runs on the same session.
 
 ### Security
-
-<!-- Released section -->
-<!-- Don't change this section unless doing release -->
 
 ## [0.29.8] - 2026-11-09
 
@@ -1513,7 +1525,8 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.29.8...HEAD
+[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.29.9...HEAD
+[0.29.9]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.9
 [0.29.8]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.8
 [0.29.7]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.7
 [0.29.6]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.6
