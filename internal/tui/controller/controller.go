@@ -799,10 +799,18 @@ func (c *EngineController) CurrentLoop(gen int) bool {
 }
 
 func (c *EngineController) Close() {
-	c.sessionShutdown("quit", c.SessionID(), "")
+	sessionID := ""
+	if c.engine != nil {
+		sessionID = c.SessionID()
+	}
+	c.sessionShutdown("quit", sessionID, "")
 	c.Cancel()
-	c.unsubJobs()
-	_ = c.jobs.Close(context.Background())
+	if c.unsubJobs != nil {
+		c.unsubJobs()
+	}
+	if c.jobs != nil {
+		_ = c.jobs.Close(context.Background())
+	}
 	if c.mcpPool != nil {
 		_ = c.mcpPool.Close()
 		c.mcpPool = nil
