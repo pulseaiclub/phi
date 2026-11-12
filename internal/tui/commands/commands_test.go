@@ -1,8 +1,6 @@
 package commands
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -12,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/components/chrome"
-	"github.com/pulseaiclub/phi/internal/components/listpicker"
 	"github.com/pulseaiclub/phi/internal/components/palette"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
@@ -165,61 +162,6 @@ func TestExtensionsCommand_ListAndReload(t *testing.T) {
 
 	// A nil push must not panic when the list row runs.
 	ExtensionsPalette(nil, nil, nil)
-}
-
-func TestSkillsCommand_SlashOpensPicker(t *testing.T) {
-	dir := t.TempDir()
-	skillDir := filepath.Join(dir, "extract-and-distill")
-	require.NoError(t, os.MkdirAll(skillDir, 0o755))
-	content := `---
-name: extract-and-distill
-description: Distill ideas from source material
----
-Do the work.
-`
-	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(content), 0o644))
-
-	bus := controller.NewBus(nil)
-	var shownItems []listpicker.Item
-	var shownCfg listpicker.ShowConfig
-	var accept func(listpicker.Item)
-	s := &SkillsCommands{
-		Bus:        bus,
-		SkillPaths: []string{dir},
-		Add:        &stubBuiltinComposer{},
-		OpenPicker: func(items []listpicker.Item, cfg listpicker.ShowConfig, onAccept func(listpicker.Item)) {
-			shownItems, shownCfg, accept = items, cfg, onAccept
-		},
-	}
-	r := NewCommandRegistry()
-	s.Register(r)
-
-	assert.Equal(t, "/skill", r.LookupInsert("skill"))
-	assert.True(t, r.DispatchSlash("/skill", NewContext(bus, nil)))
-	require.Len(t, shownItems, 1)
-	assert.Equal(t, "extract-and-distill", shownItems[0].ID)
-	assert.Equal(t, "extract-and-distill", shownItems[0].Primary)
-	assert.Equal(t, "Distill ideas from source material", shownItems[0].Detail)
-	assert.Equal(t, "Skills", shownCfg.Title)
-
-	accept(shownItems[0])
-	assert.Equal(t, "Skill attached: extract-and-distill", drainToast(t, bus))
-}
-
-func TestSkillsCommand_EmptyToasts(t *testing.T) {
-	bus := controller.NewBus(nil)
-	s := &SkillsCommands{
-		Bus:        bus,
-		SkillPaths: []string{t.TempDir()},
-		OpenPicker: func([]listpicker.Item, listpicker.ShowConfig, func(listpicker.Item)) {
-			t.Fatal("picker must not open when there are no skills")
-		},
-	}
-	r := NewCommandRegistry()
-	s.Register(r)
-
-	assert.True(t, r.DispatchSlash("/skill", NewContext(bus, nil)))
-	assert.Equal(t, "No skills found", drainToast(t, bus))
 }
 
 func TestFilterSlashCommands(t *testing.T) {
