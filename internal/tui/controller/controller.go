@@ -77,22 +77,13 @@ func NewController(bus *Bus, proj *project.Project) (*EngineController, error) {
 		sessionDir:    proj.SessionDir(),
 		askTimeoutSec: defaultAskTimeoutSec,
 		modelCfg:      config.Model(),
-		roleModels:    make(map[job.Role]string),
+		roleModels:    config.Agents.Models.RoleOverrides(),
 	}
 	// TUI defaults to bypass; palette → settings → permissions toggles it.
 	c.allowAll.Store(true)
 
 	c.initGate(config.Permissions)
 	c.agentsEnabled.Store(config.Agents.Enabled)
-	if s := config.Agents.Models.Explore; s != "" {
-		c.roleModels[job.RoleExplore] = s
-	}
-	if s := config.Agents.Models.Review; s != "" {
-		c.roleModels[job.RoleReview] = s
-	}
-	if s := config.Agents.Models.Worker; s != "" {
-		c.roleModels[job.RoleWorker] = s
-	}
 
 	extRunner := loadExtensions(proj)
 	c.extRunner.Store(extRunner)
