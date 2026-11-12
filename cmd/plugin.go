@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	cli "github.com/pulseaiclub/pli"
 
@@ -118,7 +117,7 @@ func pluginInstall(args []string) error {
 		return err
 	}
 	proj := project.GetDefaultProject()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), remoteCommandTimeout)
 	defer cancel()
 	return install.Install(ctx, install.InstallOptions{
 		Dir:    proj.Global().ExtensionsDir(),
@@ -168,7 +167,7 @@ func pluginUpdate(args []string, check bool) error {
 		}
 		opts.ID, opts.Ref = id, ref
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), remoteCommandTimeout)
 	defer cancel()
 	return install.Update(ctx, opts)
 }

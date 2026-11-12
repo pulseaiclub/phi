@@ -20,6 +20,10 @@ const (
 	anthropicAPIVersion  = "2023-06-01"
 	modelListTimeout     = 15 * time.Second
 	modelListBodyLimit   = int64(4 << 20)
+
+	// remoteCommandTimeout bounds CLI commands that wait on external services
+	// (MCP calls/doctor, extension install/update).
+	remoteCommandTimeout = 2 * time.Minute
 )
 
 type modelListResponse struct {
