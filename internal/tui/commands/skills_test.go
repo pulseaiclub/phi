@@ -108,7 +108,9 @@ func TestSkillsCommand_LoadsSkillsIntoPicker(t *testing.T) {
 	}, items[0])
 	assert.Equal(t, listrows.SkillConfig(), cfg)
 	require.NotNil(t, accept)
-	require.NotPanics(t, func() { accept(items[0]) })
+	accept(items[0])
+	assert.Equal(t, []string{"extract-and-distill"}, adder.names)
+	assert.Equal(t, "Skill attached: extract-and-distill", drainToastMsg(t, bus).Message)
 }
 
 func TestSkillsCommand_AcceptForwardsSkillAndToasts(t *testing.T) {
