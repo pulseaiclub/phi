@@ -316,8 +316,7 @@ func TestDeleteRemovesTheBranch(t *testing.T) {
 	assert.NotContains(t, branchNames(branches), "doomed")
 }
 
-// -d and not -D: unmerged commits must survive a mistyped delete.
-func TestDeleteRefusesUnmergedCommits(t *testing.T) {
+func TestDeleteRemovesUnmergedBranch(t *testing.T) {
 	dir := newRepo(t)
 	gitRun(t, dir, "checkout", "-b", "unmerged")
 	writeFile(t, dir, "extra.txt", "work\n")
@@ -325,11 +324,10 @@ func TestDeleteRefusesUnmergedCommits(t *testing.T) {
 	gitRun(t, dir, "commit", "-m", "unmerged work")
 	gitRun(t, dir, "checkout", "main")
 
-	err := Delete(t.Context(), dir, "unmerged")
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not fully merged")
-	assert.Contains(t, err.Error(), "git branch -D", "the hint names the deliberate override")
+	require.NoError(t, Delete(t.Context(), dir, "unmerged"))
+	branches, err := Branches(t.Context(), dir)
+	require.NoError(t, err)
+	assert.NotContains(t, branchNames(branches), "unmerged")
 }
 
 func TestDeleteRejectsOptionLikeNames(t *testing.T) {

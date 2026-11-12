@@ -16,6 +16,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- Pickers now show a separator below the search field to distinguish filtering from results.
 - `/code` now opens a searchable file picker, with filenames and directory paths
   in the shared name/description layout. Selecting a file opens the source viewer; explicit
   `/code path[:line]` and `/code @path` still work.
@@ -30,6 +31,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Confirmed local branch deletion now uses `git branch -D`, so unmerged and
+  squash-merged branches can be deleted without another confirmation.
+- Long toast messages wrap to the terminal width instead of being cut off on one line.
 - Session previews no longer cut CJK text mid-rune when trimming to the byte
   budget, which corrupted the terminal output of the sessions picker (garbled
   glyphs and misplaced rows). `TruncateBytes` now backs off to a rune boundary,

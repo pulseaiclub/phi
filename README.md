@@ -344,6 +344,10 @@ Enter runs `git switch` on the selected row — off the UI goroutine, so a slow
 checkout does not freeze the composer. Picking a remote row checks out the local
 branch that tracks it, the same thing `git switch feat` does for `origin/feat`.
 
+`Ctrl+X` asks to delete the selected local branch. Confirming deletes it whether
+or not it has been merged, then refreshes the list. Current branches and branches
+in use by another worktree cannot be deleted.
+
 `/branch <name>` skips the picker: it switches to that branch, or creates it
 from HEAD when no branch carries the name yet. Naming is the whole "new branch"
 flow — three characters typed beat a form.

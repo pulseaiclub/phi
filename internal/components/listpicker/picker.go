@@ -636,6 +636,7 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 	panel.Print(tx, 0, title, titleSt, ctx.Method)
 
 	p.drawPrompt(&panel, ctx, th, boxW)
+	p.drawSeparator(&panel, th, boxW)
 	p.drawRows(&panel, ctx, th, boxW, visible)
 	p.drawHint(&panel, ctx, th, boxW, boxH)
 
@@ -670,19 +671,19 @@ func (p *Picker) panelWidth(maxW int) int {
 
 func (p *Picker) panelHeight(maxH int) (visible, boxH int) {
 	maxVisible := p.maxItems()
-	avail := max(maxH-5, 3)
+	avail := max(maxH-6, 3)
 	if maxVisible > avail {
 		maxVisible = avail
 	}
 	n := max(len(p.filtered), 1)
 	visible = min(n, maxVisible)
-	boxH = visible + 3
+	boxH = visible + 4
 	if boxH > maxH-2 {
 		boxH = maxH - 2
-		visible = boxH - 3
+		visible = boxH - 4
 		if visible < 1 {
 			visible = 1
-			boxH = 4
+			boxH = 5
 		}
 	}
 	return visible, boxH
@@ -738,13 +739,19 @@ func (p *Picker) drawPrompt(panel *components.Surface, ctx components.DrawContex
 	}
 }
 
+func (*Picker) drawSeparator(panel *components.Surface, th components.Theme, boxW int) {
+	for x := 1; x < boxW-1; x++ {
+		panel.SetCell(x, 2, xui.Cell{Char: "─", Width: 1, Style: th.Border})
+	}
+}
+
 func (p *Picker) drawRows(
 	panel *components.Surface,
 	ctx components.DrawContext,
 	th components.Theme,
 	boxW, visible int,
 ) {
-	const listY = 2
+	const listY = 3
 	if len(p.filtered) == 0 {
 		msg := p.cfg.Empty
 		if q := strings.TrimSpace(p.Query()); q != "" {

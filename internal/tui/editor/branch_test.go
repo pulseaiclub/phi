@@ -3,6 +3,7 @@ package editor
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -49,11 +50,55 @@ func TestBranchPickerCtrlXDeletesOverRealRepo(t *testing.T) {
 	key(xui.KeyRune, 'x', xui.ModCtrl)
 	key(xui.KeyRune, 'y', 0)
 
-	out, err := exec.CommandContext(t.Context(), "git", "branch", "--list", "old-work").Output()
+	cmd := exec.CommandContext(t.Context(), "git", "branch", "--list", "old-work")
+	cmd.Dir = e.cwd
+	out, err := cmd.Output()
 	require.NoError(t, err)
 	assert.Empty(t, strings.TrimSpace(string(out)), "git must have dropped the branch")
 	assert.NotContains(t, branchOverlay(t, e), "old-work", "the open picker refreshed its rows")
 	assert.Contains(t, branchOverlay(t, e), "main")
+}
+
+func TestBranchPickerDeletesUnmergedBranchAfterOneConfirmation(t *testing.T) {
+	for _, accept := range []bool{false, true} {
+		t.Run(map[bool]string{false: "cancel", true: "delete"}[accept], func(t *testing.T) {
+			e := branchEditor(t)
+			gitFixtureRun(t, e.cwd, "checkout", "-b", "feature")
+			require.NoError(t, os.WriteFile(filepath.Join(e.cwd, "feature.txt"), []byte("work\n"), 0o600))
+			gitFixtureRun(t, e.cwd, "add", ".")
+			gitFixtureRun(t, e.cwd, "commit", "-m", "unmerged work")
+			gitFixtureRun(t, e.cwd, "checkout", "main")
+			require.True(t, e.commands.DispatchSlash("/branch", commands.NewContext(e.bus, nil)))
+			key := func(code xui.KeyCode, r rune, mods xui.Modifiers) {
+				e.composer.Handle(
+					&components.EventContext{},
+					xui.KeyEvent{Press: true, Code: code, Rune: r, Mods: mods},
+				)
+			}
+			key(xui.KeyDown, 0, 0)
+			key(xui.KeyRune, 'x', xui.ModCtrl)
+			if accept {
+				key(xui.KeyRune, 'y', 0)
+			} else {
+				key(xui.KeyRune, 'n', 0)
+			}
+			for _, msg := range e.bus.Drain() {
+				_, isOverlay := msg.(controller.OverlayMsg)
+				assert.False(t, isOverlay, "deletion must not ask for a second confirmation")
+			}
+			cmd := exec.CommandContext(t.Context(), "git", "branch", "--list", "feature")
+			cmd.Dir = e.cwd
+			out, err := cmd.Output()
+			require.NoError(t, err)
+			if accept {
+				assert.Empty(t, strings.TrimSpace(string(out)))
+				assert.NotContains(t, branchOverlay(t, e), "feature")
+			} else {
+				assert.Contains(t, string(out), "feature")
+				assert.Contains(t, branchOverlay(t, e), "feature")
+			}
+		})
+	}
 }
 
 // branchEditor builds the shell wiring the editor uses, over a real repo.
