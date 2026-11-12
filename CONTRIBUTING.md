@@ -64,10 +64,10 @@ make deadcode    # unreachable functions vs baseline (deadcode -test)
 make check       # fmt-check + lint + deadcode (same as CI)
 ```
 
-Install `golangci-lint` (required for `fmt` / `fmt-check` / `lint` / `check`):
+Install `golangci-lint` (required for `fmt` / `fmt-check` / `lint` / `check`, pinned to match CI):
 
 ```sh
-go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.0
 ```
 
 If you add or change dependencies, run `go mod tidy` so `go.mod`/`go.sum`
