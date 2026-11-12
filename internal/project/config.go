@@ -7,6 +7,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/project/model"
@@ -43,6 +44,33 @@ type AgentsRoleModels struct {
 	Explore string `yaml:"explore,omitempty"`
 	Review  string `yaml:"review,omitempty"`
 	Worker  string `yaml:"worker,omitempty"`
+}
+
+// ForRole returns the configured model name for a sub-agent role.
+func (m AgentsRoleModels) ForRole(role job.Role) string {
+	switch job.NormalizeRole(string(role)) {
+	case job.RoleReview:
+		return m.Review
+	case job.RoleWorker:
+		return m.Worker
+	default:
+		return m.Explore
+	}
+}
+
+// RoleOverrides returns configured non-empty model names keyed by sub-agent role.
+func (m AgentsRoleModels) RoleOverrides() map[job.Role]string {
+	overrides := make(map[job.Role]string, 3)
+	for role, name := range map[job.Role]string{
+		job.RoleExplore: m.Explore,
+		job.RoleReview:  m.Review,
+		job.RoleWorker:  m.Worker,
+	} {
+		if name != "" {
+			overrides[role] = name
+		}
+	}
+	return overrides
 }
 
 // Model returns the default model config with the skill roots and budget applied, ready
