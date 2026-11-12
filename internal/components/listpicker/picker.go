@@ -739,7 +739,7 @@ func (p *Picker) drawPrompt(panel *components.Surface, ctx components.DrawContex
 	}
 }
 
-func (p *Picker) drawSeparator(panel *components.Surface, th components.Theme, boxW int) {
+func (*Picker) drawSeparator(panel *components.Surface, th components.Theme, boxW int) {
 	for x := 1; x < boxW-1; x++ {
 		panel.SetCell(x, 2, xui.Cell{Char: "─", Width: 1, Style: th.Border})
 	}
