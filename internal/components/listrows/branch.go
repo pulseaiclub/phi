@@ -18,7 +18,7 @@ func BranchConfig() listpicker.ShowConfig {
 		Empty:          "No branches yet — commit something first",
 		EmptyFilter:    "No branches match %q",
 		Hint:           chrome.ListHintExtra("switch", "ctrl+x delete"),
-		ConfirmMessage: "Delete this branch?",
+		ConfirmMessage: "Delete this local branch?",
 		LeadingWidth:   2,
 		PrimaryWidth:   branchColumn,
 	}
