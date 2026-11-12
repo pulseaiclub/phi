@@ -24,7 +24,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 	"github.com/pulseaiclub/phi/internal/tui/footer"
 	"github.com/pulseaiclub/phi/internal/tui/pathutil"
-	"github.com/pulseaiclub/phi/internal/tui/transcript"
 	"github.com/pulseaiclub/phi/internal/util/clipboard"
 	"github.com/pulseaiclub/phi/internal/util/filesearch"
 	"github.com/pulseaiclub/phi/internal/util/gitx"
@@ -55,22 +54,14 @@ type ComposerPane struct {
 	mentionCancel context.CancelFunc
 	commands      *commands.CommandRegistry
 
-	transcript *transcript.TranscriptPane
-	submitter  BusyChecker
+	submitter BusyChecker
 
 	bus      *controller.Bus
 	drainBus func()
 	onRedraw func()
 
-	overlayBlocksComposer func() bool
-	handlePermissionKey   WireKeyHandler
-	handleConfirmKey      WireKeyHandler
-	handleErrorKey        WireKeyHandler
-	handleCopyKey         WireKeyHandler
-	requestFocusEditor    func()
-	requestFocus          func(components.Widget)
-	ctrlClose             func()
-	imageEnabled          func() bool
+	requestFocus func(components.Widget)
+	imageEnabled func() bool
 
 	// promptHistory is the per-project recall ring behind Up/Down; nil when
 	// the session directory is unavailable.
@@ -105,41 +96,31 @@ func NewComposerPane(theme components.Theme, modelLabel, cwd string) *ComposerPa
 	return c
 }
 
-// Wire binds bus, transcript, and editor overlay hooks after Editor assembly.
-func (c *ComposerPane) Wire(
-	transcript *transcript.TranscriptPane,
-	submitter BusyChecker,
-	commands *commands.CommandRegistry,
-	cwd string,
-	bus *controller.Bus,
-	drainBus func(),
-	onRedraw func(),
-	imageEnabled func() bool,
-	overlayBlocksComposer func() bool,
-	handlePermissionKey WireKeyHandler,
-	handleConfirmKey WireKeyHandler,
-	handleErrorKey WireKeyHandler,
-	handleCopyKey WireKeyHandler,
-	requestFocusEditor func(),
-	requestFocus func(components.Widget),
-	ctrlClose func(),
-) {
-	c.cwd = cwd
-	c.commands = commands
-	c.transcript = transcript
-	c.submitter = submitter
-	c.bus = bus
-	c.drainBus = drainBus
-	c.onRedraw = onRedraw
-	c.imageEnabled = imageEnabled
-	c.overlayBlocksComposer = overlayBlocksComposer
-	c.handlePermissionKey = handlePermissionKey
-	c.handleConfirmKey = handleConfirmKey
-	c.handleErrorKey = handleErrorKey
-	c.handleCopyKey = handleCopyKey
-	c.requestFocusEditor = requestFocusEditor
-	c.requestFocus = requestFocus
-	c.ctrlClose = ctrlClose
+// WireHooks binds the composer to the surrounding Editor after assembly.
+// cwd is set by NewComposerPane and is not repeated here. Overlay key
+// routing, transcript scrolling, and quit chords are dispatched by the
+// Editor before events reach the composer, so they are not hooks here.
+type WireHooks struct {
+	Submitter BusyChecker
+	Commands  *commands.CommandRegistry
+	Bus       *controller.Bus
+
+	DrainBus     func()
+	OnRedraw     func()
+	ImageEnabled func() bool
+
+	RequestFocus func(components.Widget)
+}
+
+// Wire binds bus and editor hooks after Editor assembly.
+func (c *ComposerPane) Wire(h WireHooks) {
+	c.commands = h.Commands
+	c.submitter = h.Submitter
+	c.bus = h.Bus
+	c.drainBus = h.DrainBus
+	c.onRedraw = h.OnRedraw
+	c.imageEnabled = h.ImageEnabled
+	c.requestFocus = h.RequestFocus
 
 	c.palette.FocusReturn = &c.Chat
 	c.listPicker.FocusReturn = &c.Chat
@@ -605,6 +586,13 @@ func (c *ComposerPane) PickerOverlays(ctx components.DrawContext, listH, width i
 	return out
 }
 
+// BlocksTranscriptNavigation reports whether a composer overlay handles page
+// keys before the transcript. Completers intentionally do not: their old
+// dispatch path let PageUp/PageDown reach the transcript.
+func (c *ComposerPane) BlocksTranscriptNavigation() bool {
+	return c.listPicker.Open || c.palette.Open
+}
+
 // PaletteOverlay returns the Ctrl+K palette surface when open.
 func (c *ComposerPane) PaletteOverlay(ctx components.DrawContext) (components.SubSurface, bool) {
 	if !c.palette.Open {
@@ -617,15 +605,13 @@ func (c *ComposerPane) PaletteOverlay(ctx components.DrawContext) (components.Su
 	}, true
 }
 
-// Handle dispatches keyboard/mouse input to the composer area.
+// Handle dispatches keyboard/mouse input to the composer area. Modal
+// overlays, transcript scrolling, and quit chords are handled upstream by
+// the Editor; what arrives here belongs to the composer and its pickers.
 func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 	switch ev := ev.(type) {
 	case xui.FocusEvent:
-		if c.overlayBlocksComposer != nil && c.overlayBlocksComposer() {
-			if c.requestFocusEditor != nil {
-				c.requestFocusEditor()
-			}
-		} else if c.listPicker.Open {
+		if c.listPicker.Open {
 			if c.requestFocus != nil {
 				c.requestFocus(&c.listPicker)
 			}
@@ -637,25 +623,6 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			c.FocusChat()
 		}
 	case xui.KeyEvent:
-		if ev.CtrlC() {
-			if c.ctrlClose != nil {
-				c.ctrlClose()
-			}
-			ctx.Quit = true
-			return
-		}
-		if c.handlePermissionKey != nil && c.handlePermissionKey(ctx, ev) {
-			return
-		}
-		if c.handleConfirmKey != nil && c.handleConfirmKey(ctx, ev) {
-			return
-		}
-		if c.handleErrorKey != nil && c.handleErrorKey(ctx, ev) {
-			return
-		}
-		if c.handleCopyKey != nil && c.handleCopyKey(ctx, ev) {
-			return
-		}
 		if ev.Press && ev.Code == xui.KeyEscape {
 			if c.handleEscape(ctx) {
 				return
@@ -730,12 +697,6 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			}
 			return
 		}
-		if ev.Code == xui.KeyPageUp || ev.Code == xui.KeyPageDown {
-			if c.transcript != nil {
-				c.transcript.HandlePageKey(ctx, ev)
-			}
-			return
-		}
 		if ev.Press && ev.Mods.Has(xui.ModCtrl) && ev.Code == xui.KeyRune && (ev.Rune == 'v' || ev.Rune == 'V') {
 			// Ctrl+V: attempt to attach an image from the system clipboard.
 			if c.tryAttachClipboardImage(ctx) {
@@ -746,14 +707,13 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 	case xui.MouseEvent:
 		if c.listPicker.Open {
 			c.listPicker.Handle(ctx, ev)
+			ctx.Consume = true
 			return
 		}
 		if c.palette.Open {
 			c.palette.Handle(ctx, ev)
+			ctx.Consume = true
 			return
-		}
-		if c.transcript != nil {
-			c.transcript.HandleMouse(ctx, ev, c.FocusChat)
 		}
 	case xui.PasteEvent:
 		if c.listPicker.Open {
@@ -817,11 +777,6 @@ func (c *ComposerPane) handleEscape(ctx *components.EventContext) bool {
 		if c.drainBus != nil {
 			c.drainBus()
 		}
-		ctx.ConsumeAndRedraw()
-		return true
-	}
-	if c.transcript != nil && c.transcript.SelectionActive() {
-		c.transcript.ClearSelection()
 		ctx.ConsumeAndRedraw()
 		return true
 	}

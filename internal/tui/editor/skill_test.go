@@ -67,7 +67,7 @@ Do the work.
 		bus:      bus,
 		cwd:      dir,
 	}
-	e.composer.Wire(nil, nil, nil, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	e.composer.Wire(composer.WireHooks{})
 
 	builtins := commands.NewBuiltinRegistry(
 		bus,
