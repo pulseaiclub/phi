@@ -155,6 +155,12 @@ func TestPickerDrawBadge(t *testing.T) {
 	assert.Contains(t, text, "Sessions")
 	assert.Contains(t, text, "deadbeef")
 	assert.Contains(t, text, "current")
+
+	rows := strings.Split(text, "\n")
+	require.GreaterOrEqual(t, len(rows), 4)
+	assert.NotContains(t, rows[1], "─", "the search row stays separate from the divider")
+	assert.Contains(t, rows[2], "─", "the divider sits below the search row")
+	assert.Contains(t, rows[3], "deadbeef", "the list starts below the divider")
 }
 
 func TestPickerDeleteConfirmFlow(t *testing.T) {
@@ -486,8 +492,8 @@ func TestPickerDrawLeadingColumnFollowsContent(t *testing.T) {
 		p := &Picker{Theme: components.DefaultTheme()}
 		p.Show([]Item{{ID: "a", Primary: "alpha", Detail: "does a"}}, ShowConfig{Title: "Skills"})
 		lines := drawRowLines(t, p)
-		assert.True(t, strings.HasPrefix(lines[2], "│ alpha"),
-			"first row starts at the left padding, got %q", lines[2])
+		assert.True(t, strings.HasPrefix(lines[3], "│ alpha"),
+			"first row starts at the left padding, got %q", lines[3])
 	})
 
 	t.Run("keeps the column when a row leads", func(t *testing.T) {
@@ -497,10 +503,10 @@ func TestPickerDrawLeadingColumnFollowsContent(t *testing.T) {
 			{ID: "b", Primary: "beta", Detail: "does b"},
 		}, ShowConfig{Title: "Sessions"})
 		lines := drawRowLines(t, p)
-		assert.True(t, strings.HasPrefix(lines[2], "│ 2m ago    alpha"),
-			"led row keeps the fixed column, got %q", lines[2])
-		assert.True(t, strings.HasPrefix(lines[3], "│           beta"),
-			"unled row keeps the same column, got %q", lines[3])
+		assert.True(t, strings.HasPrefix(lines[3], "│ 2m ago    alpha"),
+			"led row keeps the fixed column, got %q", lines[3])
+		assert.True(t, strings.HasPrefix(lines[4], "│           beta"),
+			"unled row keeps the same column, got %q", lines[4])
 	})
 }
 
@@ -512,8 +518,8 @@ func TestPickerDrawElidesLongDetail(t *testing.T) {
 	p.Show([]Item{{ID: "a", Primary: "alpha", Detail: detail}}, ShowConfig{Title: "Skills"})
 	lines := drawRowLines(t, p)
 
-	assert.Contains(t, lines[2], "…", "the cut detail carries an ellipsis")
-	assert.NotContains(t, lines[2], "any change", "the cut tail is gone")
+	assert.Contains(t, lines[3], "…", "the cut detail carries an ellipsis")
+	assert.NotContains(t, lines[3], "any change", "the cut tail is gone")
 }
 
 func TestPickerDrawConfirmChrome(t *testing.T) {
