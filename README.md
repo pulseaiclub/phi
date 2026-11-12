@@ -368,6 +368,9 @@ unfinished.
 | `phi sessions`     | List persisted sessions for this directory    |
 | `phi sessions fork <id>` | Copy a session at its current point, print the new id |
 | `phi sessions remove <id>` | Delete a persisted session for this directory (alias `rm`; unique id prefix ok) |
+| `phi mcp …`        | Manage MCP servers (list, add, remove, call, doctor) — see [MCP](#mcp) |
+| `phi plugin …`     | Manage extensions (install, list, update, remove) — see [Extensions](#extensions) |
+| `phi config`       | Edit the meta config in a terminal UI — see [Configuration](#configuration) |
 | `/sessions`        | List sessions for this directory (TUI)        |
 | `/branch`          | Switch the working branch — see [Branch switching](#branch-switching) |
 | `/new`             | Start a fresh empty session (TUI)             |
