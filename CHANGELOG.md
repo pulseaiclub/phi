@@ -14,6 +14,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `phi mcp list` shows each server's transport, so stdio commands and HTTP URLs are distinguishable.
+
 ### Fixed
 
 ### Security

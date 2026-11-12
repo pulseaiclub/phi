@@ -85,6 +85,7 @@ func writeMCPList(w io.Writer, servers map[string]mcp.ServerConfig) {
 		fmt.Fprintln(w, "(no servers — try: phi mcp add fetch -- npx -y @modelcontextprotocol/server-fetch)")
 		return
 	}
+	fmt.Fprintln(w, "NAME\tTRANSPORT\tADDRESS")
 	for _, name := range sortedKeys(servers) {
 		cfg := servers[name]
 		address := cfg.URL
@@ -92,8 +93,19 @@ func writeMCPList(w io.Writer, servers map[string]mcp.ServerConfig) {
 			cmd, _ := cfg.CmdLine()
 			address = strings.Join(cmd, " ")
 		}
-		fmt.Fprintf(w, "%s\t%s\n", name, address)
+		fmt.Fprintf(w, "%s\t%s\t%s\n", name, transportLabel(cfg), address)
 	}
+}
+
+// transportLabel names how a server is reached. The HTTP family
+// (http, streamable-http, sse) prints as "http": those are wire details of one
+// transport, and a single label keeps the column readable. An empty Transport
+// is stdio, as in the config.
+func transportLabel(cfg mcp.ServerConfig) string {
+	if cfg.IsHTTP() {
+		return "http"
+	}
+	return "stdio"
 }
 
 func sortedKeys(m map[string]mcp.ServerConfig) []string {
