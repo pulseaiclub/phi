@@ -85,15 +85,28 @@ func writeMCPList(w io.Writer, servers map[string]mcp.ServerConfig) {
 		fmt.Fprintln(w, "(no servers — try: phi mcp add fetch -- npx -y @modelcontextprotocol/server-fetch)")
 		return
 	}
+	fmt.Fprintln(w, "NAME\tTRANSPORT\tADDRESS")
 	for _, name := range sortedKeys(servers) {
 		cfg := servers[name]
+		transport := mcpTransportName(cfg)
 		address := cfg.URL
 		if !cfg.IsHTTP() {
 			cmd, _ := cfg.CmdLine()
 			address = strings.Join(cmd, " ")
 		}
-		fmt.Fprintf(w, "%s\t%s\n", name, address)
+		fmt.Fprintf(w, "%s\t%s\t%s\n", name, transport, address)
 	}
+}
+
+func mcpTransportName(cfg mcp.ServerConfig) string {
+	if cfg.IsHTTP() {
+		// The list shows the protocol family: SSE and streamable HTTP both use the HTTP client.
+		return "http"
+	}
+	if cfg.IsStdio() {
+		return "stdio"
+	}
+	return strings.TrimSpace(cfg.Transport)
 }
 
 func sortedKeys(m map[string]mcp.ServerConfig) []string {

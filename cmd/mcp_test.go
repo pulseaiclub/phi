@@ -26,9 +26,18 @@ func TestMCPListMixedTransports(t *testing.T) {
 	var out strings.Builder
 	writeMCPList(&out, servers)
 
-	want := "a-http\thttps://example.test/mcp\n" +
-		"b-stream\thttps://example.test/stream\n" +
-		"c-sse\thttps://example.test/sse\n" +
-		"z-local\tnode server.js --stdio\n"
+	want := "NAME\tTRANSPORT\tADDRESS\n" +
+		"a-http\thttp\thttps://example.test/mcp\n" +
+		"b-stream\thttp\thttps://example.test/stream\n" +
+		"c-sse\thttp\thttps://example.test/sse\n" +
+		"z-local\tstdio\tnode server.js --stdio\n"
+	require.Equal(t, want, out.String())
+}
+
+func TestMCPListEmpty(t *testing.T) {
+	var out strings.Builder
+	writeMCPList(&out, nil)
+
+	want := "(no servers — try: phi mcp add fetch -- npx -y @modelcontextprotocol/server-fetch)\n"
 	require.Equal(t, want, out.String())
 }

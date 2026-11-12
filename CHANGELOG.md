@@ -12,6 +12,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- Show the transport alongside each server in `phi mcp list`.
+
 ### Added
 
 ### Fixed
