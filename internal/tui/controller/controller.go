@@ -462,6 +462,9 @@ func (c *EngineController) askExtConfirm(req ext.ConfirmRequest) ext.ConfirmRepl
 	return ext.ConfirmReply{OK: r.OK}
 }
 
+// extensionHostRequest forwards an extension host request to the UI
+// goroutine, which owns the picker, and waits up to the ask timeout. On
+// timeout it asks the UI to dismiss the picker so it cannot outlive the wait.
 func (c *EngineController) extensionHostRequest(req pxb.HostRequest) pxb.HostResult {
 	ctx, cancel := context.WithTimeout(context.Background(), c.askTimeout())
 	defer cancel()

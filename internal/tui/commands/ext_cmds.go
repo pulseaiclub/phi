@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/extension/loader"
 
 	"github.com/pulseaiclub/phi/internal/components/palette"
@@ -73,21 +74,25 @@ func (h *ExtCommands) slashCommand(name, desc string, needsArgs bool) Command {
 			}
 			h.running = true
 			text := strings.TrimSpace(strings.Join(args, " "))
-			go h.run(name, text)
+			// Capture the generation and runner here, on the UI goroutine:
+			// if Sync runs after the worker starts, the result must still
+			// carry the launch generation and run on the launch runner, or
+			// Apply would accept a stale command as current.
+			go h.run(name, text, h.gen.Load(), h.Ctrl.Extensions())
 			return nil
 		},
 	}
 }
 
-func (h *ExtCommands) run(name, args string) {
-	result := controller.ExtCommandResultMsg{Gen: h.gen.Load()}
+func (h *ExtCommands) run(name, args string, gen uint64, runner *extension.Runner) {
+	result := controller.ExtCommandResultMsg{Gen: gen}
 	defer func() { h.Bus.Publish(result) }()
 	// A nil extension runner is legitimate runtime state (nothing loaded yet).
-	if h.Ctrl.Extensions() == nil {
+	if runner == nil {
 		result.Err = "extensions are not loaded"
 		return
 	}
-	out, err := h.Ctrl.Extensions().RunCommand(name, args)
+	out, err := runner.RunCommand(name, args)
 	if err != nil {
 		result.Err = err.Error()
 		return

@@ -677,6 +677,10 @@ func (e *Editor) applyTheme(name string) {
 	e.vx.QueueRefresh()
 }
 
+// applyExtensionRequest handles an extension host request on the UI
+// goroutine, which owns the session and picker. Dismiss only closes the
+// picker that issued the matching reply, so an expired request cannot close
+// a newer one.
 func (e *Editor) applyExtensionRequest(msg controller.ExtHostRequestMsg) {
 	if msg.Dismiss {
 		if e.extSelectReply == msg.Reply {

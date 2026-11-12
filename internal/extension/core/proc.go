@@ -566,10 +566,6 @@ func isResponseType(typ uint16) bool {
 	}
 }
 
-func (p *Proc) rpc(ctx context.Context, typ uint16, body []byte, want uint16) (pxb.Frame, error) {
-	return p.rpcWait(ctx, typ, body, want, 0)
-}
-
 // rpcWait is rpc with an optional per-call wait override (0 = host default).
 // When override > 0, the wait is clamp(override) capped by any ctx deadline.
 // When override == 0, legacy behavior: ctx deadline replaces the default if set.
@@ -715,12 +711,18 @@ func (p *Proc) CallCommand(ctx context.Context, name, args string) (pxb.CommandR
 }
 
 // Intercept runs a request/response intercept for subscribed events.
+// Intercepts use the interactive wait, like commands: a handler may call
+// Select, and the host picker deadline (askTimeout, default 120s) must fit
+// inside the RPC wait, or rpcWait would terminate the extension while the
+// picker is still open and the answer could never reach the handler. The
+// picker resolves or is dismissed through the host-request path before this
+// wait expires.
 func (p *Proc) Intercept(ctx context.Context, req pxb.InterceptReq) (pxb.InterceptResp, error) {
 	if _, ok := p.intercept[req.Event]; !ok {
 		return pxb.InterceptResp{}, nil
 	}
 	body := pxb.EncodeInterceptReq(req)
-	f, err := p.rpc(ctx, pxb.TypeIntercept, body, pxb.TypeInterceptResponse)
+	f, err := p.rpcWait(ctx, pxb.TypeIntercept, body, pxb.TypeInterceptResponse, rpcTimeoutMax)
 	if err != nil {
 		return pxb.InterceptResp{}, err
 	}

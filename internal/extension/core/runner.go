@@ -230,6 +230,10 @@ func (s procSink) HostRequest(id uint32, hasID bool, req pxb.HostRequest) {
 	s.runner.handleHostRequest(s.proc, id, hasID, req, s.ui, s.sendUser)
 }
 
+// handleHostRequest dispatches a host request from an extension process.
+// Confirm and send_user_message are answered here; anything else goes to the
+// bound HostRequest handler so the UI, not the subprocess reader goroutine,
+// owns the interaction.
 func (r *Runner) handleHostRequest(
 	p *Proc,
 	id uint32,

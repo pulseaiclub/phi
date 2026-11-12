@@ -251,6 +251,8 @@ func (extension *ExtensionAPI) Select(req ext.SelectRequest) (ext.SelectReply, e
 	return ext.SelectReply{Index: *index, OK: true}, nil
 }
 
+// hostCall sends one host request and blocks for its reply. Shared by
+// Confirm and Select so both unwind the same way when the host goes away.
 func (extension *ExtensionAPI) hostCall(method string, arg any) (pxb.HostResult, error) {
 	if extension.wr == nil || extension.rd == nil || extension.stopped() {
 		return pxb.HostResult{}, errors.New("phi: host is not connected")

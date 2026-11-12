@@ -77,8 +77,11 @@ enabled: true          # optional, default true
 Lightweight module (no TUI deps):
 
 ```bash
-go get github.com/pulseaiclub/phi/ext/go@v0.21.0
+go get github.com/pulseaiclub/phi/ext/go@main
 ```
+
+`Select` is new and not in any tagged release yet (latest is `v0.25.6`), so use
+the `main` revision until the next release tags it.
 
 (`scripts/bump.sh` tags both `vX.Y.Z` and `ext/go/vX.Y.Z`.)
 

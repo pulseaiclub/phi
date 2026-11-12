@@ -145,6 +145,8 @@ func (a *API) BindHost(opts HostOpts) {
 
 // HostOpts wires host capabilities into API action methods.
 type HostOpts struct {
+	// HostRequest answers host requests from the extension (e.g. select).
+	// When nil, the host rejects them as unknown methods.
 	HostRequest     func(pxb.HostRequest) pxb.HostResult
 	UI              UI
 	Cwd             string

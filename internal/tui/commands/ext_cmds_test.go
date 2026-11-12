@@ -30,7 +30,7 @@ func TestExtensionCommandRemainsBusyUntilCompletionApplied(t *testing.T) {
 	for _, generation := range []uint64{0, 1} {
 		h := &ExtCommands{Bus: controller.NewBus(nil), Ctrl: &controller.EngineController{}}
 		h.running = true
-		h.run("missing", "")
+		h.run("missing", "", h.gen.Load(), h.Ctrl.Extensions())
 		require.True(t, h.Running(), "worker completion must not release the UI submit gate")
 		msgs := h.Bus.Drain()
 		require.Len(t, msgs, 1)
