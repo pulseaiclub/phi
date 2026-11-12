@@ -108,13 +108,6 @@ func (p *Picker) theme() components.Theme {
 	return p.Theme
 }
 
-func (p *Picker) maxItems() int {
-	if p.MaxItems < 1 {
-		return 12
-	}
-	return p.MaxItems
-}
-
 // Show opens the picker with items. cfg supplies titles/empty copy.
 // Query returns the filter line.
 func (p *Picker) Query() string { return p.line.Text() }
@@ -602,8 +595,7 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 		p.refilter()
 	}
 
-	boxW := p.panelWidth(maxW)
-	visible, boxH := p.panelHeight(maxH)
+	boxW, boxH, visible := chrome.PickerSize(p.Width, p.MaxItems, len(p.filtered), maxW, maxH)
 	p.syncScroll(visible)
 
 	panel := components.NewSurface(boxW, boxH, p)
@@ -626,67 +618,21 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 	if p.commandMode {
 		label = p.cfg.CommandTitle
 	}
-	count := strconv.Itoa(total)
-	if n := len(p.filtered); n != total {
-		count = strconv.Itoa(n) + "/" + strconv.Itoa(total)
-	}
-	title := " " + label + " · " + count + " "
-	tw := xui.StringWidth(title, ctx.Method)
-	tx := max((boxW-tw)/2, 1)
-	panel.Print(tx, 0, title, titleSt, ctx.Method)
+	chrome.DrawPickerTitle(&panel, label, len(p.filtered), total, titleSt, ctx.Method)
 
 	p.drawPrompt(&panel, ctx, th, boxW)
-	p.drawSeparator(&panel, th, boxW)
+	chrome.DrawPickerSeparator(&panel, th.Border)
 	p.drawRows(&panel, ctx, th, boxW, visible)
-	p.drawHint(&panel, ctx, th, boxW, boxH)
+	p.drawHint(&panel, ctx, th)
 
 	ox := max((maxW-boxW)/2, 0)
-	oy := max((maxH-boxH)/3, 1)
+	oy := min(max((maxH-boxH)/3, 1), max(maxH-boxH, 0))
 	out.Children = []components.SubSurface{{
 		Origin:  components.Point{X: ox, Y: oy},
 		Surface: panel,
 		Z:       10,
 	}}
 	return out
-}
-
-func (p *Picker) panelWidth(maxW int) int {
-	boxW := p.Width
-	if boxW <= 0 {
-		// Session previews need room; prefer ~90% of the terminal up to a soft cap.
-		boxW = maxW * 9 / 10
-		boxW = min(boxW, 112)
-		if boxW < 56 {
-			boxW = min(maxW, 72)
-		}
-	}
-	if boxW > maxW-2 {
-		boxW = maxW - 2
-		if boxW < 20 {
-			boxW = maxW
-		}
-	}
-	return boxW
-}
-
-func (p *Picker) panelHeight(maxH int) (visible, boxH int) {
-	maxVisible := p.maxItems()
-	avail := max(maxH-6, 3)
-	if maxVisible > avail {
-		maxVisible = avail
-	}
-	n := max(len(p.filtered), 1)
-	visible = min(n, maxVisible)
-	boxH = visible + 4
-	if boxH > maxH-2 {
-		boxH = maxH - 2
-		visible = boxH - 4
-		if visible < 1 {
-			visible = 1
-			boxH = 5
-		}
-	}
-	return visible, boxH
 }
 
 func (p *Picker) syncScroll(visible int) {
@@ -739,19 +685,13 @@ func (p *Picker) drawPrompt(panel *components.Surface, ctx components.DrawContex
 	}
 }
 
-func (*Picker) drawSeparator(panel *components.Surface, th components.Theme, boxW int) {
-	for x := 1; x < boxW-1; x++ {
-		panel.SetCell(x, 2, xui.Cell{Char: "─", Width: 1, Style: th.Border})
-	}
-}
-
 func (p *Picker) drawRows(
 	panel *components.Surface,
 	ctx components.DrawContext,
 	th components.Theme,
 	boxW, visible int,
 ) {
-	const listY = 3
+	listY := chrome.PickerListY(panel.Size.Height)
 	if len(p.filtered) == 0 {
 		msg := p.cfg.Empty
 		if q := strings.TrimSpace(p.Query()); q != "" {
@@ -837,7 +777,6 @@ func (p *Picker) drawHint(
 	panel *components.Surface,
 	ctx components.DrawContext,
 	th components.Theme,
-	boxW, boxH int,
 ) {
 	hint, short := p.cfg.Hint, chrome.ListHintShort("select")
 	switch {
@@ -850,11 +789,5 @@ func (p *Picker) drawHint(
 		// supplied Hint has already said what belongs down here.
 		hint = chrome.ListHintExtra("select", CommandPrefix+" commands")
 	}
-	if xui.StringWidth(hint, ctx.Method) > boxW-2 {
-		hint = short
-	}
-	y := boxH - 1
-	w := xui.StringWidth(hint, ctx.Method)
-	x := max((boxW-w)/2, 1)
-	panel.Print(x, y, components.TruncateToWidth(hint, boxW-2, ctx.Method), th.Muted, ctx.Method)
+	chrome.DrawPickerHint(panel, hint, short, th.Muted, ctx.Method)
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/components"
+	"github.com/pulseaiclub/phi/internal/components/listpicker"
 )
 
 func TestCommandPaletteFilterAndAccept(t *testing.T) {
@@ -58,6 +59,53 @@ func TestCommandPaletteDraw(t *testing.T) {
 	}
 	top := b.String()
 	require.Contains(t, top, "Command Palette")
+}
+
+func TestCommandPaletteSharesPickerChrome(t *testing.T) {
+	for _, width := range []int{32, 80, 160} {
+		p := &CommandPalette{Title: "Commands", Commands: []PaletteCommand{
+			{ID: "theme", Verb: "theme"},
+			{ID: "reload", Verb: "reload"},
+		}}
+		p.Show()
+		list := &listpicker.Picker{}
+		list.Show([]listpicker.Item{
+			{ID: "theme", Primary: "theme"},
+			{ID: "reload", Primary: "reload"},
+		}, listpicker.ShowConfig{Title: "Commands"})
+		ctx := components.DrawContext{Max: components.Size{Width: width, Height: 24}, Method: xui.WidthUnicode}
+		for _, query := range []string{"", "theme", "zzzz"} {
+			if query != "" {
+				p.SetQuery("")
+				list.SetQuery("")
+				p.Handle(&components.EventContext{}, xui.PasteEvent{Text: query})
+				list.Handle(&components.EventContext{}, xui.PasteEvent{Text: query})
+			}
+			got, want := p.Draw(ctx).Children[0], list.Draw(ctx).Children[0]
+			require.Equal(t, want.Origin, got.Origin)
+			require.Equal(t, want.Surface.Size, got.Surface.Size)
+			require.Equal(t, want.Surface.Cursor, got.Surface.Cursor)
+			for _, y := range []int{0, 1, 2, got.Surface.Size.Height - 1} {
+				start := y * got.Surface.Size.Width
+				end := start + got.Surface.Size.Width
+				require.Equal(t, want.Surface.Buffer[start:end], got.Surface.Buffer[start:end],
+					"width=%d query=%q row=%d", width, query, y)
+			}
+		}
+	}
+}
+
+func TestCommandPaletteShortViewport(t *testing.T) {
+	for _, height := range []int{4, 5, 6} {
+		p := &CommandPalette{Commands: []PaletteCommand{{Verb: "first"}, {Verb: "selected"}}}
+		p.Show()
+		p.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyDown, Press: true})
+		ctx := components.DrawContext{Max: components.Size{Width: 80, Height: height}, Method: xui.WidthUnicode}
+		panel := p.Draw(ctx).Children[0]
+		require.LessOrEqual(t, panel.Origin.Y+panel.Surface.Size.Height, height)
+		require.Contains(t, components.SurfaceText(panel.Surface), "selected")
+		require.Contains(t, components.SurfaceText(panel.Surface), "esc close")
+	}
 }
 
 func TestFuzzyMatch(t *testing.T) {
@@ -162,7 +210,7 @@ func TestCommandPaletteSaveHintAndConfirmationDraw(t *testing.T) {
 	text := components.SurfaceText(panel)
 	require.Equal(t, 1, strings.Count(text, "ctrl+s save default"))
 	require.Contains(t, text, "⏎ switch")
-	require.Equal(t, 5, panel.Size.Height, "hint belongs on the border without an extra row")
+	require.Equal(t, 6, panel.Size.Height, "filter separator adds one row; hint stays on the border")
 	require.NotNil(t, panel.Cursor)
 	p.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyRune, Rune: 's', Mods: xui.ModCtrl, Press: true})
 	panel = draw(100)

@@ -90,13 +90,6 @@ func (p *CommandPalette) title() string {
 	return p.Title
 }
 
-func (p *CommandPalette) maxItems() int {
-	if p.MaxItems < 1 {
-		return 12
-	}
-	return p.MaxItems
-}
-
 // Query returns the search line.
 func (p *CommandPalette) Query() string { return p.line.Text() }
 
@@ -420,45 +413,10 @@ func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 		p.refilter()
 	}
 
-	boxW := p.Width
-	if boxW <= 0 {
-		boxW = maxW * 3 / 4
-		boxW = min(boxW, 72)
-		if boxW < 40 {
-			boxW = maxW
-			boxW = min(boxW, 60)
-		}
-	}
-	if boxW > maxW-2 {
-		boxW = maxW - 2
-		if boxW < 20 {
-			boxW = maxW
-		}
-	}
-
+	nItems := len(p.filtered)
+	boxW, boxH, visible := chrome.PickerSize(p.Width, p.MaxItems, nItems, maxW, maxH)
 	innerW := boxW - 2
 	catW := categoryWidth(p.Commands, ctx.Method)
-	maxVisible := p.maxItems()
-	availRows := maxH - 6 // borders + title gap + prompt + margin
-	availRows = max(availRows, 3)
-	if maxVisible > availRows {
-		maxVisible = availRows
-	}
-	nItems := len(p.filtered)
-	visible := nItems
-	visible = min(visible, maxVisible)
-	visible = max(visible, 1) // empty state row
-
-	// Layout: border + prompt row + item rows
-	boxH := 2 + 1 + visible
-	if boxH > maxH-2 {
-		boxH = maxH - 2
-		visible = boxH - 3
-		if visible < 1 {
-			visible = 1
-			boxH = 4
-		}
-	}
 
 	// Scroll window so selection stays visible.
 	scroll := 0
@@ -476,8 +434,8 @@ func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 	panel := components.NewSurface(boxW, boxH, p)
 	// Opaque panel background so tui doesn't bleed through.
 	fillStyle := xui.Style{Fg: th.Foreground.Fg}
-	for y := 0; y < boxH; y++ {
-		for x := 0; x < boxW; x++ {
+	for y := range boxH {
+		for x := range boxW {
 			panel.SetCell(x, y, xui.Cell{Char: " ", Width: 1, Style: fillStyle})
 		}
 	}
@@ -490,18 +448,14 @@ func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 	}
 	layout.DrawRoundedBorder(&panel, layout.BorderRounded, borderSt, nil, nil, nil, nil, ctx.Method)
 
-	// Centered title on top border.
-	title := " " + p.title() + " "
-	tw := xui.StringWidth(title, ctx.Method)
-	tx := (boxW - tw) / 2
-	tx = max(tx, 1)
-	panel.Print(tx, 0, title, titleSt, ctx.Method)
+	chrome.DrawPickerTitle(&panel, p.title(), nItems, len(p.Commands), titleSt, ctx.Method)
+	chrome.DrawPickerSeparator(&panel, th.Border)
 
 	// Prompt: "> query"
 	promptY := 1
 	q := p.Query()
 	qx := 3
-	availQ := innerW - 2
+	availQ := innerW - 3
 	availQ = max(availQ, 1)
 	if p.saveConfirming {
 		message := components.TruncateToWidth(
@@ -512,7 +466,12 @@ func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 		panel.Print(1, promptY, message, chrome.DecisionPrimary(th), ctx.Method)
 	} else {
 		panel.Print(1, promptY, chrome.FilterPrompt, th.Foreground, ctx.Method)
-		panel.Print(qx, promptY, components.TruncateToWidth(q, availQ, ctx.Method), th.Foreground, ctx.Method)
+		queryStyle := th.Foreground
+		if q == "" {
+			q = "filter…"
+			queryStyle = th.Muted
+		}
+		panel.Print(qx, promptY, components.TruncateToWidth(q, availQ, ctx.Method), queryStyle, ctx.Method)
 		before, _ := p.line.Split()
 		curCol := xui.StringWidth(before, ctx.Method)
 		if curCol >= availQ {
@@ -522,12 +481,18 @@ func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 		panel.Cursor = &components.Point{X: qx + curCol, Y: promptY}
 	}
 
-	padL := 1
-	listY := 2
+	padL := 2
+	listY := chrome.PickerListY(panel.Size.Height)
 	if nItems == 0 {
-		panel.Print(padL+1, listY, "No matching commands", th.Muted, ctx.Method)
+		panel.Print(
+			padL,
+			listY,
+			components.TruncateToWidth("No matching commands", max(boxW-3, 0), ctx.Method),
+			th.Muted,
+			ctx.Method,
+		)
 	} else {
-		for row := 0; row < visible; row++ {
+		for row := range visible {
 			fi := row + scroll
 			if fi < 0 || fi >= nItems {
 				break
@@ -560,10 +525,13 @@ func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 			noun := strings.ToLower(cmd.Noun)
 			verb := strings.ToLower(cmd.Verb)
 			if catW > 0 {
-				nw := xui.StringWidth(noun, ctx.Method)
-				nx := x + catW - nw
-				nx = max(nx, x)
-				panel.Print(nx, y, components.TruncateToWidth(noun, catW, ctx.Method), nounStyle, ctx.Method)
+				panel.Print(
+					x,
+					y,
+					components.TruncateToWidth(noun, min(catW, max(boxW-2-x, 0)), ctx.Method),
+					nounStyle,
+					ctx.Method,
+				)
 				x += catW + 2
 			}
 			verbSt := rowStyle
@@ -573,40 +541,32 @@ func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 			}
 			shortcutW := 0
 			if cmd.Shortcut != "" {
-				shortcutW = xui.StringWidth(cmd.Shortcut, ctx.Method) + 1
+				shortcutW = min(xui.StringWidth(cmd.Shortcut, ctx.Method)+1, max(boxW-3-x, 0))
 			}
 			verbAvail := boxW - 1 - x - shortcutW
-			verbAvail = max(verbAvail, 1)
+			verbAvail = max(verbAvail, 0)
 			panel.Print(x, y, components.TruncateToWidth(verb, verbAvail, ctx.Method), verbSt, ctx.Method)
-			if cmd.Shortcut != "" {
-				sw := xui.StringWidth(cmd.Shortcut, ctx.Method)
-				panel.Print(boxW-1-sw, y, cmd.Shortcut, shortcutStyle, ctx.Method)
+			if shortcutW > 1 {
+				shortcut := components.TruncateToWidth(cmd.Shortcut, shortcutW-1, ctx.Method)
+				sw := xui.StringWidth(shortcut, ctx.Method)
+				panel.Print(boxW-1-sw, y, shortcut, shortcutStyle, ctx.Method)
 			}
 		}
 	}
+	hint, short := chrome.ListHint("select"), chrome.ListHintShort("select")
 	if p.saveAvailable() {
-		hint := chrome.ListHintExtra("switch", "ctrl+s save default")
-		short := " ctrl+s save default "
+		hint = chrome.ListHintExtra("switch", "ctrl+s save default")
+		short = " ctrl+s save default "
 		if p.saveConfirming {
 			hint = " y/enter save" + chrome.Sep + "n/esc cancel "
 			short = " y save" + chrome.Sep + "n cancel "
 		}
-		if xui.StringWidth(hint, ctx.Method) > boxW-2 {
-			hint = short
-		}
-		x := max((boxW-xui.StringWidth(hint, ctx.Method))/2, 1)
-		panel.Print(x, boxH-1, components.TruncateToWidth(hint, boxW-2, ctx.Method), th.Muted, ctx.Method)
 	}
+	chrome.DrawPickerHint(&panel, hint, short, th.Muted, ctx.Method)
 
 	out := components.Surface{Size: components.Size{Width: maxW, Height: maxH}, Widget: p}
-	ox := (maxW - boxW) / 2
-	oy := (maxH - boxH) / 3
-	if ox < 0 {
-		ox = 0
-	}
-	if oy < 1 {
-		oy = 1
-	}
+	ox := max((maxW-boxW)/2, 0)
+	oy := min(max((maxH-boxH)/3, 1), max(maxH-boxH, 0))
 	out.Children = []components.SubSurface{{
 		Origin:  components.Point{X: ox, Y: oy},
 		Surface: panel,
