@@ -270,6 +270,7 @@ func TestRootDispatchHelpAndUnknown(t *testing.T) {
 	assert.Contains(t, he.Help, "usage: phi")
 	assert.Contains(t, he.Help, "run")
 	assert.Contains(t, he.Help, "sessions")
+	assert.Contains(t, he.Help, "phi plugin …       install/list/update/remove extensions (see 'phi plugin --help')")
 
 	err = root().Dispatch([]string{"bogus"})
 	var ue *cli.UsageError
