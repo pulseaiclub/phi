@@ -26,11 +26,11 @@ func TestMCPListMixedTransports(t *testing.T) {
 	var out strings.Builder
 	writeMCPList(&out, servers)
 
-	want := "NAME\tTRANSPORT\tADDRESS\n" +
-		"a-http\thttp\thttps://example.test/mcp\n" +
-		"b-stream\thttp\thttps://example.test/stream\n" +
-		"c-sse\thttp\thttps://example.test/sse\n" +
-		"z-local\tstdio\tnode server.js --stdio\n"
+	want := "NAME      TRANSPORT  ADDRESS\n" +
+		"a-http    http       https://example.test/mcp\n" +
+		"b-stream  http       https://example.test/stream\n" +
+		"c-sse     http       https://example.test/sse\n" +
+		"z-local   stdio      node server.js --stdio\n"
 	require.Equal(t, want, out.String())
 }
 

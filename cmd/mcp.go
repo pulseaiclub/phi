@@ -9,6 +9,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"text/tabwriter"
 	"time"
 
 	cli "github.com/pulseaiclub/pli"
@@ -85,7 +86,8 @@ func writeMCPList(w io.Writer, servers map[string]mcp.ServerConfig) {
 		fmt.Fprintln(w, "(no servers — try: phi mcp add fetch -- npx -y @modelcontextprotocol/server-fetch)")
 		return
 	}
-	fmt.Fprintln(w, "NAME\tTRANSPORT\tADDRESS")
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "NAME\tTRANSPORT\tADDRESS")
 	for _, name := range sortedKeys(servers) {
 		cfg := servers[name]
 		transport := mcpTransportName(cfg)
@@ -94,8 +96,9 @@ func writeMCPList(w io.Writer, servers map[string]mcp.ServerConfig) {
 			cmd, _ := cfg.CmdLine()
 			address = strings.Join(cmd, " ")
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\n", name, transport, address)
+		fmt.Fprintf(tw, "%s\t%s\t%s\n", name, transport, address)
 	}
+	_ = tw.Flush()
 }
 
 func mcpTransportName(cfg mcp.ServerConfig) string {
