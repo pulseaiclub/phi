@@ -75,6 +75,7 @@ func NewController(bus *Bus, proj *project.Project) (*EngineController, error) {
 		proj:          proj,
 		cwd:           proj.Root(),
 		sessionDir:    proj.SessionDir(),
+		mcpPool:       loadMCPPool(proj),
 		askTimeoutSec: defaultAskTimeoutSec,
 		modelCfg:      config.Model(),
 		roleModels:    config.Agents.Models.RoleOverrides(),
@@ -94,12 +95,6 @@ func NewController(bus *Bus, proj *project.Project) (*EngineController, error) {
 		return nil, err
 	}
 	c.jobs = jobs
-
-	if pool, err := mcp.LoadPool(proj.MCPConfigFile()); err != nil {
-		debuglog.Logf("mcp: load: %v", err)
-	} else {
-		c.mcpPool = pool
-	}
 
 	eng, _, err := c.openEngine(c.modelCfg, extRunner, "")
 	if err != nil {
@@ -309,6 +304,18 @@ func (c *EngineController) ListExtensionStates() map[string]extension.FiberState
 		return nil
 	}
 	return r.ListExtensions()
+}
+
+// loadMCPPool merges the user and project MCP configs into a pool. Errors and
+// PHI_MCP=off both yield a nil pool (fail-open: no mcp:// servers), because a
+// typo in mcp.json must not stop the session from starting.
+func loadMCPPool(proj *project.Project) *mcp.Pool {
+	pool, err := mcp.LoadPool(proj.MCPConfigFile())
+	if err != nil {
+		debuglog.Logf("mcp: load %s: %v", proj.MCPConfigFile(), err)
+		return nil
+	}
+	return pool
 }
 
 // loadExtensions discovers ~/.phi/extensions and <cwd>/.phi/extensions.
