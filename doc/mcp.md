@@ -92,6 +92,11 @@ phi mcp list
 phi mcp doctor
 ```
 
+`phi mcp list` prints aligned `NAME`, `TRANSPORT`, and `ADDRESS` columns.
+Omitted transport shows as `stdio`; HTTP-family values (`http`,
+`streamable-http`, `sse`) show as `http` because they share one client; an
+unrecognized value is printed as-is so a config typo stays visible.
+
 **Restart phi** after config changes (Pool loads at startup).
 
 ### Migrating from Claude Desktop config

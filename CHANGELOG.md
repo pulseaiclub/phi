@@ -14,7 +14,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-- `phi mcp list` shows each server's transport, so stdio commands and HTTP URLs are distinguishable.
+- `phi mcp list` gains an aligned `TRANSPORT` column: stdio commands and HTTP
+  URLs are distinguishable, and an unrecognized transport value is shown as-is
+  instead of being mislabeled `stdio`.
 
 ### Fixed
 

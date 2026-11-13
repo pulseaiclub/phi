@@ -9,6 +9,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"text/tabwriter"
 	"time"
 
 	cli "github.com/pulseaiclub/pli"
@@ -85,7 +86,8 @@ func writeMCPList(w io.Writer, servers map[string]mcp.ServerConfig) {
 		fmt.Fprintln(w, "(no servers — try: phi mcp add fetch -- npx -y @modelcontextprotocol/server-fetch)")
 		return
 	}
-	fmt.Fprintln(w, "NAME\tTRANSPORT\tADDRESS")
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "NAME\tTRANSPORT\tADDRESS")
 	for _, name := range sortedKeys(servers) {
 		cfg := servers[name]
 		address := cfg.URL
@@ -93,19 +95,24 @@ func writeMCPList(w io.Writer, servers map[string]mcp.ServerConfig) {
 			cmd, _ := cfg.CmdLine()
 			address = strings.Join(cmd, " ")
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\n", name, transportLabel(cfg), address)
+		fmt.Fprintf(tw, "%s\t%s\t%s\n", name, transportLabel(cfg), address)
 	}
+	_ = tw.Flush()
 }
 
 // transportLabel names how a server is reached. The HTTP family
 // (http, streamable-http, sse) prints as "http": those are wire details of one
 // transport, and a single label keeps the column readable. An empty Transport
-// is stdio, as in the config.
+// is stdio, as in the config. An unrecognized value is shown as-is instead of
+// being folded into stdio, so a typo in the config stays visible.
 func transportLabel(cfg mcp.ServerConfig) string {
 	if cfg.IsHTTP() {
 		return "http"
 	}
-	return "stdio"
+	if cfg.IsStdio() {
+		return "stdio"
+	}
+	return strings.TrimSpace(cfg.Transport)
 }
 
 func sortedKeys(m map[string]mcp.ServerConfig) []string {
