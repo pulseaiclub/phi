@@ -103,37 +103,38 @@ func NewComposerPane(theme components.Theme, modelLabel, cwd string) *ComposerPa
 	return c
 }
 
+// WireDeps holds the collaborators Wire binds after Editor assembly.
+type WireDeps struct {
+	Transcript            *transcript.TranscriptPane
+	Submitter             BusyChecker
+	Commands              *commands.CommandRegistry
+	Bus                   *controller.Bus
+	DrainBus              func()
+	OnRedraw              func()
+	ImageEnabled          func() bool
+	OverlayBlocksComposer func() bool
+	HandleOverlayKey      WireKeyHandler
+	HandleCopyKey         WireKeyHandler
+	RequestFocusEditor    func()
+	RequestFocus          func(components.Widget)
+	CtrlClose             func()
+}
+
 // Wire binds bus, transcript, and editor overlay hooks after Editor assembly.
-func (c *ComposerPane) Wire(
-	transcript *transcript.TranscriptPane,
-	submitter BusyChecker,
-	commands *commands.CommandRegistry,
-	cwd string,
-	bus *controller.Bus,
-	drainBus func(),
-	onRedraw func(),
-	imageEnabled func() bool,
-	overlayBlocksComposer func() bool,
-	handleOverlayKey WireKeyHandler,
-	handleCopyKey WireKeyHandler,
-	requestFocusEditor func(),
-	requestFocus func(components.Widget),
-	ctrlClose func(),
-) {
-	c.cwd = cwd
-	c.commands = commands
-	c.transcript = transcript
-	c.submitter = submitter
-	c.bus = bus
-	c.drainBus = drainBus
-	c.onRedraw = onRedraw
-	c.imageEnabled = imageEnabled
-	c.overlayBlocksComposer = overlayBlocksComposer
-	c.handleOverlayKey = handleOverlayKey
-	c.handleCopyKey = handleCopyKey
-	c.requestFocusEditor = requestFocusEditor
-	c.requestFocus = requestFocus
-	c.ctrlClose = ctrlClose
+func (c *ComposerPane) Wire(deps WireDeps) {
+	c.commands = deps.Commands
+	c.transcript = deps.Transcript
+	c.submitter = deps.Submitter
+	c.bus = deps.Bus
+	c.drainBus = deps.DrainBus
+	c.onRedraw = deps.OnRedraw
+	c.imageEnabled = deps.ImageEnabled
+	c.overlayBlocksComposer = deps.OverlayBlocksComposer
+	c.handleOverlayKey = deps.HandleOverlayKey
+	c.handleCopyKey = deps.HandleCopyKey
+	c.requestFocusEditor = deps.RequestFocusEditor
+	c.requestFocus = deps.RequestFocus
+	c.ctrlClose = deps.CtrlClose
 
 	c.palette.FocusReturn = &c.Chat
 	c.listPicker.FocusReturn = &c.Chat

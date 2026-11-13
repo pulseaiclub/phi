@@ -14,6 +14,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
+	"github.com/pulseaiclub/phi/internal/tui/composer"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
@@ -22,8 +23,16 @@ func diffEditor(t *testing.T, dir string) *Editor {
 	e := NewEditor(app.NewApp(nil), controller.NewBus(nil), &controller.EngineController{}, nil,
 		components.DefaultTheme(), dir, "", nil, nil)
 	// Keep the real focus/blocking wiring without a terminal redraw callback.
-	e.composer.Wire(e.transcript, e.submitter, e.commands, dir, e.bus, e.drainBus, nil, nil,
-		e.blocksComposer, nil, nil, func() { e.App.RequestFocus(e) }, e.App.RequestFocus, nil)
+	e.composer.Wire(composer.WireDeps{
+		Transcript:            e.transcript,
+		Submitter:             e.submitter,
+		Commands:              e.commands,
+		Bus:                   e.bus,
+		DrainBus:              e.drainBus,
+		OverlayBlocksComposer: e.blocksComposer,
+		RequestFocusEditor:    func() { e.App.RequestFocus(e) },
+		RequestFocus:          e.App.RequestFocus,
+	})
 	return e
 }
 
