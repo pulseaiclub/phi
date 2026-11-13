@@ -179,24 +179,15 @@ func NewEditor(
 		e.submitter.StreamActive,
 	)
 
-	e.composer.Wire(
-		e.transcript,
-		e.submitter,
-		e.commands,
-		e.cwd,
-		e.bus,
-		e.drainBus,
-		e.vx.QueueRefresh,
-		e.ctrl.ImageEnabled,
-		e.blocksComposer,
-		e.overlays.HandlePermissionKey,
-		e.overlays.HandleConfirmKey,
-		e.overlays.HandleErrorKey,
-		e.handleCopyKey,
-		e.focusSelf,
-		e.App.RequestFocus,
-		e.ctrl.Close,
-	)
+	e.composer.Wire(composer.WireHooks{
+		Submitter:    e.submitter,
+		Commands:     e.commands,
+		Bus:          e.bus,
+		DrainBus:     e.drainBus,
+		OnRedraw:     e.vx.QueueRefresh,
+		ImageEnabled: e.ctrl.ImageEnabled,
+		RequestFocus: e.App.RequestFocus,
+	})
 
 	e.extCmds.Sync()
 	return e
@@ -408,9 +399,14 @@ func (e *Editor) captureOverlayFocus() {
 	e.composer.HidePalette()
 }
 
+// Handle is the root event dispatcher. Order matters: the quit chord comes
+// first, then full-screen panes, then modal overlays, then transcript-level
+// keys, and only then the composer. Events the composer used to route for
+// its upstream callers (overlays, page keys, selection) now stop here.
 func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 	if ke, ok := ev.(xui.KeyEvent); ok && ke.CtrlC() {
-		e.composer.Handle(ctx, ev)
+		e.ctrl.Close()
+		ctx.Quit = true
 		return
 	}
 	if e.diff.Active() {
@@ -433,11 +429,37 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 		return
 	}
+	if ke, ok := ev.(xui.KeyEvent); ok && e.overlays.HandleKey(ctx, ke) {
+		return
+	}
+	switch ev := ev.(type) {
+	case xui.FocusEvent:
+		if e.blocksComposer() {
+			e.focusSelf()
+			return
+		}
+	case xui.KeyEvent:
+		if (ev.Code == xui.KeyPageUp || ev.Code == xui.KeyPageDown) && !e.composer.BlocksTranscriptNavigation() {
+			e.transcript.HandlePageKey(ctx, ev)
+			return
+		}
+		if e.transcript.HandleCopyKey(ctx, ev) {
+			return
+		}
+		if ev.Press && ev.Code == xui.KeyEscape && e.transcript.SelectionActive() {
+			e.transcript.ClearSelection()
+			ctx.ConsumeAndRedraw()
+			return
+		}
+	case xui.MouseEvent:
+		e.composer.Handle(ctx, ev)
+		if ctx.Consume {
+			return
+		}
+		e.transcript.HandleMouse(ctx, ev, e.composer.FocusChat)
+		return
+	}
 	e.composer.Handle(ctx, ev)
-}
-
-func (e *Editor) handleCopyKey(ctx *components.EventContext, ke xui.KeyEvent) bool {
-	return e.transcript.HandleCopyKey(ctx, ke)
 }
 
 // focusSelf returns keyboard focus to the editor itself; full-screen overlays

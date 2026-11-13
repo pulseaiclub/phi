@@ -113,11 +113,6 @@ func (o *Overlays) resolveExtConfirm(r controller.ExtConfirmReply) {
 	}
 }
 
-// HandleConfirmKey handles keyboard input while extension confirm is active.
-func (o *Overlays) HandleConfirmKey(ctx *components.EventContext, e xui.KeyEvent) bool {
-	return o != nil && o.confirm != nil && o.handleConfirmKey(ctx, e)
-}
-
 // ConfirmActive reports whether the extension confirm overlay is showing.
 func (o *Overlays) ConfirmActive() bool {
 	return o != nil && o.confirm != nil

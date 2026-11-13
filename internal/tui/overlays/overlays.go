@@ -88,9 +88,18 @@ func (o *Overlays) Apply(msg controller.OverlayMsg) {
 	}
 }
 
-// HandlePermissionKey handles keyboard input while permission ask is active.
-func (o *Overlays) HandlePermissionKey(ctx *components.EventContext, e xui.KeyEvent) bool {
-	return o.perm != nil && o.handlePermissionKey(ctx, e)
+// HandleKey routes a key to whichever modal overlay is showing. The Editor
+// offers keys here before the composer sees them.
+func (o *Overlays) HandleKey(ctx *components.EventContext, e xui.KeyEvent) bool {
+	switch {
+	case o.perm != nil:
+		return o.handlePermissionKey(ctx, e)
+	case o.confirm != nil:
+		return o.handleConfirmKey(ctx, e)
+	case o.err != nil:
+		return o.handleErrorKey(ctx, e)
+	}
+	return false
 }
 
 // ResolvePermission sends a permission reply and clears the overlay.
