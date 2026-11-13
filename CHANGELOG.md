@@ -24,6 +24,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Fixed
 
 - Align the `phi plugin` example in the root help text.
+- Only abbreviate the home directory and its children with `~` in TUI paths;
+  similarly named sibling directories now retain their actual paths.
 
 ### Security
 

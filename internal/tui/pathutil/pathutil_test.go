@@ -11,6 +11,29 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestShortPath(t *testing.T) {
+	for _, tc := range []struct {
+		name, home, path, want string
+	}{
+		{"home", "/users/phi", "/users/phi", "~"},
+		{"child", "/users/phi", "/users/phi/repo", "~/repo"},
+		{"sibling prefix", "/users/phi", "/users/phi-backup/repo", "/users/phi-backup/repo"},
+		{"unrelated", "/users/phi", "/work/repo", "/work/repo"},
+		{"deep child", "/users/phi", "/users/phi/a/b/c/d/e", "~/a/../d/e"},
+		{"empty", "/users/phi", "", ""},
+		{"missing home", "", "/work/repo", "/work/repo"},
+		{"trailing separator", "/users/phi/", "/users/phi/repo", "~/repo"},
+		{"root home", "/", "/repo", "~/repo"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := filepath.FromSlash(tc.home)
+			t.Setenv("HOME", home)
+			t.Setenv("USERPROFILE", home)
+			assert.Equal(t, filepath.FromSlash(tc.want), ShortPath(filepath.FromSlash(tc.path)))
+		})
+	}
+}
+
 func TestGitBranchOutsideRepo(t *testing.T) {
 	assert.Empty(t, GitBranch(t.Context(), t.TempDir()), "non-git dir has no branch")
 }

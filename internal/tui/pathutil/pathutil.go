@@ -9,12 +9,27 @@ import (
 	"time"
 )
 
+// HomePath abbreviates the home directory without folding the remaining path.
+func HomePath(p string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return p
+	}
+	home = filepath.ToSlash(filepath.Clean(home))
+	path := filepath.ToSlash(p)
+	if path == home {
+		return "~"
+	}
+	prefix := strings.TrimSuffix(home, "/") + "/"
+	if strings.HasPrefix(path, prefix) {
+		return "~" + p[len(prefix)-1:]
+	}
+	return p
+}
+
 // ShortPath abbreviates a filesystem path for display.
 func ShortPath(p string) string {
-	home, err := os.UserHomeDir()
-	if err == nil && strings.HasPrefix(p, home) {
-		p = "~" + p[len(home):]
-	}
+	p = HomePath(p)
 	parts := strings.Split(p, string(filepath.Separator))
 	if len(parts) <= 5 {
 		return p
