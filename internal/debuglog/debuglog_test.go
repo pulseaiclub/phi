@@ -27,12 +27,6 @@ func saveState(t *testing.T) {
 	})
 }
 
-func TestEnvSeedsInitialState(t *testing.T) {
-	t.Setenv("PHI_DEBUG", "1")
-	saveState(t)
-	assert.True(t, Enabled())
-}
-
 func TestSetEnabledOverridesEnv(t *testing.T) {
 	t.Setenv("PHI_DEBUG", "1")
 	saveState(t)

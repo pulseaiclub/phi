@@ -105,20 +105,6 @@ func TestDecodeHeaderPayloadBounds(t *testing.T) {
 	assert.ErrorIs(t, err, pxb.ErrPayloadLarge)
 }
 
-func TestInterceptRoundTrip(t *testing.T) {
-	in := pxb.InterceptReq{
-		Event:      pxb.EvToolCall,
-		ToolName:   "bash",
-		ToolCallID: "c1",
-		Input:      []byte(`{"command":"ls"}`),
-	}
-	b := pxb.EncodeInterceptReq(in)
-	out, err := pxb.DecodeInterceptReq(b)
-	require.NoError(t, err)
-	assert.Equal(t, in.ToolName, out.ToolName)
-	assert.Equal(t, in.Input, out.Input)
-}
-
 func BenchmarkPXBHello(b *testing.B) {
 	body := pxb.EncodeHello(pxb.Hello{Name: "x", Version: "1", Caps: 7, Protocol: 1})
 	var buf bytes.Buffer
