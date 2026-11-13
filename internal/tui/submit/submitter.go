@@ -27,12 +27,8 @@ type Submitter struct {
 
 	bus *controller.Bus
 
-	permissionActive  func() bool
-	confirmActive     func() bool
-	errorActive       func() bool
-	resolvePermission func(controller.AskReply)
-	resolveConfirm    func(controller.ExtConfirmReply)
-	resolveError      func(controller.ErrorReply)
+	overlayBlocksSessionSwitch func() bool
+	cancelOverlays             func()
 }
 
 // NewSubmitter builds a Submitter from explicit collaborators (no *Editor back-pointer).
@@ -45,28 +41,20 @@ func NewSubmitter(
 	composer composer.Input,
 	bus *controller.Bus,
 	commandContext commands.Context,
-	permissionActive func() bool,
-	confirmActive func() bool,
-	errorActive func() bool,
-	resolvePermission func(controller.AskReply),
-	resolveConfirm func(controller.ExtConfirmReply),
-	resolveError func(controller.ErrorReply),
+	overlayBlocksSessionSwitch func() bool,
+	cancelOverlays func(),
 ) *Submitter {
 	return &Submitter{
-		ctrl:              ctrl,
-		commands:          commands,
-		transcript:        transcript,
-		activity:          activity,
-		composer:          composer,
-		bash:              newBashRunner(transcript, composer, bus, ctrl),
-		commandContext:    commandContext,
-		bus:               bus,
-		permissionActive:  permissionActive,
-		confirmActive:     confirmActive,
-		errorActive:       errorActive,
-		resolvePermission: resolvePermission,
-		resolveConfirm:    resolveConfirm,
-		resolveError:      resolveError,
+		ctrl:                       ctrl,
+		commands:                   commands,
+		transcript:                 transcript,
+		activity:                   activity,
+		composer:                   composer,
+		bash:                       newBashRunner(transcript, composer, bus, ctrl),
+		commandContext:             commandContext,
+		bus:                        bus,
+		overlayBlocksSessionSwitch: overlayBlocksSessionSwitch,
+		cancelOverlays:             cancelOverlays,
 	}
 }
 
@@ -179,14 +167,8 @@ func (s *Submitter) handleUserInput(text string) {
 
 // Cancel aborts overlays, bash, or the in-flight agent stream.
 func (s *Submitter) Cancel() {
-	if s.resolvePermission != nil && s.permissionActive != nil && s.permissionActive() {
-		s.resolvePermission(controller.AskReply{})
-	}
-	if s.resolveConfirm != nil && s.confirmActive != nil && s.confirmActive() {
-		s.resolveConfirm(controller.ExtConfirmReply{})
-	}
-	if s.resolveError != nil && s.errorActive != nil && s.errorActive() {
-		s.resolveError(controller.ErrorReply{})
+	if s.cancelOverlays != nil {
+		s.cancelOverlays()
 	}
 	if s.bash.Cancel() {
 		return
@@ -213,9 +195,7 @@ func (s *Submitter) IsBusy() bool {
 
 // StreamActive reports whether user input should be blocked for stream/overlays.
 func (s *Submitter) StreamActive() bool {
-	if s.IsBusy() ||
-		(s.permissionActive != nil && s.permissionActive()) ||
-		(s.errorActive != nil && s.errorActive()) {
+	if s.IsBusy() || (s.overlayBlocksSessionSwitch != nil && s.overlayBlocksSessionSwitch()) {
 		return true
 	}
 	switch s.activity.Current {

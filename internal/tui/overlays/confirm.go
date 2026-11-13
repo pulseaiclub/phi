@@ -113,21 +113,6 @@ func (o *Overlays) resolveExtConfirm(r controller.ExtConfirmReply) {
 	}
 }
 
-// HandleConfirmKey handles keyboard input while extension confirm is active.
-func (o *Overlays) HandleConfirmKey(ctx *components.EventContext, e xui.KeyEvent) bool {
-	return o != nil && o.confirm != nil && o.handleConfirmKey(ctx, e)
-}
-
-// ConfirmActive reports whether the extension confirm overlay is showing.
-func (o *Overlays) ConfirmActive() bool {
-	return o != nil && o.confirm != nil
-}
-
-// ResolveConfirm sends a confirm reply and clears the overlay.
-func (o *Overlays) ResolveConfirm(r controller.ExtConfirmReply) {
-	o.resolveExtConfirm(r)
-}
-
 // ClearActivityIf also expires activity hidden by a confirmation so closing
 // the dialog cannot restore an expired status.
 func (o *Overlays) ClearActivityIf(a controller.Activity) {

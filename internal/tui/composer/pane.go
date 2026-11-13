@@ -63,9 +63,7 @@ type ComposerPane struct {
 	onRedraw func()
 
 	overlayBlocksComposer func() bool
-	handlePermissionKey   WireKeyHandler
-	handleConfirmKey      WireKeyHandler
-	handleErrorKey        WireKeyHandler
+	handleOverlayKey      WireKeyHandler
 	handleCopyKey         WireKeyHandler
 	requestFocusEditor    func()
 	requestFocus          func(components.Widget)
@@ -116,9 +114,7 @@ func (c *ComposerPane) Wire(
 	onRedraw func(),
 	imageEnabled func() bool,
 	overlayBlocksComposer func() bool,
-	handlePermissionKey WireKeyHandler,
-	handleConfirmKey WireKeyHandler,
-	handleErrorKey WireKeyHandler,
+	handleOverlayKey WireKeyHandler,
 	handleCopyKey WireKeyHandler,
 	requestFocusEditor func(),
 	requestFocus func(components.Widget),
@@ -133,9 +129,7 @@ func (c *ComposerPane) Wire(
 	c.onRedraw = onRedraw
 	c.imageEnabled = imageEnabled
 	c.overlayBlocksComposer = overlayBlocksComposer
-	c.handlePermissionKey = handlePermissionKey
-	c.handleConfirmKey = handleConfirmKey
-	c.handleErrorKey = handleErrorKey
+	c.handleOverlayKey = handleOverlayKey
 	c.handleCopyKey = handleCopyKey
 	c.requestFocusEditor = requestFocusEditor
 	c.requestFocus = requestFocus
@@ -632,13 +626,7 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			ctx.Quit = true
 			return
 		}
-		if c.handlePermissionKey != nil && c.handlePermissionKey(ctx, ev) {
-			return
-		}
-		if c.handleConfirmKey != nil && c.handleConfirmKey(ctx, ev) {
-			return
-		}
-		if c.handleErrorKey != nil && c.handleErrorKey(ctx, ev) {
+		if c.handleOverlayKey != nil && c.handleOverlayKey(ctx, ev) {
 			return
 		}
 		if c.handleCopyKey != nil && c.handleCopyKey(ctx, ev) {

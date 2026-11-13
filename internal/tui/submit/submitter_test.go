@@ -54,9 +54,7 @@ func newTestSubmitter(
 		composer,
 		nil,
 		commands.NewContext(nil, nil),
-
-		nil, nil, nil,
-		nil, nil, nil,
+		nil, nil,
 	)
 }
 

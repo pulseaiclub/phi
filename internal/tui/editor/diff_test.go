@@ -23,7 +23,7 @@ func diffEditor(t *testing.T, dir string) *Editor {
 		components.DefaultTheme(), dir, "", nil, nil)
 	// Keep the real focus/blocking wiring without a terminal redraw callback.
 	e.composer.Wire(e.transcript, e.submitter, e.commands, dir, e.bus, e.drainBus, nil, nil,
-		e.blocksComposer, nil, nil, nil, nil, func() { e.App.RequestFocus(e) }, e.App.RequestFocus, nil)
+		e.blocksComposer, nil, nil, func() { e.App.RequestFocus(e) }, e.App.RequestFocus, nil)
 	return e
 }
 

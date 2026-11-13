@@ -19,7 +19,7 @@ func TestLoopFailureEndsStreamingBeforeDismiss(t *testing.T) {
 	e.bus.Publish(controller.LoopFinishedMsg{ErrorText: "stream closed without assistant output"})
 	e.drainBus()
 	require.False(t, e.transcript.IsStreaming())
-	require.True(t, e.overlays.ErrorActive())
+	require.True(t, e.overlays.Active())
 	require.True(t, e.submitter.StreamActive(), "dialog still blocks session switches")
 	e.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyEscape, Press: true})
 	require.False(t, e.overlays.Active())
