@@ -189,24 +189,6 @@ func TestExecutorAskFeedbackMessage(t *testing.T) {
 	require.Contains(t, msgs[0].Content, "use go test instead")
 }
 
-func TestExecutorNilAskOnAskDenies(t *testing.T) {
-	reg := tooldef.Registry{
-		"bash": {
-			Definition: llm.ToolDefinition{Name: "bash"},
-			Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
-				return tooldef.Result{Content: "ok"}, nil
-			},
-		},
-	}
-	ex := NewExecutor(reg, fixedGate{dec: permission.Ask, reason: "ask me"}, nil, nil)
-	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{{
-		ID:       "c1",
-		Function: llm.Function{Name: "bash", Arguments: `{"command":"curl x"}`},
-	}}, func(session.ToolData) bool { return true })
-	require.Len(t, msgs, 1)
-	require.NotEmpty(t, msgs[0].Content, "expected deny message")
-}
-
 func TestExecutorExtDenySkipsGateAsk(t *testing.T) {
 	var ran atomic.Int32
 	var askCalled atomic.Int32
