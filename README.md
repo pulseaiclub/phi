@@ -40,13 +40,12 @@
 
 ## Sponsors
 
+Interested in sponsoring phi? Reach out at <a href="mailto:zhengel2022@163.com">zhengel2022@163.com</a>.
+
 <table>
 <tr>
-<td align="center" colspan="2"><a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link"><img src="assets/infistar.png" alt="Infistar.cc" width="660" /></a></td>
-</tr>
-<tr>
-<td valign="top" width="50%"><strong>phi is sponsored by <a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link">Infistar.cc</a></strong> — one API key for every major model, priced for people who run agents all day.<br/><br/>⚙️ <strong>Plug and play</strong>: set the base URL, API key, and model name, then call it directly.<br/>🧩 <strong>One key, every model</strong>: switch between Claude, GPT, Gemini, DeepSeek, and other leading models without editing config again.<br/>💰 <strong>Cheap and simple</strong>: some models cost as little as 1% of official rates, with RMB billing and invoices.<br/>🎁 <strong>phi perk</strong>: <a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link">register through our link</a> and get <strong>$5 in trial credits</strong> 👉</td>
-<td valign="top" width="50%"><strong>Free <code>~/.phi/config.yaml</code></strong> — phi ships the whole model block; paste it, swap in your key, start.<br/><br/><pre>
+<td align="center" width="50%"><a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link"><img src="assets/infistar.png" alt="Infistar.cc" width="100%" /></a></td>
+<td valign="top" width="50%"><strong>phi is sponsored by <a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link">Infistar.cc</a></strong> — one API key for every major model, priced for people who run agents all day.<br/><br/>⚙️ <strong>Plug and play</strong>: set the base URL, API key, and model name, then call it directly.<br/>🧩 <strong>One key, every model</strong>: switch between Claude, GPT, Gemini, DeepSeek, and other leading models without editing config again.<br/>💰 <strong>Cheap and simple</strong>: some models cost as little as 1% of official rates, with RMB billing and invoices.<br/>🎁 <strong>phi perk</strong>: <a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link">register through our link</a> and get <strong>$5 in trial credits</strong> 👉<br/><br/><strong>Free <code>~/.phi/config.yaml</code></strong> — phi ships the whole model block; paste it, swap in your key, start.<br/><br/><pre>
 models:
     - name: claude-opus-5-5
       api_key: ""
@@ -61,6 +60,10 @@ models:
       base_url: https://infistar.cc
       api: Gemini
 </pre></td>
+</tr>
+<tr>
+<td align="center" width="50%"><a href="https://mozhenzhen.com/go/phi"><img src="assets/sponsor/mozz-en.png" alt="Mozhenzhen" width="100%" /></a></td>
+<td valign="top" width="50%">🐼 <strong>Partner Pick: Stop overpaying for AI! Overpriced APIs? Fake models? Getting ripped off? Check <a href="https://mozhenzhen.com/go/phi">Mozhenzhen</a> before you buy:</strong><br/><br/>🏷️ <strong>Tired of overpaying for tokens? [Price Check]</strong> 2,000+ models · 350K+ listings. Compare official subscriptions, API relays, and pay-as-you-go rates side-by-side.<br/>🛡️ <strong>Worried about fake or nerfed models? [Verification]</strong> 5,000+ API relays · 100K verification reports. Check real developer reviews and audit model authenticity.<br/>🧭 <strong>Looking for reliable accounts or top-ups? [Account &amp; Top-Up Directory]</strong> 1,200+ sellers · 20K+ products (accounts, top-ups, team seats) with upfront pricing, delivery speed, and warranty terms.<br/>🎁 <strong>Looking for free API credits? [Free Perks]</strong> Daily updated free tiers, promos, and community relay hubs you can claim anytime.<br/>⭐ <strong>Always Free · Mozhenzhen doesn't sell AI services — rankings are purely data-driven</strong> 👉 Check now: <a href="https://mozhenzhen.com/go/phi">mozhenzhen.com</a></td>
 </tr>
 </table>
 
@@ -368,6 +371,9 @@ unfinished.
 | `phi sessions`     | List persisted sessions for this directory    |
 | `phi sessions fork <id>` | Copy a session at its current point, print the new id |
 | `phi sessions remove <id>` | Delete a persisted session for this directory (alias `rm`; unique id prefix ok) |
+| `phi mcp …`        | Manage MCP servers (list, add, remove, call, doctor) — see [MCP](#mcp) |
+| `phi plugin …`     | Manage extensions (install, list, update, remove) — see [Extensions](#extensions) |
+| `phi config`       | Edit the meta config in a terminal UI — see [Configuration](#configuration) |
 | `/sessions`        | List sessions for this directory (TUI)        |
 | `/branch`          | Switch the working branch — see [Branch switching](#branch-switching) |
 | `/new`             | Start a fresh empty session (TUI)             |

@@ -12,6 +12,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- Add test coverage for the `/skill` command's empty-state warning, picker
+  wiring, and attachment flow.
+
 ### Added
 
 - `phi mcp list` gains an aligned `TRANSPORT` column: stdio commands and HTTP
@@ -19,6 +22,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   instead of being mislabeled `stdio`.
 
 ### Fixed
+
+- Align the `phi plugin` example in the root help text.
 
 ### Security
 

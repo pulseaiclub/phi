@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strings"
 	"text/tabwriter"
-	"time"
 
 	cli "github.com/pulseaiclub/pli"
 
@@ -185,7 +184,7 @@ func mcpCall(args []string) error {
 	}
 	defer func() { _ = pool.Close() }()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), remoteCommandTimeout)
 	defer cancel()
 	out, err := pool.Call(ctx, server, tool, argMap)
 	if err != nil {
@@ -209,7 +208,7 @@ func mcpDoctor() error {
 	}
 	defer func() { _ = pool.Close() }()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), remoteCommandTimeout)
 	defer cancel()
 	results := pool.Doctor(ctx)
 	fail := 0
