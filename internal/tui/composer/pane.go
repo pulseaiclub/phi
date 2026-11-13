@@ -392,18 +392,6 @@ func (c *ComposerPane) SyncBashBorder(text string) {
 	}
 }
 
-// CloseMentionSlash hides the @, /, ?, and "!" completers.
-func (c *ComposerPane) CloseMentionSlash() {
-	c.mention.Hide()
-	c.Chat.MentionOpen = false
-	c.abandonMentionSearch()
-	c.slash.Hide()
-	c.Chat.SlashOpen = false
-	c.question.Hide()
-	c.Chat.QuestionOpen = false
-	c.bash.hide()
-}
-
 // SetBashBorderActive toggles bash-mode border styling.
 func (c *ComposerPane) SetBashBorderActive(active bool) {
 	if active {

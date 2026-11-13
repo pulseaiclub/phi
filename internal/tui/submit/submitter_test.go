@@ -30,7 +30,6 @@ func (stubComposer) ClearPendingSkills()                   {}
 func (stubComposer) ClearPendingImages()                   {}
 func (stubComposer) ClearPendingRefs()                     {}
 func (stubComposer) SyncBashBorder(string)                 {}
-func (stubComposer) CloseMentionSlash()                    {}
 func (stubComposer) SetBashBorderActive(bool)              {}
 
 // newTestSubmitter wires a Submitter over a zero EngineController: SessionDir

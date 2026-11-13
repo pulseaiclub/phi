@@ -25,7 +25,6 @@ type Input interface {
 	ClearPendingImages()
 	ClearPendingRefs()
 	SyncBashBorder(text string)
-	CloseMentionSlash()
 	SetBashBorderActive(active bool)
 }
 
