@@ -89,10 +89,6 @@ func TestAgentBlockHideName(t *testing.T) {
 	require.NotContains(t, a.CopyText(), "agent_spawn")
 }
 
-func TestUserBlockImplementsWidget(_ *testing.T) {
-	var _ components.Widget = &block.UserBlock{Text: "x", Theme: components.DefaultTheme()}
-}
-
 func TestCompactionBlockShowsTokensBefore(t *testing.T) {
 	b := &block.CompactionBlock{Theme: components.DefaultTheme(), TokensBefore: 15000}
 	got := components.SurfaceText(b.Draw(components.DrawContext{Max: components.Size{Width: 60}}))

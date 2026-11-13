@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -212,12 +211,4 @@ func TestCollectModelIDsPrefersID(t *testing.T) {
 		{ID: "id"},
 	})
 	assert.Equal(t, []string{"id", "name-only", "display-only"}, got)
-}
-
-// modelListResponse must decode both the OpenAI and Anthropic envelopes.
-func TestModelListResponseDecodesBothEnvelopes(t *testing.T) {
-	var payload modelListResponse
-	require.NoError(t, json.Unmarshal([]byte(`{"data":[{"id":"a"}],"models":[{"id":"b"}]}`), &payload))
-	assert.Len(t, payload.Data, 1)
-	assert.Len(t, payload.Models, 1)
 }

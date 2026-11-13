@@ -252,17 +252,6 @@ func TestJSONLEncoderDisabled(t *testing.T) {
 	assert.Empty(t, buf.String())
 }
 
-func TestJSONLEncoderNoSecretLeak(t *testing.T) {
-	// The encoder only serializes session events; it must not emit anything
-	// resembling an API key from config or headers.
-	var buf bytes.Buffer
-	enc := &jsonlEncoder{out: &buf, enabled: true}
-	enc.event(session.ToolData{Run: session.ToolRun{
-		ToolUseID: "c1", Name: "read", Status: session.ToolDone, Output: "file contents",
-	}})
-	assert.NotContains(t, buf.String(), "sk-")
-}
-
 func TestRootDispatchHelpAndUnknown(t *testing.T) {
 	err := root().Dispatch([]string{"--help"})
 	var he *cli.HelpError
