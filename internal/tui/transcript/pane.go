@@ -366,7 +366,6 @@ func (t *TranscriptPane) applyAgentToolData(td session.ToolData) {
 	if !parsed.OK {
 		return
 	}
-	t.subagents.Bind(parsed.JobID, td.Run.ToolUseID)
 	t.subagents.ApplyResult(td.Run.ToolUseID, parsed)
 }
 

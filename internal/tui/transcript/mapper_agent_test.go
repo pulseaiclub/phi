@@ -17,7 +17,6 @@ import (
 
 func TestMapperAgentBlockSummaryAndChildren(t *testing.T) {
 	store := transcript.NewSubagentStore()
-	store.Bind("job_1", "call_agent")
 	store.ApplyProgress(job.Progress{
 		JobID:           "job_1",
 		ParentToolUseID: "call_agent",
@@ -79,7 +78,6 @@ func TestMapperAgentBlockSummaryAndChildren(t *testing.T) {
 
 func TestMapperAgentWaitSummaryOnly(t *testing.T) {
 	store := transcript.NewSubagentStore()
-	store.Bind("job_w", "call_spawn")
 	store.ApplyProgress(job.Progress{
 		JobID:           "job_w",
 		ParentToolUseID: "call_spawn",

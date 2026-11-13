@@ -23,7 +23,6 @@ type subagentView struct {
 	Label           string // "explore: find auth"; never a job id
 	Children        []block.ChildTool
 	childIdx        map[childKey]int // never nil; created with the view
-	Summary         string
 }
 
 // childKey identifies a nested tool row: the tool_use id when the child
@@ -42,18 +41,6 @@ func NewSubagentStore() *SubagentStore {
 		byParent: make(map[string]*subagentView),
 		byJob:    make(map[string]*subagentView),
 	}
-}
-
-// Bind links a job id to the parent agent tool_use id.
-func (s *SubagentStore) Bind(jobID, parentToolUseID string) {
-	if jobID == "" || parentToolUseID == "" {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	v := s.viewLocked(jobID, parentToolUseID)
-	v.JobID = jobID
-	v.ParentToolUseID = parentToolUseID
 }
 
 func (s *SubagentStore) viewLocked(jobID, parentToolUseID string) *subagentView {
@@ -119,7 +106,7 @@ func (s *SubagentStore) ApplyProgress(p job.Progress) bool {
 	return true
 }
 
-// ApplyResult records label / terminal summary from agent tool JSON output.
+// ApplyResult links a job to its parent tool row and records its label.
 func (s *SubagentStore) ApplyResult(parentToolUseID string, r agenttool.AgentResult) {
 	if !r.OK {
 		return
@@ -129,9 +116,6 @@ func (s *SubagentStore) ApplyResult(parentToolUseID string, r agenttool.AgentRes
 	v := s.viewLocked(r.JobID, parentToolUseID)
 	if r.Label != "" {
 		v.Label = r.Label
-	}
-	if sum := r.RenderableSummary(); sum != "" {
-		v.Summary = sum
 	}
 }
 

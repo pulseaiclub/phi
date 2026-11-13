@@ -13,7 +13,6 @@ import (
 
 func TestSubagentStoreProgressAndResult(t *testing.T) {
 	s := transcript.NewSubagentStore()
-	s.Bind("job1", "parent1")
 	s.ApplyProgress(job.Progress{
 		JobID:           "job1",
 		ParentToolUseID: "parent1",
@@ -49,7 +48,7 @@ func TestSubagentStoreProgressAndResult(t *testing.T) {
 	s.ApplyResult("parent1", agenttool.ParseAgentResult(`{
 		"job_id":"job1","status":"completed","label":"explore: find auth","summary":"## Ok"
 	}`))
-	// Summary / label are stored; Children unchanged.
+	// Recording the label must preserve the child rows.
 	require.Len(t, s.Children("parent1"), 2, "children should not be cleared")
 	require.Equal(t, "explore: find auth", s.Label("job1"))
 	require.Empty(t, s.Label("job_missing"))
