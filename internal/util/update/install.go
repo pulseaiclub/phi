@@ -171,6 +171,9 @@ func stagingDir(binPath string) (string, error) {
 	return os.MkdirTemp("", "phi-update-")
 }
 
+// DefaultCheckTimeout is the network budget for `phi update --check`.
+const DefaultCheckTimeout = 10 * time.Second
+
 // DefaultInstallTimeout is the network budget for a full self-update.
 const DefaultInstallTimeout = 120 * time.Second
 

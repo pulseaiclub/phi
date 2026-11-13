@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"os"
-	"time"
 
 	cli "github.com/pulseaiclub/pli"
 
@@ -22,7 +21,7 @@ var updateCommand = cli.Command{
 	},
 	Run: func(_ []string, f cli.Flags) error {
 		if f.Bool("check") {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), update.DefaultCheckTimeout)
 			defer cancel()
 			return update.CheckOnly(ctx, version.Version)
 		}
