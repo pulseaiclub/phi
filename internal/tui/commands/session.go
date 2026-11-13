@@ -50,9 +50,8 @@ func (s *SessionCommands) Register(r *CommandRegistry) {
 		Description: "Start a fresh empty session",
 		Slash:       true,
 		Insert:      "/new",
-		Run: func(_ Context, _ []string) error {
+		Run: func(_ Context, _ []string) {
 			s.NewSession()
-			return nil
 		},
 	})
 	r.Register(Command{
@@ -60,9 +59,8 @@ func (s *SessionCommands) Register(r *CommandRegistry) {
 		Description: "Browse and resume sessions for this directory",
 		Slash:       true,
 		Insert:      "/sessions",
-		Run: func(_ Context, _ []string) error {
+		Run: func(_ Context, _ []string) {
 			s.Show()
-			return nil
 		},
 	})
 	r.Register(Command{
@@ -70,9 +68,8 @@ func (s *SessionCommands) Register(r *CommandRegistry) {
 		Description: "Copy this session at its current point into a new one",
 		Slash:       true,
 		Insert:      "/fork",
-		Run: func(_ Context, args []string) error {
+		Run: func(_ Context, args []string) {
 			s.Fork(args)
-			return nil
 		},
 	})
 }

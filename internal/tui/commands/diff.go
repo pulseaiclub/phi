@@ -12,11 +12,10 @@ func (d *DiffCommands) Register(r *CommandRegistry) {
 		Description: "Browse changed files — /diff, /diff staged, /diff HEAD, /diff @file",
 		Slash:       true,
 		Insert:      "/diff ",
-		Run: func(_ Context, args []string) error {
+		Run: func(_ Context, args []string) {
 			if d.Open != nil {
 				d.Open(args)
 			}
-			return nil
 		},
 	})
 }

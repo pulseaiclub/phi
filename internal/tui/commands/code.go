@@ -13,11 +13,10 @@ func (c *CodeCommands) Register(r *CommandRegistry) {
 		Description: "Pick a file to view — /code [path[:line]]",
 		Slash:       true,
 		Insert:      "/code",
-		Run: func(_ Context, args []string) error {
+		Run: func(_ Context, args []string) {
 			if c.Open != nil {
 				c.Open(args)
 			}
-			return nil
 		},
 	})
 }

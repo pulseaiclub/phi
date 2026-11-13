@@ -114,7 +114,7 @@ func TestSubmitter_Submit_needsArgsRefillsComposer(t *testing.T) {
 		Name:      "plan",
 		Slash:     true,
 		NeedsArgs: true,
-		Run:       func(commands.Context, []string) error { return nil },
+		Run:       func(commands.Context, []string) {},
 	})
 	sub := newTestSubmitter(t, tp, nil, comp, reg)
 	sub.Submit("/plan")
