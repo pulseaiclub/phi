@@ -103,17 +103,7 @@ func runHeadless(opts runOptions) error {
 	if bs.Config.Agents.Enabled {
 		parent := bs.Config.Model()
 		jobs, jobErr := agent.NewJobManager(bs.Proj.JobsDir(), parent, func(role job.Role) llm.ModelConfig {
-			m := bs.Config.Agents.Models
-			var name string
-			switch job.NormalizeRole(string(role)) {
-			case job.RoleReview:
-				name = m.Review
-			case job.RoleWorker:
-				name = m.Worker
-			default:
-				name = m.Explore
-			}
-			if cfg, ok := bs.Config.FindModel(name); ok {
+			if cfg, ok := bs.Config.FindModel(bs.Config.Agents.Models.ForRole(role)); ok {
 				return cfg
 			}
 			return parent
