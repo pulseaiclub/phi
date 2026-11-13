@@ -44,13 +44,12 @@
 
 ## 赞助商
 
+想赞助 phi？联系 <a href="mailto:zhengel2022@163.com">zhengel2022@163.com</a>。
+
 <table>
 <tr>
-<td align="center" colspan="2"><a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link"><img src="assets/infistar-banner.png" alt="Infistar.cc 无限星河" width="660" /></a></td>
-</tr>
-<tr>
-<td valign="top" width="50%"><strong>phi 由 <a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link">Infistar.cc 无限星河</a> 赞助</strong>：一个 Key 打通主流模型，重度跑 agent 也不用算账。<br/><br/>⚙️ <strong>即插即用</strong>：配置 Base URL、API Key 与模型名称即可直接调用。<br/>🧩 <strong>全模型支持</strong>：单 Key 自由切换 Claude、GPT、Gemini、DeepSeek 等主流模型，不用再改配置。<br/>💰 <strong>实惠省心</strong>：部分模型低至官方 0.1 折，支持人民币结算与开票。<br/>🎁 <strong>phi 专属福利</strong>：通过<a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link">专属链接</a>注册即领 <strong>$5 体验金</strong> 👉</td>
-<td valign="top" width="50%"><strong>免费 <code>~/.phi/config.yaml</code></strong>：整块模型配置 phi 直接给好，粘贴、填上 Key 就能跑。<br/><br/><pre>
+<td align="center" width="50%"><a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link"><img src="assets/infistar-banner.png" alt="Infistar.cc 无限星河" width="100%" /></a></td>
+<td valign="top" width="50%"><strong>phi 由 <a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link">Infistar.cc 无限星河</a> 赞助</strong>：一个 Key 打通主流模型，重度跑 agent 也不用算账。<br/><br/>⚙️ <strong>即插即用</strong>：配置 Base URL、API Key 与模型名称即可直接调用。<br/>🧩 <strong>全模型支持</strong>：单 Key 自由切换 Claude、GPT、Gemini、DeepSeek 等主流模型，不用再改配置。<br/>💰 <strong>实惠省心</strong>：部分模型低至官方 0.1 折，支持人民币结算与开票。<br/>🎁 <strong>phi 专属福利</strong>：通过<a href="https://www.infistar.cc/register?aff=287HW56S&amp;ref_source=link">专属链接</a>注册即领 <strong>$5 体验金</strong> 👉<br/><br/><strong>免费 <code>~/.phi/config.yaml</code></strong>：整块模型配置 phi 直接给好，粘贴、填上 Key 就能跑。<br/><br/><pre>
 models:
   - name: claude-opus-5-5     # 模型广场里任意模型 id
     api: Anthropic            # 无限星河走 Anthropic Messages
@@ -66,6 +65,10 @@ models:
     api_key: sk-...
     default: true
 </pre></td>
+</tr>
+<tr>
+<td align="center" width="50%"><a href="https://mozhenzhen.com/go/phi"><img src="assets/sponsor/mozz-zh.png" alt="模真真" width="100%" /></a></td>
+<td valign="top" width="50%">🐼 <strong>合作推荐：买 AI 别花冤枉钱！怕买贵？怕假模型？怕被坑？花钱前先查【模真真】</strong><br/><br/>🏷️ <strong>怕花冤枉钱买贵了？【比价】</strong> 2000+ 模型 · 35 万+ 渠道，官方订阅、按量 API 与套餐换算同台对比，哪家便宜直接排好。<br/>🛡️ <strong>怕买到掺假、降智模型？【验真】</strong> 5000+ 中转站 · 10 万份报告，看真实用户口碑、查模型真假，查清套壳和降智。<br/>🧭 <strong>怕买号被坑？【买号/充值导航】</strong> 1200+ 号商 · 2 万+ 商品（成品号/代充/团队席位），买前看清价格、发货速度与售后质保。<br/>🎁 <strong>想找免费额度？【羊毛】</strong> 每天更新免费额度和羊毛活动，整理公益站合集，免费额度随时领。<br/>⭐ <strong>全部免费 · 模真真自己不卖任何 AI 服务，排名只看数据</strong> 👉 去查一查：<a href="https://mozhenzhen.com/go/phi">mozhenzhen.com</a></td>
 </tr>
 </table>
 
