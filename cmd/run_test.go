@@ -20,6 +20,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/permission"
+	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
@@ -33,6 +34,7 @@ func TestRunOptionsFromFlags(t *testing.T) {
 		"--timeout", "10m",
 		"--session", "abc123",
 		"--tools", "grep, read,grep",
+		"--model", "fast",
 	})
 	require.NoError(t, err)
 	opts, err := runOptionsFromFlags(f)
@@ -43,6 +45,7 @@ func TestRunOptionsFromFlags(t *testing.T) {
 	assert.Equal(t, 10*time.Minute, opts.timeout)
 	assert.Equal(t, "abc123", opts.session)
 	assert.Equal(t, "grep, read,grep", opts.builtinTools)
+	assert.Equal(t, "fast", opts.model)
 	// Selection is order-stable and deduplicated at selection time.
 	selected, err := selectBuiltinTools(opts.builtinTools, nil)
 	require.NoError(t, err)
@@ -57,6 +60,7 @@ func TestRunOptionsFromFlagsEqualsForms(t *testing.T) {
 		"--session-dir=/tmp/sess",
 		"--continue-last",
 		"--tools=write,bash",
+		"--model=smart",
 	})
 	require.NoError(t, err)
 	opts, err := runOptionsFromFlags(f)
@@ -66,6 +70,7 @@ func TestRunOptionsFromFlagsEqualsForms(t *testing.T) {
 	assert.Equal(t, "/tmp/sess", opts.sessionDir)
 	assert.True(t, opts.continueLast)
 	assert.Equal(t, "write,bash", opts.builtinTools)
+	assert.Equal(t, "smart", opts.model)
 	selected, err := selectBuiltinTools(opts.builtinTools, nil)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"bash", "write"}, toolNames(selected))
@@ -114,6 +119,31 @@ func TestRunOptionsLeavesBuiltinToolsUnsetByDefault(t *testing.T) {
 	opts, err := runOptionsFromFlags(f)
 	require.NoError(t, err)
 	assert.Empty(t, opts.builtinTools)
+	assert.Empty(t, opts.model)
+}
+
+func TestResolveRunModel(t *testing.T) {
+	cfg := &project.Config{
+		Models: []llm.ModelConfig{
+			{Name: "default"},
+			{Name: "fast"},
+			{Name: "smart"},
+		},
+		DefaultModel: "default",
+	}
+
+	m, err := resolveRunModel(cfg, "")
+	require.NoError(t, err)
+	assert.Equal(t, "default", m.Name)
+
+	m, err = resolveRunModel(cfg, "smart")
+	require.NoError(t, err)
+	assert.Equal(t, "smart", m.Name)
+
+	_, err = resolveRunModel(cfg, "missing")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, `unknown model "missing"`)
+	assert.ErrorContains(t, err, "configured models: default, fast, smart")
 }
 
 func toolNames(list []tooldef.Tool) []string {
@@ -275,4 +305,6 @@ func TestRunCommandHelp(t *testing.T) {
 	assert.Contains(t, he.Help, "--prompt")
 	assert.Contains(t, he.Help, "--yolo")
 	assert.Contains(t, he.Help, "--tools")
+	assert.Contains(t, he.Help, "--model")
+	assert.Contains(t, he.Help, "--model > PHI_MODEL > config default")
 }
