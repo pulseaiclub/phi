@@ -140,7 +140,7 @@ func runHeadless(opts runOptions) error {
 		return exitCode(ExitUsage)
 	}
 
-	engine, err := agent.NewEngine(bs.Config.Model(), sess, engineOpts...)
+	engine, err := agent.NewEngine(primary, sess, engineOpts...)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "phi run:", err)
 		return exitCode(ExitUsage)
