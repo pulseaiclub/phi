@@ -104,6 +104,23 @@ func TestAcceptMentionImageAttachesWhenSupported(t *testing.T) {
 	assert.Empty(t, c.Chat.Value)
 }
 
+func TestWireKeepsConstructorCwdForMentions(t *testing.T) {
+	dir := t.TempDir()
+	png, err := base64.StdEncoding.DecodeString(png1x1Base64)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "pixel.png"), png, 0o644))
+
+	c := NewComposerPane(components.DefaultTheme(), "m", dir)
+	c.Wire(WireDeps{})
+	c.Chat.Value = "@pixel.png"
+	c.Chat.Cursor = len(c.Chat.Value)
+
+	c.acceptMention(mention.Item{Path: "pixel.png"})
+
+	require.Len(t, c.Chat.PendingImages, 1)
+	assert.Equal(t, "pixel.png", c.Chat.PendingImages[0].Label)
+}
+
 func TestTopRightLabelPairsModelLeftOfThink(t *testing.T) {
 	th := components.DefaultTheme()
 	c := NewComposerPane(th, "sonnet", "/tmp")
@@ -182,7 +199,7 @@ func wiredComposer(t *testing.T) (*ComposerPane, *controller.Bus) {
 	reg := commands.NewCommandRegistry()
 	reg.Register(commands.Command{Name: "new", Slash: true})
 	reg.Register(commands.Command{Name: "diff", Slash: true, NeedsArgs: true})
-	c.Wire(nil, nil, reg, c.cwd, bus, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	c.Wire(WireDeps{Commands: reg, Bus: bus})
 	return c, bus
 }
 
