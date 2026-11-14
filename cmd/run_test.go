@@ -20,6 +20,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/permission"
+	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
@@ -33,6 +34,7 @@ func TestRunOptionsFromFlags(t *testing.T) {
 		"--timeout", "10m",
 		"--session", "abc123",
 		"--tools", "grep, read,grep",
+		"--model", "deepseek-flash",
 	})
 	require.NoError(t, err)
 	opts, err := runOptionsFromFlags(f)
@@ -43,6 +45,7 @@ func TestRunOptionsFromFlags(t *testing.T) {
 	assert.Equal(t, 10*time.Minute, opts.timeout)
 	assert.Equal(t, "abc123", opts.session)
 	assert.Equal(t, "grep, read,grep", opts.builtinTools)
+	assert.Equal(t, "deepseek-flash", opts.model)
 	// Selection is order-stable and deduplicated at selection time.
 	selected, err := selectBuiltinTools(opts.builtinTools, nil)
 	require.NoError(t, err)
@@ -275,4 +278,23 @@ func TestRunCommandHelp(t *testing.T) {
 	assert.Contains(t, he.Help, "--prompt")
 	assert.Contains(t, he.Help, "--yolo")
 	assert.Contains(t, he.Help, "--tools")
+}
+
+func TestResolveRunModel(t *testing.T) {
+	cfg := &project.Config{
+		DefaultModel: "a",
+		Models:       []llm.ModelConfig{{Name: "a"}, {Name: "b"}},
+	}
+	m, err := resolveRunModel(cfg, "b")
+	require.NoError(t, err)
+	assert.Equal(t, "b", m.Name)
+
+	m, err = resolveRunModel(cfg, "")
+	require.NoError(t, err)
+	assert.Equal(t, "a", m.Name, "no flag keeps the configured default")
+
+	_, err = resolveRunModel(cfg, "nope")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `unknown model "nope"`)
+	assert.Contains(t, err.Error(), "a, b")
 }

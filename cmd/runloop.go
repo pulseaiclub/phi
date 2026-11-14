@@ -18,6 +18,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/mcp"
+	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/project/model"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools"
@@ -35,6 +36,7 @@ type runOptions struct {
 	continueLast bool
 	sessionDir   string
 	builtinTools string // raw --tools value; empty means all default tools
+	model        string // --model: a configured model name; empty means the default
 }
 
 // runHeadless runs one agent loop and returns an exitError (or nil) for main.
@@ -95,13 +97,17 @@ func runHeadless(opts runOptions) error {
 		}
 		engineOpts = append(engineOpts, agent.WithTools(selected))
 	}
-	primary := bs.Config.Model()
+	primary, err := resolveRunModel(bs.Config, opts.model)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "phi run:", err)
+		return exitCode(ExitUsage)
+	}
 	engineOpts = append(engineOpts, agent.WithHooks(model.HooksForConfig(primary)))
 	if mcpPool != nil {
 		engineOpts = append(engineOpts, agent.WithMCP(mcpPool))
 	}
 	if bs.Config.Agents.Enabled {
-		parent := bs.Config.Model()
+		parent := primary
 		jobs, jobErr := agent.NewJobManager(bs.Proj.JobsDir(), parent, func(role job.Role) llm.ModelConfig {
 			if cfg, ok := bs.Config.FindModel(bs.Config.Agents.Models.ForRole(role)); ok {
 				return cfg
@@ -134,7 +140,7 @@ func runHeadless(opts runOptions) error {
 		return exitCode(ExitUsage)
 	}
 
-	engine, err := agent.NewEngine(bs.Config.Model(), sess, engineOpts...)
+	engine, err := agent.NewEngine(primary, sess, engineOpts...)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "phi run:", err)
 		return exitCode(ExitUsage)
@@ -430,4 +436,21 @@ func assistantText(m session.Message) string {
 		return m.Text
 	}
 	return out.String()
+}
+
+// resolveRunModel picks the model of a headless run: --model wins over the
+// PHI_MODEL override the config loader applied, which wins over the default.
+// Per-role agent configs inherit from the chosen model when they name no model.
+func resolveRunModel(cfg *project.Config, name string) (llm.ModelConfig, error) {
+	if name == "" {
+		return cfg.Model(), nil
+	}
+	if m, ok := cfg.FindModel(name); ok {
+		return m, nil
+	}
+	names := make([]string, 0, len(cfg.Models)+1)
+	for _, m := range cfg.AllModels() {
+		names = append(names, m.Name)
+	}
+	return llm.ModelConfig{}, fmt.Errorf("unknown model %q (configured: %s)", name, strings.Join(names, ", "))
 }

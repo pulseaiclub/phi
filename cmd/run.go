@@ -26,7 +26,9 @@ var runCommand = cli.Command{
 stdout (one JSON object per line).
 
 exit codes:
-  0 success   1 runtime/LLM error   3 config/usage`,
+  0 success   1 runtime/LLM error   3 config/usage
+
+The model is --model when given, else PHI_MODEL, else the configured default.`,
 	Flags: []cli.Flag{
 		cli.String("prompt", "p", "prompt to run (required)", ""),
 		cli.Bool("jsonl", "", "emit JSONL events to stdout"),
@@ -42,6 +44,7 @@ exit codes:
 		cli.String("session", "", "resume a persisted session by id or unique prefix", ""),
 		cli.Bool("continue-last", "", "resume the newest persisted session for this directory"),
 		cli.String("session-dir", "", "override the session storage directory", ""),
+		cli.String("model", "", "configured model to run with (overrides PHI_MODEL and the default)", ""),
 		cli.Var("tools", "", "LIST", "enable only these built-in tools (comma-separated)", toolsFlag{}, parseToolsFlag),
 	},
 }
@@ -67,6 +70,7 @@ func runOptionsFromFlags(f cli.Flags) (runOptions, error) {
 		session:      f.String("session"),
 		continueLast: f.Bool("continue-last"),
 		sessionDir:   f.String("session-dir"),
+		model:        f.String("model"),
 	}
 	if tf, ok := f["tools"].(toolsFlag); ok && tf.set {
 		opts.builtinTools = tf.raw

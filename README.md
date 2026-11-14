@@ -414,6 +414,9 @@ phi run -p "fix the failing test in internal/tools"
 Runs one agent loop without a TUI. Human logs go to stderr; with `--jsonl`,
 machine-readable events go to stdout, one JSON object per line.
 
+`--model <name>` runs with a configured model, over `PHI_MODEL` and the config
+default; an unknown name exits 3 and lists the configured names.
+
 Flags:
 
 | Flag                 | Description                                    |

@@ -20,6 +20,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `phi mcp list` gains an aligned `TRANSPORT` column: stdio commands and HTTP
   URLs are distinguishable, and an unrecognized transport value is shown as-is
   instead of being mislabeled `stdio`.
+- `phi run --model NAME` runs headlessly with a configured model, over `PHI_MODEL` and the config default.
 
 ### Fixed
 
