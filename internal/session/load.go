@@ -189,17 +189,22 @@ func sessionIDFromFilename(name string) (string, bool) {
 	return base[i+1:], true
 }
 
-// DeleteSession removes the JSONL file backing id from dir. id follows
-// FindSessionFile rules (exact or unique prefix).
-func DeleteSession(dir, id string) error {
+// DeleteSession removes the JSONL file backing id from dir and returns the
+// resolved session id. id follows FindSessionFile rules (exact or unique
+// prefix).
+func DeleteSession(dir, id string) (string, error) {
 	path, err := FindSessionFile(dir, id)
 	if err != nil {
-		return err
+		return "", err
+	}
+	resolved := strings.TrimSpace(id)
+	if sid, ok := sessionIDFromFilename(filepath.Base(path)); ok {
+		resolved = sid
 	}
 	if err := os.Remove(path); err != nil {
-		return fmt.Errorf("session: delete %s: %w", path, err)
+		return "", fmt.Errorf("session: delete %s: %w", path, err)
 	}
-	return nil
+	return resolved, nil
 }
 
 // OpenSession loads a JSONL session file and returns a Manager ready to append.

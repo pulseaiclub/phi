@@ -142,12 +142,13 @@ func (s *SessionCommands) Delete(id string) {
 		return
 	}
 	dir, currentID := s.dirAndID()
-	if err := session.DeleteSession(dir, id); err != nil {
+	resolved, err := session.DeleteSession(dir, id)
+	if err != nil {
 		publishToast(s.Bus, err.Error(), toast.ToastError, 4*time.Second)
 		return
 	}
-	publishToast(s.Bus, "Deleted "+session.ShortID(id), toast.ToastSuccess, 3*time.Second)
-	if id == currentID {
+	publishToast(s.Bus, "Deleted "+session.ShortID(resolved), toast.ToastSuccess, 3*time.Second)
+	if resolved == currentID {
 		s.NewSession()
 	}
 	s.refreshPicker()
