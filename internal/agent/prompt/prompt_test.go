@@ -60,6 +60,7 @@ func TestBuildMCPCatalog(t *testing.T) {
 	require.Contains(t, got, "ls` on `mcp://")
 	require.Contains(t, got, "read` on `mcp://<server>/tools/<tool>`")
 	require.Contains(t, got, "write` to `mcp://<server>/tools/<tool>`")
+	require.Contains(t, got, "`*` before a name = required")
 	require.NotContains(t, got, `"properties"`)
 	require.NotContains(t, got, "inputSchema")
 }
