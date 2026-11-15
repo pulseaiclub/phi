@@ -356,22 +356,38 @@ func TestDeleteSession(t *testing.T) {
 	}
 
 	gone := write("deadbeef00001111")
-	_ = write("abcdef1234567890")
+	_ = write("abcdef1111111111")
+	_ = write("abcdef2222222222")
+	_ = write("abcdef9999999999")
 
-	// Exact id.
-	require.NoError(t, DeleteSession(dir, "deadbeef00001111"))
-	_, err := os.Stat(gone)
+	// Exact id reports the id it deleted.
+	resolved, err := DeleteSession(dir, "deadbeef00001111")
+	require.NoError(t, err)
+	assert.Equal(t, "deadbeef00001111", resolved)
+	_, err = os.Stat(gone)
 	require.ErrorIs(t, err, os.ErrNotExist)
 
-	// Unique prefix resolves and deletes.
-	require.NoError(t, DeleteSession(dir, "abcdef"))
+	// Unique prefix reports the full resolved id, not the prefix.
+	resolved, err = DeleteSession(dir, "abcdef1")
+	require.NoError(t, err)
+	assert.Equal(t, "abcdef1111111111", resolved)
 	list, err := ListSessions(dir)
 	require.NoError(t, err)
-	assert.Empty(t, list)
+	require.Len(t, list, 2)
+
+	// Ambiguous prefix is an error and deletes nothing.
+	resolved, err = DeleteSession(dir, "abcdef")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ambiguous")
+	assert.Empty(t, resolved)
+	list, err = ListSessions(dir)
+	require.NoError(t, err)
+	require.Len(t, list, 2, "ambiguous prefix must not delete")
 
 	// Unknown id is an error, not a silent no-op.
-	err = DeleteSession(dir, "abcdef1234567890")
+	resolved, err = DeleteSession(dir, "abcdef3333333333")
 	require.Error(t, err)
+	assert.Empty(t, resolved)
 	assert.Contains(t, err.Error(), "not found")
 }
 
