@@ -71,6 +71,11 @@ func init() {
 	)
 }
 
+// mcpNoServersHint is printed by both `phi mcp list` and `phi mcp doctor` when
+// no server is configured. Nothing is broken in that case, so neither command
+// treats it as a failure.
+const mcpNoServersHint = "(no servers — try: phi mcp add fetch -- npx -y @modelcontextprotocol/server-fetch)"
+
 func mcpList() error {
 	servers, err := mcp.Load(project.GetDefaultProject().MCPConfigFile())
 	if err != nil {
@@ -82,7 +87,7 @@ func mcpList() error {
 
 func writeMCPList(w io.Writer, servers map[string]mcp.ServerConfig) {
 	if len(servers) == 0 {
-		fmt.Fprintln(w, "(no servers — try: phi mcp add fetch -- npx -y @modelcontextprotocol/server-fetch)")
+		fmt.Fprintln(w, mcpNoServersHint)
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
@@ -203,14 +208,29 @@ func mcpDoctor() error {
 	if err != nil {
 		return err
 	}
-	if pool == nil {
-		return errors.New("no pool")
-	}
 	defer func() { _ = pool.Close() }()
 
-	ctx, cancel := context.WithTimeout(context.Background(), remoteCommandTimeout)
-	defer cancel()
-	results := pool.Doctor(ctx)
+	// LoadPool only returns a nil pool when MCP is off, which was handled
+	// above, and HasServers is nil-safe.
+	hasServers := pool.HasServers()
+	var results []mcp.DoctorResult
+	if hasServers {
+		ctx, cancel := context.WithTimeout(context.Background(), remoteCommandTimeout)
+		defer cancel()
+		results = pool.Doctor(ctx)
+	}
+	return writeMCPDoctor(os.Stdout, hasServers, results)
+}
+
+// writeMCPDoctor prints the doctor report. Nothing configured (hasServers
+// false) is a hint and a zero exit, exactly like `phi mcp list`; with servers
+// configured, one line is printed per server and the command fails only when a
+// server did not answer.
+func writeMCPDoctor(w io.Writer, hasServers bool, results []mcp.DoctorResult) error {
+	if !hasServers {
+		fmt.Fprintln(w, mcpNoServersHint)
+		return nil
+	}
 	fail := 0
 	for _, r := range results {
 		status := "ok"
@@ -218,7 +238,7 @@ func mcpDoctor() error {
 			status = "FAIL"
 			fail++
 		}
-		fmt.Printf("%s\t%s\t%s\n", status, r.Name, r.Detail)
+		fmt.Fprintf(w, "%s\t%s\t%s\n", status, r.Name, r.Detail)
 	}
 	if fail > 0 {
 		return exitCode(ExitError)
