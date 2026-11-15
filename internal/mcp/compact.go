@@ -8,7 +8,7 @@ import (
 )
 
 // SlimTool renders a compact one-line schema for inspect.
-// Example: echo|env:s{dev|prod}*  — name|param:type[{enum}][*required].
+// Example: echo|*env:s{dev|prod}  — name|[*]param:type[{enum}]; the * prefix marks required.
 func SlimTool(t ToolDefinition) string {
 	var b strings.Builder
 	b.WriteString(t.Name)
@@ -35,11 +35,11 @@ func slimParams(props map[string]string, required map[string]bool) []string {
 	sort.Strings(keys)
 	out := make([]string, 0, len(keys))
 	for _, name := range keys {
-		s := name + ":" + props[name]
+		typ := props[name]
 		if required[name] {
-			s += "*"
+			name = "*" + name
 		}
-		out = append(out, s)
+		out = append(out, name+":"+typ)
 	}
 	return out
 }
