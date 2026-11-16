@@ -51,27 +51,13 @@ func NewEngine(model llm.ModelConfig, sess *Session, opts ...EngineOption) (*Eng
 	if sess == nil {
 		return nil, errors.New("agent: session is required")
 	}
-	var cfg EngineConfig
+	var cfg engineConfig
 	for _, opt := range opts {
-		cfg = opt.Apply(cfg)
+		opt(&cfg)
 	}
-	engine := &Engine{
-		modelCfg:     model,
-		hooks:        cfg.Hooks,
-		session:      sess,
-		gate:         cfg.Gate,
-		ask:          cfg.Ask,
-		jobs:         cfg.Jobs,
-		extensions:   cfg.Extensions,
-		baseTools:    cfg.Tools,
-		omitExtTools: cfg.OmitExtensionTools,
-		mcp:          cfg.MCP,
-		configurator: cfg.Configurator,
-	}
-
-	toolList := engine.buildCoreTools(engine.baseTools)
-	if !engine.omitExtTools {
-		if extTools := engine.extensions.ExtensionTools(); len(extTools) > 0 {
+	toolList := buildCoreTools(cfg.tools, cfg.mcp, cfg.jobs, sess, cfg.gate)
+	if !cfg.omitExtensionTools {
+		if extTools := cfg.extensions.ExtensionTools(); len(extTools) > 0 {
 			merged := make([]tooldef.Tool, 0, len(toolList)+len(extTools))
 			merged = append(merged, toolList...)
 			merged = append(merged, extTools...)
@@ -79,10 +65,29 @@ func NewEngine(model llm.ModelConfig, sess *Session, opts ...EngineOption) (*Eng
 		}
 	}
 
-	engine.client = engine.newChatClient(toolList)
-	engine.executor = NewExecutor(tooldef.NewRegistry(toolList), engine.gate, engine.ask, engine.extensions)
-	engine.executor.cwd = engine.SessionCwd()
-	return engine, nil
+	return &Engine{
+		client: newChatClient(
+			model,
+			cfg.extensions,
+			cfg.hooks,
+			toolList,
+			buildSystemPrompt(model, sess, cfg.mcp, cfg.jobs),
+		),
+		executor: NewExecutor(tooldef.NewRegistry(toolList),
+			WithExecutorGate(cfg.gate), WithExecutorAsk(cfg.ask),
+			WithExecutorExtensions(cfg.extensions), WithExecutorCwd(sess.Cwd())),
+		modelCfg:     model,
+		hooks:        cfg.hooks,
+		session:      sess,
+		gate:         cfg.gate,
+		ask:          cfg.ask,
+		jobs:         cfg.jobs,
+		extensions:   cfg.extensions,
+		baseTools:    cfg.tools,
+		omitExtTools: cfg.omitExtensionTools,
+		mcp:          cfg.mcp,
+		configurator: cfg.configurator,
+	}, nil
 }
 
 // newChatClient picks the transport for the active model: an extension-served
@@ -90,36 +95,47 @@ func NewEngine(model llm.ModelConfig, sess *Session, opts ...EngineOption) (*Eng
 // shadows a config.yaml entry with the same name), else the builtin HTTP
 // client. Hooks only apply to the builtin path — extension-served requests
 // never pass through a provider request builder.
-func (engine *Engine) newChatClient(tools []tooldef.Tool) llm.ChatClient {
+func newChatClient(
+	model llm.ModelConfig,
+	runner *extension.Runner,
+	hooks llmclient.Hooks,
+	tools []tooldef.Tool,
+	systemPrompt string,
+) llm.ChatClient {
 	defs := tooldef.Definitions(tools)
-	if route, ok := engine.extensions.LookupModel(engine.modelCfg.Name); ok && route.ExtConn() {
-		runner := engine.extensions
+	if route, ok := runner.LookupModel(model.Name); ok && route.ExtConn() {
 		stream := func(
 			ctx context.Context,
 			req pxb.ModelInvoke,
 		) (iter.Seq2[pxb.ModelStreamEvent, error], error) {
 			return runner.ModelStream(ctx, route, req)
 		}
-		return extmodel.New(route.Reg.Name, stream, engine.modelCfg, defs, engine.systemPrompt())
+		return extmodel.New(route.Reg.Name, stream, model, defs, systemPrompt)
 	}
-	return llmclient.NewClient(engine.modelCfg, engine.hooks, defs, engine.systemPrompt())
+	return llmclient.NewClient(model, hooks, defs, systemPrompt)
 }
 
 // buildCoreTools returns builtin (+ agent_*) tools without extension RegisterTool.
 // MCP needs no extra tools: the pool rides the default ls/read/write tools.
-func (engine *Engine) buildCoreTools(base []tooldef.Tool) []tooldef.Tool {
+func buildCoreTools(
+	base []tooldef.Tool,
+	pool *mcp.Pool,
+	jobs *job.Manager,
+	sess *Session,
+	gate permission.Gate,
+) []tooldef.Tool {
 	if base == nil {
-		base = tools.DefaultTools(engine.mcp)
+		base = tools.DefaultTools(pool)
 	}
 	out := base
-	if engine.jobs == nil {
+	if jobs == nil {
 		return out
 	}
 	agentTools := agenttool.AgentTools(
-		agenttool.WithManager(engine.jobs),
-		agenttool.WithParentID(engine.SessionID),
-		agenttool.WithWorkDir(engine.SessionCwd),
-		agenttool.WithGate(engine.gate),
+		agenttool.WithManager(jobs),
+		agenttool.WithParentID(sess.ID),
+		agenttool.WithWorkDir(sess.Cwd),
+		agenttool.WithGate(gate),
 	)
 	merged := make([]tooldef.Tool, 0, len(out)+len(agentTools))
 	merged = append(merged, out...)
@@ -128,20 +144,24 @@ func (engine *Engine) buildCoreTools(base []tooldef.Tool) []tooldef.Tool {
 }
 
 func (engine *Engine) systemPrompt() string {
+	return buildSystemPrompt(engine.modelCfg, engine.session, engine.mcp, engine.jobs)
+}
+
+func buildSystemPrompt(model llm.ModelConfig, sess *Session, pool *mcp.Pool, jobs *job.Manager) string {
 	var mcpServers []string
-	if engine.mcp != nil {
-		mcpServers = engine.mcp.ServerNames()
+	if pool != nil {
+		mcpServers = pool.ServerNames()
 	}
 	maxConcurrent := 0
-	if engine.jobs != nil {
-		maxConcurrent = engine.jobs.MaxConcurrent()
+	if jobs != nil {
+		maxConcurrent = jobs.MaxConcurrent()
 	}
 	// Build from the session cwd, not the process cwd: a sub-agent spawned with
 	// its own workdir must load that workspace's instructions.
 	return prompt.Build(
-		engine.SessionCwd(),
-		engine.modelCfg.SkillPaths,
-		engine.jobs != nil,
+		sess.Cwd(),
+		model.SkillPaths,
+		jobs != nil,
 		maxConcurrent,
 		mcpServers,
 	)
@@ -156,7 +176,7 @@ func (engine *Engine) HasTool(name string) bool {
 // BaseTools returns the built-in tools exposed to the extension host. The
 // controller owns the extension runner and uses this snapshot to configure it.
 func (engine *Engine) BaseTools() []tooldef.Tool {
-	return engine.buildCoreTools(engine.baseTools)
+	return buildCoreTools(engine.baseTools, engine.mcp, engine.jobs, engine.session, engine.gate)
 }
 
 // SessionID returns the durable session id.

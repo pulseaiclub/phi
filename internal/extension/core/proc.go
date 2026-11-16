@@ -57,10 +57,8 @@ type Proc struct {
 	closed   atomic.Bool
 	stopOnce sync.Once
 
-	// sink is read by readLoop (spontaneous frames) and by RPC callers
-	// (CommandResponse notify) while the host may re-wire it — a session switch
-	// or a hot swap rebinds it on a live process, so it needs a real barrier.
-	sink atomic.Pointer[HostSink]
+	// The sink is immutable and installed before readLoop starts.
+	sink HostSink
 }
 
 // HostSink receives frames the extension sends on its own initiative instead of
@@ -68,16 +66,19 @@ type Proc struct {
 // Without a sink those frames are dropped.
 type HostSink interface {
 	Notify(pxb.NotifyMsg)
-	HostRequest(id uint32, hasID bool, req pxb.HostRequest)
+	HostRequest(id uint32, hasID bool, req pxb.HostRequest, reply func(uint32, pxb.HostResult))
 }
 
-// SetHostSink installs the sink for spontaneous frames: notifications and host
-// requests (confirm, send_user_message). Without a sink those frames are dropped.
-func (p *Proc) SetHostSink(sink HostSink) {
-	if p == nil {
-		return
-	}
-	p.sink.Store(&sink)
+// ProcOption configures a process before its handshake and frame pump start.
+type ProcOption func(*procConfig)
+
+type procConfig struct {
+	sink HostSink
+}
+
+// WithHostSink installs the receiver for unsolicited frames.
+func WithHostSink(sink HostSink) ProcOption {
+	return func(cfg *procConfig) { cfg.sink = sink }
 }
 
 // hostSink returns the installed sink, if any.
@@ -85,11 +86,7 @@ func (p *Proc) hostSink() (HostSink, bool) {
 	if p == nil {
 		return nil, false
 	}
-	sink := p.sink.Load()
-	if sink == nil || *sink == nil {
-		return nil, false
-	}
-	return *sink, true
+	return p.sink, p.sink != nil
 }
 
 type frameResult struct {
@@ -148,7 +145,16 @@ func (s *modelStream) close() {
 }
 
 // StartProc launches manifest.Exec and completes the PXB handshake.
-func StartProc(ctx context.Context, m loader.Manifest, dir, logDir, cwd, sessionID string) (*Proc, error) {
+func StartProc(
+	ctx context.Context,
+	m loader.Manifest,
+	dir, logDir, cwd, sessionID string,
+	options ...ProcOption,
+) (*Proc, error) {
+	var cfg procConfig
+	for _, option := range options {
+		option(&cfg)
+	}
 	if m.Exec == "" {
 		return nil, errors.New("extension: empty exec")
 	}
@@ -194,6 +200,7 @@ func StartProc(ctx context.Context, m loader.Manifest, dir, logDir, cwd, session
 
 	p := &Proc{
 		Manifest:  m,
+		sink:      cfg.sink,
 		Dir:       dir,
 		LogPath:   logPath,
 		cmd:       cmd,
@@ -378,7 +385,7 @@ func (p *Proc) readLoop() {
 				continue
 			}
 			if sink, ok := p.hostSink(); ok {
-				sink.HostRequest(f.ID, f.Flags&pxb.FlagHasID != 0, req)
+				sink.HostRequest(f.ID, f.Flags&pxb.FlagHasID != 0, req, p.ReplyHost)
 			}
 		case pxb.TypeShutdownAck:
 			return

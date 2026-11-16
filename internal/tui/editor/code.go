@@ -26,7 +26,6 @@ func (e *Editor) showCodeFiles() {
 	e.composer.ShowList(listrows.FileItems(paths), cfg, func(item listpicker.Item) {
 		// Picker IDs are literal paths, not the @path:line command syntax.
 		e.code.OpenAt(item.ID, 0)
-		e.composer.SetListFocusReturn(e)
 		e.captureOverlayFocus()
 	}, nil)
 }

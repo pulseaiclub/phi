@@ -40,7 +40,7 @@ internal/tui/
 ├── editor/                 # Editor root: layout, dispatch, branch watch, command bridge
 ├── controller/             # Engine lifecycle, Bus/Msg, activity, permission replies
 ├── transcript/             # Mapper, SubagentStore, TranscriptPane
-├── composer/               # ComposerPane, Wire(), Input iface
+├── composer/               # ComposerPane, PaneOption, Input iface
 ├── footer/                 # FooterChrome, token label helpers
 ├── overlays/               # permission + ext-confirm ask
 ├── diffpane/               # git diff review overlay (`/diff`)
@@ -75,21 +75,22 @@ Dumb rendering widgets stay in `internal/components/` (chat, input, palette, men
 ```text
 proj.LoadConfig()
 vx, theme, cwd
-redraw := controller.NewRedrawRelay()
-bus    := controller.NewBus(redraw.Fire)
-ctrl   := controller.NewController(bus, proj)
-ui     := editor.NewEditor(app, bus, ctrl, vx, theme, cwd, model, skillPaths, contextWindow, modelNames)
-redraw.Bind(ui.RequestRedraw)
+app := app.NewApp(app.WithUI(vx), app.WithAnimation(true))
+bus  := controller.NewBus(app.RequestRedraw)
+ctrl := controller.NewController(bus, proj)
+ui   := editor.NewEditor(app, bus, ctrl, vx, theme, cwd, model, skillPaths, modelNames)
 ui.StartUpdateCheck(...)
 ui.StartBranchWatch()
 app.Run(ui)
 ```
 
-Inside `NewEditor`, panes are built first, then `commands.NewBuiltinRegistry`
-assembles the registry and domain handlers (`SessionCommands`, `BranchCommands`,
-`ExtCommands`, settings/skills/diff). `Builtin.Bind` attaches Submitter / pickers /
-stream guard after `Submitter` exists. `ComposerPane.Wire(...)` connects the keyboard
-path last.
+Inside `NewEditor`, every collaborator is injected through constructor options —
+no post-construction wiring. The composer precedes the submitter and the command
+bridge it drives, so those two references resolve lazily on first use; the
+controller bakes host capabilities into the extension runner at construction
+(`extension.WithHost` / `WithOnChange`), so fibers never come up unwired.
+`commands.NewBuiltinRegistry` takes all handler dependencies as options and
+assembles the registry and domain handlers in one pass.
 
 `Editor` does **not** call `project.GetDefaultProject` or construct `Controller`.
 It does **not** own command side effects — those live in `internal/tui/commands`.

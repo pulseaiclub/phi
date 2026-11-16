@@ -33,13 +33,14 @@ func (f *fakeBashPredictor) Predict(ctx context.Context, typed string) ([]contro
 	f.mu.Lock()
 	f.typed = append(f.typed, typed)
 	items, err := f.items, f.err
+	waitForCancel := f.waitForCancel
 	f.mu.Unlock()
 
 	if err != nil {
 		return nil, err
 	}
 	// Hold the call until the context ends, so a cancel is observable.
-	if f.waitForCancel {
+	if waitForCancel {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}
@@ -54,10 +55,9 @@ func (f *fakeBashPredictor) asked() []string {
 
 func newBashPane(t *testing.T, predictor BashPredictor) (*ComposerPane, *controller.Bus) {
 	t.Helper()
-	c := NewComposerPane(components.DefaultTheme(), "m", t.TempDir())
 	bus := controller.NewBus(nil)
-	c.bus = bus
-	c.SetBashPredictor(predictor)
+	c := NewComposerPane(components.DefaultTheme(), "m", t.TempDir(),
+		WithBashPredictor(predictor), WithBus(bus))
 	return c, bus
 }
 
@@ -119,8 +119,7 @@ func TestBashCompletionSpaceCanBeAccepted(t *testing.T) {
 func TestAcceptBashReplacesTheTypedCommand(t *testing.T) {
 	// Wired like the app: the accept path runs through ReplaceRange, whose
 	// change notification is exactly what must not reopen the picker.
-	c, bus := wiredComposer(t)
-	c.SetBashPredictor(&fakeBashPredictor{})
+	c, bus := wiredComposer(t, WithBashPredictor(&fakeBashPredictor{}))
 	c.Chat.Value, c.Chat.Cursor = "!git s", len("!git s")
 	c.bash.onChange(true, "git s")
 	c.bash.picker.SetResults([]mention.Item{{Path: "git status", Description: "0.90"}}, "")
@@ -351,8 +350,7 @@ func TestHideCompletersCancelsThePrediction(t *testing.T) {
 // Enter must still run the typed command. A picker with no rows must not own
 // Enter, or "!cmd⏎" would need two presses.
 func TestEnterRunsTheCommandBeforeAnyRankingArrives(t *testing.T) {
-	c, bus := wiredComposer(t)
-	c.SetBashPredictor(&fakeBashPredictor{waitForCancel: true})
+	c, bus := wiredComposer(t, WithBashPredictor(&fakeBashPredictor{waitForCancel: true}))
 	pressText(t, c, "!git status")
 	require.False(t, c.bash.picker.Open, "nothing to show, nothing on screen")
 	require.Empty(t, c.bash.picker.Items)
@@ -365,8 +363,7 @@ func TestEnterRunsTheCommandBeforeAnyRankingArrives(t *testing.T) {
 // When the highlighted row is what the user already typed, accepting it would
 // rewrite the composer with itself; Enter keeps its usual meaning.
 func TestEnterRunsTheCommandWhenTheRowIsAlreadyTyped(t *testing.T) {
-	c, bus := wiredComposer(t)
-	c.SetBashPredictor(&fakeBashPredictor{})
+	c, bus := wiredComposer(t, WithBashPredictor(&fakeBashPredictor{}))
 	c.Chat.Value, c.Chat.Cursor = "!git status", len("!git status")
 	c.bash.onChange(true, "git status")
 	c.bash.picker.SetResults([]mention.Item{{Path: "git status"}, {Path: "git stash"}}, "")
@@ -379,8 +376,7 @@ func TestEnterRunsTheCommandWhenTheRowIsAlreadyTyped(t *testing.T) {
 }
 
 func TestEnterAcceptsTrailingSpaceCompletion(t *testing.T) {
-	c, bus := wiredComposer(t)
-	c.SetBashPredictor(&fakeBashPredictor{})
+	c, bus := wiredComposer(t, WithBashPredictor(&fakeBashPredictor{}))
 	c.Chat.Value, c.Chat.Cursor = "!git", len("!git")
 	c.bash.picker.SetResults([]mention.Item{{Path: "git "}}, "")
 	c.bash.show()
@@ -392,8 +388,7 @@ func TestEnterAcceptsTrailingSpaceCompletion(t *testing.T) {
 }
 
 func TestEnterAcceptsARowThatDiffersFromWhatWasTyped(t *testing.T) {
-	c, bus := wiredComposer(t)
-	c.SetBashPredictor(&fakeBashPredictor{})
+	c, bus := wiredComposer(t, WithBashPredictor(&fakeBashPredictor{}))
 	c.Chat.Value, c.Chat.Cursor = "!git s", len("!git s")
 	c.bash.onChange(true, "git s")
 	c.bash.picker.SetResults([]mention.Item{{Path: "git stash"}}, "")
@@ -406,8 +401,7 @@ func TestEnterAcceptsARowThatDiffersFromWhatWasTyped(t *testing.T) {
 }
 
 func TestNavigationKeysStayWithTheComposerUntilThereAreRows(t *testing.T) {
-	c, _ := wiredComposer(t)
-	c.SetBashPredictor(&fakeBashPredictor{waitForCancel: true})
+	c, _ := wiredComposer(t, WithBashPredictor(&fakeBashPredictor{waitForCancel: true}))
 	// Editing a multi-line command needs the cursor keys, so a picker with no
 	// rows must not hold them.
 	pressText(t, c, "!for f in *; do\necho done")
@@ -424,14 +418,16 @@ func TestNavigationKeysStayWithTheComposerUntilThereAreRows(t *testing.T) {
 // to swallow Enter either, so the keystroke after every ranking still needs one
 // press to run the command.
 func TestEnterRunsTheCommandWhileARerankIsInFlight(t *testing.T) {
-	c, bus := wiredComposer(t)
-	c.SetBashPredictor(&fakeBashPredictor{items: []controller.BashSuggestion{{Command: "git stash", Score: 0.9}}})
+	predictor := &fakeBashPredictor{items: []controller.BashSuggestion{{Command: "git stash", Score: 0.9}}}
+	c, bus := wiredComposer(t, WithBashPredictor(predictor))
 	c.Chat.Value, c.Chat.Cursor = "!git s", len("!git s")
 	c.bash.onChange(true, "git s")
 	c.ApplyBashSuggestions(drainBash(t, bus))
 	require.True(t, c.Chat.BashOpen)
 
-	c.SetBashPredictor(&fakeBashPredictor{waitForCancel: true})
+	predictor.mu.Lock()
+	predictor.waitForCancel = true
+	predictor.mu.Unlock()
 	pressKey(t, c, xui.KeyEvent{Code: xui.KeyRune, Rune: 't', Press: true})
 	require.False(t, c.bash.picker.Open, "the dropped rows take the picker with them")
 	require.Empty(t, c.bash.picker.Items)
@@ -446,8 +442,8 @@ func TestEnterRunsTheCommandWhileARerankIsInFlight(t *testing.T) {
 // A failed judgement leaves a message where the rows were. The message is not
 // something to navigate, so Enter still has to run the typed command.
 func TestEnterRunsTheCommandAfterAFailedRanking(t *testing.T) {
-	c, bus := wiredComposer(t)
-	c.SetBashPredictor(&fakeBashPredictor{items: []controller.BashSuggestion{{Command: "git stash", Score: 0.9}}})
+	predictor := &fakeBashPredictor{items: []controller.BashSuggestion{{Command: "git stash", Score: 0.9}}}
+	c, bus := wiredComposer(t, WithBashPredictor(predictor))
 	c.Chat.Value, c.Chat.Cursor = "!git s", len("!git s")
 	c.bash.onChange(true, "git s")
 	c.ApplyBashSuggestions(drainBash(t, bus))
@@ -470,11 +466,10 @@ func TestEnterRunsTheCommandAfterAFailedRanking(t *testing.T) {
 // The judge ranks a list, so Down walks it and Tab completes the row it landed
 // on — never runs it.
 func TestBashPickerNavigatesTheRankedRows(t *testing.T) {
-	c, bus := wiredComposer(t)
-	c.SetBashPredictor(&fakeBashPredictor{items: []controller.BashSuggestion{
+	c, bus := wiredComposer(t, WithBashPredictor(&fakeBashPredictor{items: []controller.BashSuggestion{
 		{Command: "git stash", Score: 0.8, IsPrefix: true},
 		{Command: "git status", Score: 0.5, IsPrefix: true},
-	}})
+	}}))
 	c.Chat.Value, c.Chat.Cursor = "!git st", len("!git st")
 	c.bash.onChange(true, "git st")
 	c.ApplyBashSuggestions(drainBash(t, bus))
@@ -521,9 +516,8 @@ func TestRepeatedQueryIsNotAskedTwice(t *testing.T) {
 // through to the branch that cancels the running turn: with nothing drawn yet,
 // the picker's own state cannot tell the two apart.
 func TestEscapeDropsAJudgementThatHasNotDrawnAnything(t *testing.T) {
-	c, bus := wiredComposer(t)
 	predictor := &fakeBashPredictor{waitForCancel: true}
-	c.SetBashPredictor(predictor)
+	c, bus := wiredComposer(t, WithBashPredictor(predictor))
 
 	pressText(t, c, "!git status")
 	waitFor(t, func() bool { return len(predictor.asked()) == 1 })

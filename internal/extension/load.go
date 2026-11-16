@@ -5,13 +5,14 @@ import (
 	"os"
 	"path/filepath"
 
+	ext "github.com/pulseaiclub/phi/ext/go"
 	"github.com/pulseaiclub/phi/internal/debuglog"
 	"github.com/pulseaiclub/phi/internal/extension/core"
 	"github.com/pulseaiclub/phi/internal/extension/loader"
 )
 
 // Load discovers PXB extensions and spawns each subprocess.
-func Load(userDir, projectDir string) (*core.Runner, []loader.Warning, error) {
+func Load(userDir, projectDir string, options ...core.RunnerOption) (*core.Runner, []loader.Warning, error) {
 	found, warns, err := loader.Discover(userDir, projectDir)
 	if err != nil {
 		return nil, warns, err
@@ -20,23 +21,20 @@ func Load(userDir, projectDir string) (*core.Runner, []loader.Warning, error) {
 	logDir := extensionLogDir(userDir)
 	cwd, _ := os.Getwd()
 
-	r := core.NewRunner(logDir)
+	defaults := []core.RunnerOption{core.WithHost(ext.HostOpts{Cwd: cwd})}
+	r := core.NewRunner(logDir, append(defaults, options...)...)
 
 	if len(found) == 0 {
 		return r, warns, nil
 	}
 
-	// Naming is already de-duplicated by the loader, so a plain insert is safe.
-	env := core.StartEnv{LogDir: logDir, Cwd: cwd}
 	ctx := context.Background()
 	for _, d := range found {
-		f := core.NewFiber(d.Manifest.Name, d)
-		if err := f.Load(ctx, env); err != nil {
+		if err := r.LoadExtension(ctx, d); err != nil {
 			warns = append(warns, loader.Warning{Path: d.Path, Message: err.Error()})
 			debuglog.Logf("extension: load %s: %v", d.Path, err)
 			continue
 		}
-		r.AddFiber(f)
 	}
 	return r, warns, nil
 }

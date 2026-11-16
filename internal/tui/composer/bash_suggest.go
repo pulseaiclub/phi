@@ -54,22 +54,16 @@ type bashSuggest struct {
 
 // newBashSuggest builds the "!" completer for one composer pane: it reads the
 // text it ranks, and the bus it answers on, from there.
-func newBashSuggest(pane *ComposerPane, theme components.Theme) bashSuggest {
+func newBashSuggest(pane *ComposerPane, theme components.Theme, predictor BashPredictor) bashSuggest {
 	return bashSuggest{
-		pane: pane,
+		pane:      pane,
+		predictor: predictor,
 		picker: mention.Picker{
 			Theme:    theme,
 			Prefix:   "!",
 			MaxItems: bashSuggestVisible,
 		},
 	}
-}
-
-// SetBashPredictor installs the "!" completion source. Until one is set — or if
-// none is ever set, on a build without a predictor — the picker stays closed and
-// the composer behaves exactly as before.
-func (c *ComposerPane) SetBashPredictor(predictor BashPredictor) {
-	c.bash.predictor = predictor
 }
 
 // onChange reacts to the composer text entering or leaving "!" mode.

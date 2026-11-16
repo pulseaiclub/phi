@@ -17,30 +17,15 @@ type SessionCommands struct {
 	Bus           *controller.Bus
 	SyncHooks     func()
 	ResetActivity func()
-	// OpenPicker opens the session list overlay (wired by Builtin.Bind).
+	// OpenPicker opens the session list overlay.
 	OpenPicker func(items []session.SessionMeta, currentID string)
-	// RefreshPicker swaps rows into the open overlay (wired by Builtin.Bind).
+	// RefreshPicker swaps rows into the open overlay.
 	RefreshPicker func(items []session.SessionMeta, currentID string)
 	// StreamActive reports whether session changes should be blocked.
 	StreamActive func() bool
 	// SessionDir / SessionID override Ctrl for tests when set.
 	SessionDir func() string
 	SessionID  func() string
-}
-
-// NewSessionCommands builds session command handlers.
-func NewSessionCommands(
-	ctrl *controller.EngineController,
-	transcript *transcript.TranscriptPane,
-	bus *controller.Bus,
-	syncHooks func(),
-) *SessionCommands {
-	return &SessionCommands{
-		Ctrl:       ctrl,
-		Transcript: transcript,
-		Bus:        bus,
-		SyncHooks:  syncHooks,
-	}
 }
 
 // Register wires /sessions, /new and /fork into r.

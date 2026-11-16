@@ -24,10 +24,9 @@ import (
 const png1x1Base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
 
 func TestTryAttachClipboardImageBlockedWithoutModelSupport(t *testing.T) {
-	c := NewComposerPane(components.DefaultTheme(), "m", "/tmp")
 	bus := controller.NewBus(nil)
-	c.bus = bus
-	c.imageEnabled = func() bool { return false }
+	c := NewComposerPane(components.DefaultTheme(), "m", "/tmp",
+		WithBus(bus), WithImageEnabled(func() bool { return false }))
 
 	ctx := &components.EventContext{}
 	require.True(t, c.tryAttachClipboardImage(ctx))
@@ -36,8 +35,8 @@ func TestTryAttachClipboardImageBlockedWithoutModelSupport(t *testing.T) {
 }
 
 func TestTryAttachClipboardImageFallsThroughWhenSupported(t *testing.T) {
-	c := NewComposerPane(components.DefaultTheme(), "m", "/tmp")
-	c.imageEnabled = func() bool { return true }
+	c := NewComposerPane(components.DefaultTheme(), "m", "/tmp",
+		WithImageEnabled(func() bool { return true }))
 
 	ctx := &components.EventContext{}
 	// No clipboard tooling in CI: the gate passes and the read reports
@@ -59,10 +58,9 @@ func TestAcceptMentionImageBlockedWithoutModelSupport(t *testing.T) {
 	path := filepath.Join(dir, "pixel.png")
 	require.NoError(t, os.WriteFile(path, png, 0o644))
 
-	c := NewComposerPane(components.DefaultTheme(), "m", dir)
 	bus := controller.NewBus(nil)
-	c.bus = bus
-	c.imageEnabled = func() bool { return false }
+	c := NewComposerPane(components.DefaultTheme(), "m", dir,
+		WithBus(bus), WithImageEnabled(func() bool { return false }))
 	c.Chat.Value = "@pixel.png"
 	c.Chat.Cursor = len(c.Chat.Value)
 
@@ -92,8 +90,8 @@ func TestAcceptMentionImageAttachesWhenSupported(t *testing.T) {
 	path := filepath.Join(dir, "pixel.png")
 	require.NoError(t, os.WriteFile(path, png, 0o644))
 
-	c := NewComposerPane(components.DefaultTheme(), "m", dir)
-	c.imageEnabled = func() bool { return true }
+	c := NewComposerPane(components.DefaultTheme(), "m", dir,
+		WithImageEnabled(func() bool { return true }))
 	c.Chat.Value = "@pixel.png"
 	c.Chat.Cursor = len(c.Chat.Value)
 
@@ -104,14 +102,13 @@ func TestAcceptMentionImageAttachesWhenSupported(t *testing.T) {
 	assert.Empty(t, c.Chat.Value)
 }
 
-func TestWireKeepsConstructorCwdForMentions(t *testing.T) {
+func TestConstructorKeepsCwdForMentions(t *testing.T) {
 	dir := t.TempDir()
 	png, err := base64.StdEncoding.DecodeString(png1x1Base64)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "pixel.png"), png, 0o644))
 
 	c := NewComposerPane(components.DefaultTheme(), "m", dir)
-	c.Wire(WireDeps{})
 	c.Chat.Value = "@pixel.png"
 	c.Chat.Cursor = len(c.Chat.Value)
 
@@ -192,14 +189,14 @@ func TestMentionTabCompletesIntoComposer(t *testing.T) {
 
 // wiredComposer builds a composer wired like the app, with a small command
 // registry: `new` (no args, runs on Enter) and `diff` (needs args).
-func wiredComposer(t *testing.T) (*ComposerPane, *controller.Bus) {
+func wiredComposer(t *testing.T, options ...PaneOption) (*ComposerPane, *controller.Bus) {
 	t.Helper()
-	c := NewComposerPane(components.DefaultTheme(), "m", t.TempDir())
 	bus := controller.NewBus(nil)
 	reg := commands.NewCommandRegistry()
 	reg.Register(commands.Command{Name: "new", Slash: true})
 	reg.Register(commands.Command{Name: "diff", Slash: true, NeedsArgs: true})
-	c.Wire(WireDeps{Commands: reg, Bus: bus})
+	c := NewComposerPane(components.DefaultTheme(), "m", t.TempDir(),
+		append(options, WithCommands(reg), WithBus(bus))...)
 	return c, bus
 }
 
@@ -271,10 +268,9 @@ func (busySubmitter) SyncBashBorder(string) {}
 // Esc has to cancel a turn whose request is still in flight — the stream has
 // not produced a token yet, so the transcript looks idle.
 func TestEscapeCancelsRequestInFlight(t *testing.T) {
-	c := NewComposerPane(components.DefaultTheme(), "m", "/tmp")
 	bus := controller.NewBus(nil)
-	c.bus = bus
-	c.submitter = busySubmitter{busy: true}
+	c := NewComposerPane(components.DefaultTheme(), "m", "/tmp",
+		WithBus(bus), WithSubmitter(func() BusyChecker { return busySubmitter{busy: true} }))
 
 	ctx := &components.EventContext{}
 	require.True(t, c.handleEscape(ctx))
@@ -292,9 +288,8 @@ func TestEscapeCancelsRequestInFlight(t *testing.T) {
 // Nothing in flight: Esc stays unclaimed so it can fall through to the
 // transcript and its selection handling.
 func TestEscapeUnclaimedWhenIdle(t *testing.T) {
-	c := NewComposerPane(components.DefaultTheme(), "m", "/tmp")
-	c.bus = controller.NewBus(nil)
-	c.submitter = busySubmitter{}
+	c := NewComposerPane(components.DefaultTheme(), "m", "/tmp",
+		WithBus(controller.NewBus(nil)), WithSubmitter(func() BusyChecker { return busySubmitter{} }))
 
 	assert.False(t, c.handleEscape(&components.EventContext{}))
 }
@@ -423,9 +418,8 @@ func (f *fakePromptHistory) Append(text string) error {
 }
 
 func TestRememberPromptSkipsCommands(t *testing.T) {
-	c, _ := wiredComposer(t)
 	h := &fakePromptHistory{}
-	c.SetPromptHistory(h)
+	c, _ := wiredComposer(t, WithPromptHistory(h))
 
 	c.Chat.OnSubmit("hello")
 	c.Chat.OnSubmit("/new")
@@ -436,12 +430,30 @@ func TestRememberPromptSkipsCommands(t *testing.T) {
 	assert.Equal(t, []string{"hello"}, c.Chat.History, "the recall ring follows the store")
 }
 
-func TestSetPromptHistoryLoadsExisting(t *testing.T) {
-	c, _ := wiredComposer(t)
-	c.SetPromptHistory(&fakePromptHistory{entries: []string{"one", "two"}})
+func TestListFocusResolvesAfterAcceptAndResetsOnCancel(t *testing.T) {
+	target := NewComposerPane(components.DefaultTheme(), "m", "/tmp")
+	accepted := false
+	c, _ := wiredComposer(t, WithListFocusReturn(func() components.Widget {
+		require.True(t, accepted, "focus resolves after the domain opens its detail view")
+		return &target.Chat
+	}))
+	items := []listpicker.Item{{ID: "file", Primary: "file"}}
+	c.ShowList(items, listpicker.ShowConfig{}, func(listpicker.Item) { accepted = true }, nil)
+	ctx := &components.EventContext{}
+	c.listPicker.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
+	assert.Same(t, &target.Chat, ctx.Focus)
+
+	accepted = false
+	c.ShowList(items, listpicker.ShowConfig{}, nil, nil)
+	ctx = &components.EventContext{}
+	c.listPicker.Handle(ctx, xui.KeyEvent{Code: xui.KeyEscape, Press: true})
+	assert.Same(t, &c.Chat, ctx.Focus, "a subsequent cancelled list returns to chat")
+}
+
+func TestPromptHistoryLoadsExisting(t *testing.T) {
+	c, _ := wiredComposer(t, WithPromptHistory(&fakePromptHistory{entries: []string{"one", "two"}}))
 	assert.Equal(t, []string{"one", "two"}, c.Chat.History)
 
-	// A nil store leaves recall untouched (no session directory case).
-	c.SetPromptHistory(nil)
-	assert.Equal(t, []string{"one", "two"}, c.Chat.History)
+	withoutHistory, _ := wiredComposer(t, WithPromptHistory(nil))
+	assert.Empty(t, withoutHistory.Chat.History)
 }

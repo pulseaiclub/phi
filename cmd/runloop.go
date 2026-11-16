@@ -132,14 +132,17 @@ func runHeadless(opts runOptions) error {
 	}
 	if bs.Config.Agents.Enabled {
 		parent := primary
-		jobs, jobErr := agent.NewJobManager(bs.Proj.JobsDir(), parent, func(role job.Role) llm.ModelConfig {
-			if cfg, ok := bs.Config.FindModel(bs.Config.Agents.Models.ForRole(role)); ok {
-				return cfg
-			}
-			return parent
-		}, func() *extension.Runner {
-			return extRunner
-		})
+		jobs, jobErr := agent.NewJobManager(bs.Proj.JobsDir(), parent,
+			agent.WithJobsModelFunc(func(role job.Role) llm.ModelConfig {
+				if cfg, ok := bs.Config.FindModel(bs.Config.Agents.Models.ForRole(role)); ok {
+					return cfg
+				}
+				return parent
+			}),
+			agent.WithJobsExtensionsFunc(func() *extension.Runner {
+				return extRunner
+			}),
+		)
 		if jobErr != nil {
 			fmt.Fprintln(os.Stderr, "phi run:", jobErr)
 			return exitCode(ExitUsage)

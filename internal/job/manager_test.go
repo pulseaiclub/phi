@@ -16,13 +16,12 @@ import (
 	"github.com/pulseaiclub/phi/internal/job"
 )
 
-func newMgr(t *testing.T, runner job.Runner, opts job.Options) *job.Manager {
+func newMgr(t *testing.T, runner job.Runner, root string, opts ...job.Option) *job.Manager {
 	t.Helper()
-	if opts.Root == "" {
-		opts.Root = t.TempDir()
+	if root == "" {
+		root = t.TempDir()
 	}
-	opts.Runner = runner
-	m, err := job.New(opts)
+	m, err := job.New(root, runner, opts...)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		// t.Context is canceled before cleanup; Close must still wait for job writes.
@@ -37,7 +36,7 @@ func TestSpawnWaitResultOnDisk(t *testing.T) {
 	m := newMgr(t, job.RunnerFunc(func(_ context.Context, env job.RunEnv) (string, error) {
 		env.Log("step-1")
 		return "hello from " + env.Job.ID, nil
-	}), job.Options{})
+	}), "")
 
 	ctx := t.Context()
 	a, err := m.Spawn(ctx, job.SpawnRequest{Prompt: "explore A", Description: "A"})
@@ -71,7 +70,7 @@ func TestCancelStopsRunner(t *testing.T) {
 		close(started)
 		<-ctx.Done()
 		return "", ctx.Err()
-	}), job.Options{})
+	}), "")
 
 	ctx := t.Context()
 	info, err := m.Spawn(ctx, job.SpawnRequest{Prompt: "long"})
@@ -93,7 +92,7 @@ func TestSpawnTimeoutIsTimedOut(t *testing.T) {
 	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, _ job.RunEnv) (string, error) {
 		<-ctx.Done()
 		return "", ctx.Err()
-	}), job.Options{})
+	}), "")
 
 	info, err := m.Spawn(t.Context(), job.SpawnRequest{
 		Prompt:  "slow",
@@ -109,7 +108,7 @@ func TestSpawnTimeoutIsTimedOut(t *testing.T) {
 func TestDepthLimit(t *testing.T) {
 	m := newMgr(t, job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
 		return "ok", nil
-	}), job.Options{MaxDepth: 1})
+	}), "", job.WithMaxDepth(1))
 
 	_, err := m.Spawn(t.Context(), job.SpawnRequest{Prompt: "nested", Depth: 1})
 	require.ErrorIs(t, err, job.ErrDepth)
@@ -124,7 +123,7 @@ func TestConcurrencyBusy(t *testing.T) {
 		case <-ctx.Done():
 			return "", ctx.Err()
 		}
-	}), job.Options{MaxConcurrent: 1})
+	}), "", job.WithMaxConcurrent(1))
 
 	ctx := t.Context()
 	info, err := m.Spawn(ctx, job.SpawnRequest{Prompt: "1"})
@@ -140,7 +139,7 @@ func TestHandleWaitTimeoutDoesNotCancelJob(t *testing.T) {
 	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, _ job.RunEnv) (string, error) {
 		<-ctx.Done()
 		return "", ctx.Err()
-	}), job.Options{})
+	}), "")
 
 	info, err := m.Spawn(t.Context(), job.SpawnRequest{Prompt: "slow"})
 	require.NoError(t, err)
@@ -163,7 +162,7 @@ func TestMetaPersisted(t *testing.T) {
 	root := t.TempDir()
 	m := newMgr(t, job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
 		return "summary", nil
-	}), job.Options{Root: root})
+	}), root)
 
 	info, err := m.Spawn(t.Context(), job.SpawnRequest{
 		Prompt:   "p",
@@ -200,7 +199,7 @@ func TestRecoverStaleJobsOnNew(t *testing.T) {
 
 	m := newMgr(t, job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
 		return "ok", nil
-	}), job.Options{Root: root})
+	}), root)
 
 	info, err := m.Get(t.Context(), "job_zombie")
 	require.NoError(t, err)
@@ -225,13 +224,9 @@ func TestRecoverIgnoreLeavesStale(t *testing.T) {
 }`
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "meta.json"), []byte(meta), 0o644))
 
-	m, err := job.New(job.Options{
-		Root:     root,
-		Recovery: job.RecoverIgnore,
-		Runner: job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
-			return "ok", nil
-		}),
-	})
+	m, err := job.New(root, job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
+		return "ok", nil
+	}), job.WithRecovery(job.RecoverIgnore))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = m.Close(t.Context()) })
 
@@ -254,13 +249,11 @@ func TestOnStoreErrorCallback(t *testing.T) {
 	// Smoke: ensure option is accepted and normal path never fires.
 	m := newMgr(t, job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
 		return "ok", nil
-	}), job.Options{
-		OnStoreError: func(op, _ string, _ error) {
-			mu.Lock()
-			ops = append(ops, op)
-			mu.Unlock()
-		},
-	})
+	}), "", job.WithOnStoreError(func(op, _ string, _ error) {
+		mu.Lock()
+		ops = append(ops, op)
+		mu.Unlock()
+	}))
 	info, err := m.Spawn(t.Context(), job.SpawnRequest{Prompt: "x"})
 	require.NoError(t, err)
 	_, err = m.Wait(t.Context(), info.ID)
@@ -285,7 +278,7 @@ func TestSubscribeProgress(t *testing.T) {
 			Detail:    "foo.go",
 		})
 		return "done", nil
-	}), job.Options{})
+	}), "")
 
 	ch, cancel := m.Subscribe()
 	defer cancel()
@@ -320,7 +313,7 @@ func TestSubscribeProgress(t *testing.T) {
 func TestSubscribeCancelAfterClose(t *testing.T) {
 	m := newMgr(t, job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
 		return "ok", nil
-	}), job.Options{})
+	}), "")
 
 	_, cancel := m.Subscribe()
 	require.NoError(t, m.Close(t.Context()))
@@ -340,7 +333,7 @@ func TestEmitProgressCancelRace(t *testing.T) {
 				env.OnProgress(job.Progress{Name: "read", Status: "in-progress", Detail: "x"})
 			}
 			return "", ctx.Err()
-		}), job.Options{})
+		}), "")
 
 		ch, cancel := m.Subscribe()
 		go func() {

@@ -35,17 +35,46 @@ type Executor struct {
 	askMu sync.Mutex
 }
 
-// NewExecutor builds an executor. extRunner may be nil.
-func NewExecutor(
-	registry tooldef.Registry,
-	gate permission.Gate,
-	ask permission.AskFunc,
-	extRunner *extension.Runner,
-) *Executor {
-	if gate == nil {
-		gate = permission.AllowAll{}
+type executorConfig struct {
+	gate       permission.Gate
+	ask        permission.AskFunc
+	extensions *extension.Runner
+	cwd        string
+}
+
+// ExecutorOption configures an executor before construction.
+type ExecutorOption func(*executorConfig)
+
+// WithExecutorGate sets the gate (nil = allow all).
+func WithExecutorGate(gate permission.Gate) ExecutorOption {
+	return func(c *executorConfig) { c.gate = gate }
+}
+
+// WithExecutorAsk sets the approval callback (nil = deny on Ask).
+func WithExecutorAsk(ask permission.AskFunc) ExecutorOption {
+	return func(c *executorConfig) { c.ask = ask }
+}
+
+// WithExecutorExtensions attaches extension tool hooks.
+func WithExecutorExtensions(runner *extension.Runner) ExecutorOption {
+	return func(c *executorConfig) { c.extensions = runner }
+}
+
+// WithExecutorCwd sets the working directory passed to tools.
+func WithExecutorCwd(cwd string) ExecutorOption {
+	return func(c *executorConfig) { c.cwd = cwd }
+}
+
+// NewExecutor builds an executor with an allow-all gate by default.
+func NewExecutor(registry tooldef.Registry, opts ...ExecutorOption) *Executor {
+	var cfg executorConfig
+	for _, opt := range opts {
+		opt(&cfg)
 	}
-	return &Executor{registry: registry, gate: gate, ask: ask, ext: extRunner}
+	if cfg.gate == nil {
+		cfg.gate = permission.AllowAll{}
+	}
+	return &Executor{registry: registry, gate: cfg.gate, ask: cfg.ask, ext: cfg.extensions, cwd: cfg.cwd}
 }
 
 // Run executes tool calls and yields ToolData updates via emit.

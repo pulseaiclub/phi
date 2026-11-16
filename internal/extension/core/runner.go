@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/pulseaiclub/phi/internal/extension/loader"
 
@@ -24,11 +23,58 @@ const maxContextBytes = 4 * 1024
 
 // NewRunner returns an empty runner rooted at logDir (where extension child
 // logs are written). Fibers are added by the lifecycle package.
-func NewRunner(logDir string) *Runner {
-	return &Runner{
-		fibers: make(map[string]*Fiber),
-		logDir: logDir,
+func NewRunner(logDir string, options ...RunnerOption) *Runner {
+	var cfg runnerConfig
+	for _, option := range options {
+		option(&cfg)
 	}
+	// These callbacks run only after construction, when the runner is published.
+	var r *Runner
+	if cfg.host.GetActiveTools == nil {
+		cfg.host.GetActiveTools = func() []string { return toolNames(r.snapshot().activeTools) }
+	}
+	if cfg.host.SetActiveTools == nil {
+		cfg.host.SetActiveTools = func(names []string) { r.SetActiveTools(names) }
+	}
+	if cfg.host.GetAllTools == nil {
+		cfg.host.GetAllTools = func() []ext.ToolInfo { return r.snapshot().tools }
+	}
+	r = &Runner{
+		fibers:    make(map[string]*Fiber),
+		logDir:    logDir,
+		host:      cfg.host,
+		ui:        cfg.host.UI,
+		cwd:       cfg.host.Cwd,
+		session:   cfg.host.SessionID,
+		hasUI:     cfg.host.HasUI,
+		baseTools: append([]tooldef.Tool(nil), cfg.baseTools...),
+		onChange:  cfg.onChange,
+	}
+	return r
+}
+
+// RunnerOption configures construction without exposing mutable runner state.
+type RunnerOption func(*runnerConfig)
+
+type runnerConfig struct {
+	host      ext.HostOpts
+	baseTools []tooldef.Tool
+	onChange  func()
+}
+
+// WithHost supplies host capabilities before any subprocess starts.
+func WithHost(host ext.HostOpts) RunnerOption {
+	return func(cfg *runnerConfig) { cfg.host = host }
+}
+
+// WithBaseTools supplies built-in tools for tool enumeration and filtering.
+func WithBaseTools(tools []tooldef.Tool) RunnerOption {
+	return func(cfg *runnerConfig) { cfg.baseTools = tools }
+}
+
+// WithOnChange supplies a nonblocking hook called on the topology-changing goroutine.
+func WithOnChange(fn func()) RunnerOption {
+	return func(cfg *runnerConfig) { cfg.onChange = fn }
 }
 
 // AddFiber registers an already-loaded fiber. Used by the lifecycle package
@@ -65,22 +111,7 @@ type Runner struct {
 	activeNames map[string]bool // nil = all active
 	host        ext.HostOpts
 
-	onChange atomic.Pointer[func()]
-}
-
-// SetOnChange registers a hook fired after the extension topology changes —
-// load, unload or hot swap. It runs on whichever goroutine performed the
-// change (a UI action) and must not block: hosts use it to re-derive tool
-// schemas and refresh the UI.
-func (r *Runner) SetOnChange(fn func()) {
-	if r == nil {
-		return
-	}
-	if fn == nil {
-		r.onChange.Store(nil)
-		return
-	}
-	r.onChange.Store(&fn)
+	onChange func()
 }
 
 // notifyChange runs the topology hook, if any.
@@ -88,8 +119,8 @@ func (r *Runner) notifyChange() {
 	if r == nil {
 		return
 	}
-	if p := r.onChange.Load(); p != nil && *p != nil {
-		(*p)()
+	if r.onChange != nil {
+		r.onChange()
 	}
 }
 
@@ -123,55 +154,6 @@ func (r *Runner) Loaded() []loader.Discovered {
 	return out
 }
 
-// Bind attaches host capabilities to every extension API.
-func (r *Runner) Bind(opts ext.HostOpts) {
-	if r == nil {
-		return
-	}
-	if opts.GetActiveTools == nil {
-		opts.GetActiveTools = func() []string {
-			return toolNames(r.snapshot().activeTools)
-		}
-	}
-	if opts.SetActiveTools == nil {
-		opts.SetActiveTools = r.SetActiveTools
-	}
-	if opts.GetAllTools == nil {
-		opts.GetAllTools = func() []ext.ToolInfo {
-			return r.snapshot().tools
-		}
-	}
-
-	r.mu.Lock()
-	r.ui = opts.UI
-	r.cwd = opts.Cwd
-	r.session = opts.SessionID
-	r.hasUI = opts.HasUI
-	r.host = opts
-	fibers := r.fiberListLocked()
-	r.mu.Unlock()
-
-	for _, f := range fibers {
-		r.wire(f, opts)
-	}
-}
-
-// wire connects the host side of one fiber: the API receives the host opts and
-// the process receives the frame sink that forwards Notify / host requests.
-// Every path that produces a live process — initial load, hot swap, resume —
-// funnels through here, so a swapped-in process can never come up unwired.
-func (r *Runner) wire(f *Fiber, opts ext.HostOpts) {
-	if f == nil {
-		return
-	}
-	if api := f.API(); api != nil {
-		api.BindHost(opts)
-	}
-	if proc := f.Proc(); proc != nil {
-		proc.SetHostSink(procSink{runner: r, proc: proc, ui: opts.UI, sendUser: opts.SendUserMessage})
-	}
-}
-
 // hostOpts snapshots the bound host options.
 func (r *Runner) hostOpts() ext.HostOpts {
 	r.mu.RLock()
@@ -179,7 +161,22 @@ func (r *Runner) hostOpts() ext.HostOpts {
 	return r.host
 }
 
-// SetActiveTools restricts the tool set exposed to the agent (nil = all).
+// SetBaseTools updates the built-in tool snapshot the host exposes to
+// extensions. The runner outlives engines (subprocesses survive session
+// switches), so each rebuilt engine pushes its derived tool set here — live
+// runtime state in the same family as SetMeta, not construction wiring.
+func (r *Runner) SetBaseTools(base []tooldef.Tool) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.baseTools = append([]tooldef.Tool(nil), base...)
+	r.invalidateLocked()
+}
+
+// SetActiveTools restricts the tool set exposed to the agent. Nil and empty
+// slices select no tools; before the first call all tools are active.
 func (r *Runner) SetActiveTools(names []string) {
 	if r == nil {
 		return
@@ -204,8 +201,6 @@ func toolNames(infos []ext.ToolInfo) []string {
 // procSink is the sink Proc uses to hand spontaneous frames back to the
 // host: notifications turn into UI effects, host requests get answered.
 type procSink struct {
-	runner   *Runner
-	proc     *Proc
 	ui       ext.UI
 	sendUser func(string)
 }
@@ -226,12 +221,12 @@ func (s procSink) Notify(n pxb.NotifyMsg) {
 	}
 }
 
-func (s procSink) HostRequest(id uint32, hasID bool, req pxb.HostRequest) {
-	s.runner.handleHostRequest(s.proc, id, hasID, req, s.ui, s.sendUser)
+func (s procSink) HostRequest(id uint32, hasID bool, req pxb.HostRequest, reply func(uint32, pxb.HostResult)) {
+	handleHostRequest(reply, id, hasID, req, s.ui, s.sendUser)
 }
 
-func (*Runner) handleHostRequest(
-	p *Proc,
+func handleHostRequest(
+	replyHost func(uint32, pxb.HostResult),
 	id uint32,
 	hasID bool,
 	req pxb.HostRequest,
@@ -244,7 +239,7 @@ func (*Runner) handleHostRequest(
 			sendUser(req.Arg)
 		}
 		if hasID {
-			p.ReplyHost(id, pxb.HostResult{OK: true})
+			replyHost(id, pxb.HostResult{OK: true})
 		}
 	case "confirm":
 		go func() {
@@ -260,13 +255,13 @@ func (*Runner) handleHostRequest(
 				reply = ui.ConfirmOpts(cr)
 			}
 			if hasID {
-				p.ReplyHost(id, pxb.HostResult{OK: reply.OK})
+				replyHost(id, pxb.HostResult{OK: reply.OK})
 			}
 		}()
 	default:
 		debuglog.Logf("extension: unknown host request %q", req.Method)
 		if hasID {
-			p.ReplyHost(id, pxb.HostResult{OK: false, Error: "unknown method"})
+			replyHost(id, pxb.HostResult{OK: false, Error: "unknown method"})
 		}
 	}
 }
@@ -288,22 +283,13 @@ func (r *Runner) SetMeta(sessionID, cwd string) {
 	// Pipe writes stay outside the lock: a wedged child must not stall the
 	// read paths.
 	for _, f := range fibers {
-		r.wire(f, opts)
+		if api := f.API(); api != nil {
+			api.BindHost(opts)
+		}
 		if proc := f.Proc(); proc != nil {
 			proc.PushSessionMeta(sessionID, cwd)
 		}
 	}
-}
-
-// SetBaseTools records built-in tools for GetAllTools / active filtering.
-func (r *Runner) SetBaseTools(base []tooldef.Tool) {
-	if r == nil {
-		return
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.baseTools = append([]tooldef.Tool(nil), base...)
-	r.invalidateLocked()
 }
 
 // ExtensionTools converts registered extension tools to tooldef.Tool.

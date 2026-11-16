@@ -52,7 +52,7 @@ func TestPaletteReopenReflectsThinkingSelectionAndModelSwitch(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 	e := NewEditor(
-		app.NewApp(nil),
+		app.NewApp(),
 		bus,
 		ctrl,
 		nil,
@@ -183,7 +183,7 @@ func TestModelPaletteSavesDefaultAndRestoresSession(t *testing.T) {
 	ctrl, err := controller.NewController(bus, proj)
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
-	e := NewEditor(app.NewApp(nil), bus, ctrl, nil, components.DefaultTheme(), cwd,
+	e := NewEditor(app.NewApp(), bus, ctrl, nil, components.DefaultTheme(), cwd,
 		"primary", nil, []string{"primary", "secondary"})
 	key := func(code xui.KeyCode, r rune, mods xui.Modifiers) {
 		t.Helper()

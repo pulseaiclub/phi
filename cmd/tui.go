@@ -59,11 +59,9 @@ func runTUI() error {
 		modelNames = append(modelNames, m.Name)
 	}
 
-	application := app.NewApp(vx)
-	application.Anim = true
+	application := app.NewApp(app.WithUI(vx), app.WithAnimation(true))
 
-	redraw := controller.NewRedrawRelay()
-	bus := controller.NewBus(redraw.Fire)
+	bus := controller.NewBus(application.RequestRedraw)
 	ctrl, err := controller.NewController(bus, proj)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "phi:", err)
@@ -97,7 +95,6 @@ func runTUI() error {
 		proj.Config().SkillPaths,
 		modelNames,
 	)
-	redraw.Bind(ui.RequestRedraw)
 	ui.StartUpdateCheck(proj.Global().Root())
 	ui.StartBranchWatch()
 	if err := application.Run(ui); err != nil {

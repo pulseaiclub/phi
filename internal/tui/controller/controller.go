@@ -88,11 +88,13 @@ func NewController(bus *Bus, proj *project.Project) (*EngineController, error) {
 	c.gate, c.askTimeoutSec = newGate(config.Permissions, &c.allowAll)
 	c.agentsEnabled.Store(config.Agents.Enabled)
 
-	extRunner := loadExtensions(proj)
+	extRunner := c.loadExtensionsFailOpen()
 	c.extRunner.Store(extRunner)
-	c.bindExtensionHost(extRunner)
 
-	jobs, err := agent.NewJobManager(proj.JobsDir(), config.Model(), c.modelForRole, c.Extensions)
+	jobs, err := agent.NewJobManager(proj.JobsDir(), config.Model(),
+		agent.WithJobsModelFunc(c.modelForRole),
+		agent.WithJobsExtensionsFunc(c.Extensions),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -268,7 +270,7 @@ func (c *EngineController) Extensions() *extension.Runner {
 }
 
 func (c *EngineController) ReloadExtensions() (loaded int, warns []loader.Warning, err error) {
-	r, warns, err := extension.Load(c.proj.Global().ExtensionsDir(), c.proj.ExtensionsDir())
+	r, warns, err := c.loadExtensionRunner()
 	if err != nil {
 		return 0, warns, err
 	}
@@ -285,7 +287,6 @@ func (c *EngineController) swapExtensionRunner(r *extension.Runner) {
 	if prev := c.extRunner.Swap(r); prev != nil {
 		prev.Close()
 	}
-	c.bindExtensionHost(r)
 	// Previous runner's UI state died with its subprocesses.
 	c.publish(ExtSessionEffectsMsg{Status: "", StatusSet: true})
 }
@@ -321,31 +322,12 @@ func (c *EngineController) ListExtensionStates() map[string]extension.FiberState
 	return r.ListExtensions()
 }
 
-// loadExtensions discovers ~/.phi/extensions and <cwd>/.phi/extensions.
-// Load errors are non-fatal (fail-open: no extensions).
-func loadExtensions(proj *project.Project) *extension.Runner {
-	r, warns, err := extension.Load(proj.Global().ExtensionsDir(), proj.ExtensionsDir())
-	if err != nil {
-		debuglog.Logf("extension: load failed: %v", err)
-		return nil
-	}
-	logExtensionWarnings(warns)
-	return r
-}
-
-func logExtensionWarnings(warns []loader.Warning) {
-	for _, w := range warns {
-		debuglog.Logf("extension: %s", w.String())
-	}
-}
-
-func (c *EngineController) bindExtensionHost(r *extension.Runner) {
-	if r == nil {
-		return
-	}
+// loadExtensionRunner discovers ~/.phi/extensions and <cwd>/.phi/extensions
+// with host capabilities baked into the runner at construction, so fibers
+// never come up unwired.
+func (c *EngineController) loadExtensionRunner() (*extension.Runner, []loader.Warning, error) {
 	cwd, sessionID := c.hostSessionInfo()
-
-	r.Bind(ext.HostOpts{
+	host := ext.HostOpts{
 		UI: extension.BusUI{
 			NotifyFn:    c.handleExtNotify,
 			SetStatusFn: c.handleExtStatus,
@@ -360,18 +342,38 @@ func (c *EngineController) bindExtensionHost(r *extension.Runner) {
 		// UI goroutine applies.
 		RefreshTools:    c.requestTopologyRefresh,
 		SendUserMessage: c.sendUserMessage,
-	})
+	}
+	return extension.Load(c.proj.Global().ExtensionsDir(), c.proj.ExtensionsDir(),
+		extension.WithHost(host),
+		// Topology changes (extension-initiated reload/unload) happen off the
+		// UI goroutine, so they arrive as a message instead of a direct call.
+		extension.WithOnChange(c.requestTopologyRefresh),
+	)
+}
 
-	// Topology changes (extension-initiated reload/unload) happen off the
-	// UI goroutine, so they arrive as a message instead of a direct call.
-	r.SetOnChange(c.requestTopologyRefresh)
+// loadExtensionsFailOpen discovers extensions, treating load errors as
+// non-fatal (fail-open: no extensions).
+func (c *EngineController) loadExtensionsFailOpen() *extension.Runner {
+	r, warns, err := c.loadExtensionRunner()
+	if err != nil {
+		debuglog.Logf("extension: load failed: %v", err)
+		return nil
+	}
+	logExtensionWarnings(warns)
+	return r
+}
+
+func logExtensionWarnings(warns []loader.Warning) {
+	for _, w := range warns {
+		debuglog.Logf("extension: %s", w.String())
+	}
 }
 
 func (c *EngineController) hostSessionInfo() (cwd, sessionID string) {
 	if c.engine != nil {
 		return c.engine.SessionCwd(), c.engine.SessionID()
 	}
-	// NewController binds the host before the engine exists.
+	// Construction bakes the host in before the engine exists.
 	return c.proj.Root(), ""
 }
 
@@ -614,7 +616,7 @@ func (c *EngineController) Resume(id string) (cwdWarning string, err error) {
 		return "", err
 	}
 
-	extRunner := loadExtensions(c.proj)
+	extRunner := c.loadExtensionsFailOpen()
 	spec, err := c.openSessionSpec(cfg, extRunner, id)
 	if err != nil {
 		return "", err

@@ -17,9 +17,9 @@ type BranchCommands struct {
 	// Dir is the directory git runs in (the agent's working directory).
 	Dir string
 
-	// OpenOverlay opens the branch picker (wired by Builtin.Bind).
+	// OpenOverlay opens the branch picker.
 	OpenOverlay func(branches []gitx.Branch, recent []string, onAccept, onDelete func(name string))
-	// RefreshOverlay swaps rows into the open picker (wired by Builtin.Bind).
+	// RefreshOverlay swaps rows into the open picker.
 	RefreshOverlay func(branches []gitx.Branch, recent []string)
 	// StreamActive reports whether a checkout or delete must be refused.
 	StreamActive func() bool

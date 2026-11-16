@@ -107,25 +107,21 @@ func branchEditor(t *testing.T) *Editor {
 	dir := gitFixtureRepo(t)
 	bus := controller.NewBus(nil)
 	e := &Editor{
-		composer: composer.NewComposerPane(components.DefaultTheme(), "m", dir),
+		composer: composer.NewComposerPane(components.DefaultTheme(), "m", dir, composer.WithBus(bus)),
 		bus:      bus,
 		cwd:      dir,
 	}
-	e.composer.Wire(composer.WireDeps{})
 
-	builtins := commands.NewBuiltinRegistry(bus, nil, e.composer, nil, nil, nil, nil, nil)
-	e.commands = builtins.Registry
-	builtins.Bind(
-		nil,
-		commands.NewContext(bus, nil),
-		nil,
-		nil,
-		e.composer.ShowBranchList,
-		e.composer.RefreshBranchList,
-		nil,
-		dir,
-		func() bool { return false },
+	builtins := commands.NewBuiltinRegistry(
+		commands.WithBuiltinBus(bus),
+		commands.WithBuiltinComposer(e.composer),
+		commands.WithBuiltinCommandContext(commands.NewContext(bus, nil)),
+		commands.WithBuiltinOpenBranchPicker(e.composer.ShowBranchList),
+		commands.WithBuiltinRefreshBranchPicker(e.composer.RefreshBranchList),
+		commands.WithBuiltinCwd(dir),
+		commands.WithBuiltinStreamActive(func() bool { return false }),
 	)
+	e.commands = builtins.Registry
 
 	return e
 }

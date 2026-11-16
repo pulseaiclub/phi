@@ -54,10 +54,7 @@ func TestEngineRunnerViaJobManager(t *testing.T) {
 			APIKey:  "x",
 		},
 	}
-	mgr, err := job.New(job.Options{
-		Root:   jobsRoot,
-		Runner: runner,
-	})
+	mgr, err := job.New(jobsRoot, runner)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
 
@@ -155,10 +152,7 @@ func TestEngineRunnerCancel(t *testing.T) {
 	runner := agent.EngineRunner{
 		Model: llm.ModelConfig{Name: "fake", BaseURL: srv.URL, APIKey: "x"},
 	}
-	mgr, err := job.New(job.Options{
-		Root:   t.TempDir(),
-		Runner: runner,
-	})
+	mgr, err := job.New(t.TempDir(), runner)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
 

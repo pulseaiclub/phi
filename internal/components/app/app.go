@@ -32,9 +32,29 @@ type App struct {
 	pending xui.Event
 }
 
-// NewApp creates an App around an existing Vaxis.
-func NewApp(vx *xui.XUI) *App {
-	return &App{ui: vx, redraw: true}
+type config struct {
+	ui        *xui.XUI
+	animation bool
+}
+
+// Option configures an application before it starts.
+type Option func(*config)
+
+func WithUI(ui *xui.XUI) Option {
+	return func(c *config) { c.ui = ui }
+}
+
+func WithAnimation(enabled bool) Option {
+	return func(c *config) { c.animation = enabled }
+}
+
+// NewApp creates an application with its initial configuration.
+func NewApp(options ...Option) *App {
+	var cfg config
+	for _, option := range options {
+		option(&cfg)
+	}
+	return &App{ui: cfg.ui, redraw: true, Anim: cfg.animation}
 }
 
 // RequestRedraw schedules a frame from any goroutine (stream updates, etc).

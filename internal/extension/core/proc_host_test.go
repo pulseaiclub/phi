@@ -12,12 +12,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/ext/go/pxb"
+	"github.com/pulseaiclub/phi/internal/extension/loader"
 )
 
 // testSink adapts optional function fields to the HostSink the host installs.
 type testSink struct {
 	notify  func(pxb.NotifyMsg)
-	hostReq func(id uint32, hasID bool, req pxb.HostRequest)
+	hostReq func(id uint32, hasID bool, req pxb.HostRequest, reply func(uint32, pxb.HostResult))
 }
 
 func (s testSink) Notify(n pxb.NotifyMsg) {
@@ -26,9 +27,9 @@ func (s testSink) Notify(n pxb.NotifyMsg) {
 	}
 }
 
-func (s testSink) HostRequest(id uint32, hasID bool, req pxb.HostRequest) {
+func (s testSink) HostRequest(id uint32, hasID bool, req pxb.HostRequest, reply func(uint32, pxb.HostResult)) {
 	if s.hostReq != nil {
-		s.hostReq(id, hasID, req)
+		s.hostReq(id, hasID, req, reply)
 	}
 }
 
@@ -39,20 +40,20 @@ func TestHostFirstCommandConfirmCollision(t *testing.T) {
 	defer childInput.Close()
 	defer childOutput.Close()
 	defer output.Close()
+	confirmed := make(chan uint32, 1)
 	p := &Proc{
+		sink: testSink{hostReq: func(id uint32, hasID bool, req pxb.HostRequest, reply func(uint32, pxb.HostResult)) {
+			if hasID && req.Method == "confirm" {
+				confirmed <- id
+			}
+			reply(id, pxb.HostResult{OK: true})
+		}},
 		stdin:   childInput,
 		stdout:  childOutput,
 		wr:      pxb.NewWriter(childInput),
 		rd:      pxb.NewReader(childOutput),
 		pending: make(map[uint32]chan frameResult),
 	}
-	confirmed := make(chan uint32, 1)
-	p.SetHostSink(testSink{hostReq: func(id uint32, hasID bool, req pxb.HostRequest) {
-		if hasID && req.Method == "confirm" {
-			confirmed <- id
-		}
-		p.ReplyHost(id, pxb.HostResult{OK: true})
-	}})
 	go p.readLoop()
 	childDone := make(chan error, 1)
 	go func() {
@@ -106,6 +107,19 @@ func TestHostProcessHelper(_ *testing.T) {
 		return
 	}
 	wr, rd := pxb.NewWriter(os.Stdout), pxb.NewReader(os.Stdin)
+	if mode == "startup" {
+		_ = wr.Write(pxb.TypeHello, 0, 0, pxb.EncodeHello(pxb.Hello{Protocol: pxb.ProtocolVersion}))
+		_, _ = rd.Read()
+		_ = wr.Write(pxb.TypeReady, 0, 0, nil)
+		_ = wr.Write(pxb.TypeHostRequest, pxb.FlagHasID, 7, pxb.EncodeHostRequest(pxb.HostRequest{Method: "confirm"}))
+		frame, err := rd.Read()
+		if err != nil || frame.Type != pxb.TypeHostResult || frame.ID != 7 {
+			return
+		}
+		_ = wr.Write(pxb.TypeNotify, 0, 0, pxb.EncodeNotify(pxb.NotifyMsg{Message: "replied"}))
+		_, _ = rd.Read()
+		return
+	}
 	if mode == "eof" {
 		_ = os.Stdout.Close()
 	} else {
@@ -119,6 +133,27 @@ func TestHostProcessHelper(_ *testing.T) {
 	}
 }
 
+func TestStartProcInstallsSinkBeforeReadyFrames(t *testing.T) {
+	t.Setenv("PHI_HOST_TEST_CHILD", "startup")
+	notified := make(chan pxb.NotifyMsg, 1)
+	proc, err := StartProc(t.Context(), loader.Manifest{
+		Name: "startup", Exec: os.Args[0], Args: []string{"-test.run=^TestHostProcessHelper$"},
+	}, t.TempDir(), t.TempDir(), "", "", WithHostSink(testSink{
+		hostReq: func(id uint32, _ bool, _ pxb.HostRequest, reply func(uint32, pxb.HostResult)) {
+			reply(id, pxb.HostResult{OK: true})
+		},
+		notify: func(n pxb.NotifyMsg) { notified <- n },
+	}))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = proc.Close() })
+	select {
+	case n := <-notified:
+		require.Equal(t, "replied", n.Message)
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "startup host request was not answered")
+	}
+}
+
 func hostTestProc(t *testing.T, mode string) (*Proc, <-chan struct{}) {
 	t.Helper()
 	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestHostProcessHelper$")
@@ -128,7 +163,9 @@ func hostTestProc(t *testing.T, mode string) (*Proc, <-chan struct{}) {
 	stdout, err := cmd.StdoutPipe()
 	require.NoError(t, err)
 	require.NoError(t, cmd.Start())
+	ready := make(chan struct{})
 	p := &Proc{
+		sink:    testSink{notify: func(pxb.NotifyMsg) { close(ready) }},
 		cmd:     cmd,
 		stdin:   stdin,
 		stdout:  stdout,
@@ -136,8 +173,6 @@ func hostTestProc(t *testing.T, mode string) (*Proc, <-chan struct{}) {
 		rd:      pxb.NewReader(stdout),
 		pending: make(map[uint32]chan frameResult),
 	}
-	ready := make(chan struct{})
-	p.SetHostSink(testSink{notify: func(pxb.NotifyMsg) { close(ready) }})
 	go p.readLoop()
 	t.Cleanup(func() { p.terminate() })
 	return p, ready

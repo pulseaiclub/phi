@@ -46,7 +46,7 @@ func forkEditor(t *testing.T) *Editor {
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 
-	return NewEditor(app.NewApp(nil), bus, ctrl, nil, components.DefaultTheme(), dir, "primary", nil, nil)
+	return NewEditor(app.NewApp(), bus, ctrl, nil, components.DefaultTheme(), dir, "primary", nil, nil)
 }
 
 func TestForkSlashSwitchesToANewSession(t *testing.T) {

@@ -42,11 +42,9 @@ func TestNewController_ReadyEngine(t *testing.T) {
 	assert.Same(t, proj, ctrl.proj)
 }
 
-func TestRedrawRelay_BindAfterBus(t *testing.T) {
-	relay := NewRedrawRelay()
-	bus := NewBus(relay.Fire)
+func TestBusConstructorRedraw(t *testing.T) {
 	var n int
-	relay.Bind(func() { n++ })
+	bus := NewBus(func() { n++ })
 	bus.Publish(SubmitMsg{Text: "y"})
 	assert.GreaterOrEqual(t, n, 1)
 

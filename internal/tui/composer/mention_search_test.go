@@ -15,10 +15,9 @@ import (
 // keystroke leaves an fd process walking the tree, and on a large tree they
 // pile up faster than they finish.
 func TestScheduleMentionSearchCancelsPrevious(t *testing.T) {
-	c := NewComposerPane(components.DefaultTheme(), "m", t.TempDir())
 	// The superseded search publishes after the debounce; give it a real bus
 	// instead of relying on nil tolerance.
-	c.bus = controller.NewBus(nil)
+	c := NewComposerPane(components.DefaultTheme(), "m", t.TempDir(), WithBus(controller.NewBus(nil)))
 
 	c.scheduleMentionSearch("a")
 	require.NotNil(t, c.mentionCancel, "a search must be cancellable")
@@ -41,9 +40,8 @@ func TestScheduleMentionSearchCancelsPrevious(t *testing.T) {
 // A superseded search must not publish, or a stale list can overwrite a newer
 // one between the generation check and the update.
 func TestSupersededSearchDoesNotPublish(t *testing.T) {
-	c := NewComposerPane(components.DefaultTheme(), "m", t.TempDir())
 	bus := controller.NewBus(nil)
-	c.bus = bus
+	c := NewComposerPane(components.DefaultTheme(), "m", t.TempDir(), WithBus(bus))
 
 	// Cancelled well inside the 100ms debounce, so no work should start.
 	c.scheduleMentionSearch("first")

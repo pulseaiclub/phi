@@ -133,13 +133,10 @@ func TestEngineRunnerInheritsParentGate(t *testing.T) {
 
 func TestEngineSpawnCapturesGatePerParentInMemory(t *testing.T) {
 	seen := make(chan job.RunEnv, 2)
-	mgr, err := job.New(job.Options{
-		Root: t.TempDir(),
-		Runner: job.RunnerFunc(func(_ context.Context, env job.RunEnv) (string, error) {
-			seen <- env
-			return "ok", nil
-		}),
-	})
+	mgr, err := job.New(t.TempDir(), job.RunnerFunc(func(_ context.Context, env job.RunEnv) (string, error) {
+		seen <- env
+		return "ok", nil
+	}))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = mgr.Close(context.WithoutCancel(t.Context())) })
 	for _, mode := range []permission.Mode{permission.ModeInteractive, permission.ModeHeadlessStrict, permission.ModeReadonly} {

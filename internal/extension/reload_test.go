@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ext "github.com/pulseaiclub/phi/ext/go"
 	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/extension/create"
 
@@ -88,7 +89,7 @@ func markers(t *testing.T, dir string) []string {
 }
 
 // startFixture builds and loads one extension, returning the runner and dirs.
-func startFixture(t *testing.T, source string) (*core.Runner, string, string) {
+func startFixture(t *testing.T, source string, options ...extension.RunnerOption) (*core.Runner, string, string) {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("builds a real extension binary")
@@ -100,7 +101,7 @@ func startFixture(t *testing.T, source string) (*core.Runner, string, string) {
 
 	require.NoError(t, create.Materialize(t.Context(), extDir, "hot", "0.0.1", source))
 
-	runner, warns, err := extension.Load(root, "")
+	runner, warns, err := extension.Load(root, "", options...)
 	require.NoError(t, err)
 	require.Empty(t, warns, "%v", warns)
 	t.Cleanup(runner.Close)
@@ -114,6 +115,29 @@ func commandNames(r *core.Runner) []string {
 		out[i] = e.Name
 	}
 	return out
+}
+
+func TestLoadAndReloadPreserveHostConstruction(t *testing.T) {
+	var changes int
+	runner, _, _ := startFixture(t, fixtureSource("v1", ""),
+		extension.WithHost(ext.HostOpts{Cwd: "/initial", SessionID: "initial", HasUI: true}),
+		extension.WithOnChange(func() { changes++ }))
+	api := runner.Fiber("hot").API()
+	assert.Equal(t, "/initial", api.NewContext().Cwd)
+	assert.Equal(t, "initial", api.NewContext().SessionID)
+	assert.True(t, api.NewContext().HasUI)
+	assert.Len(t, api.GetAllTools(), 1)
+	assert.Equal(t, 1, changes)
+
+	runner.SetMeta("next", "/next")
+	assert.Equal(t, "next", api.NewContext().SessionID)
+	require.NoError(t, runner.ReloadExtension("hot"))
+	api = runner.Fiber("hot").API()
+	assert.Equal(t, "/next", api.NewContext().Cwd)
+	assert.Equal(t, "next", api.NewContext().SessionID)
+	assert.True(t, api.NewContext().HasUI)
+	assert.Len(t, api.GetAllTools(), 1)
+	assert.Equal(t, 2, changes)
 }
 
 func TestReloadSwapsRunningExtension(t *testing.T) {

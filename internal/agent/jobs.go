@@ -8,26 +8,37 @@ import (
 	"github.com/pulseaiclub/phi/internal/llm"
 )
 
+type jobsConfig struct {
+	modelFn      func(job.Role) llm.ModelConfig
+	extensionsFn func() *extension.Runner
+}
+
+// JobsOption configures child engine construction.
+type JobsOption func(*jobsConfig)
+
+// WithJobsModelFunc selects a model per role (nil = the constructor's snapshot).
+func WithJobsModelFunc(fn func(job.Role) llm.ModelConfig) JobsOption {
+	return func(c *jobsConfig) { c.modelFn = fn }
+}
+
+// WithJobsExtensionsFunc supplies the current extension runner to each child.
+// Use a live getter so extension reloads also apply to new children.
+func WithJobsExtensionsFunc(fn func() *extension.Runner) JobsOption {
+	return func(c *jobsConfig) { c.extensionsFn = fn }
+}
+
 // NewJobManager creates a process-level job manager whose runner drives child Engines.
-// modelFn may be nil; then model is used as a fixed snapshot for every role.
-// When set, modelFn receives the job role so callers can pick per-role models.
-// extensionsFn supplies extensions for child engines (may return nil); prefer a live
-// getter so TUI reload updates sub-agents too.
-func NewJobManager(
-	root string,
-	model llm.ModelConfig,
-	modelFn func(role job.Role) llm.ModelConfig,
-	extensionsFn func() *extension.Runner,
-) (*job.Manager, error) {
+func NewJobManager(root string, model llm.ModelConfig, opts ...JobsOption) (*job.Manager, error) {
 	if root == "" {
 		return nil, errors.New("agent: jobs root is required")
 	}
-	return job.New(job.Options{
-		Root: root,
-		Runner: EngineRunner{
-			Model:        model,
-			ModelFn:      modelFn,
-			ExtensionsFn: extensionsFn,
-		},
+	var cfg jobsConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	return job.New(root, EngineRunner{
+		Model:        model,
+		ModelFn:      cfg.modelFn,
+		ExtensionsFn: cfg.extensionsFn,
 	})
 }

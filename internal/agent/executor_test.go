@@ -21,12 +21,12 @@ import (
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
-func loadExt(t *testing.T, mainGo string) *extension.Runner {
+func loadExt(t *testing.T, mainGo string, opts ...extension.RunnerOption) *extension.Runner {
 	t.Helper()
 	root := t.TempDir()
 	extDir := filepath.Join(root, "test")
 	require.NoError(t, create.Materialize(t.Context(), extDir, "test", "0.0.1", mainGo))
-	r, warns, err := extension.Load(root, "")
+	r, warns, err := extension.Load(root, "", opts...)
 	require.NoError(t, err)
 	require.Empty(t, warns, "unexpected warnings: %v", warns)
 	t.Cleanup(r.Close)
@@ -53,7 +53,7 @@ func TestExecutorDenyDoesNotRunHandler(t *testing.T) {
 			},
 		},
 	}
-	ex := NewExecutor(reg, fixedGate{dec: permission.Deny, reason: "denied by test"}, nil, nil)
+	ex := NewExecutor(reg, WithExecutorGate(fixedGate{dec: permission.Deny, reason: "denied by test"}))
 	var statuses []session.ToolStatus
 	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
@@ -82,7 +82,11 @@ func TestExecutorAskFalseRejects(t *testing.T) {
 	ask := func(context.Context, permission.Request, string) (permission.AskResult, error) {
 		return permission.AskResult{Approved: false}, nil
 	}
-	ex := NewExecutor(reg, fixedGate{dec: permission.Ask, reason: "needs approval"}, ask, nil)
+	ex := NewExecutor(
+		reg,
+		WithExecutorGate(fixedGate{dec: permission.Ask, reason: "needs approval"}),
+		WithExecutorAsk(ask),
+	)
 	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"curl x"}`},
@@ -101,7 +105,7 @@ func TestExecutorEmitsToolName(t *testing.T) {
 			},
 		},
 	}
-	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
+	ex := NewExecutor(reg)
 	var names []string
 	_, _, _ = ex.Run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
@@ -129,7 +133,7 @@ func TestExecutorAskNilRejectsHeadless(t *testing.T) {
 			},
 		},
 	}
-	ex := NewExecutor(reg, fixedGate{dec: permission.Ask, reason: "needs approval"}, nil, nil)
+	ex := NewExecutor(reg, WithExecutorGate(fixedGate{dec: permission.Ask, reason: "needs approval"}))
 	var statuses []session.ToolStatus
 	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
@@ -158,7 +162,11 @@ func TestExecutorAskTrueRuns(t *testing.T) {
 	ask := func(context.Context, permission.Request, string) (permission.AskResult, error) {
 		return permission.AskResult{Approved: true}, nil
 	}
-	ex := NewExecutor(reg, fixedGate{dec: permission.Ask, reason: "needs approval"}, ask, nil)
+	ex := NewExecutor(
+		reg,
+		WithExecutorGate(fixedGate{dec: permission.Ask, reason: "needs approval"}),
+		WithExecutorAsk(ask),
+	)
 	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"curl x"}`},
@@ -180,7 +188,7 @@ func TestExecutorAskFeedbackMessage(t *testing.T) {
 	ask := func(context.Context, permission.Request, string) (permission.AskResult, error) {
 		return permission.AskResult{Approved: false, Feedback: "use go test instead"}, nil
 	}
-	ex := NewExecutor(reg, fixedGate{dec: permission.Ask, reason: "ask me"}, ask, nil)
+	ex := NewExecutor(reg, WithExecutorGate(fixedGate{dec: permission.Ask, reason: "ask me"}), WithExecutorAsk(ask))
 	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"curl x"}`},
@@ -221,7 +229,12 @@ func main() {
   _ = m.Run()
 }
 `)
-	ex := NewExecutor(reg, fixedGate{dec: permission.Ask, reason: "needs approval"}, ask, r)
+	ex := NewExecutor(
+		reg,
+		WithExecutorGate(fixedGate{dec: permission.Ask, reason: "needs approval"}),
+		WithExecutorAsk(ask),
+		WithExecutorExtensions(r),
+	)
 	var statuses []session.ToolStatus
 	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
@@ -271,7 +284,7 @@ func main() {
   _ = m.Run()
 }
 `)
-	ex := NewExecutor(reg, gate, nil, r)
+	ex := NewExecutor(reg, WithExecutorGate(gate), WithExecutorExtensions(r))
 	var detail string
 	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
@@ -311,7 +324,7 @@ func main() {
   _ = m.Run()
 }
 `)
-	ex := NewExecutor(reg, permission.AllowAll{}, nil, r)
+	ex := NewExecutor(reg, WithExecutorExtensions(r))
 	var uiOut string
 	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
@@ -356,7 +369,7 @@ func TestExecutorToolErrorKeepsOutputEmptyForUI(t *testing.T) {
 		},
 	}
 
-	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
+	ex := NewExecutor(reg)
 	var last session.ToolRun
 	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{
 		{
@@ -405,7 +418,7 @@ func TestExecutorRunsReadableBatchConcurrently(t *testing.T) {
 			},
 		},
 	}
-	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
+	ex := NewExecutor(reg)
 	done := make(chan struct{})
 	var msgs []llm.Message
 	go func() {
@@ -453,7 +466,7 @@ func TestExecutorMixedBatchStaysSequential(t *testing.T) {
 			},
 		},
 	}
-	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
+	ex := NewExecutor(reg)
 	done := make(chan struct{})
 	var msgs []llm.Message
 	go func() {
@@ -491,6 +504,10 @@ func TestExecutorMixedBatchStaysSequential(t *testing.T) {
 }
 
 func TestChildEnginePreservesExtensionHostState(t *testing.T) {
+	parentSession, err := NewSession(WithCwd(t.TempDir()))
+	require.NoError(t, err)
+	parent, err := NewEngine(llm.ModelConfig{Name: "test"}, parentSession)
+	require.NoError(t, err)
 	r := loadExt(t, `package main
 import (
   "github.com/pulseaiclub/phi/ext/go"
@@ -504,13 +521,7 @@ func main() {
   })
   _ = m.Run()
 }
-`)
-	r.Bind(ext.HostOpts{})
-	parentSession, err := NewSession(WithCwd(t.TempDir()))
-	require.NoError(t, err)
-	parent, err := NewEngine(llm.ModelConfig{Name: "test"}, parentSession, WithExtensions(r))
-	require.NoError(t, err)
-	r.SetBaseTools(parent.BaseTools())
+`, extension.WithHost(ext.HostOpts{}), extension.WithBaseTools(parent.BaseTools()))
 	r.SetMeta(parent.SessionID(), parent.SessionCwd())
 	api := r.Fiber("test").API()
 	parentTools := api.GetAllTools()

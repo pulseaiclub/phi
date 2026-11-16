@@ -37,9 +37,6 @@ type ComposerPane struct {
 	theme components.Theme
 	cwd   string
 
-	// OnPaletteOpen refreshes root commands before Ctrl+K opens the palette.
-	OnPaletteOpen func()
-
 	Chat     chat.ChatInput
 	mention  mention.Picker
 	slash    mention.Picker
@@ -56,7 +53,9 @@ type ComposerPane struct {
 	commands      *commands.CommandRegistry
 
 	transcript *transcript.TranscriptPane
-	submitter  BusyChecker
+	// submitterFn resolves the submit side lazily: the Submitter is built after
+	// the composer it drives, so the pointer binds once assembly completes.
+	submitterFn func() BusyChecker
 
 	bus      *controller.Bus
 	drainBus func()
@@ -69,18 +68,160 @@ type ComposerPane struct {
 	requestFocus          func(components.Widget)
 	ctrlClose             func()
 	imageEnabled          func() bool
+	// paletteRefreshFn rebuilds root commands before Ctrl+K opens the palette;
+	// resolved lazily like submitterFn.
+	paletteRefreshFn func()
 
 	// promptHistory is the per-project recall ring behind Up/Down; nil when
 	// the session directory is unavailable.
-	promptHistory PromptHistory
+	promptHistory   PromptHistory
+	listFocusReturn func() components.Widget
 }
 
-// NewComposerPane builds composer widgets; call Wire before use.
-func NewComposerPane(theme components.Theme, modelLabel, cwd string) *ComposerPane {
-	c := &ComposerPane{
-		theme: theme,
-		cwd:   cwd,
-		Chat:  newChatInput(theme, modelLabel, cwd),
+type paneConfig struct {
+	promptHistory         PromptHistory
+	bashPredictor         BashPredictor
+	listFocusReturn       func() components.Widget
+	transcript            *transcript.TranscriptPane
+	submitterFn           func() BusyChecker
+	commands              *commands.CommandRegistry
+	bus                   *controller.Bus
+	drainBus              func()
+	onRedraw              func()
+	imageEnabled          func() bool
+	overlayBlocksComposer func() bool
+	handleOverlayKey      WireKeyHandler
+	handleCopyKey         WireKeyHandler
+	requestFocusEditor    func()
+	requestFocus          func(components.Widget)
+	ctrlClose             func()
+	paletteRefreshFn      func()
+}
+
+// PaneOption configures a composer before construction.
+type PaneOption func(*paneConfig)
+
+// WithPromptHistory supplies the per-project recall ring.
+func WithPromptHistory(history PromptHistory) PaneOption {
+	return func(cfg *paneConfig) { cfg.promptHistory = history }
+}
+
+// WithBashPredictor supplies the optional shell completion source.
+func WithBashPredictor(predictor BashPredictor) PaneOption {
+	return func(cfg *paneConfig) { cfg.bashPredictor = predictor }
+}
+
+// WithListFocusReturn resolves focus after accepting a list item.
+// Returning nil keeps the default chat focus.
+func WithListFocusReturn(resolve func() components.Widget) PaneOption {
+	return func(cfg *paneConfig) { cfg.listFocusReturn = resolve }
+}
+
+// WithTranscript supplies the transcript pane behind page keys and selection.
+func WithTranscript(pane *transcript.TranscriptPane) PaneOption {
+	return func(cfg *paneConfig) { cfg.transcript = pane }
+}
+
+// WithSubmitter resolves the submit side lazily (see ComposerPane.submitterFn).
+func WithSubmitter(resolve func() BusyChecker) PaneOption {
+	return func(cfg *paneConfig) { cfg.submitterFn = resolve }
+}
+
+// WithCommands supplies the shared slash/palette command registry.
+func WithCommands(registry *commands.CommandRegistry) PaneOption {
+	return func(cfg *paneConfig) { cfg.commands = registry }
+}
+
+// WithBus supplies the UI mailbox used for submits, toasts and searches.
+func WithBus(bus *controller.Bus) PaneOption {
+	return func(cfg *paneConfig) { cfg.bus = bus }
+}
+
+// WithDrainBus drains the mailbox right after a publish (UI goroutine only).
+func WithDrainBus(fn func()) PaneOption {
+	return func(cfg *paneConfig) { cfg.drainBus = fn }
+}
+
+// WithRedraw schedules a terminal refresh after composer-driven changes.
+func WithRedraw(fn func()) PaneOption {
+	return func(cfg *paneConfig) { cfg.onRedraw = fn }
+}
+
+// WithImageEnabled gates clipboard image attach; nil means enabled.
+func WithImageEnabled(fn func() bool) PaneOption {
+	return func(cfg *paneConfig) { cfg.imageEnabled = fn }
+}
+
+// WithOverlayBlocks reports whether a full-screen overlay owns the keyboard.
+func WithOverlayBlocks(fn func() bool) PaneOption {
+	return func(cfg *paneConfig) { cfg.overlayBlocksComposer = fn }
+}
+
+// WithOverlayKeyHandler routes keys into the overlay stack first.
+func WithOverlayKeyHandler(fn WireKeyHandler) PaneOption {
+	return func(cfg *paneConfig) { cfg.handleOverlayKey = fn }
+}
+
+// WithCopyKeyHandler routes copy shortcuts into the transcript.
+func WithCopyKeyHandler(fn WireKeyHandler) PaneOption {
+	return func(cfg *paneConfig) { cfg.handleCopyKey = fn }
+}
+
+// WithEditorFocus returns keyboard focus to the editor root.
+func WithEditorFocus(fn func()) PaneOption {
+	return func(cfg *paneConfig) { cfg.requestFocusEditor = fn }
+}
+
+// WithFocusRequest moves keyboard focus to a widget.
+func WithFocusRequest(fn func(components.Widget)) PaneOption {
+	return func(cfg *paneConfig) { cfg.requestFocus = fn }
+}
+
+// WithCtrlClose shuts the host down on Ctrl+C.
+func WithCtrlClose(fn func()) PaneOption {
+	return func(cfg *paneConfig) { cfg.ctrlClose = fn }
+}
+
+// WithPaletteRefresh rebuilds root commands before the palette opens;
+// resolved lazily like WithSubmitter.
+func WithPaletteRefresh(fn func()) PaneOption {
+	return func(cfg *paneConfig) { cfg.paletteRefreshFn = fn }
+}
+
+// NewComposerPane builds a fully wired composer: keyboard paths, pickers and
+// callbacks are installed here, so nothing rewires the pane after construction.
+func NewComposerPane(theme components.Theme, modelLabel, cwd string, options ...PaneOption) *ComposerPane {
+	var cfg paneConfig
+	for _, option := range options {
+		option(&cfg)
+	}
+	input := newChatInput(theme, modelLabel, cwd)
+	if cfg.promptHistory != nil {
+		input.History = cfg.promptHistory.Entries()
+	}
+	// The bash completer references this stable address; assemble the value once.
+	var c ComposerPane
+	c = ComposerPane{
+		promptHistory:         cfg.promptHistory,
+		listFocusReturn:       cfg.listFocusReturn,
+		bash:                  newBashSuggest(&c, theme, cfg.bashPredictor),
+		theme:                 theme,
+		cwd:                   cwd,
+		Chat:                  input,
+		commands:              cfg.commands,
+		transcript:            cfg.transcript,
+		submitterFn:           cfg.submitterFn,
+		bus:                   cfg.bus,
+		drainBus:              cfg.drainBus,
+		onRedraw:              cfg.onRedraw,
+		imageEnabled:          cfg.imageEnabled,
+		overlayBlocksComposer: cfg.overlayBlocksComposer,
+		handleOverlayKey:      cfg.handleOverlayKey,
+		handleCopyKey:         cfg.handleCopyKey,
+		requestFocusEditor:    cfg.requestFocusEditor,
+		requestFocus:          cfg.requestFocus,
+		ctrlClose:             cfg.ctrlClose,
+		paletteRefreshFn:      cfg.paletteRefreshFn,
 		mention: mention.Picker{
 			Theme: theme,
 		},
@@ -99,43 +240,13 @@ func NewComposerPane(theme components.Theme, modelLabel, cwd string) *ComposerPa
 			Theme: theme,
 		},
 	}
-	c.bash = newBashSuggest(c, theme)
-	return c
+	c.installCallbacks()
+	return &c
 }
 
-// WireDeps holds the collaborators Wire binds after Editor assembly.
-type WireDeps struct {
-	Transcript            *transcript.TranscriptPane
-	Submitter             BusyChecker
-	Commands              *commands.CommandRegistry
-	Bus                   *controller.Bus
-	DrainBus              func()
-	OnRedraw              func()
-	ImageEnabled          func() bool
-	OverlayBlocksComposer func() bool
-	HandleOverlayKey      WireKeyHandler
-	HandleCopyKey         WireKeyHandler
-	RequestFocusEditor    func()
-	RequestFocus          func(components.Widget)
-	CtrlClose             func()
-}
-
-// Wire binds bus, transcript, and editor overlay hooks after Editor assembly.
-func (c *ComposerPane) Wire(deps WireDeps) {
-	c.commands = deps.Commands
-	c.transcript = deps.Transcript
-	c.submitter = deps.Submitter
-	c.bus = deps.Bus
-	c.drainBus = deps.DrainBus
-	c.onRedraw = deps.OnRedraw
-	c.imageEnabled = deps.ImageEnabled
-	c.overlayBlocksComposer = deps.OverlayBlocksComposer
-	c.handleOverlayKey = deps.HandleOverlayKey
-	c.handleCopyKey = deps.HandleCopyKey
-	c.requestFocusEditor = deps.RequestFocusEditor
-	c.requestFocus = deps.RequestFocus
-	c.ctrlClose = deps.CtrlClose
-
+// installCallbacks wires the keyboard and accept paths. Called once from the
+// constructor; the closures bind to the pane's stable address.
+func (c *ComposerPane) installCallbacks() {
 	c.palette.FocusReturn = &c.Chat
 	c.listPicker.FocusReturn = &c.Chat
 	c.Chat.OnSubmit = func(text string) {
@@ -163,6 +274,14 @@ func (c *ComposerPane) Wire(deps WireDeps) {
 	// Tab must never run a command, so slash gets a fill-only completer.
 	// mention/question edit the composer already: accept is the fallback.
 	c.slash.OnComplete = c.completeSlash
+}
+
+// submitter resolves the lazy submit side; nil until assembly binds it.
+func (c *ComposerPane) submitter() BusyChecker {
+	if c.submitterFn == nil {
+		return nil
+	}
+	return c.submitterFn()
 }
 
 // HideCompleters closes mention, slash, question, @, and "!" pickers.
@@ -195,7 +314,16 @@ func (c *ComposerPane) ShowList(
 ) {
 	c.HideCompleters()
 	c.HidePalette()
-	c.listPicker.OnAccept = onAccept
+	c.listPicker.OnAccept = func(item listpicker.Item) {
+		if onAccept != nil {
+			onAccept(item)
+		}
+		if c.listFocusReturn != nil {
+			if target := c.listFocusReturn(); target != nil {
+				c.listPicker.FocusReturn = target
+			}
+		}
+	}
 	c.listPicker.FocusReturn = &c.Chat
 	// Assign unconditionally: a nil clears a prior domain's delete path off
 	// the shared picker, mirroring the accept-leak guard above.
@@ -214,9 +342,6 @@ func (c *ComposerPane) ListState() listpicker.State { return c.listPicker.State(
 
 // RestoreListState restores a domain's place after reopening the shared picker.
 func (c *ComposerPane) RestoreListState(state listpicker.State) { c.listPicker.Restore(state) }
-
-// SetListFocusReturn directs acceptance to a detail view instead of chat.
-func (c *ComposerPane) SetListFocusReturn(w components.Widget) { c.listPicker.FocusReturn = w }
 
 // ShowSessionList maps sessions into list rows and opens the picker.
 func (c *ComposerPane) ShowSessionList(
@@ -304,15 +429,6 @@ func (c *ComposerPane) ListOverlay(ctx components.DrawContext) (components.SubSu
 	}, true
 }
 
-// SetPromptHistory installs the per-project recall ring and loads what is
-// already stored. A nil store leaves the composer without recall.
-func (c *ComposerPane) SetPromptHistory(h PromptHistory) {
-	c.promptHistory = h
-	if h != nil {
-		c.Chat.History = h.Entries()
-	}
-}
-
 // rememberPrompt records a submitted prompt so Up can recall it later. Slash
 // and shell commands are skipped: they are already reachable by typing, and
 // recalling a "!" line would run it on Enter.
@@ -382,8 +498,8 @@ func (c *ComposerPane) ClearPendingRefs() {
 
 // SyncBashBorder updates composer chrome for "!cmd" prefix.
 func (c *ComposerPane) SyncBashBorder(text string) {
-	if c.submitter != nil {
-		c.submitter.SyncBashBorder(text)
+	if submit := c.submitter(); submit != nil {
+		submit.SyncBashBorder(text)
 	}
 }
 
@@ -652,8 +768,8 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 				c.FocusChat()
 			} else {
 				c.HideCompleters()
-				if c.OnPaletteOpen != nil {
-					c.OnPaletteOpen()
+				if c.paletteRefreshFn != nil {
+					c.paletteRefreshFn()
 				}
 				c.palette.Show()
 				if c.requestFocus != nil {
@@ -789,7 +905,7 @@ func (c *ComposerPane) handleEscape(ctx *components.EventContext) bool {
 		ctx.ConsumeAndRedraw()
 		return true
 	}
-	if c.submitter != nil && (c.submitter.RunningBash() || c.submitter.IsBusy()) {
+	if submit := c.submitter(); submit != nil && (submit.RunningBash() || submit.IsBusy()) {
 		c.bus.Publish(controller.CancelStreamMsg{})
 		if c.drainBus != nil {
 			c.drainBus()

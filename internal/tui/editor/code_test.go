@@ -27,7 +27,7 @@ func newTestEditor(t *testing.T) *Editor {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.go"), []byte("package main\n\nfunc main() {}\n"), 0o600))
 
 	e := NewEditor(
-		app.NewApp(nil),
+		app.NewApp(),
 		controller.NewBus(nil),
 		&controller.EngineController{},
 		nil,

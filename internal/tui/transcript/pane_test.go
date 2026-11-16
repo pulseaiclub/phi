@@ -19,6 +19,21 @@ import (
 // pages the transcript draws.
 const longMsgLines = 30
 
+func TestTranscriptPane_UsageCallbackFromConstruction(t *testing.T) {
+	th := components.DefaultTheme()
+	var usages []session.TokenUsage
+	pane := NewTranscriptPane(th, status.NewSpinner(th.ToolName), "Phi test",
+		WithUsageCallback(func(usage session.TokenUsage) { usages = append(usages, usage) }))
+	require.Empty(t, usages)
+	pane.ApplySession(session.UserAppend{Text: "hello"})
+	require.Empty(t, usages)
+	usage := session.TokenUsage{PromptTokens: 12}
+	pane.ApplySession(session.AssistantMessageUpdate{Message: session.Message{
+		ID: "a1", Usage: usage,
+	}})
+	require.Equal(t, []session.TokenUsage{usage}, usages)
+}
+
 func TestTranscriptPane_ApplySessionAndSync(t *testing.T) {
 	th := components.DefaultTheme()
 	spin := status.NewSpinner(th.ToolName)
@@ -69,12 +84,12 @@ const paneTestRows = 12
 
 // bashPane draws one user turn plus a collapsed bash run and returns the drawn
 // pane. Rows are bottom-anchored, so the bash title is the last viewport row.
-func bashPane(t *testing.T) (*TranscriptPane, *controller.Bus, *block.BashBlock) {
+func bashPane(t *testing.T, options ...PaneOption) (*TranscriptPane, *controller.Bus, *block.BashBlock) {
 	t.Helper()
 	th := components.DefaultTheme()
-	pane := NewTranscriptPane(th, status.NewSpinner(th.ToolName), "Phi test")
 	bus := controller.NewBus(nil)
-	pane.SetCopyHandlers(bus, func(string) bool { return true })
+	options = append([]PaneOption{WithCopyHandlers(bus, func(string) bool { return true })}, options...)
+	pane := NewTranscriptPane(th, status.NewSpinner(th.ToolName), "Phi test", options...)
 	pane.LoadReplay(session.Snapshot{
 		Messages: []session.Message{
 			{ID: "u1", Role: session.RoleUser, State: session.StateComplete, Text: "hello"},
@@ -101,11 +116,12 @@ func bashPane(t *testing.T) (*TranscriptPane, *controller.Bus, *block.BashBlock)
 // Dragging from a collapsed title row must copy text, not expand: the block
 // toggles only once the pane has ruled out a drag-selection.
 func TestTranscriptPane_DragFromTitleRowCopies(t *testing.T) {
-	pane, bus, bash := bashPane(t)
 	var copied string
-	pane.SetCopyHandlers(bus, func(text string) bool {
-		copied = text
-		return true
+	pane, bus, bash := bashPane(t, func(cfg *paneConfig) {
+		cfg.copyFn = func(text string) bool {
+			copied = text
+			return true
+		}
 	})
 	const row = paneTestRows - 1
 
@@ -133,12 +149,12 @@ func longMessagePane(t *testing.T) (*TranscriptPane, *string) {
 		rows[i] = fmt.Sprintf("L%02d", i)
 	}
 	th := components.DefaultTheme()
-	pane := NewTranscriptPane(th, status.NewSpinner(th.ToolName), "Phi test")
 	copied := new(string)
-	pane.SetCopyHandlers(controller.NewBus(nil), func(text string) bool {
-		*copied = text
-		return true
-	})
+	pane := NewTranscriptPane(th, status.NewSpinner(th.ToolName), "Phi test",
+		WithCopyHandlers(controller.NewBus(nil), func(text string) bool {
+			*copied = text
+			return true
+		}))
 	pane.LoadReplay(session.Snapshot{Messages: []session.Message{
 		{ID: "u1", Role: session.RoleUser, State: session.StateComplete, Text: strings.Join(rows, "\n")},
 	}})

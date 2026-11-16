@@ -13,12 +13,9 @@ import (
 )
 
 func TestNewEngineRegistersJobs(t *testing.T) {
-	mgr, err := job.New(job.Options{
-		Root: t.TempDir(),
-		Runner: job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
-			return "ok", nil
-		}),
-	})
+	mgr, err := job.New(t.TempDir(), job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
+		return "ok", nil
+	}))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
 
@@ -42,12 +39,9 @@ func TestNewEngineRegistersJobs(t *testing.T) {
 }
 
 func TestSetJobsTogglesAgentTools(t *testing.T) {
-	mgr, err := job.New(job.Options{
-		Root: t.TempDir(),
-		Runner: job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
-			return "ok", nil
-		}),
-	})
+	mgr, err := job.New(t.TempDir(), job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
+		return "ok", nil
+	}))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
 

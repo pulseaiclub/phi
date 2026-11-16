@@ -10,11 +10,8 @@ import (
 	"github.com/pulseaiclub/phi/internal/extension/loader"
 )
 
-// Every topology mutation goes through the same three steps: reserve or release
-// the map entry, wire the host side of the process, then notify the host that
-// its derived state (tool schemas, palette, footers) is stale. Keeping them in
-// one place is why a hot-swapped process cannot come up unwired and why the
-// read-model cache cannot be forgotten.
+// Topology mutations reserve or release the map entry, start processes with
+// their host capabilities, then notify the host that its derived state is stale.
 
 // LoadExtension loads a single extension and wires it to the host.
 func (r *Runner) LoadExtension(ctx context.Context, discovered loader.Discovered) error {
@@ -47,7 +44,6 @@ func (r *Runner) LoadExtension(ctx context.Context, discovered loader.Discovered
 		return fmt.Errorf("load %q: %w", name, err)
 	}
 
-	r.wire(f, r.hostOpts())
 	r.topologyChanged()
 	debuglog.Logf("runner: loaded extension %q", name)
 	return nil
@@ -98,7 +94,6 @@ func (r *Runner) ReloadExtension(name string) error {
 		return fmt.Errorf("reload %q: %w", name, err)
 	}
 
-	r.wire(f, r.hostOpts())
 	r.topologyChanged()
 	debuglog.Logf("runner: reloaded extension %q", name)
 	return nil
@@ -135,5 +130,9 @@ func (r *Runner) ListExtensions() map[string]FiberState {
 func (r *Runner) startEnv() StartEnv {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return StartEnv{LogDir: r.logDir, Cwd: r.cwd, SessionID: r.session}
+	return StartEnv{
+		LogDir: r.logDir, Cwd: r.cwd, SessionID: r.session,
+		Host: r.host,
+		Sink: procSink{ui: r.ui, sendUser: r.host.SendUserMessage},
+	}
 }

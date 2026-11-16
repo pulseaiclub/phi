@@ -3,36 +3,10 @@ package controller
 import (
 	"slices"
 	"sync"
-	"sync/atomic"
 
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/session"
 )
-
-// RedrawRelay lets cmd construct a Bus before the Editor exists.
-// Bind once after NewEditor; Fire is safe before Bind (no-op).
-type RedrawRelay struct {
-	fn atomic.Pointer[func()]
-}
-
-// NewRedrawRelay returns an empty relay.
-func NewRedrawRelay() *RedrawRelay { return &RedrawRelay{} }
-
-// Fire invokes the bound redraw callback, if any.
-func (r *RedrawRelay) Fire() {
-	if p := r.fn.Load(); p != nil && *p != nil {
-		(*p)()
-	}
-}
-
-// Bind sets the redraw callback (typically Editor.RequestRedraw).
-func (r *RedrawRelay) Bind(fn func()) {
-	if fn == nil {
-		r.fn.Store(nil)
-		return
-	}
-	r.fn.Store(new(fn))
-}
 
 // Bus is the single mailbox between components and the UI goroutine.
 // Any goroutine may Publish; only the UI goroutine may Drain.

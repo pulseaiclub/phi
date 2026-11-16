@@ -21,7 +21,7 @@ import (
 
 func newAgentTestRegistry(t *testing.T, runner job.RunnerFunc) (*job.Manager, tooldef.Registry) {
 	t.Helper()
-	mgr, err := job.New(job.Options{Root: t.TempDir(), Runner: runner})
+	mgr, err := job.New(t.TempDir(), runner)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
 	workdir := t.TempDir()
@@ -155,13 +155,10 @@ func TestAgentSpawnWorkdirMatchesPermissionRequest(t *testing.T) {
 	} {
 		t.Run(args, func(t *testing.T) {
 			seen := make(chan string, 1)
-			mgr, err := job.New(job.Options{
-				Root: t.TempDir(),
-				Runner: job.RunnerFunc(func(_ context.Context, env job.RunEnv) (string, error) {
-					seen <- env.Job.WorkDir
-					return "ok", nil
-				}),
-			})
+			mgr, err := job.New(t.TempDir(), job.RunnerFunc(func(_ context.Context, env job.RunEnv) (string, error) {
+				seen <- env.Job.WorkDir
+				return "ok", nil
+			}))
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = mgr.Close(context.WithoutCancel(t.Context())) })
 			reg := tooldef.NewRegistry(agenttool.AgentTools(

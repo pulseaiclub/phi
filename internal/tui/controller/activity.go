@@ -29,14 +29,25 @@ type ActivityHandler struct {
 	onChange func()
 }
 
-// NewActivityHandler builds an ActivityHandler.
-func NewActivityHandler() *ActivityHandler {
-	return &ActivityHandler{}
+type activityConfig struct {
+	onChange func()
 }
 
-// SetOnChange registers a UI-thread callback after activity changes.
-func (h *ActivityHandler) SetOnChange(fn func()) {
-	h.onChange = fn
+// ActivityOption configures an activity handler before construction.
+type ActivityOption func(*activityConfig)
+
+// WithOnChange registers a UI-thread callback after activity changes.
+func WithOnChange(fn func()) ActivityOption {
+	return func(cfg *activityConfig) { cfg.onChange = fn }
+}
+
+// NewActivityHandler builds an ActivityHandler.
+func NewActivityHandler(options ...ActivityOption) *ActivityHandler {
+	var cfg activityConfig
+	for _, option := range options {
+		option(&cfg)
+	}
+	return &ActivityHandler{onChange: cfg.onChange}
 }
 
 func (h *ActivityHandler) notify() {

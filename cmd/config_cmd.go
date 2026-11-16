@@ -46,7 +46,7 @@ func runConfigEditor() error {
 		}
 	}(vx)
 
-	application := app.NewApp(vx)
+	application := app.NewApp(app.WithUI(vx))
 	ui := configui.New(
 		doc,
 		path,

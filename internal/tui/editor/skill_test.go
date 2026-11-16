@@ -63,34 +63,21 @@ Do the work.
 
 	bus := controller.NewBus(nil)
 	e := &Editor{
-		composer: composer.NewComposerPane(components.DefaultTheme(), "m", dir),
+		composer: composer.NewComposerPane(components.DefaultTheme(), "m", dir, composer.WithBus(bus)),
 		bus:      bus,
 		cwd:      dir,
 	}
-	e.composer.Wire(composer.WireDeps{})
 
 	builtins := commands.NewBuiltinRegistry(
-		bus,
-		nil,
-		e.composer,
-		nil,
-		nil,
-		[]string{filepath.Join(dir, "skills")},
-		nil,
-		nil,
+		commands.WithBuiltinBus(bus),
+		commands.WithBuiltinComposer(e.composer),
+		commands.WithBuiltinSkillPaths([]string{filepath.Join(dir, "skills")}),
+		commands.WithBuiltinOpenSkillPicker(e.showSkillList),
+		commands.WithBuiltinCwd(dir),
+		commands.WithBuiltinCommandContext(commands.NewContext(bus, nil)),
+		commands.WithBuiltinStreamActive(func() bool { return false }),
 	)
 	e.commands = builtins.Registry
-	builtins.Bind(
-		nil,
-		commands.NewContext(bus, nil),
-		nil,
-		nil,
-		nil,
-		nil,
-		e.showSkillList,
-		dir,
-		func() bool { return false },
-	)
 
 	return e
 }

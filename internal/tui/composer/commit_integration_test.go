@@ -24,13 +24,12 @@ func TestCommitCompletionThroughInputAndPicker(t *testing.T) {
 	}
 	git("init", "-q")
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "example.txt"), []byte("hello\n"), 0o600))
-	pane, bus := wiredComposer(t)
 	generated := make(chan string, 1)
 	complete := commitmsg.New(func(_ context.Context, _, user string) (string, error) {
 		generated <- user
 		return "feat: add example", nil
 	})
-	pane.SetBashPredictor(NewBashPredictor(dir, complete.Complete))
+	pane, bus := wiredComposer(t, WithBashPredictor(NewBashPredictor(dir, complete.Complete)))
 	pane.Chat.ReplaceRange(0, 0, `!git commit -m "`)
 	pane.ApplyBashSuggestions(drainBash(t, bus))
 	assert.True(t, pane.bash.picker.Open)

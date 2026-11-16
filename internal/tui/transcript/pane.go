@@ -41,7 +41,7 @@ func (s *textSel) clear() {
 type TranscriptPane struct {
 	theme components.Theme
 
-	list      msglist.MessageList
+	list      *msglist.MessageList
 	listIDs   []string
 	snap      session.Snapshot
 	mapper    *Mapper
@@ -58,43 +58,60 @@ type TranscriptPane struct {
 	bus     *controller.Bus
 }
 
+type paneConfig struct {
+	onUsage func(session.TokenUsage)
+	copyFn  func(string) bool
+	bus     *controller.Bus
+}
+
+// PaneOption configures a transcript before construction.
+type PaneOption func(*paneConfig)
+
+// WithUsageCallback fires when an assistant message reports token usage.
+func WithUsageCallback(fn func(session.TokenUsage)) PaneOption {
+	return func(cfg *paneConfig) { cfg.onUsage = fn }
+}
+
+// WithCopyHandlers supplies clipboard copy and its feedback bus.
+func WithCopyHandlers(bus *controller.Bus, copyFn func(string) bool) PaneOption {
+	return func(cfg *paneConfig) {
+		cfg.bus = bus
+		cfg.copyFn = copyFn
+	}
+}
+
 // NewTranscriptPane builds an empty transcript view.
-func NewTranscriptPane(theme components.Theme, spin *status.Spinner, brand string) *TranscriptPane {
-	t := &TranscriptPane{
-		theme: theme,
-		list: msglist.MessageList{
-			Theme:    theme,
-			Selected: -1,
-		},
+func NewTranscriptPane(
+	theme components.Theme,
+	spin *status.Spinner,
+	brand string,
+	options ...PaneOption,
+) *TranscriptPane {
+	var cfg paneConfig
+	for _, option := range options {
+		option(&cfg)
+	}
+	list := &msglist.MessageList{Theme: theme, Selected: -1}
+	subagents := NewSubagentStore()
+	mapper := NewMapper(theme, spin, list.InvalidateHeights)
+	mapper.Children = subagents.Children
+	mapper.ChildrenByJob = subagents.ChildrenByJob
+	mapper.LabelByJob = subagents.Label
+	return &TranscriptPane{
+		theme:   theme,
+		list:    list,
+		mapper:  mapper,
+		onUsage: cfg.onUsage,
+		copyFn:  cfg.copyFn,
+		bus:     cfg.bus,
 		welcome: splash.Screen{
 			Sphere: &splash.Sphere{Fast: true},
 			Theme:  theme,
 			Brand:  brand,
 		},
 		startedAt: time.Now(),
-		subagents: NewSubagentStore(),
+		subagents: subagents,
 	}
-	t.mapper = NewMapper(theme, spin, func() {
-		t.list.InvalidateHeights()
-	})
-	t.mapper.Children = t.subagents.Children
-	t.mapper.ChildrenByJob = t.subagents.ChildrenByJob
-	t.mapper.LabelByJob = t.subagents.Label
-	return t
-}
-
-// SetUsageCallback fires when an assistant message reports token usage.
-func (t *TranscriptPane) SetUsageCallback(fn func(session.TokenUsage)) {
-	t.onUsage = fn
-}
-
-// SetCopyHandlers wires clipboard copy; feedback toasts go through the bus.
-func (t *TranscriptPane) SetCopyHandlers(
-	bus *controller.Bus,
-	copyFn func(text string) bool,
-) {
-	t.copyFn = copyFn
-	t.bus = bus
 }
 
 // Snapshot returns the current session model (read-only use on UI goroutine).

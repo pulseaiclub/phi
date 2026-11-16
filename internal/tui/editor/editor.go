@@ -92,27 +92,57 @@ func NewEditor(
 	modelNames []string,
 ) *Editor {
 	e := &Editor{
-		vx:       vx,
-		App:      application,
-		theme:    theme,
-		cwd:      cwd,
-		bus:      bus,
-		ctrl:     ctrl,
-		toast:    toast.Toast{Theme: theme},
-		composer: composer.NewComposerPane(theme, modelLabel, cwd),
-		footer:   footer.NewFooterChrome(theme),
-		spin:     status.NewSpinner(theme.ToolName),
-		activity: controller.NewActivityHandler(),
+		vx:     vx,
+		App:    application,
+		theme:  theme,
+		cwd:    cwd,
+		bus:    bus,
+		ctrl:   ctrl,
+		toast:  toast.Toast{Theme: theme},
+		footer: footer.NewFooterChrome(theme),
+		spin:   status.NewSpinner(theme.ToolName),
 	}
-	e.activity.SetOnChange(e.onActivityChange)
+	e.activity = controller.NewActivityHandler(controller.WithOnChange(e.onActivityChange))
 	commitMessages := commitmsg.New(ctrl.GenerateCommitMessage)
-	e.composer.SetBashPredictor(composer.NewBashPredictor(cwd, commitMessages.Complete))
+	e.transcript = transcript.NewTranscriptPane(theme, e.spin, "Phi "+version.Version,
+		transcript.WithCopyHandlers(e.bus, e.copyToClipboard))
+	var history composer.PromptHistory
 	// Prompt recall is opt-in: it persists what the user typed under the home
 	// directory, so it stays off until PHI_PROMPT_HISTORY turns it on.
 	if dir := ctrl.SessionDir(); dir != "" && shellhist.PromptsEnabled() {
-		e.composer.SetPromptHistory(shellhist.NewPromptHistory(dir))
+		history = shellhist.NewPromptHistory(dir)
 	}
-	e.transcript = transcript.NewTranscriptPane(theme, e.spin, "Phi "+version.Version)
+	// The registry is shared from the start: the composer's slash picker, the
+	// submitter and the builtin handlers all dispatch through it.
+	e.commands = commands.NewCommandRegistry()
+	// The composer precedes the submitter and the command bridge it drives;
+	// both resolve on first use, so every dependency stays a constructor input
+	// instead of a post-construction field write.
+	var submitterRef composer.BusyChecker
+	var paletteRefresh func()
+	e.composer = composer.NewComposerPane(theme, modelLabel, cwd,
+		composer.WithPromptHistory(history),
+		composer.WithBashPredictor(composer.NewBashPredictor(cwd, commitMessages.Complete)),
+		composer.WithListFocusReturn(e.listFocusReturn),
+		composer.WithTranscript(e.transcript),
+		composer.WithBus(e.bus),
+		composer.WithCommands(e.commands),
+		composer.WithDrainBus(e.drainBus),
+		composer.WithSubmitter(func() composer.BusyChecker { return submitterRef }),
+		composer.WithPaletteRefresh(func() {
+			if paletteRefresh != nil {
+				paletteRefresh()
+			}
+		}),
+		composer.WithRedraw(e.queueComposerRedraw),
+		composer.WithImageEnabled(e.ctrl.ImageEnabled),
+		composer.WithOverlayBlocks(e.blocksComposer),
+		composer.WithOverlayKeyHandler(e.routeOverlayKey),
+		composer.WithCopyKeyHandler(e.handleCopyKey),
+		composer.WithEditorFocus(e.focusSelf),
+		composer.WithFocusRequest(e.App.RequestFocus),
+		composer.WithCtrlClose(e.ctrl.Close),
+	)
 	e.syncStatusSlot()
 	e.overlays = overlays.NewOverlays(
 		theme,
@@ -122,7 +152,6 @@ func NewEditor(
 		e.composer.FocusChat,
 		e.handleErrorReply,
 	)
-	e.transcript.SetCopyHandlers(e.bus, e.copyToClipboard)
 	e.diff = diffpane.New(e.theme, cwd,
 		e.publishSubmit,
 		e.copyToClipboard,
@@ -133,23 +162,6 @@ func NewEditor(
 		e.addPendingRef,
 		e.publishToast,
 	)
-
-	builtins := commands.NewBuiltinRegistry(
-		e.bus,
-		e.ctrl,
-		e.composer,
-		e.transcript,
-		modelNames,
-		skillPaths,
-		e.openDiff,
-		e.openCode,
-	)
-	e.commands = builtins.Registry
-	e.sessions = builtins.Sessions
-	e.sessions.ResetActivity = e.resetActivity
-	e.extCmds = builtins.Ext
-	e.extCmds.SetStatus = e.setExtensionStatus
-	e.composer.OnPaletteOpen = builtins.Ext.RefreshPalette
 
 	cmdCtx := commands.NewContext(e.bus, e.composer.PushPalette)
 	e.submitter = submit.NewSubmitter(
@@ -163,36 +175,52 @@ func NewEditor(
 		e.overlays.BlocksSessionSwitch,
 		e.overlays.Cancel,
 	)
-	builtins.Bind(
-		e.submitter,
-		cmdCtx,
-		e.showSessionList,
-		e.composer.RefreshSessionList,
-		e.composer.ShowBranchList,
-		e.composer.RefreshBranchList,
-		e.showSkillList,
-		e.cwd,
-		e.submitter.StreamActive,
+	submitterRef = e.submitter
+	builtins := commands.NewBuiltinRegistry(
+		commands.WithBuiltinCommandRegistry(e.commands),
+		commands.WithBuiltinBus(e.bus),
+		commands.WithBuiltinController(e.ctrl),
+		commands.WithBuiltinComposer(e.composer),
+		commands.WithBuiltinTranscript(e.transcript),
+		commands.WithBuiltinModelNames(modelNames),
+		commands.WithBuiltinSkillPaths(skillPaths),
+		commands.WithBuiltinOpenDiff(e.openDiff),
+		commands.WithBuiltinOpenCode(e.openCode),
+		commands.WithBuiltinSubmitter(e.submitter),
+		commands.WithBuiltinCommandContext(cmdCtx),
+		commands.WithBuiltinOpenSessionPicker(e.showSessionList),
+		commands.WithBuiltinRefreshSessionPicker(e.composer.RefreshSessionList),
+		commands.WithBuiltinOpenBranchPicker(e.composer.ShowBranchList),
+		commands.WithBuiltinRefreshBranchPicker(e.composer.RefreshBranchList),
+		commands.WithBuiltinOpenSkillPicker(e.showSkillList),
+		commands.WithBuiltinCwd(e.cwd),
+		commands.WithBuiltinStreamActive(e.submitter.StreamActive),
+		commands.WithBuiltinResetActivity(e.resetActivity),
+		commands.WithBuiltinSetStatus(e.setExtensionStatus),
 	)
-
-	e.composer.Wire(composer.WireDeps{
-		Transcript:            e.transcript,
-		Submitter:             e.submitter,
-		Commands:              e.commands,
-		Bus:                   e.bus,
-		DrainBus:              e.drainBus,
-		OnRedraw:              e.vx.QueueRefresh,
-		ImageEnabled:          e.ctrl.ImageEnabled,
-		OverlayBlocksComposer: e.blocksComposer,
-		HandleOverlayKey:      e.overlays.HandleKey,
-		HandleCopyKey:         e.handleCopyKey,
-		RequestFocusEditor:    e.focusSelf,
-		RequestFocus:          e.App.RequestFocus,
-		CtrlClose:             e.ctrl.Close,
-	})
+	e.sessions = builtins.Sessions
+	e.extCmds = builtins.Ext
+	paletteRefresh = builtins.Ext.RefreshPalette
 
 	e.extCmds.Sync()
 	return e
+}
+
+// queueComposerRedraw refreshes the terminal after composer-driven changes;
+// tests build an Editor without a terminal, so vx may be nil.
+func (e *Editor) queueComposerRedraw() {
+	if e.vx != nil {
+		e.vx.QueueRefresh()
+	}
+}
+
+// routeOverlayKey sends composer keys into the overlay stack first. The
+// overlays are built right after the composer, before any event can arrive.
+func (e *Editor) routeOverlayKey(ctx *components.EventContext, ev xui.KeyEvent) bool {
+	if e.overlays == nil {
+		return false
+	}
+	return e.overlays.HandleKey(ctx, ev)
 }
 
 // Publish sends a message onto the bus from any goroutine / widget callback.
@@ -393,6 +421,13 @@ func (e *Editor) openCode(args []string) {
 	e.diff.Close()
 	e.code.OpenAt(path, line)
 	e.captureOverlayFocus()
+}
+
+func (e *Editor) listFocusReturn() components.Widget {
+	if e.code.Active() || e.diff.Active() {
+		return e
+	}
+	return nil
 }
 
 func (e *Editor) captureOverlayFocus() {
@@ -609,7 +644,7 @@ func (e *Editor) requestRedraw() {
 	e.App.RequestRedraw()
 }
 
-// RequestRedraw asks the app to repaint (safe to bind onto controller.RedrawRelay / controller.Bus).
+// RequestRedraw asks the app to repaint (safe to bind onto controller.Bus).
 func (e *Editor) RequestRedraw() {
 	e.requestRedraw()
 }

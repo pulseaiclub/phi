@@ -29,7 +29,6 @@ func (e *Editor) showChanges(restore bool) {
 	e.composer.ShowList(changelist.Items(changes), changelist.Config(), func(item listpicker.Item) {
 		e.diffList = e.composer.ListState()
 		e.diff.OpenChange(root, byID[item.ID])
-		e.composer.SetListFocusReturn(e)
 		e.captureOverlayFocus()
 	}, nil)
 	if restore {

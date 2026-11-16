@@ -20,12 +20,9 @@ import (
 // which is what the permission declaration resolves relative paths against.
 func agentPermissionRegistry(t *testing.T, workdir string) tooldef.Registry {
 	t.Helper()
-	mgr, err := job.New(job.Options{
-		Root: t.TempDir(),
-		Runner: job.RunnerFunc(func(context.Context, job.RunEnv) (string, error) {
-			return "ok", nil
-		}),
-	})
+	mgr, err := job.New(t.TempDir(), job.RunnerFunc(func(context.Context, job.RunEnv) (string, error) {
+		return "ok", nil
+	}))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = mgr.Close(context.WithoutCancel(t.Context())) })
 	return tooldef.NewRegistry(agenttool.AgentTools(

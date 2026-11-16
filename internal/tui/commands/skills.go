@@ -18,7 +18,7 @@ type SkillsCommands struct {
 	SkillPaths []string
 	// Add attaches a chosen skill to the composer.
 	Add skillAdder
-	// OpenPicker opens the skills list overlay (wired by Builtin.Bind).
+	// OpenPicker opens the skills list overlay.
 	OpenPicker func(items []listpicker.Item, cfg listpicker.ShowConfig, onAccept func(listpicker.Item))
 }
 

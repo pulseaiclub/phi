@@ -11,16 +11,35 @@ import (
 	"github.com/pulseaiclub/phi/internal/permission"
 )
 
-// Options configures a [Manager].
-type Options struct {
-	Root          string // required: jobs directory
-	Runner        Runner // required
-	MaxConcurrent int    // default 4; Spawn returns [ErrBusy] when full (no queue)
-	MaxDepth      int    // default 1 (children cannot spawn further)
-	Recovery      RecoveryMode
-	// OnStoreError is called when a disk write fails after the job is live.
-	// Create/Spawn still return the create error directly.
-	OnStoreError func(op, jobID string, err error)
+type managerConfig struct {
+	maxConcurrent int
+	maxDepth      int
+	recovery      RecoveryMode
+	onStoreError  func(op, jobID string, err error)
+}
+
+// Option configures a Manager before construction.
+type Option func(*managerConfig)
+
+// WithMaxConcurrent sets the active job limit (nonpositive = 4; no queue).
+func WithMaxConcurrent(limit int) Option {
+	return func(c *managerConfig) { c.maxConcurrent = limit }
+}
+
+// WithMaxDepth sets the nesting limit (nonpositive = 1).
+func WithMaxDepth(limit int) Option {
+	return func(c *managerConfig) { c.maxDepth = limit }
+}
+
+// WithRecovery sets how stale jobs are handled at startup.
+func WithRecovery(mode RecoveryMode) Option {
+	return func(c *managerConfig) { c.recovery = mode }
+}
+
+// WithOnStoreError reports disk write failures after a job is live.
+// Create/Spawn still return create errors directly.
+func WithOnStoreError(fn func(op, jobID string, err error)) Option {
+	return func(c *managerConfig) { c.onStoreError = fn }
 }
 
 // Manager owns in-process job lifecycles and a disk store.
@@ -59,32 +78,36 @@ type subscriber struct {
 //
 // By default ([RecoverMarkFailed]), leftover starting/running jobs on disk are
 // marked failed so a process restart does not leave Wait/Cancel zombies.
-func New(opts Options) (*Manager, error) {
-	if opts.Runner == nil {
+func New(root string, runner Runner, opts ...Option) (*Manager, error) {
+	var cfg managerConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	if runner == nil {
 		return nil, fmt.Errorf("%w: Runner is required", ErrInvalid)
 	}
-	st, err := newStore(opts.Root)
+	st, err := newStore(root)
 	if err != nil {
 		return nil, err
 	}
-	maxC := opts.MaxConcurrent
+	maxC := cfg.maxConcurrent
 	if maxC <= 0 {
 		maxC = 4
 	}
-	maxD := opts.MaxDepth
+	maxD := cfg.maxDepth
 	if maxD <= 0 {
 		maxD = 1
 	}
 	m := &Manager{
 		store:         st,
-		runner:        opts.Runner,
+		runner:        runner,
 		maxConcurrent: maxC,
 		maxDepth:      maxD,
-		onStoreError:  opts.OnStoreError,
+		onStoreError:  cfg.onStoreError,
 		slots:         make(chan struct{}, maxC),
 		jobs:          make(map[string]*liveJob),
 	}
-	if opts.Recovery != RecoverIgnore {
+	if cfg.recovery != RecoverIgnore {
 		if err := m.recoverStale(); err != nil {
 			return nil, err
 		}

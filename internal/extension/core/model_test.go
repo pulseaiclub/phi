@@ -111,13 +111,14 @@ func TestModelCommandsFirstExtensionWins(t *testing.T) {
 }
 
 func TestModelToolsAndActiveFilter(t *testing.T) {
-	r := NewRunner("")
+	base := []tooldef.Tool{{Definition: llm.ToolDefinition{Name: "builtin-tool"}}}
+	r := NewRunner("", WithBaseTools(base))
+	base[0].Definition.Name = "changed-after-construction"
 	f, api := handBuiltFiber("ext")
 	api.RegisterTool(noopTool("ext-tool"))
 	r.mu.Lock()
 	r.fibers["ext"] = f
 	r.mu.Unlock()
-	r.SetBaseTools([]tooldef.Tool{{Definition: llm.ToolDefinition{Name: "builtin-tool"}}})
 
 	m := r.snapshot()
 	require.Len(t, m.tools, 2)
@@ -128,17 +129,12 @@ func TestModelToolsAndActiveFilter(t *testing.T) {
 	require.Len(t, r.snapshot().activeTools, 1)
 	assert.Equal(t, "ext-tool", r.snapshot().activeTools[0].Name)
 
-	// SetBaseTools copies: the caller's slice is not retained.
-	base := []tooldef.Tool{{Definition: llm.ToolDefinition{Name: "mutated"}}}
-	r.SetBaseTools(base)
-	base[0].Definition.Name = "changed-after-the-fact"
-	assert.Equal(t, "mutated", r.snapshot().tools[0].Name)
+	assert.Equal(t, "builtin-tool", r.snapshot().tools[0].Name)
 }
 
 func TestRunnerLifecycleNotifications(t *testing.T) {
-	r := NewRunner("")
 	var changes int
-	r.SetOnChange(func() { changes++ })
+	r := NewRunner("", WithOnChange(func() { changes++ }))
 
 	f, _ := handBuiltFiber("alpha")
 	r.mu.Lock()
@@ -178,6 +174,29 @@ func TestRunnerLoadExtensionRejectsDuplicate(t *testing.T) {
 	r.mu.Unlock()
 
 	assert.ErrorContains(t, r.LoadExtension(t.Context(), discovered), "already loaded")
+}
+
+func TestRunnerHostOptionsAndRuntimeTools(t *testing.T) {
+	r := NewRunner("", WithHost(ext.HostOpts{Cwd: "/initial", SessionID: "initial", HasUI: true}),
+		WithBaseTools([]tooldef.Tool{{Definition: llm.ToolDefinition{Name: "builtin"}}}))
+	host := r.hostOpts()
+	assert.Equal(t, "/initial", r.context().Cwd)
+	assert.Equal(t, "initial", r.context().SessionID)
+	assert.True(t, r.context().HasUI)
+	assert.Equal(t, []string{"builtin"}, host.GetActiveTools())
+	host.SetActiveTools([]string{})
+	assert.Empty(t, host.GetActiveTools())
+	assert.Len(t, host.GetAllTools(), 1)
+	// Preserve the existing runtime semantics: nil selects no tools as well.
+	host.SetActiveTools(nil)
+	assert.Empty(t, host.GetActiveTools())
+	host.SetActiveTools([]string{"builtin"})
+	assert.Equal(t, []string{"builtin"}, host.GetActiveTools())
+
+	custom := NewRunner("", WithHost(ext.HostOpts{
+		GetActiveTools: func() []string { return []string{"custom"} },
+	}))
+	assert.Equal(t, []string{"custom"}, custom.hostOpts().GetActiveTools())
 }
 
 func TestRunnerSetMetaReachesContext(t *testing.T) {

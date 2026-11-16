@@ -75,6 +75,8 @@ type StartEnv struct {
 	LogDir    string
 	Cwd       string
 	SessionID string
+	Host      ext.HostOpts
+	Sink      HostSink
 }
 
 // NewFiber creates a fiber from a discovered extension. No process is started.
@@ -253,11 +255,20 @@ func (f *Fiber) Unload() error {
 // startProc spawns the subprocess and builds the API from its handshake.
 // Handshake failures surface here, so callers never publish a half-ready process.
 func (f *Fiber) startProc(ctx context.Context, env StartEnv) (*Proc, *ext.API, error) {
-	proc, err := StartProc(ctx, f.Discovered.Manifest, f.Discovered.Path, env.LogDir, env.Cwd, env.SessionID)
+	proc, err := StartProc(
+		ctx,
+		f.Discovered.Manifest,
+		f.Discovered.Path,
+		env.LogDir,
+		env.Cwd,
+		env.SessionID,
+		WithHostSink(env.Sink),
+	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("start: %w", err)
 	}
 	api := ext.NewAPI()
+	api.BindHost(env.Host)
 	proc.BuildAPI(api)
 	return proc, api, nil
 }

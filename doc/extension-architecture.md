@@ -91,8 +91,9 @@ Two properties fall out of the snapshot:
 
 Invalidation is not enough on its own — the host also has to refresh its own
 copy of the tool schemas and the palette. Every mutation calls
-`topologyChanged()`, which drops the model and fires the `SetOnChange` hook.
-The TUI wires that hook to `ExtTopologyChangedMsg`, which refreshes the agent's
+`topologyChanged()`, which drops the model and fires the `onChange` hook.
+The TUI wires that hook (constructor option `WithOnChange`) to
+`ExtTopologyChangedMsg`, which refreshes the agent's
 tool list and re-syncs the slash commands, so a reload (which runs off the
 UI goroutine) cannot leave the palette showing commands that no longer exist.
 
