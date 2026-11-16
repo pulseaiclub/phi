@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- Installer scripts no longer say that `phi config` opens a browser; it opens the
+  terminal configuration editor, as the README describes.
+
 ### Removed
 
 ### Changed
