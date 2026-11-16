@@ -19,7 +19,15 @@ var updateCommand = cli.Command{
 	Flags: []cli.Flag{
 		cli.Bool("check", "", "query the latest release without installing"),
 	},
-	Run: func(_ []string, f cli.Flags) error {
+}
+
+func init() {
+	// Assigned here: the guard refers back to updateCommand, which Go rejects
+	// as an initialization cycle inside the literal.
+	updateCommand.Run = func(args []string, f cli.Flags) error {
+		if err := rejectArgs(&updateCommand, args); err != nil {
+			return err
+		}
 		if f.Bool("check") {
 			ctx, cancel := context.WithTimeout(context.Background(), update.DefaultCheckTimeout)
 			defer cancel()
@@ -31,5 +39,5 @@ var updateCommand = cli.Command{
 			Current: version.Version,
 			Stdout:  os.Stdout,
 		})
-	},
+	}
 }

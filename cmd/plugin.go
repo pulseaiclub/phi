@@ -76,7 +76,12 @@ func init() {
 	pluginInstallCommand.Run = func(args []string, _ cli.Flags) error {
 		return pluginInstall(args)
 	}
-	pluginListCommand.Run = func(_ []string, _ cli.Flags) error { return pluginList() }
+	pluginListCommand.Run = func(args []string, _ cli.Flags) error {
+		if err := rejectArgs(&pluginListCommand, args); err != nil {
+			return err
+		}
+		return pluginList()
+	}
 	pluginUpdateCommand.Run = func(args []string, f cli.Flags) error {
 		return pluginUpdate(args, f.Bool("check"))
 	}

@@ -20,9 +20,17 @@ var configCommand = cli.Command{
 	Long: `Edit the meta config in a full-screen terminal UI (models, skills,
 permissions, sub-agents). Changes are written only on save; the previous file
 is kept next to it as config.yaml.bak.`,
-	Run: func(_ []string, _ cli.Flags) error {
+}
+
+func init() {
+	// Assigned here: the guard refers back to configCommand, which Go rejects
+	// as an initialization cycle inside the literal.
+	configCommand.Run = func(args []string, _ cli.Flags) error {
+		if err := rejectArgs(&configCommand, args); err != nil {
+			return err
+		}
 		return runConfigEditor()
-	},
+	}
 }
 
 // runConfigEditor opens ~/.phi/config.yaml in the config form.

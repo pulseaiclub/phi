@@ -27,6 +27,19 @@ func main() {
 	}
 }
 
+// rejectArgs is the guard for commands that take no positionals. pli hands any
+// word that is not a known subcommand to Run as a positional, so without it
+// `phi sessions show <id>` lists sessions and `phi mcp list x` exits 0.
+func rejectArgs(c *cli.Command, args []string) error {
+	if len(args) == 0 {
+		return nil
+	}
+	if len(c.Sub) > 0 {
+		return c.Usagef("unknown command %q", args[0])
+	}
+	return c.Usagef("unexpected argument %q", args[0])
+}
+
 // root is the process command tree. Built once: pli Add wires parent pointers
 // and ignores a second Add on the same Command value.
 var root = sync.OnceValue(buildRoot)
