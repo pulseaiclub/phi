@@ -33,6 +33,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- MCP: match a stdio response to its request id. A server-initiated request
+  or a late reply to a timed-out call is no longer returned as the current
+  call's result.
 - `phi run` rejects stray positional arguments with a usage error (exit 3).
   An unquoted `phi run -p fix the bug` used to send only `fix` to the model,
   silently dropping the rest of the prompt, and exit 0.

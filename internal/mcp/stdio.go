@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -63,7 +65,7 @@ func (t *stdioTransport) call(ctx context.Context, method string, params map[str
 			ch <- outcome{err: fmt.Errorf("write %s: %w", method, werr)}
 			return
 		}
-		rpc, rerr := t.readResponse()
+		rpc, rerr := t.readResponse(id)
 		if rerr != nil {
 			ch <- outcome{err: fmt.Errorf("read %s: %w", method, rerr)}
 			return
@@ -166,7 +168,12 @@ func (t *stdioTransport) ensureStarted() error {
 	return nil
 }
 
-func (t *stdioTransport) readResponse() (jsonRPCResponse, error) {
+// readResponse reads frames until the JSON-RPC response carrying id.
+// Notifications and server-initiated requests are skipped: neither answers the
+// call, and returning one would hand the caller an empty result. A response
+// carrying another id means the stream is out of step (the late reply to a
+// timed-out call), which is reported instead of being taken as this call's.
+func (t *stdioTransport) readResponse(id int64) (jsonRPCResponse, error) {
 	for {
 		line, err := t.stdout.ReadBytes('\n')
 		if err != nil {
@@ -180,11 +187,46 @@ func (t *stdioTransport) readResponse() (jsonRPCResponse, error) {
 				util.TruncateBytes(string(line), 200, "…"),
 			)
 		}
-		// Skip server notifications (method set, no id).
-		if rpc.Method != "" && rpc.ID == nil {
+		if rpc.Method != "" {
+			continue // notification or server request, not our response
+		}
+		got, ok := responseID(rpc.ID)
+		if !ok {
+			// A parse-error response carries a null id; surface it rather than
+			// reading on until EOF hides the reason.
+			if rpc.ID == nil && rpc.Error != nil {
+				return rpc, nil
+			}
 			continue
 		}
+		if got != id {
+			return jsonRPCResponse{}, fmt.Errorf(
+				"response id %d does not match request %d",
+				got,
+				id,
+			)
+		}
 		return rpc, nil
+	}
+}
+
+// responseID decodes a JSON-RPC id. Requests use integers, but a gateway that
+// echoes them as numeric strings still identifies the right call.
+func responseID(value any) (int64, bool) {
+	switch v := value.(type) {
+	case float64:
+		if v != math.Trunc(v) {
+			return 0, false
+		}
+		return int64(v), true
+	case json.Number:
+		n, err := v.Int64()
+		return n, err == nil
+	case string:
+		n, err := strconv.ParseInt(v, 10, 64)
+		return n, err == nil
+	default:
+		return 0, false
 	}
 }
 
