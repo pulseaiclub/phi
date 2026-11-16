@@ -22,48 +22,80 @@ type EngineConfig struct {
 	Hooks              llmclient.Hooks
 }
 
-// EngineOption configures optional NewEngine dependencies.
-type EngineOption func(*EngineConfig)
+type EngineOption interface {
+	Apply(EngineConfig) EngineConfig
+}
+
+// EngineOptionFunc configures optional NewEngine dependencies.
+type EngineOptionFunc func(EngineConfig) EngineConfig
+
+func (f EngineOptionFunc) Apply(config EngineConfig) EngineConfig {
+	return f(config)
+}
 
 // WithGate sets the permission gate (nil = allow all).
 func WithGate(gate permission.Gate) EngineOption {
-	return func(c *EngineConfig) { c.Gate = gate }
+	return EngineOptionFunc(func(c EngineConfig) EngineConfig {
+		c.Gate = gate
+		return c
+	})
 }
 
 // WithAsk sets the ask callback (nil = deny on Ask).
 func WithAsk(ask permission.AskFunc) EngineOption {
-	return func(c *EngineConfig) { c.Ask = ask }
+	return EngineOptionFunc(func(c EngineConfig) EngineConfig {
+		c.Ask = ask
+		return c
+	})
 }
 
 // WithTools sets the base tool list (nil = tools.DefaultTools(mcp) when an MCP
 // pool is attached; sub-agents use ChildTools()).
 func WithTools(list []tooldef.Tool) EngineOption {
-	return func(c *EngineConfig) { c.Tools = list }
+	return EngineOptionFunc(func(c EngineConfig) EngineConfig {
+		c.Tools = list
+		return c
+	})
 }
 
 // WithJobs registers agent_* tools against the given job manager.
 func WithJobs(jobs *job.Manager) EngineOption {
-	return func(c *EngineConfig) { c.Jobs = jobs }
+	return EngineOptionFunc(func(c EngineConfig) EngineConfig {
+		c.Jobs = jobs
+		return c
+	})
 }
 
 // WithExtensions attaches an extension runner (nil = no extensions).
 func WithExtensions(runner *extension.Runner) EngineOption {
-	return func(c *EngineConfig) { c.Extensions = runner }
+	return EngineOptionFunc(func(c EngineConfig) EngineConfig {
+		c.Extensions = runner
+		return c
+	})
 }
 
 // WithOmitExtensionTools keeps Runner events but skips RegisterTool merge (sub-agents).
 // The child also leaves the shared runner's host metadata and base tools with the parent.
 func WithOmitExtensionTools(omit bool) EngineOption {
-	return func(c *EngineConfig) { c.OmitExtensionTools = omit }
+	return EngineOptionFunc(func(c EngineConfig) EngineConfig {
+		c.OmitExtensionTools = omit
+		return c
+	})
 }
 
 // WithMCP attaches the MCP pool: server names enter the system prompt and the
 // executor resolves mcp:// URLs in ls/read/write against it.
 func WithMCP(pool *mcp.Pool) EngineOption {
-	return func(c *EngineConfig) { c.MCP = pool }
+	return EngineOptionFunc(func(c EngineConfig) EngineConfig {
+		c.MCP = pool
+		return c
+	})
 }
 
 // WithHooks sets provider request interceptors (nil fields = no customization).
 func WithHooks(hooks llmclient.Hooks) EngineOption {
-	return func(c *EngineConfig) { c.Hooks = hooks }
+	return EngineOptionFunc(func(c EngineConfig) EngineConfig {
+		c.Hooks = hooks
+		return c
+	})
 }

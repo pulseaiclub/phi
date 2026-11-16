@@ -52,7 +52,7 @@ func NewEngine(model llm.ModelConfig, sess *Session, opts ...EngineOption) (*Eng
 	}
 	var cfg EngineConfig
 	for _, opt := range opts {
-		opt(&cfg)
+		cfg = opt.Apply(cfg)
 	}
 	engine := &Engine{
 		modelCfg:     model,
