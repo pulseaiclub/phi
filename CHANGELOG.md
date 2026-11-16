@@ -8,11 +8,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-### Fixed
-
-- Installer scripts no longer say that `phi config` opens a browser; it opens the
-  terminal configuration editor, as the README describes.
-
 ### Removed
 
 ### Changed
@@ -38,6 +33,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Installer scripts no longer say that `phi config` opens a browser; it opens the
+  terminal configuration editor, as the README describes.
 - `phi mcp doctor` with an empty or missing `mcp.json` now prints the same hint
   as `phi mcp list` and exits 0, instead of `FAIL (none) no servers in mcp.json`
   and exit 1.
