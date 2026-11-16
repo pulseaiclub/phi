@@ -52,8 +52,8 @@ exit codes:
 func init() {
 	// Run is assigned here so runOptionsFromFlags can call runCommand.Usagef
 	// without an initialization cycle.
-	runCommand.Run = func(_ []string, f cli.Flags) error {
-		opts, err := runOptionsFromFlags(f)
+	runCommand.Run = func(args []string, f cli.Flags) error {
+		opts, err := runOptionsFromFlags(args, f)
 		if err != nil {
 			return err
 		}
@@ -61,7 +61,7 @@ func init() {
 	}
 }
 
-func runOptionsFromFlags(f cli.Flags) (runOptions, error) {
+func runOptionsFromFlags(args []string, f cli.Flags) (runOptions, error) {
 	opts := runOptions{
 		prompt:       f.String("prompt"),
 		jsonl:        f.Bool("jsonl"),
@@ -77,6 +77,11 @@ func runOptionsFromFlags(f cli.Flags) (runOptions, error) {
 	}
 	if strings.TrimSpace(opts.prompt) == "" {
 		return opts, runCommand.Usagef("prompt is required (-p \"...\")")
+	}
+	// run takes no positionals. An unquoted `-p fix the bug` would otherwise
+	// send just "fix" to the model and drop the rest without a word.
+	if len(args) > 0 {
+		return opts, runCommand.Usagef("unexpected argument %q (quote the whole prompt: -p \"...\")", args[0])
 	}
 	if opts.continueLast && opts.session != "" {
 		return opts, runCommand.Usagef("--continue-last and --session are mutually exclusive")
