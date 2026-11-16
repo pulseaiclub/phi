@@ -94,8 +94,19 @@ func (c *Config) AllModels() []llm.ModelConfig {
 
 // FindModel returns the configured model whose name matches, so callers can
 // switch to it with its own api_key/base_url/context_window.
+//
+// A PHI_MODEL override renames the default entry, so the name the user wrote
+// is kept in ConfiguredName. That name wins over an effective name: with both
+// a renamed default and a real entry exposing the same PHI_MODEL name, the
+// real entry is the one selected.
 func (c *Config) FindModel(name string) (llm.ModelConfig, bool) {
-	for _, m := range c.AllModels() {
+	all := c.AllModels()
+	for _, m := range all {
+		if m.ConfiguredName != "" && m.ConfiguredName == name {
+			return m, true
+		}
+	}
+	for _, m := range all {
 		if m.Name == name {
 			return m, true
 		}
@@ -211,6 +222,7 @@ func parseConfigFileWithEnv(path string, withEnv bool) (*Config, error) {
 func ResolveModelDoc(m ModelDoc) (llm.ModelConfig, error) {
 	cfg := llm.ModelConfig{
 		Name: m.Name, Preset: m.Preset, APIKey: m.APIKey, BaseURL: m.BaseURL,
+		ConfiguredName:    m.ConfiguredName,
 		API:               llm.RouterType(m.API),
 		RequestParameters: m.RequestParameters,
 	}
@@ -342,6 +354,13 @@ func applyEnvOverrides(doc *ConfigDoc) {
 			break
 		}
 	}
+	// Keep the name from the file before PHI_MODEL renames the default entry,
+	// so --model can still select it by the configured name.
+	for i := range doc.Models {
+		if doc.Models[i].ConfiguredName == "" {
+			doc.Models[i].ConfiguredName = doc.Models[i].Name
+		}
+	}
 	entry := func() *ModelDoc {
 		if len(doc.Models) == 0 {
 			doc.Models = append(doc.Models, ModelDoc{})
@@ -355,8 +374,12 @@ func applyEnvOverrides(doc *ConfigDoc) {
 		entry().BaseURL = v
 	}
 	if v := firstEnv("PHI_MODEL"); v != "" {
-		entry().Name = v
-		entry().Default = true
+		e := entry()
+		if e.ConfiguredName == "" {
+			e.ConfiguredName = e.Name
+		}
+		e.Name = v
+		e.Default = true
 	}
 	if v := firstEnv("PHI_SKILL_PATH"); v != "" {
 		doc.SkillPath = &v

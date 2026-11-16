@@ -24,6 +24,10 @@ type ConfigDoc struct {
 type ModelDoc struct {
 	Name   string `yaml:"name"`
 	Preset string `yaml:"preset,omitempty"`
+	// ConfiguredName is the name from the file before env overrides; never
+	// written back, so saving the config does not persist the PHI_MODEL
+	// substitution.
+	ConfiguredName string `yaml:"-"`
 	// APIKey and BaseURL are omitted when empty: the loader treats an absent
 	// key exactly like an empty one, and a saved file reads cleaner without
 	// `base_url: ""` noise on every preset-backed model.

@@ -73,6 +73,11 @@ type RequestInterceptor[Req any] interface {
 // agent-wide settings like the skill directory path.
 type ModelConfig struct {
 	Name string
+	// ConfiguredName is the name the entry had in config.yaml before an
+	// environment override renamed it (PHI_MODEL renames the default entry).
+	// Empty when the entry had no configured name. FindModel matches it so a
+	// renamed default stays selectable by the name the user wrote.
+	ConfiguredName string
 	// Preset binds an opaque routed ID to recommended model capabilities.
 	Preset  string
 	APIKey  string
