@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -9,7 +10,7 @@ import (
 )
 
 func TestShouldPublishJobProgressDedup(t *testing.T) {
-	c := &EngineController{}
+	var last sync.Map
 	p := job.Progress{
 		JobID:     "j",
 		ToolUseID: "t1",
@@ -17,10 +18,10 @@ func TestShouldPublishJobProgressDedup(t *testing.T) {
 		Status:    "in-progress",
 		Detail:    "a.go",
 	}
-	require.True(t, c.shouldPublishJobProgress(p), "first should publish")
-	require.False(t, c.shouldPublishJobProgress(p), "duplicate should drop")
+	require.True(t, progressChanged(&last, p), "first should publish")
+	require.False(t, progressChanged(&last, p), "duplicate should drop")
 	p.Status = "done"
-	require.True(t, c.shouldPublishJobProgress(p), "status change should publish")
+	require.True(t, progressChanged(&last, p), "status change should publish")
 	p2 := job.Progress{
 		JobID:     "j",
 		ToolUseID: "t2",
@@ -28,7 +29,7 @@ func TestShouldPublishJobProgressDedup(t *testing.T) {
 		Status:    "done",
 		Detail:    "ls",
 	}
-	require.True(t, c.shouldPublishJobProgress(p2), "new child should publish")
+	require.True(t, progressChanged(&last, p2), "new child should publish")
 }
 
 // The tool_use slot and the name+detail fallback slot are distinct rows even
@@ -36,14 +37,14 @@ func TestShouldPublishJobProgressDedup(t *testing.T) {
 // is not reachable from the model, but it pins key injectivity so a later
 // refactor cannot merge the branches back into one joined key.
 func TestShouldPublishJobProgressKeyKeepsBranchesApart(t *testing.T) {
-	c := &EngineController{}
-	require.True(t, c.shouldPublishJobProgress(job.Progress{
+	var last sync.Map
+	require.True(t, progressChanged(&last, job.Progress{
 		JobID: "a", ToolUseID: "n\x00d", Name: "n", Detail: "d", Status: "done",
 	}), "tool_use slot should publish")
-	require.True(t, c.shouldPublishJobProgress(job.Progress{
+	require.True(t, progressChanged(&last, job.Progress{
 		JobID: "a", Name: "n", Detail: "d", Status: "done",
 	}), "fallback slot should not dedupe against the tool_use slot")
-	require.False(t, c.shouldPublishJobProgress(job.Progress{
+	require.False(t, progressChanged(&last, job.Progress{
 		JobID: "a", Name: "n", Detail: "d", Status: "done",
 	}), "duplicate fallback slot should still drop")
 }

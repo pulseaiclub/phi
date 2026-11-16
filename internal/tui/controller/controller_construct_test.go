@@ -7,7 +7,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/agent"
+	"github.com/pulseaiclub/phi/internal/extension"
+	"github.com/pulseaiclub/phi/internal/extension/loader"
+	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/project"
 )
 
@@ -40,6 +44,47 @@ func TestNewController_ReadyEngine(t *testing.T) {
 	assert.Equal(t, cwd, ctrl.cwd)
 	assert.NotEmpty(t, ctrl.sessionDir)
 	assert.Same(t, proj, ctrl.proj)
+}
+
+// Supplied collaborators must land in the controller untouched: construction
+// assembles only what the options leave out.
+func TestNewControllerOptionsInjectCollaborators(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("PHI_MODEL", "test-model")
+	t.Setenv("PHI_API_KEY", "test-key")
+	t.Setenv("PHI_BASE_URL", "http://127.0.0.1:9")
+	t.Setenv(loader.EnvExtensions, "off")
+
+	proj, err := project.Discover(t.TempDir())
+	require.NoError(t, err)
+
+	runner, _, err := extension.Load(t.TempDir(), "")
+	require.NoError(t, err)
+	require.NotNil(t, runner)
+	jobs, err := agent.NewJobManager(t.TempDir(), llm.ModelConfig{Name: "test-model"},
+		agent.WithJobsModelFunc(func(job.Role) llm.ModelConfig { return llm.ModelConfig{Name: "test-model"} }))
+	require.NoError(t, err)
+	pool := mcp.NewPool(map[string]mcp.ServerConfig{
+		"echo": {Command: []string{"true"}},
+	})
+	require.NoError(t, pool.Close()) // closed pool is fine as an injected placeholder
+
+	configurator := agent.NewEngineConfigurator()
+	ctrl, err := NewController(NewBus(nil), proj,
+		WithConfigurator(configurator),
+		WithExtensions(runner),
+		WithJobs(jobs),
+		WithMCP(pool),
+	)
+	require.NoError(t, err)
+	t.Cleanup(ctrl.Close)
+
+	assert.Same(t, configurator, ctrl.configurator)
+	assert.Same(t, runner, ctrl.Extensions())
+	assert.Same(t, jobs, ctrl.jobs)
+	assert.Same(t, pool, ctrl.mcpPool)
 }
 
 func TestBusConstructorRedraw(t *testing.T) {

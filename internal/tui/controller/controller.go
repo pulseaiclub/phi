@@ -52,84 +52,240 @@ type EngineController struct {
 	// roleModels maps sub-agent role → model name. Empty → inherit the active model.
 	roleModels map[job.Role]string
 	jobs       *job.Manager
-	unsubJobs  func()
 
 	gate          permission.Gate
 	askTimeoutSec int
-	allowAll      atomic.Bool
+	// allowAll is shared with the gate so palette toggles survive rebuilds.
+	allowAll      *atomic.Bool
 	agentsEnabled atomic.Bool
 	extRunner     atomic.Pointer[extension.Runner]
 	mcpPool       *mcp.Pool
 
-	lastJobProgress sync.Map // progressSlot → progressSig
+	// stopProgress ends the job progress pump started in the constructor.
+	stopProgress func()
+}
+
+// ControllerOption supplies a collaborator construction would otherwise
+// assemble itself. Nil collaborators fall back to the built-in assembly.
+type ControllerOption func(*controllerOptions)
+
+type controllerOptions struct {
+	configurator *agent.EngineConfigurator
+	extensions   *extension.Runner
+	jobs         *job.Manager
+	mcpPool      *mcp.Pool
+}
+
+// WithConfigurator supplies the engine configurator handle (tests seed specs
+// through it). Default: a fresh handle the controller claims.
+func WithConfigurator(c *agent.EngineConfigurator) ControllerOption {
+	return func(o *controllerOptions) { o.configurator = c }
+}
+
+// WithExtensions supplies a ready extension runner. Default: discover and
+// spawn extensions from the project's extension directories.
+func WithExtensions(r *extension.Runner) ControllerOption {
+	return func(o *controllerOptions) { o.extensions = r }
+}
+
+// WithJobs supplies a ready job manager. Default: one rooted at the project's
+// jobs directory.
+func WithJobs(m *job.Manager) ControllerOption {
+	return func(o *controllerOptions) { o.jobs = m }
+}
+
+// WithMCP supplies a ready MCP pool. Default: load the project's MCP config,
+// failing open (no pool).
+func WithMCP(p *mcp.Pool) ControllerOption {
+	return func(o *controllerOptions) { o.mcpPool = p }
 }
 
 // NewController returns a live EngineController. proj must be non-nil.
-// Failure returns (nil, err), never a half-initialized value.
-func NewController(bus *Bus, proj *project.Project) (*EngineController, error) {
+// Every collaborator arrives through a ControllerOption or is assembled by
+// package-level helpers before the struct literal — the literal is complete,
+// and nothing writes controller fields afterwards except the configurator's
+// published-spec machinery. Failure returns (nil, err), never a
+// half-initialized value.
+func NewController(bus *Bus, proj *project.Project, opts ...ControllerOption) (*EngineController, error) {
+	var o controllerOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
 	if err := proj.LoadConfig(); err != nil {
 		return nil, err
 	}
-	config := proj.Config()
-	configurator := agent.NewEngineConfigurator()
-	c := &EngineController{
-		bus:          bus,
-		proj:         proj,
-		cwd:          proj.Root(),
-		sessionDir:   proj.SessionDir(),
-		roleModels:   config.Agents.Models.RoleOverrides(),
-		configurator: configurator,
+	conf := proj.Config()
+
+	configurator := o.configurator
+	if configurator == nil {
+		configurator = agent.NewEngineConfigurator()
 	}
+	// TUI defaults to bypass; palette → settings → permissions toggles it.
+	allowAll := new(atomic.Bool)
+	allowAll.Store(true)
+	gate, askTimeoutSec := newGate(conf.Permissions, allowAll)
+
+	// Extensions load before the controller exists, so the two callbacks that
+	// reach into it are method values on the pointer assigned below; they
+	// cannot fire until an extension sends an event, long after construction.
+	var ctrl *EngineController
+	extensions := o.extensions
+	if extensions == nil {
+		extensions = loadExtensions(proj, bus, proj.Root(), "", extensionHooks{
+			confirm:  ctrl.askExtConfirm,
+			sendUser: ctrl.sendUserMessage,
+		})
+	}
+
+	jobs := o.jobs
+	if jobs == nil {
+		var err error
+		jobs, err = agent.NewJobManager(proj.JobsDir(), conf.Model(),
+			agent.WithJobsModelFunc(ctrl.modelForRole),
+			agent.WithJobsExtensionsFunc(ctrl.Extensions),
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	mcpPool := o.mcpPool
+	if mcpPool == nil {
+		if pool, err := mcp.LoadPool(proj.MCPConfigFile()); err != nil {
+			debuglog.Logf("mcp: load: %v", err)
+		} else {
+			mcpPool = pool
+		}
+	}
+
+	c := &EngineController{
+		bus:           bus,
+		proj:          proj,
+		cwd:           proj.Root(),
+		sessionDir:    proj.SessionDir(),
+		roleModels:    conf.Agents.Models.RoleOverrides(),
+		configurator:  configurator,
+		allowAll:      allowAll,
+		gate:          gate,
+		askTimeoutSec: askTimeoutSec,
+		jobs:          jobs,
+		mcpPool:       mcpPool,
+		stopProgress:  startJobProgress(jobs, bus.Publish),
+	}
+	ctrl = c
+
+	// Atomic installs and dependency wiring — not field construction.
+	c.extRunner.Store(extensions)
+	c.agentsEnabled.Store(conf.Agents.Enabled)
 	if err := configurator.Register(c.applyEngineSpec); err != nil {
 		return nil, err
 	}
-	// TUI defaults to bypass; palette → settings → permissions toggles it.
-	c.allowAll.Store(true)
-	c.gate, c.askTimeoutSec = newGate(config.Permissions, &c.allowAll)
-	c.agentsEnabled.Store(config.Agents.Enabled)
-
-	extRunner := c.loadExtensionsFailOpen()
-	c.extRunner.Store(extRunner)
-
-	jobs, err := agent.NewJobManager(proj.JobsDir(), config.Model(),
-		agent.WithJobsModelFunc(c.modelForRole),
-		agent.WithJobsExtensionsFunc(c.Extensions),
-	)
+	spec, err := c.openSessionSpec(conf.Model(), extensions, "")
 	if err != nil {
 		return nil, err
 	}
-	c.jobs = jobs
-
-	if pool, err := mcp.LoadPool(proj.MCPConfigFile()); err != nil {
-		debuglog.Logf("mcp: load: %v", err)
-	} else {
-		c.mcpPool = pool
-	}
-
-	spec, err := c.openSessionSpec(config.Model(), extRunner, "")
-	if err != nil {
-		return nil, err
-	}
+	// The engine installs through the configurator: applyEngineSpec replaces
+	// c.engine on every published spec, construction included.
 	c.setEngineSpec(spec)
-	eng := c.currentEngine()
-	if eng == nil {
+	if c.currentEngine() == nil {
 		return nil, errors.New("agent: engine not installed after configuration")
 	}
-	c.startJobProgress()
-	c.emitSessionStart("startup", eng.SessionID(), "")
+	c.emitSessionStart("startup", c.SessionID(), "")
 	return c, nil
 }
 
-func (c *EngineController) startJobProgress() {
-	ch, cancel := c.jobs.Subscribe()
-	c.unsubJobs = cancel
+// extensionHooks carries the two host callbacks that reach into the live
+// controller. Construction binds method values on a not-yet-assigned pointer;
+// Resume and friends bind their live controller directly.
+type extensionHooks struct {
+	confirm  func(ext.ConfirmRequest) ext.ConfirmReply
+	sendUser func(string)
+}
+
+// loadExtensions discovers ~/.phi/extensions and <cwd>/.phi/extensions and
+// spawns each subprocess with host capabilities baked into the runner, so
+// fibers never come up unwired. Load errors are non-fatal (fail-open).
+func loadExtensions(proj *project.Project, bus *Bus, cwd, sessionID string, hooks extensionHooks) *extension.Runner {
+	r, warns, err := loadExtensionRunner(proj, bus, cwd, sessionID, hooks)
+	if err != nil {
+		debuglog.Logf("extension: load failed: %v", err)
+		return nil
+	}
+	logExtensionWarnings(warns)
+	return r
+}
+
+// loadExtensionRunner is the strict variant: callers that must surface load
+// errors get the warnings back with them.
+func loadExtensionRunner(
+	proj *project.Project,
+	bus *Bus,
+	cwd, sessionID string,
+	hooks extensionHooks,
+) (*extension.Runner, []loader.Warning, error) {
+	return extension.Load(proj.Global().ExtensionsDir(), proj.ExtensionsDir(),
+		extension.WithHost(extensionHostOpts(bus, cwd, sessionID, hooks)),
+		// Topology changes (extension-initiated reload/unload) happen off the
+		// UI goroutine, so they arrive as a message instead of a direct call.
+		extension.WithOnChange(func() { bus.Publish(ExtTopologyChangedMsg{}) }),
+	)
+}
+
+// extensionHostOpts builds the host capability set for a runner. RefreshTools
+// is called by an extension, on its own reader goroutine: rebinding the
+// engine's tools from there would race the agent loop, so it takes the same
+// route as any other topology change — a message the UI goroutine applies.
+func extensionHostOpts(bus *Bus, cwd, sessionID string, hooks extensionHooks) ext.HostOpts {
+	return ext.HostOpts{
+		UI: extension.BusUI{
+			NotifyFn: func(message, kind string) {
+				bus.Publish(ToastMsg{Message: message, Kind: extToastKind(kind), Duration: 3 * time.Second})
+			},
+			SetStatusFn: func(_, text string) { bus.Publish(ExtSessionEffectsMsg{Status: text, StatusSet: true}) },
+			ConfirmFn:   hooks.confirm,
+		},
+		Cwd:             cwd,
+		SessionID:       sessionID,
+		HasUI:           true,
+		RefreshTools:    func() { bus.Publish(ExtTopologyChangedMsg{}) },
+		SendUserMessage: hooks.sendUser,
+	}
+}
+
+func extToastKind(kind string) toast.ToastKind {
+	if strings.EqualFold(kind, "warning") {
+		return toast.ToastWarning
+	}
+	if strings.EqualFold(kind, "error") {
+		return toast.ToastError
+	}
+	return toast.ToastSuccess
+}
+
+func logExtensionWarnings(warns []loader.Warning) {
+	for _, w := range warns {
+		debuglog.Logf("extension: %s", w.String())
+	}
+}
+
+// startJobProgress forwards deduplicated job progress to the bus until the
+// returned stop func runs. The goroutine belongs to the pump — the
+// constructor owns it through the stop func stored on the controller.
+func startJobProgress(jobs *job.Manager, publish func(Msg)) (stop func()) {
+	if jobs == nil {
+		return func() {}
+	}
+	var last sync.Map
+	ch, cancel := jobs.Subscribe()
 	go func() {
 		for p := range ch {
-			if c.shouldPublishJobProgress(p) {
-				c.publish(JobProgressMsg{Progress: p})
+			if !progressChanged(&last, p) {
+				continue
 			}
+			publish(JobProgressMsg{Progress: p})
 		}
 	}()
+	return cancel
 }
 
 // progressSlot identifies the UI row a job progress update belongs to: the
@@ -151,17 +307,17 @@ type progressSig struct {
 	detail string
 }
 
-func (c *EngineController) shouldPublishJobProgress(p job.Progress) bool {
+func progressChanged(last *sync.Map, p job.Progress) bool {
 	slot := progressSlot{job: p.JobID, tool: p.ToolUseID}
 	if p.ToolUseID == "" {
 		slot.name = p.Name
 		slot.detail = p.Detail
 	}
 	sig := progressSig{status: p.Status, name: p.Name, detail: p.Detail}
-	if prev, ok := c.lastJobProgress.Load(slot); ok && prev.(progressSig) == sig {
+	if prev, ok := last.Load(slot); ok && prev.(progressSig) == sig {
 		return false
 	}
-	c.lastJobProgress.Store(slot, sig)
+	last.Store(slot, sig)
 	return true
 }
 
@@ -192,11 +348,16 @@ func newGate(policy permission.Policy, allowAll *atomic.Bool) (permission.Gate, 
 }
 
 func (c *EngineController) SetAllowAll(v bool) {
-	c.allowAll.Store(v)
+	if c.allowAll != nil {
+		c.allowAll.Store(v)
+	}
 }
 
-// AllowAll reports whether the permission gate is in bypass mode.
-func (c *EngineController) AllowAll() bool { return c.allowAll.Load() }
+// AllowAll reports whether the permission gate is in bypass mode. The nil
+// check keeps zero-value controllers (tests) usable: unbuilt means not bypassed.
+func (c *EngineController) AllowAll() bool {
+	return c.allowAll != nil && c.allowAll.Load()
+}
 
 func (c *EngineController) SetAgentsEnabled(v bool) {
 	c.agentsEnabled.Store(v)
@@ -270,7 +431,11 @@ func (c *EngineController) Extensions() *extension.Runner {
 }
 
 func (c *EngineController) ReloadExtensions() (loaded int, warns []loader.Warning, err error) {
-	r, warns, err := c.loadExtensionRunner()
+	cwd, sessionID := c.hostSessionInfo()
+	r, warns, err := loadExtensionRunner(c.proj, c.bus, cwd, sessionID, extensionHooks{
+		confirm:  c.askExtConfirm,
+		sendUser: c.sendUserMessage,
+	})
 	if err != nil {
 		return 0, warns, err
 	}
@@ -322,78 +487,12 @@ func (c *EngineController) ListExtensionStates() map[string]extension.FiberState
 	return r.ListExtensions()
 }
 
-// loadExtensionRunner discovers ~/.phi/extensions and <cwd>/.phi/extensions
-// with host capabilities baked into the runner at construction, so fibers
-// never come up unwired.
-func (c *EngineController) loadExtensionRunner() (*extension.Runner, []loader.Warning, error) {
-	cwd, sessionID := c.hostSessionInfo()
-	host := ext.HostOpts{
-		UI: extension.BusUI{
-			NotifyFn:    c.handleExtNotify,
-			SetStatusFn: c.handleExtStatus,
-			ConfirmFn:   c.askExtConfirm,
-		},
-		Cwd:       cwd,
-		SessionID: sessionID,
-		HasUI:     true,
-		// RefreshTools is called by an extension, on its own reader goroutine.
-		// Rebinding the engine's tools from there would race the agent loop, so
-		// it takes the same route as any other topology change: a message the
-		// UI goroutine applies.
-		RefreshTools:    c.requestTopologyRefresh,
-		SendUserMessage: c.sendUserMessage,
-	}
-	return extension.Load(c.proj.Global().ExtensionsDir(), c.proj.ExtensionsDir(),
-		extension.WithHost(host),
-		// Topology changes (extension-initiated reload/unload) happen off the
-		// UI goroutine, so they arrive as a message instead of a direct call.
-		extension.WithOnChange(c.requestTopologyRefresh),
-	)
-}
-
-// loadExtensionsFailOpen discovers extensions, treating load errors as
-// non-fatal (fail-open: no extensions).
-func (c *EngineController) loadExtensionsFailOpen() *extension.Runner {
-	r, warns, err := c.loadExtensionRunner()
-	if err != nil {
-		debuglog.Logf("extension: load failed: %v", err)
-		return nil
-	}
-	logExtensionWarnings(warns)
-	return r
-}
-
-func logExtensionWarnings(warns []loader.Warning) {
-	for _, w := range warns {
-		debuglog.Logf("extension: %s", w.String())
-	}
-}
-
 func (c *EngineController) hostSessionInfo() (cwd, sessionID string) {
 	if c.engine != nil {
 		return c.engine.SessionCwd(), c.engine.SessionID()
 	}
 	// Construction bakes the host in before the engine exists.
 	return c.proj.Root(), ""
-}
-
-func (c *EngineController) handleExtNotify(message, kind string) {
-	toastKind := toast.ToastSuccess
-	switch strings.ToLower(kind) {
-	case "warning":
-		toastKind = toast.ToastWarning
-	case "error":
-		toastKind = toast.ToastError
-	}
-	c.publish(ToastMsg{Message: message, Kind: toastKind, Duration: 3 * time.Second})
-}
-
-func (c *EngineController) handleExtStatus(_, text string) {
-	c.publish(ExtSessionEffectsMsg{Status: text, StatusSet: true})
-}
-
-func (c *EngineController) requestTopologyRefresh() {
-	c.publish(ExtTopologyChangedMsg{})
 }
 
 func (c *EngineController) sendUserMessage(text string) {
@@ -517,7 +616,7 @@ func (c *EngineController) SetModel(name string) error {
 		return err
 	}
 	c.Cancel()
-	c.gate, c.askTimeoutSec = newGate(c.proj.Config().Permissions, &c.allowAll)
+	c.gate, c.askTimeoutSec = newGate(c.proj.Config().Permissions, c.allowAll)
 	if _, _, err := c.ReloadExtensions(); err != nil {
 		debuglog.Logf("extension: reload on SetModel: %v", err)
 	}
@@ -616,7 +715,11 @@ func (c *EngineController) Resume(id string) (cwdWarning string, err error) {
 		return "", err
 	}
 
-	extRunner := c.loadExtensionsFailOpen()
+	cwd, sessionID := c.hostSessionInfo()
+	extRunner := loadExtensions(c.proj, c.bus, cwd, sessionID, extensionHooks{
+		confirm:  c.askExtConfirm,
+		sendUser: c.sendUserMessage,
+	})
 	spec, err := c.openSessionSpec(cfg, extRunner, id)
 	if err != nil {
 		return "", err
@@ -876,7 +979,7 @@ func (c *EngineController) CurrentLoop(gen int) bool {
 func (c *EngineController) Close() {
 	c.sessionShutdown("quit", c.SessionID(), "")
 	c.Cancel()
-	c.unsubJobs()
+	c.stopProgress()
 	_ = c.jobs.Close(context.Background())
 	if c.mcpPool != nil {
 		_ = c.mcpPool.Close()
