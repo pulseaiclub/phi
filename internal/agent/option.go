@@ -9,8 +9,9 @@ import (
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
-// EngineConfig contains the complete runtime configuration for an Engine.
-// A configurator publishes a whole value so readers never observe a partial update.
+// EngineConfig holds the static dependencies NewEngine injects once at
+// construction. The hot-reconfigurable part (model, session, extension
+// runner) lives in EngineSpec, published through EngineConfigurator.
 type EngineConfig struct {
 	Gate               permission.Gate
 	Ask                permission.AskFunc
@@ -20,6 +21,7 @@ type EngineConfig struct {
 	OmitExtensionTools bool
 	MCP                *mcp.Pool
 	Hooks              llmclient.Hooks
+	Configurator       *EngineConfigurator
 }
 
 type EngineOption interface {
@@ -96,6 +98,17 @@ func WithMCP(pool *mcp.Pool) EngineOption {
 func WithHooks(hooks llmclient.Hooks) EngineOption {
 	return EngineOptionFunc(func(c EngineConfig) EngineConfig {
 		c.Hooks = hooks
+		return c
+	})
+}
+
+// WithConfigurator attaches the handle that manages this engine's EngineSpec
+// (nil = unmanaged: sub-agents, standalone runs). The host claims the handle
+// via Register and republishes a complete spec on every change; each Set
+// rebuilds the engine, so the handle outlives any single Engine.
+func WithConfigurator(configurator *EngineConfigurator) EngineOption {
+	return EngineOptionFunc(func(c EngineConfig) EngineConfig {
+		c.Configurator = configurator
 		return c
 	})
 }

@@ -41,6 +41,7 @@ type Engine struct {
 	baseTools    []tooldef.Tool    // nil = DefaultTools
 	omitExtTools bool              // sub-agents: emit events but skip RegisterTool merge
 	mcp          *mcp.Pool
+	configurator *EngineConfigurator // manages this engine's spec; nil = unmanaged
 
 	session *Session
 }
@@ -65,6 +66,7 @@ func NewEngine(model llm.ModelConfig, sess *Session, opts ...EngineOption) (*Eng
 		baseTools:    cfg.Tools,
 		omitExtTools: cfg.OmitExtensionTools,
 		mcp:          cfg.MCP,
+		configurator: cfg.Configurator,
 	}
 
 	toolList := engine.buildCoreTools(engine.baseTools)
@@ -175,6 +177,12 @@ func (engine *Engine) SessionCwd() string {
 // Session returns the underlying session wrapper (for UI transcript replay).
 func (engine *Engine) Session() *Session {
 	return engine.session
+}
+
+// Configurator returns the handle managing this engine's spec updates, nil
+// when the engine is unmanaged (sub-agents, standalone runs).
+func (engine *Engine) Configurator() *EngineConfigurator {
+	return engine.configurator
 }
 
 // LoopOpts configures a single agent loop turn.

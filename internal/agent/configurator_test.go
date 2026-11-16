@@ -2,6 +2,7 @@ package agent
 
 import (
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,6 +10,20 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/llm"
 )
+
+func TestEngineConfiguratorWiredThroughOption(t *testing.T) {
+	sess, err := NewSession(WithCwd(t.TempDir()))
+	require.NoError(t, err)
+
+	h := NewEngineConfigurator()
+	managed, err := NewEngine(llm.ModelConfig{Name: "m"}, sess, WithConfigurator(h))
+	require.NoError(t, err)
+	assert.Same(t, h, managed.Configurator(), "engine keeps the configurator it was built with")
+
+	unmanaged, err := NewEngine(llm.ModelConfig{Name: "m"}, sess)
+	require.NoError(t, err)
+	assert.Nil(t, unmanaged.Configurator(), "no WithConfigurator = unmanaged engine")
+}
 
 func TestEngineConfiguratorClaimsOnce(t *testing.T) {
 	h := NewEngineConfigurator()
@@ -25,9 +40,7 @@ func TestEngineConfiguratorSetAppliesCompleteSpec(t *testing.T) {
 	h.Set(EngineSpec{Model: llm.ModelConfig{Name: "primary"}})
 	assert.Equal(t, "primary", applied.Model.Name)
 
-	snapshot, version := h.Snapshot()
-	assert.Equal(t, "primary", snapshot.Model.Name)
-	assert.Equal(t, uint64(1), version)
+	assert.Equal(t, "primary", h.Snapshot().Model.Name)
 }
 
 // Concurrent Sets must serialize: each Set's apply runs to completion before
@@ -35,8 +48,10 @@ func TestEngineConfiguratorSetAppliesCompleteSpec(t *testing.T) {
 func TestEngineConfiguratorSerializesConcurrentSets(t *testing.T) {
 	h := NewEngineConfigurator()
 	var mu sync.Mutex
+	var applied atomic.Int64
 	active, overlap := 0, false
 	require.NoError(t, h.Register(func(EngineSpec) {
+		applied.Add(1)
 		mu.Lock()
 		active++
 		if active > 1 {
@@ -52,15 +67,12 @@ func TestEngineConfiguratorSerializesConcurrentSets(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 32 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			h.Set(EngineSpec{Model: llm.ModelConfig{Name: "m"}})
-		}()
+		})
 	}
 	wg.Wait()
 
 	assert.False(t, overlap, "concurrent Sets must not interleave")
-	_, version := h.Snapshot()
-	assert.Equal(t, uint64(32), version)
+	assert.Equal(t, int64(32), applied.Load(), "every Set applied exactly once")
 }
