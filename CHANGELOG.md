@@ -31,6 +31,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- `phi mcp doctor` with an empty or missing `mcp.json` now prints the same hint
+  as `phi mcp list` and exits 0, instead of `FAIL (none) no servers in mcp.json`
+  and exit 1.
 - Align the `phi plugin` example in the root help text.
 - `phi sessions remove` prints the full resolved session id instead of echoing
   the id or prefix the user typed.

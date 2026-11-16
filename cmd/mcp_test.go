@@ -43,3 +43,42 @@ func TestMCPListEmpty(t *testing.T) {
 	want := "(no servers — try: phi mcp add fetch -- npx -y @modelcontextprotocol/server-fetch)\n"
 	require.Equal(t, want, out.String())
 }
+
+func TestMCPDoctorWithoutServersMatchesList(t *testing.T) {
+	var doctor, list strings.Builder
+
+	require.NoError(t, writeMCPDoctor(&doctor, false, nil))
+	writeMCPList(&list, nil)
+	require.Equal(t, list.String(), doctor.String())
+}
+
+func TestMCPDoctorAllServersAnswered(t *testing.T) {
+	var out strings.Builder
+	err := writeMCPDoctor(&out, true, []mcp.DoctorResult{
+		{Name: "browsermcp", OK: true, Detail: "2 tools"},
+		{Name: "fetch", OK: true, Detail: "3 tools"},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, "ok\tbrowsermcp\t2 tools\nok\tfetch\t3 tools\n", out.String())
+}
+
+func TestMCPDoctorUnreachableServerFails(t *testing.T) {
+	var out strings.Builder
+	err := writeMCPDoctor(&out, true, []mcp.DoctorResult{
+		{Name: "fetch", OK: true, Detail: "3 tools"},
+		{Name: "browsermcp", OK: false, Detail: "dial tcp 127.0.0.1:1: connect: refused"},
+	})
+
+	var ee *exitError
+	require.ErrorAs(t, err, &ee)
+	require.Equal(t, ExitError, ee.code)
+	require.Equal(t, "ok\tfetch\t3 tools\nFAIL\tbrowsermcp\tdial tcp 127.0.0.1:1: connect: refused\n", out.String())
+}
+
+// PHI_MCP=off keeps printing its own line and stays a success.
+func TestMCPDoctorDisabledIsNotAFailure(t *testing.T) {
+	t.Setenv("PHI_MCP", "off")
+
+	require.NoError(t, mcpDoctor())
+}
