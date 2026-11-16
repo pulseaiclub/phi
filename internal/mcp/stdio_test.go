@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -155,4 +156,46 @@ done
 	out, err := sess.CallTool(context.Background(), "echo", nil)
 	require.NoError(t, err)
 	require.Equal(t, "ok", out)
+}
+
+func TestSessionCloseDoesNotHangWhenDescendantHoldsStdout(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_STATE_HOME", tmp)
+
+	scriptPath := filepath.Join(tmp, "server.sh")
+	script := `#!/bin/sh
+sleep 30 &
+while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+  case "$line" in
+    *'"method":"initialize"'*)
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2024-11-05","capabilities":{}}}\n' "$id"
+      ;;
+  esac
+done
+`
+	require.NoError(t, os.WriteFile(scriptPath, []byte(script), 0o755))
+
+	tr, err := newStdioTransport("test", ServerConfig{Command: []string{scriptPath}})
+	require.NoError(t, err)
+	sess := newSession("test", tr)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+	}()
+	_, err = sess.CallTool(ctx, "echo", nil)
+	require.ErrorIs(t, err, context.Canceled)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- sess.Close()
+	}()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("sess.Close() hung while descendant held stdout")
+	}
 }

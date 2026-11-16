@@ -32,11 +32,12 @@ type stdioTransport struct {
 	timeout time.Duration
 	id      atomic.Int64
 
-	cmd      *exec.Cmd
-	stdin    io.WriteCloser
-	stdout   *bufio.Reader
-	stderr   *os.File
-	readerWG sync.WaitGroup
+	cmd        *exec.Cmd
+	stdin      io.WriteCloser
+	stdoutPipe io.ReadCloser
+	stdout     *bufio.Reader
+	stderr     *os.File
+	readerWG   sync.WaitGroup
 }
 
 func newStdioTransport(name string, cfg ServerConfig) (*stdioTransport, error) {
@@ -116,6 +117,10 @@ func (t *stdioTransport) close() error {
 		_ = t.stdin.Close()
 		t.stdin = nil
 	}
+	if t.stdoutPipe != nil {
+		_ = t.stdoutPipe.Close()
+		t.stdoutPipe = nil
+	}
 	var err error
 	if t.cmd != nil && t.cmd.Process != nil {
 		_ = t.cmd.Process.Kill()
@@ -173,11 +178,13 @@ func (t *stdioTransport) ensureStarted() error {
 	}
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
+		_ = stdoutPipe.Close()
 		_ = stderr.Close()
 		return fmt.Errorf("spawn %q: %w", t.name, err)
 	}
 	t.cmd = cmd
 	t.stdin = stdin
+	t.stdoutPipe = stdoutPipe
 	t.stdout = bufio.NewReader(stdoutPipe)
 	t.stderr = stderr
 	return nil
