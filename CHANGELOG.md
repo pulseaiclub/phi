@@ -12,6 +12,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- MCP: compact tool summaries mark required params with a `*` name prefix
+  (`*owner:s`) and the system prompt legend explains the notation
+  (`s`/`n`/`b`/`o`/`a`/`?`/`{enum}`/`*`).
 - Add test coverage for the `/skill` command's empty-state warning, picker
   wiring, and attachment flow.
 
