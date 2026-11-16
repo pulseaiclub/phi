@@ -342,6 +342,12 @@ func applyEnvOverrides(doc *ConfigDoc) {
 			break
 		}
 	}
+	modelEnv := firstEnv("PHI_MODEL")
+	if modelEnv != "" && len(doc.Models) == 0 {
+		doc.Models = append(doc.Models, ModelDoc{})
+		doc.Models[0].Name = modelEnv
+		doc.Models[0].Default = true
+	}
 	entry := func() *ModelDoc {
 		if len(doc.Models) == 0 {
 			doc.Models = append(doc.Models, ModelDoc{})
@@ -353,10 +359,6 @@ func applyEnvOverrides(doc *ConfigDoc) {
 	}
 	if v := firstEnv("PHI_BASE_URL"); v != "" {
 		entry().BaseURL = v
-	}
-	if v := firstEnv("PHI_MODEL"); v != "" {
-		entry().Name = v
-		entry().Default = true
 	}
 	if v := firstEnv("PHI_SKILL_PATH"); v != "" {
 		doc.SkillPath = &v
