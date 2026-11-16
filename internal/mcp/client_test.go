@@ -44,7 +44,7 @@ func TestCompactAndSlim(t *testing.T) {
 	}
 	slim := mcp.SlimTool(tools[0])
 	require.Contains(t, slim, "echo")
-	require.Contains(t, slim, "message:s*")
+	require.Contains(t, slim, "*message:s")
 }
 
 func TestSlimToolEnum(t *testing.T) {
@@ -56,13 +56,13 @@ func TestSlimToolEnum(t *testing.T) {
 				"properties":{
 					"env":{"type":"string","enum":["dev","prod"]},
 					"mode":{"type":"integer","enum":[1,2,3]}
-				}
+				},
+				"required":["env"]
 			}`),
 		})
-		require.Contains(t, slim, "env:s{dev|prod}")
+		require.Contains(t, slim, "*env:s{dev|prod}")
 		require.Contains(t, slim, "mode:n{1|2|3}")
 	})
-
 	t.Run("enum on untyped property keeps ? type", func(t *testing.T) {
 		slim := mcp.SlimTool(mcp.ToolDefinition{
 			Name:        "x",

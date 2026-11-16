@@ -37,9 +37,8 @@ func (s *SkillsCommands) Register(r *CommandRegistry) {
 		Description: "Attach a skill to the next turn — /skill",
 		Slash:       true,
 		Insert:      "/skill",
-		Run: func(_ Context, _ []string) error {
+		Run: func(_ Context, _ []string) {
 			s.Show()
-			return nil
 		},
 	})
 }

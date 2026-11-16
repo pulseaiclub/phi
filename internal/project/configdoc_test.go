@@ -39,7 +39,7 @@ func TestSetDefaultModel(t *testing.T) {
 	assert.Equal(t, "model-b", loaded.Model().Name)
 	envConfig, err := parseConfigFileWithEnv(path, true)
 	require.NoError(t, err)
-	assert.Equal(t, "environment-model", envConfig.Model().Name, "environment overrides still take precedence")
+	assert.Equal(t, "model-b", envConfig.Model().Name, "configured model takes precedence over PHI_MODEL")
 }
 
 func TestSetDefaultModelFailurePreservesConfig(t *testing.T) {

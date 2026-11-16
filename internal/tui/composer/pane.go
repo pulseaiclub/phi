@@ -63,9 +63,7 @@ type ComposerPane struct {
 	onRedraw func()
 
 	overlayBlocksComposer func() bool
-	handlePermissionKey   WireKeyHandler
-	handleConfirmKey      WireKeyHandler
-	handleErrorKey        WireKeyHandler
+	handleOverlayKey      WireKeyHandler
 	handleCopyKey         WireKeyHandler
 	requestFocusEditor    func()
 	requestFocus          func(components.Widget)
@@ -105,41 +103,38 @@ func NewComposerPane(theme components.Theme, modelLabel, cwd string) *ComposerPa
 	return c
 }
 
+// WireDeps holds the collaborators Wire binds after Editor assembly.
+type WireDeps struct {
+	Transcript            *transcript.TranscriptPane
+	Submitter             BusyChecker
+	Commands              *commands.CommandRegistry
+	Bus                   *controller.Bus
+	DrainBus              func()
+	OnRedraw              func()
+	ImageEnabled          func() bool
+	OverlayBlocksComposer func() bool
+	HandleOverlayKey      WireKeyHandler
+	HandleCopyKey         WireKeyHandler
+	RequestFocusEditor    func()
+	RequestFocus          func(components.Widget)
+	CtrlClose             func()
+}
+
 // Wire binds bus, transcript, and editor overlay hooks after Editor assembly.
-func (c *ComposerPane) Wire(
-	transcript *transcript.TranscriptPane,
-	submitter BusyChecker,
-	commands *commands.CommandRegistry,
-	cwd string,
-	bus *controller.Bus,
-	drainBus func(),
-	onRedraw func(),
-	imageEnabled func() bool,
-	overlayBlocksComposer func() bool,
-	handlePermissionKey WireKeyHandler,
-	handleConfirmKey WireKeyHandler,
-	handleErrorKey WireKeyHandler,
-	handleCopyKey WireKeyHandler,
-	requestFocusEditor func(),
-	requestFocus func(components.Widget),
-	ctrlClose func(),
-) {
-	c.cwd = cwd
-	c.commands = commands
-	c.transcript = transcript
-	c.submitter = submitter
-	c.bus = bus
-	c.drainBus = drainBus
-	c.onRedraw = onRedraw
-	c.imageEnabled = imageEnabled
-	c.overlayBlocksComposer = overlayBlocksComposer
-	c.handlePermissionKey = handlePermissionKey
-	c.handleConfirmKey = handleConfirmKey
-	c.handleErrorKey = handleErrorKey
-	c.handleCopyKey = handleCopyKey
-	c.requestFocusEditor = requestFocusEditor
-	c.requestFocus = requestFocus
-	c.ctrlClose = ctrlClose
+func (c *ComposerPane) Wire(deps WireDeps) {
+	c.commands = deps.Commands
+	c.transcript = deps.Transcript
+	c.submitter = deps.Submitter
+	c.bus = deps.Bus
+	c.drainBus = deps.DrainBus
+	c.onRedraw = deps.OnRedraw
+	c.imageEnabled = deps.ImageEnabled
+	c.overlayBlocksComposer = deps.OverlayBlocksComposer
+	c.handleOverlayKey = deps.HandleOverlayKey
+	c.handleCopyKey = deps.HandleCopyKey
+	c.requestFocusEditor = deps.RequestFocusEditor
+	c.requestFocus = deps.RequestFocus
+	c.ctrlClose = deps.CtrlClose
 
 	c.palette.FocusReturn = &c.Chat
 	c.listPicker.FocusReturn = &c.Chat
@@ -392,18 +387,6 @@ func (c *ComposerPane) SyncBashBorder(text string) {
 	}
 }
 
-// CloseMentionSlash hides the @, /, ?, and "!" completers.
-func (c *ComposerPane) CloseMentionSlash() {
-	c.mention.Hide()
-	c.Chat.MentionOpen = false
-	c.abandonMentionSearch()
-	c.slash.Hide()
-	c.Chat.SlashOpen = false
-	c.question.Hide()
-	c.Chat.QuestionOpen = false
-	c.bash.hide()
-}
-
 // SetBashBorderActive toggles bash-mode border styling.
 func (c *ComposerPane) SetBashBorderActive(active bool) {
 	if active {
@@ -644,13 +627,7 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			ctx.Quit = true
 			return
 		}
-		if c.handlePermissionKey != nil && c.handlePermissionKey(ctx, ev) {
-			return
-		}
-		if c.handleConfirmKey != nil && c.handleConfirmKey(ctx, ev) {
-			return
-		}
-		if c.handleErrorKey != nil && c.handleErrorKey(ctx, ev) {
+		if c.handleOverlayKey != nil && c.handleOverlayKey(ctx, ev) {
 			return
 		}
 		if c.handleCopyKey != nil && c.handleCopyKey(ctx, ev) {

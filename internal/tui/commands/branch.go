@@ -59,9 +59,8 @@ func (b *BranchCommands) Register(r *CommandRegistry) {
 		Description: "Switch the working branch — /branch [name] [base] creates off base",
 		Slash:       true,
 		Insert:      "/branch ",
-		Run: func(_ Context, args []string) error {
+		Run: func(_ Context, args []string) {
 			b.Run(args)
-			return nil
 		},
 	})
 }

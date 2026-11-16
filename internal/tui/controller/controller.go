@@ -333,30 +333,13 @@ func (c *EngineController) bindExtensionHost(r *extension.Runner) {
 	if r == nil {
 		return
 	}
-	cwd, sessionID := "", ""
-	if c.engine != nil {
-		cwd = c.engine.SessionCwd()
-		sessionID = c.engine.SessionID()
-	} else {
-		// NewController binds the host before the engine exists.
-		cwd = c.proj.Root()
-	}
+	cwd, sessionID := c.hostSessionInfo()
+
 	r.Bind(ext.HostOpts{
 		UI: extension.BusUI{
-			NotifyFn: func(message, kind string) {
-				toastKind := toast.ToastSuccess
-				switch strings.ToLower(kind) {
-				case "warning":
-					toastKind = toast.ToastWarning
-				case "error":
-					toastKind = toast.ToastError
-				}
-				c.publish(ToastMsg{Message: message, Kind: toastKind, Duration: 3 * time.Second})
-			},
-			SetStatusFn: func(_, text string) {
-				c.publish(ExtSessionEffectsMsg{Status: text, StatusSet: true})
-			},
-			ConfirmFn: c.askExtConfirm,
+			NotifyFn:    c.handleExtNotify,
+			SetStatusFn: c.handleExtStatus,
+			ConfirmFn:   c.askExtConfirm,
 		},
 		Cwd:       cwd,
 		SessionID: sessionID,
@@ -365,15 +348,44 @@ func (c *EngineController) bindExtensionHost(r *extension.Runner) {
 		// Rebinding the engine's tools from there would race the agent loop, so
 		// it takes the same route as any other topology change: a message the
 		// UI goroutine applies.
-		RefreshTools: func() { c.publish(ExtTopologyChangedMsg{}) },
-		SendUserMessage: func(text string) {
-			go c.StartPrompt(text, nil, nil)
-		},
+		RefreshTools:    c.requestTopologyRefresh,
+		SendUserMessage: c.sendUserMessage,
 	})
 
 	// Topology changes (extension-initiated reload/unload) happen off the
 	// UI goroutine, so they arrive as a message instead of a direct call.
-	r.SetOnChange(func() { c.publish(ExtTopologyChangedMsg{}) })
+	r.SetOnChange(c.requestTopologyRefresh)
+}
+
+func (c *EngineController) hostSessionInfo() (cwd, sessionID string) {
+	if c.engine != nil {
+		return c.engine.SessionCwd(), c.engine.SessionID()
+	}
+	// NewController binds the host before the engine exists.
+	return c.proj.Root(), ""
+}
+
+func (c *EngineController) handleExtNotify(message, kind string) {
+	toastKind := toast.ToastSuccess
+	switch strings.ToLower(kind) {
+	case "warning":
+		toastKind = toast.ToastWarning
+	case "error":
+		toastKind = toast.ToastError
+	}
+	c.publish(ToastMsg{Message: message, Kind: toastKind, Duration: 3 * time.Second})
+}
+
+func (c *EngineController) handleExtStatus(_, text string) {
+	c.publish(ExtSessionEffectsMsg{Status: text, StatusSet: true})
+}
+
+func (c *EngineController) requestTopologyRefresh() {
+	c.publish(ExtTopologyChangedMsg{})
+}
+
+func (c *EngineController) sendUserMessage(text string) {
+	go c.StartPrompt(text, nil, nil)
 }
 
 // SyncExtensionTools re-derives the agent's tool list from the current runner.
@@ -643,7 +655,7 @@ func (c *EngineController) activateSession(eng *agent.Engine, cfg llm.ModelConfi
 // discardFork drops a fork the controller never switched to, so a failed switch
 // does not leave an unreachable session in the session list.
 func (c *EngineController) discardFork(id string) {
-	if err := session.DeleteSession(c.sessionDir, id); err != nil {
+	if _, err := session.DeleteSession(c.sessionDir, id); err != nil {
 		debuglog.Logf("session: drop unused fork %s: %v", id, err)
 	}
 }

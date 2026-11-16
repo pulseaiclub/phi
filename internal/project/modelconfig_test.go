@@ -74,7 +74,7 @@ func TestExplicitPresetBinding(t *testing.T) {
 	require.ErrorContains(t, err, "unknown preset")
 }
 
-func TestEnvironmentOverridesResolveEffectiveModel(t *testing.T) {
+func TestConfiguredModelWinsOverPHIModel(t *testing.T) {
 	p := discoverInTempHome(t)
 	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`models:
   - name: old-model
@@ -88,9 +88,9 @@ func TestEnvironmentOverridesResolveEffectiveModel(t *testing.T) {
 	t.Setenv("PHI_SKILL_PATH", "~/env-skills")
 	require.NoError(t, p.LoadConfig())
 	m := p.Config().Model()
-	assert.Equal(t, "vendor/glm-5.3-flash", m.Name)
+	assert.Equal(t, "old-model", m.Name)
 	assert.Equal(t, "https://new.example/v1", m.BaseURL)
-	assert.True(t, m.ImageEnabled)
+	assert.False(t, m.ImageEnabled)
 	assert.Equal(t, llm.Low, m.Think.Mode)
 	home, err := os.UserHomeDir()
 	require.NoError(t, err)
@@ -124,4 +124,31 @@ func TestModelThinkingConstraints(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+func TestFindModelUsesConfigNameUnderPHIModel(t *testing.T) {
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`models:
+  - name: local-default
+    api_key: local-key
+    api: OpenAI
+    base_url: https://local.example/v1
+  - name: vendor/glm-5.3-flash
+    api_key: vendor-key
+    api: OpenAI
+    base_url: https://vendor.example/v1
+`), 0o600))
+	t.Setenv("PHI_MODEL", "vendor/glm-5.3-flash")
+	require.NoError(t, p.LoadConfig())
+	cfg := p.Config()
+	require.Equal(t, "local-default", cfg.Model().Name)
+
+	got, ok := cfg.FindModel("local-default")
+	require.True(t, ok)
+	assert.Equal(t, "local-default", got.Name)
+	assert.Equal(t, "https://local.example/v1", got.BaseURL)
+
+	got, ok = cfg.FindModel("vendor/glm-5.3-flash")
+	require.True(t, ok)
+	assert.Equal(t, "https://vendor.example/v1", got.BaseURL)
 }

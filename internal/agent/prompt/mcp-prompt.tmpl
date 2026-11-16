@@ -5,6 +5,8 @@ MCP servers are configured for this session. Tool schemas stay out of context â€
 ## How to use MCP
 - `ls` on `mcp://` lists the configured servers; `ls` on `mcp://<server>/tools/` lists that server's tools.
 - `read` on `mcp://<server>/tools/<tool>` returns a compact parameter summary.
+  Legend: `s`=string `n`=number `b`=bool `o`=object `a`=array `?`=untyped `{a|b}`=enum values,
+  `*` before a name = required; unmarked params are optional.
 - `write` to `mcp://<server>/tools/<tool>` invokes the tool â€” content is the JSON argument object.
 - Do not guess tool names or arguments; list and read first.
 

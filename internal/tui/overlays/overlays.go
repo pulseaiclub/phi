@@ -65,9 +65,10 @@ func (o *Overlays) BlocksComposer() bool {
 	return o.Active()
 }
 
-// PermissionActive reports whether the permission overlay is showing.
-func (o *Overlays) PermissionActive() bool {
-	return o.perm != nil
+// BlocksSessionSwitch reports modal blockers independent of activity. Extension
+// confirmations use ActivityAwaitingApproval, including its expiry handling.
+func (o *Overlays) BlocksSessionSwitch() bool {
+	return o.perm != nil || o.err != nil
 }
 
 // Apply routes overlay bus messages by Kind.
@@ -88,14 +89,16 @@ func (o *Overlays) Apply(msg controller.OverlayMsg) {
 	}
 }
 
-// HandlePermissionKey handles keyboard input while permission ask is active.
-func (o *Overlays) HandlePermissionKey(ctx *components.EventContext, e xui.KeyEvent) bool {
-	return o.perm != nil && o.handlePermissionKey(ctx, e)
+// HandleKey routes keys in the same priority order as DrawBottom.
+func (o *Overlays) HandleKey(ctx *components.EventContext, e xui.KeyEvent) bool {
+	return o.handlePermissionKey(ctx, e) || o.handleConfirmKey(ctx, e) || o.handleErrorKey(ctx, e)
 }
 
-// ResolvePermission sends a permission reply and clears the overlay.
-func (o *Overlays) ResolvePermission(r controller.AskReply) {
-	o.resolvePermission(r)
+// Cancel resolves pending dialogs with empty replies so waiting callers resume.
+func (o *Overlays) Cancel() {
+	o.resolvePermission(controller.AskReply{})
+	o.resolveExtConfirm(controller.ExtConfirmReply{})
+	o.resolveError(controller.ErrorReply{})
 }
 
 // PreferredBottomHeight estimates rows for the bottom overlay or composer slot.

@@ -23,7 +23,7 @@ type Command struct {
 	NeedsArgs bool
 
 	// Run handles slash dispatch. Nil for palette-only commands.
-	Run func(ctx Context, args []string) error
+	Run func(ctx Context, args []string)
 
 	// Build builds a Ctrl+K palette entry. Nil for slash-only commands.
 	Build func(ctx Context) palette.PaletteCommand
@@ -128,7 +128,7 @@ func (r *CommandRegistry) DispatchSlash(text string, ctx Context) bool {
 	if !ok || !cmd.Slash || cmd.Run == nil {
 		return false
 	}
-	_ = cmd.Run(ctx, fields[1:])
+	cmd.Run(ctx, fields[1:])
 	return true
 }
 

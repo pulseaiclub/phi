@@ -12,18 +12,33 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- MCP: compact tool summaries mark required params with a `*` name prefix
+  (`*owner:s`) and the system prompt legend explains the notation
+  (`s`/`n`/`b`/`o`/`a`/`?`/`{enum}`/`*`).
 - Add test coverage for the `/skill` command's empty-state warning, picker
   wiring, and attachment flow.
 
 ### Added
 
+- `phi run --model NAME` selects a configured named model for one headless run,
+  with precedence `--model` > config model > `PHI_MODEL`. An unknown name
+  exits with code 3 and lists the configured models.
 - `phi mcp list` gains an aligned `TRANSPORT` column: stdio commands and HTTP
   URLs are distinguishable, and an unrecognized transport value is shown as-is
   instead of being mislabeled `stdio`.
+- `phi plugin list` prints an `ID  VERSION  SOURCE  PATH` header with aligned
+  columns, matching `phi mcp list`.
 
 ### Fixed
 
+- `phi mcp doctor` with an empty or missing `mcp.json` now prints the same hint
+  as `phi mcp list` and exits 0, instead of `FAIL (none) no servers in mcp.json`
+  and exit 1.
 - Align the `phi plugin` example in the root help text.
+- `phi sessions remove` prints the full resolved session id instead of echoing
+  the id or prefix the user typed.
+- Only abbreviate the home directory and its children with `~` in TUI paths;
+  similarly named sibling directories now retain their actual paths.
 
 ### Security
 

@@ -97,6 +97,11 @@ Omitted transport shows as `stdio`; HTTP-family values (`http`,
 `streamable-http`, `sse`) show as `http` because they share one client; an
 unrecognized value is printed as-is so a config typo stays visible.
 
+`phi mcp doctor` prints one `ok`/`FAIL` line per configured server and exits 1
+only when a configured server did not answer. Nothing configured is not a
+failure: it prints the same `(no servers …)` hint as `phi mcp list` and exits 0,
+as does `PHI_MCP=off`.
+
 **Restart phi** after config changes (Pool loads at startup).
 
 ### Migrating from Claude Desktop config

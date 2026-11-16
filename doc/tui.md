@@ -138,7 +138,7 @@ toast) run inline — no pane state needs a lock.
 How data crosses the UI/domain boundary — one rule per direction:
 
 1. **UI goroutine → domain: direct calls.** Wiring sites pass method values
-   (`e.ctrl.ImageEnabled`, `e.overlays.ResolvePermission`), never anonymous
+   (`e.ctrl.ImageEnabled`, `e.overlays.Cancel`), never anonymous
    forwarding closures. When a callback needs two calls or a signature
    adapter, it becomes a named `Editor` method (`publishToast`,
    `copyToClipboard`) so the wiring reads as a table of collaborators.

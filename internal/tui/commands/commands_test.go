@@ -194,17 +194,15 @@ func TestCommandRegistry_DispatchSlash(t *testing.T) {
 	r.Register(Command{
 		Name:  "sessions",
 		Slash: true,
-		Run: func(Context, []string) error {
+		Run: func(Context, []string) {
 			sessions++
-			return nil
 		},
 	})
 	r.Register(Command{
 		Name:  "new",
 		Slash: true,
-		Run: func(Context, []string) error {
+		Run: func(Context, []string) {
 			started++
-			return nil
 		},
 	})
 
@@ -287,14 +285,14 @@ func TestCommandRegistry_RegisterReplace(t *testing.T) {
 	r.Register(Command{
 		Name:  "foo",
 		Slash: true,
-		Run:   func(Context, []string) error { return nil },
+		Run:   func(Context, []string) {},
 	})
 	r.Register(Command{
 		Name:        "foo",
 		Description: "replaced",
 		Slash:       true,
 		Insert:      "/foo ",
-		Run:         func(Context, []string) error { return nil },
+		Run:         func(Context, []string) {},
 	})
 	assert.Equal(t, "/foo ", r.LookupInsert("foo"))
 	assert.Equal(t, "replaced", r.SlashCommands()[0].Description)
@@ -319,7 +317,7 @@ func TestCommandRegistry_NeedsArgs(t *testing.T) {
 		Name:      "plan",
 		Slash:     true,
 		NeedsArgs: true,
-		Run:       func(Context, []string) error { return nil },
+		Run:       func(Context, []string) {},
 	})
 	assert.Equal(t, "/plan ", r.LookupInsert("plan"))
 	insert, ok := r.IncompleteSlash("/plan")

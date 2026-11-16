@@ -67,14 +67,13 @@ func (h *ExtCommands) slashCommand(name, desc string, needsArgs bool) Command {
 		Description: desc,
 		Slash:       true,
 		NeedsArgs:   needsArgs,
-		Run: func(ctx Context, args []string) error {
+		Run: func(ctx Context, args []string) {
 			if h.running.Load() {
 				ctx.Toast("An extension command is already running", toast.ToastWarning, 3*time.Second)
-				return nil
+				return
 			}
 			text := strings.TrimSpace(strings.Join(args, " "))
 			go h.run(name, text)
-			return nil
 		},
 	}
 }

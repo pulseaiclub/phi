@@ -129,7 +129,7 @@ skill_path: /from/file
 	cfg := p.Config()
 	// resolveSkillPaths cleans every root, so compare against the cleaned form.
 	assert.Equal(t, filepath.FromSlash("/from/env"), cfg.SkillPaths[0], "the env path is the highest-priority root")
-	assert.Equal(t, "env-model", cfg.Model().Name)
+	assert.Equal(t, "file-model", cfg.Model().Name, "configured model takes precedence over PHI_MODEL")
 	assert.Equal(t, "env-key", cfg.Model().APIKey)
 	assert.Equal(t, "https://env.example/v1", cfg.Model().BaseURL)
 	assert.Equal(t, "/from/env", cfg.SkillPath)

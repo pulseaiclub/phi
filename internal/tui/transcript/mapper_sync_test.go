@@ -61,7 +61,6 @@ func TestMapperSyncDirtyOnlyChangedRows(t *testing.T) {
 
 func TestApplyProgressReportsChange(t *testing.T) {
 	s := transcript.NewSubagentStore()
-	s.Bind("job1", "parent1")
 	p := job.Progress{
 		JobID:           "job1",
 		ParentToolUseID: "parent1",

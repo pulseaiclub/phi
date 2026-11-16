@@ -160,12 +160,8 @@ func NewEditor(
 		e.composer,
 		e.bus,
 		cmdCtx,
-		e.overlays.PermissionActive,
-		e.overlays.ConfirmActive,
-		e.overlays.ErrorActive,
-		e.overlays.ResolvePermission,
-		e.overlays.ResolveConfirm,
-		e.overlays.ResolveError,
+		e.overlays.BlocksSessionSwitch,
+		e.overlays.Cancel,
 	)
 	builtins.Bind(
 		e.submitter,
@@ -179,24 +175,21 @@ func NewEditor(
 		e.submitter.StreamActive,
 	)
 
-	e.composer.Wire(
-		e.transcript,
-		e.submitter,
-		e.commands,
-		e.cwd,
-		e.bus,
-		e.drainBus,
-		e.vx.QueueRefresh,
-		e.ctrl.ImageEnabled,
-		e.blocksComposer,
-		e.overlays.HandlePermissionKey,
-		e.overlays.HandleConfirmKey,
-		e.overlays.HandleErrorKey,
-		e.handleCopyKey,
-		e.focusSelf,
-		e.App.RequestFocus,
-		e.ctrl.Close,
-	)
+	e.composer.Wire(composer.WireDeps{
+		Transcript:            e.transcript,
+		Submitter:             e.submitter,
+		Commands:              e.commands,
+		Bus:                   e.bus,
+		DrainBus:              e.drainBus,
+		OnRedraw:              e.vx.QueueRefresh,
+		ImageEnabled:          e.ctrl.ImageEnabled,
+		OverlayBlocksComposer: e.blocksComposer,
+		HandleOverlayKey:      e.overlays.HandleKey,
+		HandleCopyKey:         e.handleCopyKey,
+		RequestFocusEditor:    e.focusSelf,
+		RequestFocus:          e.App.RequestFocus,
+		CtrlClose:             e.ctrl.Close,
+	})
 
 	e.extCmds.Sync()
 	return e

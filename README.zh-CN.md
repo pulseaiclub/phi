@@ -212,7 +212,7 @@ permissions:
 | 变量 | 覆盖项 |
 | ---------------- | ------------------ |
 | `PHI_API_KEY` | `models[].api_key`（默认模型） |
-| `PHI_MODEL` | `models[].name`（默认模型） |
+| `PHI_MODEL` | 未配置模型时使用的降级模型名 |
 | `PHI_BASE_URL` | `models[].base_url`（默认模型） |
 | `PHI_SKILL_PATH` | `skill_path` |
 | `PHI_THINK_LEVEL` | `models[].think_level`（默认模型；`off` 关闭思考） |
@@ -245,8 +245,8 @@ permissions:
 编辑器支持：
 
 - `@` —— 模糊文件选择器（输入 `@` 后开始输入路径）
-- `/` —— 斜杠命令选择器（`/sessions`、`/branch`、`/new`、`/fork`、`/diff`、`/code`）
-- `?` —— 快捷键帮助选择器（列出 `/`、`!`、`@` 和按键绑定；`Esc` 关闭）
+- `/` —— 斜杠命令选择器（`/sessions`、`/branch`、`/skill`、`/new`、`/fork`、`/diff`、`/code`）
+- `?` —— 快捷键帮助选择器（列出 `/`、`!`、`!!`、`@` 和按键绑定；`Esc` 关闭）
 - `!command` —— 在本地运行 shell 命令，并把输出流式写入对话记录
   （见 [命令](#命令)）
 - `Ctrl+K` —— 命令面板：设置 → 模型 / 主题 / 权限 / 代理、技能、hooks
@@ -320,6 +320,7 @@ HEAD 新建一个。敲名字本身就是「新建分支」的全部流程，比
 | `phi update --check` | 只查询最新版本，不安装 |
 | `phi sessions` | 列出当前目录的持久化会话 |
 | `phi sessions fork <id>` | 在当前点复制会话并打印新 id |
+| `phi sessions remove <id>` | 删除当前目录的持久化会话（别名 `rm`；唯一 id 前缀即可） |
 | `/sessions` | 列出当前目录的会话（TUI 内） |
 | `/branch` | 切换工作分支 — 见 [切换分支](#切换分支) |
 | `/new` | 开启一个全新的空会话（TUI 内） |
@@ -365,9 +366,13 @@ phi run -p "fix the failing test in internal/tools"
 | `--continue-last` | 恢复当前目录最新的持久化会话 |
 | `--session-dir DIR` | 覆盖会话存储目录 |
 | `--tools LIST` | 仅启用逗号分隔的指定内置工具 |
+| `--model NAME` | 本次运行使用已配置的命名模型 |
 
 `--tools` 接受 `read,ls,grep` 之类的内置工具名称。已配置的 MCP 和 agent
 工具仍会照常追加；该参数只限制内置工具集。
+
+`phi run` 的模型优先级为 `--model` > 配置模型 > `PHI_MODEL`。`--model`
+指定的名称不存在时会在循环开始前失败，退出码为 3。
 
 退出码：`0` 成功 · `1` 运行时/LLM 错误 ·
 `3` 配置/用法错误。

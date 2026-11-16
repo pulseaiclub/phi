@@ -3,8 +3,10 @@ package editor
 import (
 	"testing"
 
+	"github.com/pulseaiclub/xui"
 	"github.com/stretchr/testify/require"
 
+	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
@@ -19,7 +21,7 @@ func TestConfirmActivityExpiry(t *testing.T) {
 			})
 			require.Equal(t, controller.ActivityAwaitingApproval, e.activity.Current)
 			if action == "reply" {
-				e.overlays.ResolveConfirm(controller.ExtConfirmReply{OK: true})
+				e.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
 			} else {
 				e.Update(controller.OverlayMsg{Kind: controller.OverlayExtConfirmDismiss})
 			}

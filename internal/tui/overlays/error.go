@@ -213,16 +213,6 @@ func (o *Overlays) resolveError(r controller.ErrorReply) {
 	}
 }
 
-// HandleErrorKey handles keyboard input while the error dialog is active.
-func (o *Overlays) HandleErrorKey(ctx *components.EventContext, e xui.KeyEvent) bool {
-	return o != nil && o.err != nil && o.handleErrorKey(ctx, e)
-}
-
-// ErrorActive reports whether the error dialog is showing.
-func (o *Overlays) ErrorActive() bool {
-	return o != nil && o.err != nil
-}
-
 // ResolveError sends an error-dialog reply and clears the overlay.
 func (o *Overlays) ResolveError(r controller.ErrorReply) {
 	o.resolveError(r)

@@ -30,7 +30,6 @@ func (stubComposer) ClearPendingSkills()                   {}
 func (stubComposer) ClearPendingImages()                   {}
 func (stubComposer) ClearPendingRefs()                     {}
 func (stubComposer) SyncBashBorder(string)                 {}
-func (stubComposer) CloseMentionSlash()                    {}
 func (stubComposer) SetBashBorderActive(bool)              {}
 
 // newTestSubmitter wires a Submitter over a zero EngineController: SessionDir
@@ -55,9 +54,7 @@ func newTestSubmitter(
 		composer,
 		nil,
 		commands.NewContext(nil, nil),
-
-		nil, nil, nil,
-		nil, nil, nil,
+		nil, nil,
 	)
 }
 
@@ -115,7 +112,7 @@ func TestSubmitter_Submit_needsArgsRefillsComposer(t *testing.T) {
 		Name:      "plan",
 		Slash:     true,
 		NeedsArgs: true,
-		Run:       func(commands.Context, []string) error { return nil },
+		Run:       func(commands.Context, []string) {},
 	})
 	sub := newTestSubmitter(t, tp, nil, comp, reg)
 	sub.Submit("/plan")

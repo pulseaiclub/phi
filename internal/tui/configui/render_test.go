@@ -2,6 +2,7 @@ package configui
 
 import (
 	"bytes"
+	"path/filepath"
 	"strconv"
 	"testing"
 
@@ -13,6 +14,13 @@ import (
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/chrome"
 )
+
+func TestDisplayPathKeepsFullPath(t *testing.T) {
+	home := filepath.FromSlash("/users/phi")
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	assert.Equal(t, "~/a/b/c/d/config.yaml", displayPath(filepath.Join(home, "a", "b", "c", "d", "config.yaml")))
+}
 
 func assertFocusMarker(t *testing.T, e *ConfigEditor, out components.Surface) {
 	t.Helper()
