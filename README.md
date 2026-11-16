@@ -240,7 +240,7 @@ Environment overrides:
 | Variable         | Overrides          |
 | ---------------- | ------------------ |
 | `PHI_API_KEY`    | `models[].api_key` (default model) |
-| `PHI_MODEL`      | `models[].name` (default model) |
+| `PHI_MODEL`      | fallback model name when no model is configured |
 | `PHI_BASE_URL`   | `models[].base_url` (default model) |
 | `PHI_SKILL_PATH` | `skill_path`       |
 | `PHI_THINK_LEVEL` | `models[].think_level` (default model; `off` disables) |
@@ -426,12 +426,12 @@ Flags:
 | `--continue-last`    | Resume the newest persisted session for this directory |
 | `--session-dir DIR`  | Override the session storage directory         |
 | `--tools LIST`       | Enable only these comma-separated built-in tools |
-| `--model NAME`       | Use a configured named model for this run (overrides `PHI_MODEL` and the config default) |
+| `--model NAME`       | Use a configured named model for this run |
 
 `--tools` accepts built-in names such as `read,ls,grep`. MCP and agent tools
 still append when configured; the flag only scopes the built-in toolset.
 
-Model precedence for `phi run` is `--model` > `PHI_MODEL` > config default.
+Model precedence for `phi run` is `--model` > config model > `PHI_MODEL`.
 An unknown `--model` name fails before the loop starts and exits with code 3.
 
 Exit codes: `0` success · `1` runtime/LLM error ·

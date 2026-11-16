@@ -212,7 +212,7 @@ permissions:
 | 变量 | 覆盖项 |
 | ---------------- | ------------------ |
 | `PHI_API_KEY` | `models[].api_key`（默认模型） |
-| `PHI_MODEL` | `models[].name`（默认模型） |
+| `PHI_MODEL` | 未配置模型时使用的降级模型名 |
 | `PHI_BASE_URL` | `models[].base_url`（默认模型） |
 | `PHI_SKILL_PATH` | `skill_path` |
 | `PHI_THINK_LEVEL` | `models[].think_level`（默认模型；`off` 关闭思考） |
@@ -366,12 +366,12 @@ phi run -p "fix the failing test in internal/tools"
 | `--continue-last` | 恢复当前目录最新的持久化会话 |
 | `--session-dir DIR` | 覆盖会话存储目录 |
 | `--tools LIST` | 仅启用逗号分隔的指定内置工具 |
-| `--model NAME` | 本次运行使用已配置的命名模型（覆盖 `PHI_MODEL` 和配置默认值） |
+| `--model NAME` | 本次运行使用已配置的命名模型 |
 
 `--tools` 接受 `read,ls,grep` 之类的内置工具名称。已配置的 MCP 和 agent
 工具仍会照常追加；该参数只限制内置工具集。
 
-`phi run` 的模型优先级为 `--model` > `PHI_MODEL` > 配置默认值。`--model`
+`phi run` 的模型优先级为 `--model` > 配置模型 > `PHI_MODEL`。`--model`
 指定的名称不存在时会在循环开始前失败，退出码为 3。
 
 退出码：`0` 成功 · `1` 运行时/LLM 错误 ·

@@ -25,7 +25,7 @@ var runCommand = cli.Command{
 	Long: `Human logs go to stderr; with --jsonl, machine-readable events go to
 stdout (one JSON object per line).
 
-model precedence: --model > PHI_MODEL > config default
+model precedence: --model > config model > PHI_MODEL
 
 exit codes:
   0 success   1 runtime/LLM error   3 config/usage`,
@@ -45,7 +45,7 @@ exit codes:
 		cli.Bool("continue-last", "", "resume the newest persisted session for this directory"),
 		cli.String("session-dir", "", "override the session storage directory", ""),
 		cli.Var("tools", "", "LIST", "enable only these built-in tools (comma-separated)", toolsFlag{}, parseToolsFlag),
-		cli.String("model", "", "use a configured named model for this run (overrides PHI_MODEL)", ""),
+		cli.String("model", "", "use a configured named model for this run", ""),
 	},
 }
 

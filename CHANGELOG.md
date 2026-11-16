@@ -18,7 +18,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Added
 
 - `phi run --model NAME` selects a configured named model for one headless run,
-  with precedence `--model` > `PHI_MODEL` > config default. An unknown name
+  with precedence `--model` > config model > `PHI_MODEL`. An unknown name
   exits with code 3 and lists the configured models.
 - `phi mcp list` gains an aligned `TRANSPORT` column: stdio commands and HTTP
   URLs are distinguishable, and an unrecognized transport value is shown as-is
