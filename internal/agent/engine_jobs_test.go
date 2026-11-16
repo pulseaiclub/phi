@@ -32,8 +32,13 @@ func TestNewEngineRegistersJobs(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, eng.HasTool("agent_spawn"))
 
-	eng.SetModel(llm.ModelConfig{Name: "fake2", BaseURL: "http://127.0.0.1:9", APIKey: "x"})
-	assert.True(t, eng.HasTool("agent_spawn"))
+	reconfigured, err := agent.NewEngine(
+		llm.ModelConfig{Name: "fake2", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
+		sess,
+		agent.WithJobs(mgr),
+	)
+	require.NoError(t, err)
+	assert.True(t, reconfigured.HasTool("agent_spawn"))
 }
 
 func TestSetJobsTogglesAgentTools(t *testing.T) {
@@ -55,12 +60,21 @@ func TestSetJobsTogglesAgentTools(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, eng.HasTool("agent_spawn"))
 
-	eng.SetJobs(mgr)
-	assert.True(t, eng.HasTool("agent_spawn"))
+	withJobs, err := agent.NewEngine(
+		llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
+		sess,
+		agent.WithJobs(mgr),
+	)
+	require.NoError(t, err)
+	assert.True(t, withJobs.HasTool("agent_spawn"))
 
-	eng.SetJobs(nil)
-	assert.False(t, eng.HasTool("agent_spawn"))
-	assert.True(t, eng.HasTool("bash")) // default tools still present
+	withoutJobs, err := agent.NewEngine(
+		llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
+		sess,
+	)
+	require.NoError(t, err)
+	assert.False(t, withoutJobs.HasTool("agent_spawn"))
+	assert.True(t, withoutJobs.HasTool("bash")) // default tools still present
 }
 
 func TestChildToolsHaveNoAgent(t *testing.T) {

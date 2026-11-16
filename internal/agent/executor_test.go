@@ -508,8 +508,10 @@ func main() {
 	r.Bind(ext.HostOpts{})
 	parentSession, err := NewSession(WithCwd(t.TempDir()))
 	require.NoError(t, err)
-	_, err = NewEngine(llm.ModelConfig{Name: "test"}, parentSession, WithExtensions(r))
+	parent, err := NewEngine(llm.ModelConfig{Name: "test"}, parentSession, WithExtensions(r))
 	require.NoError(t, err)
+	r.SetBaseTools(parent.BaseTools())
+	r.SetMeta(parent.SessionID(), parent.SessionCwd())
 	api := r.Fiber("test").API()
 	parentTools := api.GetAllTools()
 	require.NotEmpty(t, parentTools)
@@ -520,18 +522,11 @@ func main() {
 	child, err := NewEngine(llm.ModelConfig{Name: "test"}, childSession,
 		WithExtensions(r), WithOmitExtensionTools(true), WithTools(ChildTools()))
 	require.NoError(t, err)
-	for _, phase := range []string{"construction", "rebind"} {
-		t.Run(phase, func(t *testing.T) {
-			if phase == "rebind" {
-				child.SetExtensions(r)
-			}
-			assert.Equal(t, parentTools, api.GetAllTools())
-			msgs, _, _ := child.executor.Run(t.Context(), []llm.ToolCall{{
-				ID: "child-read", Function: llm.Function{Name: "read", Arguments: `{"path":"child.txt"}`},
-			}}, func(session.ToolData) bool { return true })
-			require.Len(t, msgs, 1)
-			assert.Contains(t, msgs[0].Content, parentSession.ID()+"|"+parentSession.Cwd())
-			assert.Contains(t, msgs[0].Content, "child content")
-		})
-	}
+	assert.Equal(t, parentTools, api.GetAllTools())
+	msgs, _, _ := child.executor.Run(t.Context(), []llm.ToolCall{{
+		ID: "child-read", Function: llm.Function{Name: "read", Arguments: `{"path":"child.txt"}`},
+	}}, func(session.ToolData) bool { return true })
+	require.Len(t, msgs, 1)
+	assert.Contains(t, msgs[0].Content, parentSession.ID()+"|"+parentSession.Cwd())
+	assert.Contains(t, msgs[0].Content, "child content")
 }

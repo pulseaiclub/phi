@@ -78,18 +78,19 @@ func TestEngineSetModelKeepsSession(t *testing.T) {
 	require.NoError(t, eng.session.Append(llm.Message{Role: llm.RoleAssistant, Content: "ok"}))
 	n := eng.session.Len()
 
-	eng.SetModel(llm.ModelConfig{
+	reconfigured, err := NewEngine(llm.ModelConfig{
 		Name:          "model-b",
 		APIKey:        "k",
 		BaseURL:       "http://example",
 		ContextWindow: 8192,
 		SkillPaths:    []string{dir},
-	})
-	assert.Equal(t, id, eng.SessionID())
-	assert.Equal(t, file, eng.SessionFile())
-	assert.Equal(t, n, eng.session.Len())
-	assert.Equal(t, 8192, eng.modelCfg.ContextWindow)
-	assert.Equal(t, []string{dir}, eng.modelCfg.SkillPaths)
+	}, sess)
+	require.NoError(t, err)
+	assert.Equal(t, id, reconfigured.SessionID())
+	assert.Equal(t, file, reconfigured.SessionFile())
+	assert.Equal(t, n, reconfigured.session.Len())
+	assert.Equal(t, 8192, reconfigured.modelCfg.ContextWindow)
+	assert.Equal(t, []string{dir}, reconfigured.modelCfg.SkillPaths)
 }
 
 func TestSessionBuildContextLabelsCompactionSummary(t *testing.T) {

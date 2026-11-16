@@ -31,8 +31,12 @@ const defaultAskTimeoutSec = 120
 // EngineController owns agent.Engine lifecycle and stream cancellation.
 // It talks to the UI only by publishing Msg values onto the Bus.
 type EngineController struct {
-	engine *agent.Engine
-	proj   *project.Project
+	engineMu sync.RWMutex // guards engine against configurator updates vs loop start
+	engine   *agent.Engine
+	proj     *project.Project
+	// configurator is the single entry point for engine configuration changes,
+	// mirroring the OpenTelemetry MeterConfiguratorHandle pattern.
+	configurator *agent.EngineConfigurator
 
 	streamMu       sync.Mutex
 	streamCancel   context.CancelFunc
@@ -69,7 +73,7 @@ func NewController(bus *Bus, proj *project.Project) (*EngineController, error) {
 		return nil, err
 	}
 	config := proj.Config()
-
+	configurator := agent.NewEngineConfigurator()
 	c := &EngineController{
 		bus:           bus,
 		proj:          proj,
@@ -78,6 +82,10 @@ func NewController(bus *Bus, proj *project.Project) (*EngineController, error) {
 		askTimeoutSec: defaultAskTimeoutSec,
 		modelCfg:      config.Model(),
 		roleModels:    config.Agents.Models.RoleOverrides(),
+		configurator:  configurator,
+	}
+	if err := configurator.Register(c.applyEngineSpec); err != nil {
+		return nil, err
 	}
 	// TUI defaults to bypass; palette → settings → permissions toggles it.
 	c.allowAll.Store(true)
@@ -101,11 +109,15 @@ func NewController(bus *Bus, proj *project.Project) (*EngineController, error) {
 		c.mcpPool = pool
 	}
 
-	eng, _, err := c.openEngine(c.modelCfg, extRunner, "")
+	spec, err := c.openSessionSpec(c.modelCfg, extRunner, "")
 	if err != nil {
 		return nil, err
 	}
-	c.engine = eng
+	c.setEngineSpec(spec)
+	eng := c.currentEngine()
+	if eng == nil {
+		return nil, errors.New("agent: engine not installed after configuration")
+	}
 	c.startJobProgress()
 	c.emitSessionStart("startup", eng.SessionID(), "")
 	return c, nil
@@ -188,7 +200,7 @@ func (c *EngineController) AllowAll() bool { return c.allowAll.Load() }
 
 func (c *EngineController) SetAgentsEnabled(v bool) {
 	c.agentsEnabled.Store(v)
-	c.engine.SetJobs(c.engineJobs())
+	c.applyCurrentConfig("agents")
 }
 
 // AgentsEnabled reports whether sub-agent (agent_*) tools are registered.
@@ -264,7 +276,7 @@ func (c *EngineController) ReloadExtensions() (loaded int, warns []loader.Warnin
 	}
 	logExtensionWarnings(warns)
 	c.swapExtensionRunner(r)
-	c.engine.SetExtensions(r)
+	c.setEngineSpec(c.currentEngineSpec())
 	if r == nil {
 		return 0, warns, nil
 	}
@@ -388,14 +400,38 @@ func (c *EngineController) sendUserMessage(text string) {
 	go c.StartPrompt(text, nil, nil)
 }
 
-// SyncExtensionTools re-derives the agent's tool list from the current runner.
-// Call it on the UI goroutine: it rebinds the engine's client and executor, so
-// an extension reader goroutine must not.
+// SyncExtensionTools rebuilds the engine from the current extension snapshot.
+// Call it on the UI goroutine after an extension topology change.
 func (c *EngineController) SyncExtensionTools() {
+	c.applyCurrentConfig("extensions")
+}
+
+// applyCurrentConfig re-publishes the controller's current engine spec through
+// the configurator. Build failures keep the previous engine; applyEngineSpec
+// logs the error.
+func (c *EngineController) applyCurrentConfig(_ string) {
 	if c.engine == nil {
 		return
 	}
-	c.engine.SetExtensions(c.Extensions())
+	c.setEngineSpec(c.currentEngineSpec())
+}
+
+// currentEngineSpec captures the controller's current configuration as one
+// complete spec value.
+func (c *EngineController) currentEngineSpec() agent.EngineSpec {
+	return agent.EngineSpec{
+		Model:      c.modelSnapshot(),
+		Session:    c.engine.Session(),
+		Extensions: c.Extensions(),
+	}
+}
+
+// currentEngine reads the installed engine under the configurator's lock
+// discipline (engineMu).
+func (c *EngineController) currentEngine() *agent.Engine {
+	c.engineMu.RLock()
+	defer c.engineMu.RUnlock()
+	return c.engine
 }
 
 func (c *EngineController) askTimeout() time.Duration {
@@ -482,32 +518,31 @@ func (c *EngineController) SetModel(name string) error {
 	}
 	c.Cancel()
 	c.initGate(c.proj.Config().Permissions)
-	c.engine.SetPermission(c.gate, c.askPermission)
-	c.engine.SetJobs(c.engineJobs())
 	if _, _, err := c.ReloadExtensions(); err != nil {
 		debuglog.Logf("extension: reload on SetModel: %v", err)
 	}
-	c.modelMu.Lock()
-	defer c.modelMu.Unlock()
-	if err := c.engine.Session().SetModel(name); err != nil {
+	sess := c.engine.Session()
+	if err := sess.SetModel(name); err != nil {
 		return err
 	}
-	c.engine.SetModelWithHooks(cfg, model.HooksForConfig(cfg))
+	c.modelMu.Lock()
 	c.modelCfg = cfg
+	c.modelMu.Unlock()
+	c.setEngineSpec(agent.EngineSpec{Model: cfg, Session: sess, Extensions: c.Extensions()})
 	return nil
 }
 
 // SetThinkLevel changes the thinking level for the current session.
 func (c *EngineController) SetThinkLevel(mode llm.ThinkMode) error {
-	c.modelMu.Lock()
-	defer c.modelMu.Unlock()
+	c.modelMu.RLock()
 	cfg := c.modelCfg
+	c.modelMu.RUnlock()
 	cfg.Think = llm.ThinkConfig{Mode: mode, Enabled: mode != llm.Off}
 	if err := model.ValidateThinking(cfg); err != nil {
 		return err
 	}
-	c.engine.SetModel(cfg)
-	c.modelCfg = cfg
+	c.setModelConfig(cfg)
+	c.setEngineSpec(c.currentEngineSpec())
 	return nil
 }
 
@@ -581,16 +616,22 @@ func (c *EngineController) Resume(id string) (cwdWarning string, err error) {
 	}
 
 	extRunner := loadExtensions(c.proj)
-	c.commitSessionSwitch("resume", prevID, id)
-	c.swapExtensionRunner(extRunner)
-	eng, cfg, err := c.openEngine(cfg, extRunner, id)
+	spec, err := c.openSessionSpec(cfg, extRunner, id)
 	if err != nil {
 		return "", err
+	}
+	c.commitSessionSwitch("resume", prevID, id)
+	c.swapExtensionRunner(extRunner)
+	c.setEngineSpec(spec)
+	eng := c.currentEngine()
+	if eng == nil {
+		return "", errors.New("agent: engine not installed after resume")
 	}
 	if sessCwd := eng.SessionCwd(); sessCwd != "" && c.cwd != "" && sessCwd != c.cwd {
 		cwdWarning = fmt.Sprintf("cwd %s ≠ %s", filepath.Base(sessCwd), filepath.Base(c.cwd))
 	}
-	c.activateSession(eng, cfg, "resume", prevID)
+	c.setModelConfig(spec.Model)
+	c.emitSessionStart("resume", eng.SessionID(), prevID)
 	return cwdWarning, nil
 }
 
@@ -605,12 +646,18 @@ func (c *EngineController) NewSession() error {
 	if err != nil {
 		return err
 	}
-	c.commitSessionSwitch("new", prevID, "")
-	engine, cfg, err := c.openEngine(cfg, c.Extensions(), "")
+	spec, err := c.openSessionSpec(cfg, c.Extensions(), "")
 	if err != nil {
 		return err
 	}
-	c.activateSession(engine, cfg, "new", prevID)
+	c.commitSessionSwitch("new", prevID, "")
+	c.setEngineSpec(spec)
+	eng := c.currentEngine()
+	if eng == nil {
+		return errors.New("agent: engine not installed after new session")
+	}
+	c.setModelConfig(spec.Model)
+	c.emitSessionStart("new", eng.SessionID(), prevID)
 	return nil
 }
 
@@ -633,23 +680,45 @@ func (c *EngineController) ForkSession() (string, error) {
 		c.discardFork(forked.ID())
 		return "", err
 	}
-	eng, err := c.newEngine(cfg, c.Extensions(), forked)
-	if err != nil {
+	c.setEngineSpec(agent.EngineSpec{Model: cfg, Session: forked, Extensions: c.Extensions()})
+	eng := c.currentEngine()
+	if eng == nil {
 		c.discardFork(forked.ID())
-		return "", err
+		return "", errors.New("agent: engine not installed after fork")
 	}
 	c.commitSessionSwitch("fork", prevID, forked.ID())
-	c.activateSession(eng, cfg, "fork", prevID)
+	c.setModelConfig(cfg)
+	c.emitSessionStart("fork", eng.SessionID(), prevID)
 	return forked.ID(), nil
 }
 
-// activateSession publishes the new session only after installing its engine and model together.
-func (c *EngineController) activateSession(eng *agent.Engine, cfg llm.ModelConfig, reason, prevID string) {
+// setModelConfig records the model config of the installed engine.
+func (c *EngineController) setModelConfig(cfg llm.ModelConfig) {
 	c.modelMu.Lock()
-	c.engine = eng
 	c.modelCfg = cfg
 	c.modelMu.Unlock()
-	c.emitSessionStart(reason, eng.SessionID(), prevID)
+}
+
+// applyEngineSpec is the configurator's sole update callback, registered once
+// at construction. It builds a complete engine for the new spec and installs
+// it under engineMu, so a loop that already started keeps its old engine while
+// a new loop starts against the new one — both fully formed. A build failure
+// keeps the previous engine; the caller logs the error.
+func (c *EngineController) applyEngineSpec(spec agent.EngineSpec) {
+	eng, err := c.newEngine(spec.Model, spec.Extensions, spec.Session)
+	if err != nil {
+		debuglog.Logf("agent: apply engine spec: %v", err)
+		return
+	}
+	c.engineMu.Lock()
+	c.engine = eng
+	c.engineMu.Unlock()
+}
+
+// setEngineSpec publishes a complete engine configuration through the
+// configurator handle, mirroring OpenTelemetry's Handle.Set.
+func (c *EngineController) setEngineSpec(spec agent.EngineSpec) {
+	c.configurator.Set(spec)
 }
 
 // discardFork drops a fork the controller never switched to, so a failed switch
@@ -697,11 +766,13 @@ func (c *EngineController) resolveModel() (llm.ModelConfig, error) {
 	return c.proj.Config().Model(), nil
 }
 
-func (c *EngineController) openEngine(
+// openSessionSpec opens (or resumes) a session and resolves its model,
+// returning the complete engine spec for the configurator to apply.
+func (c *EngineController) openSessionSpec(
 	cfg llm.ModelConfig,
 	extRunner *extension.Runner,
 	resumeID string,
-) (*agent.Engine, llm.ModelConfig, error) {
+) (agent.EngineSpec, error) {
 	opts := []agent.SessionOption{
 		agent.WithCwd(c.cwd),
 		agent.WithSessionDir(c.sessionDir),
@@ -713,19 +784,15 @@ func (c *EngineController) openEngine(
 	}
 	sess, err := agent.NewSession(opts...)
 	if err != nil {
-		return nil, llm.ModelConfig{}, err
+		return agent.EngineSpec{}, err
 	}
 	if name := sess.ModelName(); resumeID != "" && name != "" {
 		cfg, err = resolveModelConfig(c.proj.Config(), extRunner, name)
 		if err != nil {
-			return nil, llm.ModelConfig{}, fmt.Errorf("restore session model %q: %w", name, err)
+			return agent.EngineSpec{}, fmt.Errorf("restore session model %q: %w", name, err)
 		}
 	}
-	eng, err := c.newEngine(cfg, extRunner, sess)
-	if err != nil {
-		return nil, llm.ModelConfig{}, err
-	}
-	return eng, cfg, nil
+	return agent.EngineSpec{Model: cfg, Session: sess, Extensions: extRunner}, nil
 }
 
 // newEngine binds a session to a fresh engine on the controller-wide gate,
@@ -736,7 +803,7 @@ func (c *EngineController) newEngine(
 	extRunner *extension.Runner,
 	sess *agent.Session,
 ) (*agent.Engine, error) {
-	return agent.NewEngine(cfg, sess,
+	eng, err := agent.NewEngine(cfg, sess,
 		agent.WithGate(c.gate),
 		agent.WithAsk(c.askPermission),
 		agent.WithJobs(c.engineJobs()),
@@ -744,6 +811,14 @@ func (c *EngineController) newEngine(
 		agent.WithMCP(c.mcpPool),
 		agent.WithHooks(model.HooksForConfig(cfg)),
 	)
+	if err != nil {
+		return nil, err
+	}
+	if extRunner != nil {
+		extRunner.SetBaseTools(eng.BaseTools())
+		extRunner.SetMeta(eng.SessionID(), eng.SessionCwd())
+	}
+	return eng, nil
 }
 
 func (c *EngineController) ReplaySnapshot() session.Snapshot {
@@ -770,8 +845,11 @@ func (c *EngineController) startPromptLocked() {
 	c.streamCancel = cancel
 	c.streamGen++
 	c.retryReady = false
+	c.engineMu.RLock()
+	eng := c.engine
+	c.engineMu.RUnlock()
 	c.publish(LoopStartedMsg{Gen: c.streamGen})
-	go c.runLoop(ctx, c.streamGen, c.engine, c.lastPrompt, c.promptAppended)
+	go c.runLoop(ctx, c.streamGen, eng, c.lastPrompt, c.promptAppended)
 }
 
 // RetryLastPrompt resumes a failed turn without appending its user message again.

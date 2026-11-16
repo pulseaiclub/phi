@@ -155,10 +155,9 @@ func TestEngineSpawnCapturesGatePerParentInMemory(t *testing.T) {
 				llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
 				sess,
 				WithJobs(mgr),
-				WithGate(permission.AllowAll{}),
+				WithGate(gate),
 			)
 			require.NoError(t, err)
-			parent.SetPermission(gate, nil)
 			msgs, _, _ := parent.executor.Run(t.Context(), []llm.ToolCall{{ID: "spawn", Function: llm.Function{
 				Name:      "agent_spawn",
 				Arguments: `{"prompt":"work","role":"worker","gate":{"allow_all":true},"Gate":null,"parent_gate":null}`,

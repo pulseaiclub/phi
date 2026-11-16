@@ -38,7 +38,7 @@ type Engine struct {
 	ask          permission.AskFunc
 	jobs         *job.Manager
 	extensions   *extension.Runner // nil = disabled; all methods are nil-safe no-ops
-	baseTools    []tooldef.Tool    // nil = DefaultTools; preserved across rebind
+	baseTools    []tooldef.Tool    // nil = DefaultTools
 	omitExtTools bool              // sub-agents: emit events but skip RegisterTool merge
 	mcp          *mcp.Pool
 
@@ -50,23 +50,36 @@ func NewEngine(model llm.ModelConfig, sess *Session, opts ...EngineOption) (*Eng
 	if sess == nil {
 		return nil, errors.New("agent: session is required")
 	}
-	var cfg engineConfig
+	var cfg EngineConfig
 	for _, opt := range opts {
 		opt(&cfg)
 	}
 	engine := &Engine{
 		modelCfg:     model,
-		hooks:        cfg.hooks,
+		hooks:        cfg.Hooks,
 		session:      sess,
-		gate:         cfg.gate,
-		ask:          cfg.ask,
-		jobs:         cfg.jobs,
-		extensions:   cfg.extensions,
-		omitExtTools: cfg.omitExtTools,
-		mcp:          cfg.mcp,
+		gate:         cfg.Gate,
+		ask:          cfg.Ask,
+		jobs:         cfg.Jobs,
+		extensions:   cfg.Extensions,
+		baseTools:    cfg.Tools,
+		omitExtTools: cfg.OmitExtensionTools,
+		mcp:          cfg.MCP,
 	}
-	engine.baseTools = cfg.tools
-	engine.rebindTools()
+
+	toolList := engine.buildCoreTools(engine.baseTools)
+	if !engine.omitExtTools {
+		if extTools := engine.extensions.ExtensionTools(); len(extTools) > 0 {
+			merged := make([]tooldef.Tool, 0, len(toolList)+len(extTools))
+			merged = append(merged, toolList...)
+			merged = append(merged, extTools...)
+			toolList = merged
+		}
+	}
+
+	engine.client = engine.newChatClient(toolList)
+	engine.executor = NewExecutor(tooldef.NewRegistry(toolList), engine.gate, engine.ask, engine.extensions)
+	engine.executor.cwd = engine.SessionCwd()
 	return engine, nil
 }
 
@@ -90,19 +103,6 @@ func (engine *Engine) newChatClient(tools []tooldef.Tool) llm.ChatClient {
 	return llmclient.NewClient(engine.modelCfg, engine.hooks, defs, engine.systemPrompt())
 }
 
-func (engine *Engine) buildToolList(base []tooldef.Tool) []tooldef.Tool {
-	out := engine.buildCoreTools(base)
-	if !engine.omitExtTools {
-		if extTools := engine.extensions.ExtensionTools(); len(extTools) > 0 {
-			merged := make([]tooldef.Tool, 0, len(out)+len(extTools))
-			merged = append(merged, out...)
-			merged = append(merged, extTools...)
-			return merged
-		}
-	}
-	return out
-}
-
 // buildCoreTools returns builtin (+ agent_*) tools without extension RegisterTool.
 // MCP needs no extra tools: the pool rides the default ls/read/write tools.
 func (engine *Engine) buildCoreTools(base []tooldef.Tool) []tooldef.Tool {
@@ -123,39 +123,6 @@ func (engine *Engine) buildCoreTools(base []tooldef.Tool) []tooldef.Tool {
 	merged = append(merged, out...)
 	merged = append(merged, agentTools...)
 	return merged
-}
-
-// SetModel replaces the LLM client and model-related settings without
-// discarding the session tree. Agent tools remain registered when Jobs is set.
-// Hooks are left unchanged; use SetModelWithHooks when switching presets.
-func (engine *Engine) SetModel(cfg llm.ModelConfig) {
-	engine.SetModelWithHooks(cfg, engine.hooks)
-}
-
-// SetModelWithHooks replaces the model config and request hooks together.
-func (engine *Engine) SetModelWithHooks(cfg llm.ModelConfig, hooks llmclient.Hooks) {
-	engine.modelCfg = cfg
-	engine.hooks = hooks
-	engine.rebindTools()
-}
-
-// SetJobs attaches or detaches the job manager and rebuilds the tool list.
-// Pass nil to unregister agent_* tools (sub-agents disabled).
-func (engine *Engine) SetJobs(jobs *job.Manager) {
-	engine.jobs = jobs
-	engine.rebindTools()
-}
-
-func (engine *Engine) rebindTools() {
-	// Child engines share the runner, but the parent owns its host state.
-	if !engine.omitExtTools {
-		engine.extensions.SetBaseTools(engine.buildCoreTools(engine.baseTools))
-		engine.extensions.SetMeta(engine.SessionID(), engine.SessionCwd())
-	}
-	toolList := engine.buildToolList(engine.baseTools)
-	engine.client = engine.newChatClient(toolList)
-	engine.executor = NewExecutor(tooldef.NewRegistry(toolList), engine.gate, engine.ask, engine.extensions)
-	engine.executor.cwd = engine.SessionCwd()
 }
 
 func (engine *Engine) systemPrompt() string {
@@ -184,21 +151,10 @@ func (engine *Engine) HasTool(name string) bool {
 	return ok
 }
 
-// SetPermission updates the gate and ask handler used by the tool executor.
-func (engine *Engine) SetPermission(gate permission.Gate, ask permission.AskFunc) {
-	engine.gate = gate
-	engine.ask = ask
-	engine.executor.gate = gate
-	engine.executor.ask = ask
-	// Spawn handlers capture the gate for each parent configuration.
-	engine.executor.registry = tooldef.NewRegistry(engine.buildToolList(engine.baseTools))
-}
-
-// SetExtensions replaces the extension runner. Pass nil to disable extensions.
-// Rebinds tools so RegisterTool from the new runner takes effect.
-func (engine *Engine) SetExtensions(r *extension.Runner) {
-	engine.extensions = r
-	engine.rebindTools()
+// BaseTools returns the built-in tools exposed to the extension host. The
+// controller owns the extension runner and uses this snapshot to configure it.
+func (engine *Engine) BaseTools() []tooldef.Tool {
+	return engine.buildCoreTools(engine.baseTools)
 }
 
 // SessionID returns the durable session id.
