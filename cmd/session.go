@@ -14,7 +14,6 @@ var (
 	sessionsCommand = cli.Command{
 		Name: "sessions",
 		Desc: "list persisted sessions for this directory",
-		Run:  func(_ []string, _ cli.Flags) error { return listSessions() },
 	}
 
 	sessionsRemoveCommand = cli.Command{
@@ -34,6 +33,12 @@ var (
 func init() {
 	// Run is assigned here, not in the literal: removeSession refers back to
 	// sessionsRemoveCommand for Usagef and Go rejects that initialization cycle.
+	sessionsCommand.Run = func(args []string, _ cli.Flags) error {
+		if err := rejectArgs(&sessionsCommand, args); err != nil {
+			return err
+		}
+		return listSessions()
+	}
 	sessionsRemoveCommand.Run = func(args []string, _ cli.Flags) error { return removeSession(args) }
 	sessionsCommand.Add(&sessionsRemoveCommand)
 	sessionsForkCommand.Run = func(args []string, _ cli.Flags) error { return forkSession(args) }
