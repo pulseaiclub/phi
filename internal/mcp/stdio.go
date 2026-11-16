@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -30,10 +32,11 @@ type stdioTransport struct {
 	timeout time.Duration
 	id      atomic.Int64
 
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout *bufio.Reader
-	stderr *os.File
+	cmd      *exec.Cmd
+	stdin    io.WriteCloser
+	stdout   *bufio.Reader
+	stderr   *os.File
+	readerWG sync.WaitGroup
 }
 
 func newStdioTransport(name string, cfg ServerConfig) (*stdioTransport, error) {
@@ -58,18 +61,23 @@ func (t *stdioTransport) call(ctx context.Context, method string, params map[str
 	}
 	payload = append(payload, '\n')
 
+	stdout := t.stdout
+	stdin := t.stdin
+
 	deadline := t.requestDeadline(ctx)
 	type outcome struct {
 		raw json.RawMessage
 		err error
 	}
 	ch := make(chan outcome, 1)
+	t.readerWG.Add(1)
 	go func() {
-		if _, werr := t.stdin.Write(payload); werr != nil {
+		defer t.readerWG.Done()
+		if _, werr := stdin.Write(payload); werr != nil {
 			ch <- outcome{err: fmt.Errorf("write %s: %w", method, werr)}
 			return
 		}
-		rpc, rerr := t.readResponse(id)
+		rpc, rerr := readResponse(stdout, stdin, id)
 		if rerr != nil {
 			ch <- outcome{err: fmt.Errorf("read %s: %w", method, rerr)}
 			return
@@ -111,8 +119,11 @@ func (t *stdioTransport) close() error {
 	var err error
 	if t.cmd != nil && t.cmd.Process != nil {
 		_ = t.cmd.Process.Kill()
+		t.readerWG.Wait()
 		err = t.cmd.Wait()
 		t.cmd = nil
+	} else {
+		t.readerWG.Wait()
 	}
 	if t.stderr != nil {
 		_ = t.stderr.Close()
@@ -178,14 +189,16 @@ func (t *stdioTransport) ensureStarted() error {
 // response carrying another id means the stream is out of step (e.g. a late
 // reply to a timed-out call), which is reported instead of being taken as this
 // call's.
-func (t *stdioTransport) readResponse(id int64) (jsonRPCResponse, error) {
+func readResponse(stdout *bufio.Reader, stdin io.Writer, id int64) (jsonRPCResponse, error) {
 	for {
-		line, err := t.stdout.ReadBytes('\n')
+		line, err := stdout.ReadBytes('\n')
 		if err != nil {
 			return jsonRPCResponse{}, err
 		}
 		var rpc jsonRPCResponse
-		if err := json.Unmarshal(line, &rpc); err != nil {
+		dec := json.NewDecoder(bytes.NewReader(line))
+		dec.UseNumber()
+		if err := dec.Decode(&rpc); err != nil {
 			return jsonRPCResponse{}, fmt.Errorf(
 				"parse response: %w; raw=%q",
 				err,
@@ -194,7 +207,7 @@ func (t *stdioTransport) readResponse(id int64) (jsonRPCResponse, error) {
 		}
 		if rpc.Method != "" {
 			if rpc.ID != nil {
-				_ = t.replyServerRequest(rpc.ID, rpc.Method)
+				_ = replyServerRequest(stdin, rpc.ID, rpc.Method)
 			}
 			continue
 		}
@@ -219,8 +232,8 @@ func (t *stdioTransport) readResponse(id int64) (jsonRPCResponse, error) {
 	}
 }
 
-func (t *stdioTransport) replyServerRequest(id any, method string) error {
-	if t.stdin == nil {
+func replyServerRequest(stdin io.Writer, id any, method string) error {
+	if stdin == nil {
 		return nil
 	}
 	var msg map[string]any
@@ -245,7 +258,7 @@ func (t *stdioTransport) replyServerRequest(id any, method string) error {
 		return err
 	}
 	payload = append(payload, '\n')
-	_, err = t.stdin.Write(payload)
+	_, err = stdin.Write(payload)
 	return err
 }
 

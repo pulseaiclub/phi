@@ -36,7 +36,7 @@ func TestReadResponseSkipsServerRequests(t *testing.T) {
 		`{"jsonrpc":"2.0","id":7,"result":{"tools":[]}}`,
 	)
 
-	rpc, err := tr.readResponse(7)
+	rpc, err := readResponse(tr.stdout, tr.stdin, 7)
 	require.NoError(t, err)
 	require.Empty(t, rpc.Method)
 	require.JSONEq(t, `{"tools":[]}`, string(rpc.Result))
@@ -48,7 +48,7 @@ func TestReadResponseSkipsNotifications(t *testing.T) {
 		`{"jsonrpc":"2.0","id":3,"result":{"content":[]}}`,
 	)
 
-	rpc, err := tr.readResponse(3)
+	rpc, err := readResponse(tr.stdout, tr.stdin, 3)
 	require.NoError(t, err)
 	require.NotNil(t, rpc.ID)
 	require.JSONEq(t, `{"content":[]}`, string(rpc.Result))
@@ -59,7 +59,7 @@ func TestReadResponseSkipsNotifications(t *testing.T) {
 func TestReadResponseRejectsStaleID(t *testing.T) {
 	tr := streamTransport(`{"jsonrpc":"2.0","id":1,"result":{"content":[]}}`)
 
-	_, err := tr.readResponse(2)
+	_, err := readResponse(tr.stdout, tr.stdin, 2)
 	require.ErrorContains(t, err, "response id 1 does not match request 2")
 }
 
@@ -68,7 +68,7 @@ func TestReadResponseRejectsStaleID(t *testing.T) {
 func TestReadResponseAcceptsNumericStringID(t *testing.T) {
 	tr := streamTransport(`{"jsonrpc":"2.0","id":"12","result":{"tools":[]}}`)
 
-	rpc, err := tr.readResponse(12)
+	rpc, err := readResponse(tr.stdout, tr.stdin, 12)
 	require.NoError(t, err)
 	require.JSONEq(t, `{"tools":[]}`, string(rpc.Result))
 }
@@ -76,7 +76,7 @@ func TestReadResponseAcceptsNumericStringID(t *testing.T) {
 func TestReadResponseSurfacesParseError(t *testing.T) {
 	tr := streamTransport(`{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"parse error"}}`)
 
-	rpc, err := tr.readResponse(5)
+	rpc, err := readResponse(tr.stdout, tr.stdin, 5)
 	require.NoError(t, err)
 	require.Equal(t, -32700, rpc.Error.Code)
 }
@@ -84,7 +84,7 @@ func TestReadResponseSurfacesParseError(t *testing.T) {
 func TestReadResponseReportsClosedStream(t *testing.T) {
 	tr := &stdioTransport{name: "test", stdout: bufio.NewReader(strings.NewReader(""))}
 
-	_, err := tr.readResponse(1)
+	_, err := readResponse(tr.stdout, tr.stdin, 1)
 	require.ErrorIs(t, err, io.EOF)
 }
 
@@ -94,20 +94,20 @@ func TestReadResponseRepliesToServerPingAndUnsupportedRequests(t *testing.T) {
 		name:  "test",
 		stdin: nopWriteCloser{&sent},
 		stdout: bufio.NewReader(strings.NewReader(strings.Join([]string{
-			`{"jsonrpc":"2.0","id":98,"method":"ping"}`,
+			`{"jsonrpc":"2.0","id":9007199254740993,"method":"ping"}`,
 			`{"jsonrpc":"2.0","id":99,"method":"roots/list"}`,
 			`{"jsonrpc":"2.0","method":"notifications/progress"}`,
 			`{"jsonrpc":"2.0","id":7,"result":{"tools":[]}}`,
 		}, "\n") + "\n")),
 	}
 
-	rpc, err := tr.readResponse(7)
+	rpc, err := readResponse(tr.stdout, tr.stdin, 7)
 	require.NoError(t, err)
 	require.JSONEq(t, `{"tools":[]}`, string(rpc.Result))
 
 	lines := strings.Split(strings.TrimSpace(sent.String()), "\n")
 	require.Len(t, lines, 2)
-	require.JSONEq(t, `{"jsonrpc":"2.0","id":98,"result":{}}`, lines[0])
+	require.Equal(t, `{"id":9007199254740993,"jsonrpc":"2.0","result":{}}`, lines[0])
 	require.JSONEq(t, `{"jsonrpc":"2.0","id":99,"error":{"code":-32601,"message":"method not found"}}`, lines[1])
 }
 

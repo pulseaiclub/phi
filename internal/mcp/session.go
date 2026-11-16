@@ -82,6 +82,7 @@ func (s *session) ListTools(ctx context.Context) ([]ToolDefinition, error) {
 			if errors.Is(err, errResponseIDMismatch) {
 				_ = s.tr.close()
 				s.ready = false
+				s.tools = nil
 			}
 			return nil, err
 		}
@@ -138,6 +139,7 @@ func (s *session) CallTool(ctx context.Context, name string, args map[string]any
 		if errors.Is(err, errResponseIDMismatch) {
 			_ = s.tr.close()
 			s.ready = false
+			s.tools = nil
 		}
 		return "", err
 	}
