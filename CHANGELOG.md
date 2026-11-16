@@ -20,6 +20,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Added a project-specific [Code of Conduct](CODE_OF_CONDUCT.md) covering
+  participation, reporting, moderation, and appeals.
 - `phi run --model NAME` selects a configured named model for one headless run,
   with precedence `--model` > config model > `PHI_MODEL`. An unknown name
   exits with code 3 and lists the configured models.

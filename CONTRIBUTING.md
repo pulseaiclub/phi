@@ -158,6 +158,7 @@ Do not edit text under `<!-- Released section -->` except in a release PR
 
 ## Code of conduct
 
-Be respectful and constructive in issues, PRs, and reviews. This project is
-MIT-licensed (see `LICENSE`); by contributing you agree to license your
+Please read the [Code of Conduct](CODE_OF_CONDUCT.md) before participating in
+issues, pull requests, reviews, Discord, or other project spaces. This project
+is MIT-licensed (see `LICENSE`); by contributing you agree to license your
 contributions under the same terms.
