@@ -47,6 +47,12 @@ func resolveRunModel(cfg *project.Config, name string) (llm.ModelConfig, error) 
 		return cfg.Model(), nil
 	}
 	if m, ok := cfg.FindModel(name); ok {
+		// --model outranks PHI_MODEL: when the flag names the entry by the
+		// name written in the config, send that name as the model id even
+		// though the loader renamed the default entry from the environment.
+		if m.ConfiguredName == name && m.Name != name {
+			m.Name = name
+		}
 		return m, nil
 	}
 	names := make([]string, 0, len(cfg.Models))

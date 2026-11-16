@@ -146,6 +146,23 @@ func TestResolveRunModel(t *testing.T) {
 	assert.ErrorContains(t, err, "configured models: default, fast, smart")
 }
 
+func TestResolveRunModelConfiguredNameOutranksPHIModel(t *testing.T) {
+	cfg := &project.Config{
+		Models: []llm.ModelConfig{{
+			Name:           "vendor/glm-5.3-flash",
+			ConfiguredName: "local-default",
+			BaseURL:        "https://local.example/v1",
+		}},
+		DefaultModel: "vendor/glm-5.3-flash",
+	}
+
+	m, err := resolveRunModel(cfg, "local-default")
+	require.NoError(t, err)
+	assert.Equal(t, "local-default", m.Name,
+		"--model must send the configured model id, not the PHI_MODEL name")
+	assert.Equal(t, "https://local.example/v1", m.BaseURL)
+}
+
 func toolNames(list []tooldef.Tool) []string {
 	names := make([]string, 0, len(list))
 	for _, tool := range list {
