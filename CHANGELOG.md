@@ -33,6 +33,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- `find` no longer reports "results limit reached" when the page holds
+  exactly the requested number of files.
 - `phi run` rejects stray positional arguments with a usage error (exit 3).
   An unquoted `phi run -p fix the bug` used to send only `fix` to the model,
   silently dropping the rest of the prompt, and exit 0.

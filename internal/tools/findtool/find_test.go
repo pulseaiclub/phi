@@ -36,6 +36,35 @@ func TestFindDetail(t *testing.T) {
 	assert.Equal(t, "src", findDetail(findInput{Path: "src"}))
 }
 
+// fd is asked for one result more than the page, so a page that exactly fills
+// the limit is complete. Only the extra result proves there is more to show.
+func TestParseFDOutputTruncation(t *testing.T) {
+	root := t.TempDir()
+	a := filepath.Join(root, "a.txt")
+	b := filepath.Join(root, "b.txt")
+	c := filepath.Join(root, "c.txt")
+
+	files, truncated := parseFDOutput(strings.Join([]string{a, b}, "\n"), root, 2)
+	require.False(t, truncated, "exactly the page size is not truncation")
+	require.Equal(t, []string{a, b}, files)
+
+	files, truncated = parseFDOutput(strings.Join([]string{a, b, c}, "\n"), root, 2)
+	require.True(t, truncated)
+	require.Equal(t, []string{a, b}, files, "the extra result only proves more exist")
+
+	files, truncated = parseFDOutput(a+"\r\n\n"+b+"\n", root, 10)
+	require.False(t, truncated)
+	require.Equal(t, []string{a, b}, files, "CRLF and blank lines are framing, not paths")
+
+	files, truncated = parseFDOutput("sub/rel.txt\n", root, 10)
+	require.False(t, truncated)
+	require.Equal(t, []string{filepath.Join(root, "sub", "rel.txt")}, files)
+
+	files, truncated = parseFDOutput("", root, 10)
+	require.False(t, truncated)
+	require.Nil(t, files)
+}
+
 func TestRunFD_MatchLimitAndGitignore(t *testing.T) {
 	requireFD(t)
 
