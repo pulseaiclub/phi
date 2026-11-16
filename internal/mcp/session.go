@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 )
@@ -78,6 +79,10 @@ func (s *session) ListTools(ctx context.Context) ([]ToolDefinition, error) {
 	for range maxToolListPages {
 		raw, err := s.tr.call(ctx, "tools/list", params)
 		if err != nil {
+			if errors.Is(err, errResponseIDMismatch) {
+				_ = s.tr.close()
+				s.ready = false
+			}
 			return nil, err
 		}
 		pageTools, next, err := decodeToolsList(raw)
@@ -130,6 +135,10 @@ func (s *session) CallTool(ctx context.Context, name string, args map[string]any
 		"arguments": args,
 	})
 	if err != nil {
+		if errors.Is(err, errResponseIDMismatch) {
+			_ = s.tr.close()
+			s.ready = false
+		}
 		return "", err
 	}
 	return extractToolContent(raw), nil

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -18,6 +19,9 @@ import (
 )
 
 const defaultTimeout = 60 * time.Second
+
+// errResponseIDMismatch marks a response whose ID differs from the pending request.
+var errResponseIDMismatch = errors.New("response id mismatch")
 
 // stdioTransport speaks newline-delimited JSON-RPC over a subprocess.
 type stdioTransport struct {
@@ -169,10 +173,11 @@ func (t *stdioTransport) ensureStarted() error {
 }
 
 // readResponse reads frames until the JSON-RPC response carrying id.
-// Notifications and server-initiated requests are skipped: neither answers the
-// call, and returning one would hand the caller an empty result. A response
-// carrying another id means the stream is out of step (the late reply to a
-// timed-out call), which is reported instead of being taken as this call's.
+// Server-initiated requests (carrying both method and id) are answered so a
+// peer waiting on e.g. ping does not stall; notifications are skipped. A
+// response carrying another id means the stream is out of step (e.g. a late
+// reply to a timed-out call), which is reported instead of being taken as this
+// call's.
 func (t *stdioTransport) readResponse(id int64) (jsonRPCResponse, error) {
 	for {
 		line, err := t.stdout.ReadBytes('\n')
@@ -188,7 +193,10 @@ func (t *stdioTransport) readResponse(id int64) (jsonRPCResponse, error) {
 			)
 		}
 		if rpc.Method != "" {
-			continue // notification or server request, not our response
+			if rpc.ID != nil {
+				_ = t.replyServerRequest(rpc.ID, rpc.Method)
+			}
+			continue
 		}
 		got, ok := responseID(rpc.ID)
 		if !ok {
@@ -201,13 +209,44 @@ func (t *stdioTransport) readResponse(id int64) (jsonRPCResponse, error) {
 		}
 		if got != id {
 			return jsonRPCResponse{}, fmt.Errorf(
-				"response id %d does not match request %d",
+				"%w: response id %d does not match request %d",
+				errResponseIDMismatch,
 				got,
 				id,
 			)
 		}
 		return rpc, nil
 	}
+}
+
+func (t *stdioTransport) replyServerRequest(id any, method string) error {
+	if t.stdin == nil {
+		return nil
+	}
+	var msg map[string]any
+	if method == "ping" {
+		msg = map[string]any{
+			"jsonrpc": "2.0",
+			"id":      id,
+			"result":  map[string]any{},
+		}
+	} else {
+		msg = map[string]any{
+			"jsonrpc": "2.0",
+			"id":      id,
+			"error": map[string]any{
+				"code":    -32601,
+				"message": "method not found",
+			},
+		}
+	}
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	payload = append(payload, '\n')
+	_, err = t.stdin.Write(payload)
+	return err
 }
 
 // responseID decodes a JSON-RPC id. Requests use integers, but a gateway that
