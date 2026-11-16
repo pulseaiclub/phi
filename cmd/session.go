@@ -91,9 +91,10 @@ func removeSession(args []string) error {
 		return sessionsRemoveCommand.Usagef("expected <session-id>")
 	}
 	proj := project.GetDefaultProject()
-	if err := session.DeleteSession(proj.SessionDir(), args[0]); err != nil {
+	id, err := session.DeleteSession(proj.SessionDir(), args[0])
+	if err != nil {
 		return err
 	}
-	fmt.Printf("deleted %s\n", args[0])
+	fmt.Printf("deleted %s\n", id)
 	return nil
 }

@@ -655,7 +655,7 @@ func (c *EngineController) activateSession(eng *agent.Engine, cfg llm.ModelConfi
 // discardFork drops a fork the controller never switched to, so a failed switch
 // does not leave an unreachable session in the session list.
 func (c *EngineController) discardFork(id string) {
-	if err := session.DeleteSession(c.sessionDir, id); err != nil {
+	if _, err := session.DeleteSession(c.sessionDir, id); err != nil {
 		debuglog.Logf("session: drop unused fork %s: %v", id, err)
 	}
 }

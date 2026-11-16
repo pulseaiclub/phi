@@ -17,13 +17,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `phi run --model NAME` selects a configured named model for one headless run,
+  with precedence `--model` > config model > `PHI_MODEL`. An unknown name
+  exits with code 3 and lists the configured models.
 - `phi mcp list` gains an aligned `TRANSPORT` column: stdio commands and HTTP
   URLs are distinguishable, and an unrecognized transport value is shown as-is
   instead of being mislabeled `stdio`.
+- `phi plugin list` prints an `ID  VERSION  SOURCE  PATH` header with aligned
+  columns, matching `phi mcp list`.
 
 ### Fixed
 
 - Align the `phi plugin` example in the root help text.
+- `phi sessions remove` prints the full resolved session id instead of echoing
+  the id or prefix the user typed.
 - Only abbreviate the home directory and its children with `~` in TUI paths;
   similarly named sibling directories now retain their actual paths.
 

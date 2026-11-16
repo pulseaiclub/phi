@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
+	"text/tabwriter"
 
 	cli "github.com/pulseaiclub/pli"
 
@@ -132,10 +134,17 @@ func pluginList() error {
 	if err != nil {
 		return err
 	}
+	writePluginList(os.Stdout, installed)
+	return nil
+}
+
+func writePluginList(w io.Writer, installed []install.Installed) {
 	if len(installed) == 0 {
-		fmt.Println("(no plugins — try: phi plugin install alice/greet)")
-		return nil
+		fmt.Fprintln(w, "(no plugins — try: phi plugin install alice/greet)")
+		return
 	}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "ID\tVERSION\tSOURCE\tPATH")
 	for _, in := range installed {
 		version := in.Manifest.Version
 		source := "manual"
@@ -145,9 +154,9 @@ func pluginList() error {
 				version = in.Meta.ReleaseTag
 			}
 		}
-		fmt.Printf("%s\t%s\t%s\t%s\n", in.ID, version, source, in.Path)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", in.ID, version, source, in.Path)
 	}
-	return nil
+	_ = tw.Flush()
 }
 
 func pluginUpdate(args []string, check bool) error {
