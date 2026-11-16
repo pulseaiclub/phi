@@ -40,6 +40,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `phi config`, and `phi update` reject stray positional arguments with a
   usage error (exit 3). A mistyped subcommand such as
   `phi sessions delete <id>` used to list sessions, delete nothing, and exit 0.
+- Installer scripts no longer say that `phi config` opens a browser; it opens the
+  terminal configuration editor, as the README describes.
 - `phi mcp doctor` with an empty or missing `mcp.json` now prints the same hint
   as `phi mcp list` and exits 0, instead of `FAIL (none) no servers in mcp.json`
   and exit 1.
