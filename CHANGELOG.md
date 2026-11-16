@@ -12,6 +12,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- MCP: compact tool summaries mark required params with a `*` name prefix
+  (`*owner:s`) and the system prompt legend explains the notation
+  (`s`/`n`/`b`/`o`/`a`/`?`/`{enum}`/`*`).
 - Add test coverage for the `/skill` command's empty-state warning, picker
   wiring, and attachment flow.
 
@@ -169,9 +172,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
-- MCP: compact tool summaries mark required params with a `*` name prefix
-  (`*owner:s`) and the system prompt legend explains the notation
-  (`s`/`n`/`b`/`o`/`a`/`?`/`{enum}`/`*`).
 - Permissions: `permissions.mode: allow-all` replaces the boolean
   `dangerously_allow_all`; the old key still loads as `allow-all` and is
   dropped on the next save. `phi run --yolo` maps to the same mode.
