@@ -163,6 +163,7 @@ func TestSessionCloseDoesNotHangWhenDescendantHoldsStdout(t *testing.T) {
 	t.Setenv("HOME", tmp)
 	t.Setenv("XDG_STATE_HOME", tmp)
 
+	calledMarker := filepath.Join(tmp, "called")
 	scriptPath := filepath.Join(tmp, "server.sh")
 	script := `#!/bin/sh
 sleep 30 &
@@ -171,6 +172,9 @@ while IFS= read -r line; do
   case "$line" in
     *'"method":"initialize"'*)
       printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2024-11-05","capabilities":{}}}\n' "$id"
+      ;;
+    *'"method":"tools/call"'*)
+      touch "` + calledMarker + `"
       ;;
   esac
 done
@@ -182,20 +186,33 @@ done
 	sess := newSession("test", tr)
 
 	ctx, cancel := context.WithCancel(context.Background())
+	callDone := make(chan error, 1)
 	go func() {
-		time.Sleep(100 * time.Millisecond)
-		cancel()
+		_, cerr := sess.CallTool(ctx, "echo", nil)
+		callDone <- cerr
 	}()
-	_, err = sess.CallTool(ctx, "echo", nil)
-	require.ErrorIs(t, err, context.Canceled)
 
-	done := make(chan error, 1)
+	require.Eventually(t, func() bool {
+		_, serr := os.Stat(calledMarker)
+		return serr == nil
+	}, 3*time.Second, 5*time.Millisecond)
+
+	cancel()
+	closeDone := make(chan error, 1)
 	go func() {
-		done <- sess.Close()
+		cerr := <-callDone
+		if cerr != nil {
+			_ = sess.Close()
+			closeDone <- cerr
+			return
+		}
+		closeDone <- sess.Close()
 	}()
+
 	select {
-	case <-done:
+	case cerr := <-closeDone:
+		require.ErrorIs(t, cerr, context.Canceled)
 	case <-time.After(3 * time.Second):
-		t.Fatal("sess.Close() hung while descendant held stdout")
+		t.Fatal("cancel + sess.Close() hung while descendant held stdout")
 	}
 }
