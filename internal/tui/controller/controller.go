@@ -49,9 +49,7 @@ type EngineController struct {
 
 	sessionDir string
 	cwd        string
-	modelMu    sync.RWMutex // Protect model snapshots read by background jobs.
-	modelCfg   llm.ModelConfig
-	// roleModels maps sub-agent role → model name. Empty → inherit modelCfg.
+	// roleModels maps sub-agent role → model name. Empty → inherit the active model.
 	roleModels map[job.Role]string
 	jobs       *job.Manager
 	unsubJobs  func()
@@ -75,29 +73,26 @@ func NewController(bus *Bus, proj *project.Project) (*EngineController, error) {
 	config := proj.Config()
 	configurator := agent.NewEngineConfigurator()
 	c := &EngineController{
-		bus:           bus,
-		proj:          proj,
-		cwd:           proj.Root(),
-		sessionDir:    proj.SessionDir(),
-		askTimeoutSec: defaultAskTimeoutSec,
-		modelCfg:      config.Model(),
-		roleModels:    config.Agents.Models.RoleOverrides(),
-		configurator:  configurator,
+		bus:          bus,
+		proj:         proj,
+		cwd:          proj.Root(),
+		sessionDir:   proj.SessionDir(),
+		roleModels:   config.Agents.Models.RoleOverrides(),
+		configurator: configurator,
 	}
 	if err := configurator.Register(c.applyEngineSpec); err != nil {
 		return nil, err
 	}
 	// TUI defaults to bypass; palette → settings → permissions toggles it.
 	c.allowAll.Store(true)
-
-	c.initGate(config.Permissions)
+	c.gate, c.askTimeoutSec = newGate(config.Permissions, &c.allowAll)
 	c.agentsEnabled.Store(config.Agents.Enabled)
 
 	extRunner := loadExtensions(proj)
 	c.extRunner.Store(extRunner)
 	c.bindExtensionHost(extRunner)
 
-	jobs, err := agent.NewJobManager(proj.JobsDir(), c.modelCfg, c.modelForRole, c.Extensions)
+	jobs, err := agent.NewJobManager(proj.JobsDir(), config.Model(), c.modelForRole, c.Extensions)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +104,7 @@ func NewController(bus *Bus, proj *project.Project) (*EngineController, error) {
 		c.mcpPool = pool
 	}
 
-	spec, err := c.openSessionSpec(c.modelCfg, extRunner, "")
+	spec, err := c.openSessionSpec(config.Model(), extRunner, "")
 	if err != nil {
 		return nil, err
 	}
@@ -168,18 +163,21 @@ func (c *EngineController) shouldPublishJobProgress(p job.Progress) bool {
 	return true
 }
 
-func (c *EngineController) initGate(policy permission.Policy) {
+// newGate builds the permission gate and ask timeout from policy. allowAll is
+// shared with the controller so palette toggles survive later gate rebuilds.
+func newGate(policy permission.Policy, allowAll *atomic.Bool) (permission.Gate, int) {
+	askTimeoutSec := defaultAskTimeoutSec
 	if policy.AskTimeoutSec > 0 {
-		c.askTimeoutSec = policy.AskTimeoutSec
+		askTimeoutSec = policy.AskTimeoutSec
 	}
 	if policy.Mode == "" {
 		policy.Mode = permission.ModeInteractive
 	}
 	if policy.Mode == permission.ModeAllowAll {
-		c.allowAll.Store(true)
+		allowAll.Store(true)
 	}
 	// Do not clear allowAll when config does not pin a mode — the TUI defaults
-	// to bypass, and the palette toggle must survive SetModel / re-init.
+	// to bypass, and the palette toggle must survive SetModel / gate rebuilds.
 	var inner permission.Gate
 	inner, err := permission.NewGate(policy, permission.WorkspaceRoot())
 	if err != nil {
@@ -188,7 +186,7 @@ func (c *EngineController) initGate(policy permission.Policy) {
 	if err != nil {
 		inner = permission.AllowAll{}
 	}
-	c.gate = &permission.BypassGate{Inner: inner, Enabled: &c.allowAll}
+	return &permission.BypassGate{Inner: inner, Enabled: allowAll}, askTimeoutSec
 }
 
 func (c *EngineController) SetAllowAll(v bool) {
@@ -517,7 +515,7 @@ func (c *EngineController) SetModel(name string) error {
 		return err
 	}
 	c.Cancel()
-	c.initGate(c.proj.Config().Permissions)
+	c.gate, c.askTimeoutSec = newGate(c.proj.Config().Permissions, &c.allowAll)
 	if _, _, err := c.ReloadExtensions(); err != nil {
 		debuglog.Logf("extension: reload on SetModel: %v", err)
 	}
@@ -525,24 +523,21 @@ func (c *EngineController) SetModel(name string) error {
 	if err := sess.SetModel(name); err != nil {
 		return err
 	}
-	c.modelMu.Lock()
-	c.modelCfg = cfg
-	c.modelMu.Unlock()
 	c.setEngineSpec(agent.EngineSpec{Model: cfg, Session: sess, Extensions: c.Extensions()})
 	return nil
 }
 
-// SetThinkLevel changes the thinking level for the current session.
+// SetThinkLevel changes the thinking level for the current session. The new
+// model config travels inside the spec — never through a side channel.
 func (c *EngineController) SetThinkLevel(mode llm.ThinkMode) error {
-	c.modelMu.RLock()
-	cfg := c.modelCfg
-	c.modelMu.RUnlock()
+	cfg := c.modelSnapshot()
 	cfg.Think = llm.ThinkConfig{Mode: mode, Enabled: mode != llm.Off}
 	if err := model.ValidateThinking(cfg); err != nil {
 		return err
 	}
-	c.setModelConfig(cfg)
-	c.setEngineSpec(c.currentEngineSpec())
+	spec := c.currentEngineSpec()
+	spec.Model = cfg
+	c.setEngineSpec(spec)
 	return nil
 }
 
@@ -567,10 +562,14 @@ func (c *EngineController) ContextWindow() int {
 	return c.modelSnapshot().ContextWindow
 }
 
+// modelSnapshot reads the active model from the configurator's latest spec —
+// the single source of truth; the controller keeps no copy. A zero controller
+// (partial wiring in tests) has no handle and reports an empty model.
 func (c *EngineController) modelSnapshot() llm.ModelConfig {
-	c.modelMu.RLock()
-	defer c.modelMu.RUnlock()
-	return c.modelCfg
+	if c.configurator == nil {
+		return llm.ModelConfig{}
+	}
+	return c.configurator.Snapshot().Model
 }
 
 func (c *EngineController) ImageEnabled() bool {
@@ -630,7 +629,6 @@ func (c *EngineController) Resume(id string) (cwdWarning string, err error) {
 	if sessCwd := eng.SessionCwd(); sessCwd != "" && c.cwd != "" && sessCwd != c.cwd {
 		cwdWarning = fmt.Sprintf("cwd %s ≠ %s", filepath.Base(sessCwd), filepath.Base(c.cwd))
 	}
-	c.setModelConfig(spec.Model)
 	c.emitSessionStart("resume", eng.SessionID(), prevID)
 	return cwdWarning, nil
 }
@@ -656,7 +654,6 @@ func (c *EngineController) NewSession() error {
 	if eng == nil {
 		return errors.New("agent: engine not installed after new session")
 	}
-	c.setModelConfig(spec.Model)
 	c.emitSessionStart("new", eng.SessionID(), prevID)
 	return nil
 }
@@ -687,16 +684,8 @@ func (c *EngineController) ForkSession() (string, error) {
 		return "", errors.New("agent: engine not installed after fork")
 	}
 	c.commitSessionSwitch("fork", prevID, forked.ID())
-	c.setModelConfig(cfg)
 	c.emitSessionStart("fork", eng.SessionID(), prevID)
 	return forked.ID(), nil
-}
-
-// setModelConfig records the model config of the installed engine.
-func (c *EngineController) setModelConfig(cfg llm.ModelConfig) {
-	c.modelMu.Lock()
-	c.modelCfg = cfg
-	c.modelMu.Unlock()
 }
 
 // applyEngineSpec is the configurator's sole update callback, registered once
@@ -810,6 +799,7 @@ func (c *EngineController) newEngine(
 		agent.WithExtensions(extRunner),
 		agent.WithMCP(c.mcpPool),
 		agent.WithHooks(model.HooksForConfig(cfg)),
+		agent.WithConfigurator(c.configurator),
 	)
 	if err != nil {
 		return nil, err

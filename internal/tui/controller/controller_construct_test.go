@@ -6,9 +6,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/pulseaiclub/phi/internal/agent"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/project"
 )
+
+// newControllerWithModel seeds a bare controller whose active model lives in
+// the configurator, mirroring production wiring without an engine.
+func newControllerWithModel(cfg llm.ModelConfig) *EngineController {
+	configurator := agent.NewEngineConfigurator()
+	configurator.Set(agent.EngineSpec{Model: cfg})
+	return &EngineController{configurator: configurator}
+}
 
 func TestNewController_ReadyEngine(t *testing.T) {
 	home := t.TempDir()
@@ -48,9 +57,9 @@ func TestRedrawRelay_BindAfterBus(t *testing.T) {
 }
 
 func TestUnsupportedThinkingChangeKeepsSessionConfig(t *testing.T) {
-	ctrl := &EngineController{modelCfg: llm.ModelConfig{
+	ctrl := newControllerWithModel(llm.ModelConfig{
 		Name: "group/auto-glm-5-3-flash", Think: llm.ThinkConfig{Enabled: true, Mode: llm.Max},
-	}}
+	})
 	require.ErrorContains(t, ctrl.SetThinkLevel(llm.Medium), "use low, high, max")
 	assert.Equal(t, llm.Max, ctrl.ThinkLevel())
 	assert.Equal(t, []llm.ThinkMode{llm.Low, llm.High, llm.Max}, ctrl.ThinkingModes())

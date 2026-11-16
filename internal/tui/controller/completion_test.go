@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/pulseaiclub/phi/internal/agent"
 	"github.com/pulseaiclub/phi/internal/llm"
 	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
 	"github.com/pulseaiclub/phi/internal/llm/extmodel"
@@ -41,17 +42,18 @@ func TestGenerateCommitMessageBuiltin(t *testing.T) {
 	cwd := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(cwd, "AGENTS.md"), []byte("project rule"), 0o600))
 	// No engine or session is needed to generate a completion.
-	ctrl := &EngineController{cwd: cwd, modelCfg: llm.ModelConfig{
+	ctrl := newControllerWithModel(llm.ModelConfig{
 		Name: "test-model", APIKey: "test-key", BaseURL: server.URL,
-	}}
+	})
+	ctrl.cwd = cwd
 	for _, name := range []string{"test-model", "switched-model"} {
-		ctrl.modelMu.Lock()
-		ctrl.modelCfg.Name = name
+		cfg := ctrl.modelSnapshot()
+		cfg.Name = name
 		if name == "switched-model" {
-			ctrl.modelCfg.Preset = "deepseek-flash"
-			ctrl.modelCfg.Think = llm.ThinkConfig{Enabled: true, Mode: llm.High}
+			cfg.Preset = "deepseek-flash"
+			cfg.Think = llm.ThinkConfig{Enabled: true, Mode: llm.High}
 		}
-		ctrl.modelMu.Unlock()
+		ctrl.configurator.Set(agent.EngineSpec{Model: cfg})
 		got, err := ctrl.GenerateCommitMessage(t.Context(), "commit rules", "summarize the staged diff")
 		require.NoError(t, err)
 		assert.Equal(t, "feat: add completion", got)
@@ -81,7 +83,8 @@ func TestGenerateCommitMessageProviderErrorAndCancellation(t *testing.T) {
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 	}))
 	defer server.Close()
-	ctrl := &EngineController{cwd: t.TempDir(), modelCfg: llm.ModelConfig{BaseURL: server.URL}}
+	ctrl := newControllerWithModel(llm.ModelConfig{BaseURL: server.URL})
+	ctrl.cwd = t.TempDir()
 	got, err := ctrl.GenerateCommitMessage(t.Context(), "rules", "diff")
 	require.ErrorContains(t, err, "invalid credentials")
 	assert.Empty(t, got)
@@ -105,7 +108,8 @@ func TestGenerateCommitMessageRejectsTruncatedStream(t *testing.T) {
 				)
 			}))
 			defer server.Close()
-			ctrl := &EngineController{cwd: t.TempDir(), modelCfg: llm.ModelConfig{BaseURL: server.URL}}
+			ctrl := newControllerWithModel(llm.ModelConfig{BaseURL: server.URL})
+			ctrl.cwd = t.TempDir()
 			got, err := ctrl.GenerateCommitMessage(t.Context(), "rules", "diff")
 			require.ErrorContains(t, err, "missing its end marker")
 			assert.Empty(t, got)
@@ -115,7 +119,7 @@ func TestGenerateCommitMessageRejectsTruncatedStream(t *testing.T) {
 
 func TestCompletionClientRoutesCurrentExtensions(t *testing.T) {
 	runner := loadResolveModelRunner(t)
-	ctrl := &EngineController{modelCfg: llm.ModelConfig{Name: "echo"}}
+	ctrl := newControllerWithModel(llm.ModelConfig{Name: "echo"})
 	ctrl.extRunner.Store(runner)
 	assert.IsType(t, &extmodel.Client{}, newCompletionClient(ctrl.modelSnapshot(), ctrl.Extensions(), "rules"))
 	ctrl.extRunner.Store(nil)
