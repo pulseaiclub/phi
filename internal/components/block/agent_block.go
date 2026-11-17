@@ -39,6 +39,7 @@ type AgentBlock struct {
 
 	titleH       int
 	summaryCache rendercache.Cache[agentSummaryRenderKey]
+	hl           shellHighlight // memoised bash child command token spans
 }
 
 type agentSummaryRenderKey struct {
@@ -219,9 +220,7 @@ func (a *AgentBlock) childToolLines(
 	// wrapped continuations with the command instead of the tree prefix.
 	if strings.EqualFold(child.Name, bashToolName) {
 		row = append(row, components.Span{Text: " ", Style: th.ToolName})
-		return wrapCommand(row, []components.Span{
-			{Text: child.Detail, Style: th.Foreground},
-		}, guide, width, method)
+		return wrapCommand(row, a.hl.spans(child.Detail, th.Foreground, th), guide, width, method)
 	}
 	row = append(row, components.Span{Text: " " + child.Detail, Style: th.Muted})
 	return components.WrapSpans(row, width, method)
