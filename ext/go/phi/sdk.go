@@ -120,7 +120,7 @@ func (extension *ExtensionAPI) RegisterCommand(name string, cmd ext.Command) {
 	extension.commands = append(extension.commands, cmdReg{name: name, def: cmd})
 }
 
-// OnToolCall registers a pre-gate intercept.
+// OnToolCall registers an intercept before the tool runs.
 func (extension *ExtensionAPI) OnToolCall(fn func(ext.ToolCallEvent) *ext.ToolCallResult) {
 	extension.mu.Lock()
 	defer extension.mu.Unlock()

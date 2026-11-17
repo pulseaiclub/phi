@@ -209,6 +209,7 @@ pub struct ConfirmReply {
     pub ok: bool,
 }
 
+/// Emitted before each tool invocation.
 #[derive(Debug, Clone, Default)]
 pub struct ToolCallEvent {
     pub tool_name: String,
@@ -406,7 +407,7 @@ impl Extension {
         self.models.push(model);
     }
 
-    /// Registers a pre-gate tool_call intercept.
+    /// Registers a tool_call intercept before the tool runs.
     pub fn on_tool_call(
         &mut self,
         f: impl FnMut(ToolCallEvent) -> Option<ToolCallResult> + 'static,

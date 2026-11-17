@@ -173,6 +173,7 @@ export interface ConfirmRequest {
   danger?: boolean;
 }
 
+/** Emitted before each tool invocation. */
 export interface ToolCallEvent {
   toolName: string;
   toolCallId: string;
@@ -348,7 +349,7 @@ export class Extension {
     return this;
   }
 
-  /** Registers a pre-gate tool_call intercept. */
+  /** Registers a tool_call intercept before the tool runs. */
   onToolCall(f: (ev: ToolCallEvent) => ToolCallResult | null | void): this {
     this.reg.intercept.toolCall = f;
     pushUnique(this.reg.interceptCodes, Event.ToolCall);
