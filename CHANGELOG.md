@@ -12,6 +12,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- urls: an explicit `?limit=` outside 1-1000 now fails with the message that
+  names that range, instead of the struct-field wording that also allows zero.
+  Both messages come from named constants so the two cases cannot drift apart.
 - MCP: compact tool summaries mark required params with a `*` name prefix
   (`*owner:s`) and the system prompt legend explains the notation
   (`s`/`n`/`b`/`o`/`a`/`?`/`{enum}`/`*`).

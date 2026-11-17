@@ -108,3 +108,29 @@ func TestInvalidMCPURLBuild(t *testing.T) {
 		require.Error(t, err, "%+v", target)
 	}
 }
+
+func TestMCPLimitErrorMessages(t *testing.T) {
+	// An explicit query value refuses zero, and says so without mentioning the
+	// "unspecified" case that only applies to the struct field.
+	for _, input := range []string{
+		"mcp://?limit=0", "mcp://?limit=", "mcp://?limit=1001", "mcp://?limit=-1",
+		"mcp://?limit=1.5", "mcp://?limit=%2B1",
+	} {
+		_, err := ParseMCPURL(input)
+		require.Error(t, err, input)
+		assert.Equal(t, errLimitQuery, err.Error(), input)
+	}
+
+	// The struct field keeps zero as "not set", so its message has to differ.
+	for _, limit := range []int{-1, 1001} {
+		target := MCPURL{Kind: MCPRoot, Limit: limit}
+		_, err := target.Build()
+		require.Error(t, err, "%+v", target)
+		assert.Equal(t, errLimitField, err.Error(), "%+v", target)
+	}
+
+	// A zero field still builds: that is the case the query message must not claim.
+	if _, err := (MCPURL{Kind: MCPRoot}).Build(); err != nil {
+		t.Fatalf("zero limit should build, got %v", err)
+	}
+}
