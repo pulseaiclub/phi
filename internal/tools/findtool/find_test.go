@@ -44,7 +44,7 @@ func TestParseFDOutputTruncation(t *testing.T) {
 	b := filepath.Join(root, "b.txt")
 	c := filepath.Join(root, "c.txt")
 
-	files, truncated := parseFDOutput(strings.Join([]string{a, b}, "\n"), root, 2)
+	files, truncated := parseFDOutput(a+"\n"+b, root, 2)
 	require.False(t, truncated, "exactly the page size is not truncation")
 	require.Equal(t, []string{a, b}, files)
 
