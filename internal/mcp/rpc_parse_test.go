@@ -66,3 +66,50 @@ func TestParseHTTPOrSSEBodyPlainJSON(t *testing.T) {
 	require.NotNil(t, rpc.ID)
 	require.Empty(t, rpc.Method)
 }
+
+// SSE makes the space after "data:" optional framing, and some MCP servers
+// omit it. A body framed that way is still a response, not undecodable JSON.
+func TestParseHTTPOrSSEBodyDataWithoutSpace(t *testing.T) {
+	body := []byte(
+		"event: message\n" +
+			`data:{"jsonrpc":"2.0","method":"notifications/message","params":{"level":"info"}}` + "\n\n" +
+			"event: message\n" +
+			`data:{"jsonrpc":"2.0","id":11,"result":{"content":[{"type":"text","text":"ok"}]}}` + "\n\n")
+
+	rpc, err := parseHTTPOrSSEBody(body)
+	require.NoError(t, err)
+	require.Empty(t, rpc.Method)
+	require.NotNil(t, rpc.ID)
+
+	var res struct {
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	require.NoError(t, json.Unmarshal(rpc.Result, &res))
+	require.Len(t, res.Content, 1)
+	require.Equal(t, "ok", res.Content[0].Text)
+}
+
+func TestSSEDataField(t *testing.T) {
+	for _, tc := range []struct {
+		line    string
+		payload string
+		ok      bool
+	}{
+		{"data: {\"id\":1}", "{\"id\":1}", true},
+		{"data:{\"id\":1}", "{\"id\":1}", true},
+		{"data:", "", true},
+		// Only one framing space is stripped; the next is payload.
+		{"data:  {\"id\":1}", " {\"id\":1}", true},
+		{"event: message", "", false},
+		{"datadog: 1", "", false},
+		{"data", "", false},
+	} {
+		t.Run(tc.line, func(t *testing.T) {
+			payload, ok := sseData(tc.line)
+			require.Equal(t, tc.ok, ok)
+			require.Equal(t, tc.payload, payload)
+		})
+	}
+}
