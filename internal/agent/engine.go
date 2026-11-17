@@ -46,13 +46,13 @@ type Engine struct {
 }
 
 // NewEngine wires an LLM client, tool executor, and an externally created session.
-func NewEngine(model llm.ModelConfig, sess *Session, opts ...EngineOption) (*Engine, error) {
+func NewEngine(model llm.ModelConfig, sess *Session, opts ...EngineConfigOption) (*Engine, error) {
 	if sess == nil {
 		return nil, errors.New("agent: session is required")
 	}
-	var cfg engineConfig
+	var cfg EngineConfig
 	for _, opt := range opts {
-		opt(&cfg)
+		cfg = opt.Apply(cfg)
 	}
 	engine := &Engine{
 		modelCfg:     model,

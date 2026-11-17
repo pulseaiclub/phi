@@ -109,7 +109,7 @@ func runHeadless(opts runOptions) error {
 		mcpPool = pool
 		defer func() { _ = pool.Close() }()
 	}
-	engineOpts := []agent.EngineOption{
+	engineOpts := []agent.EngineConfigOption{
 		agent.WithGate(bs.Gate),
 		agent.WithExtensions(extRunner),
 	}
