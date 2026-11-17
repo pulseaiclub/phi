@@ -56,11 +56,21 @@ See doc/mcp.md.`,
 )
 
 func init() {
-	mcpListCommand.Run = func(_ []string, _ cli.Flags) error { return mcpList() }
+	mcpListCommand.Run = func(args []string, _ cli.Flags) error {
+		if err := rejectArgs(&mcpListCommand, args); err != nil {
+			return err
+		}
+		return mcpList()
+	}
 	mcpAddCommand.Run = func(args []string, _ cli.Flags) error { return mcpAdd(args) }
 	mcpRemoveCommand.Run = func(args []string, _ cli.Flags) error { return mcpRemove(args) }
 	mcpCallCommand.Run = func(args []string, _ cli.Flags) error { return mcpCall(args) }
-	mcpDoctorCommand.Run = func(_ []string, _ cli.Flags) error { return mcpDoctor() }
+	mcpDoctorCommand.Run = func(args []string, _ cli.Flags) error {
+		if err := rejectArgs(&mcpDoctorCommand, args); err != nil {
+			return err
+		}
+		return mcpDoctor()
+	}
 
 	mcpCommand.Add(
 		&mcpListCommand,

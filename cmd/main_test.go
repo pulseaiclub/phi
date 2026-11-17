@@ -1,0 +1,38 @@
+package main
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	cli "github.com/pulseaiclub/pli"
+)
+
+// Commands that take no positionals must reject one instead of running their
+// default action: `phi sessions show <id>` used to list sessions and exit 0.
+func TestNoArgCommandsRejectPositionalArgs(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"sessions", "show", "abc"}, `unknown command "show"`},
+		{[]string{"sessions", "delete", "abc"}, `unknown command "delete"`},
+		{[]string{"mcp", "list", "extra"}, `unexpected argument "extra"`},
+		{[]string{"mcp", "doctor", "extra"}, `unexpected argument "extra"`},
+		{[]string{"plugin", "list", "extra"}, `unexpected argument "extra"`},
+		{[]string{"config", "extra"}, `unexpected argument "extra"`},
+		{[]string{"update", "--check", "extra"}, `unexpected argument "extra"`},
+	}
+	for _, tc := range cases {
+		t.Run(strings.Join(tc.args, "_"), func(t *testing.T) {
+			err := root().Dispatch(tc.args)
+			var ue *cli.UsageError
+			require.ErrorAs(t, err, &ue)
+			assert.Contains(t, ue.Error(), tc.want)
+		})
+	}
+}

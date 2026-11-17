@@ -37,7 +37,7 @@ func TestRunOptionsFromFlags(t *testing.T) {
 		"--model", "fast",
 	})
 	require.NoError(t, err)
-	opts, err := runOptionsFromFlags(f)
+	opts, err := runOptionsFromFlags(nil, f)
 	require.NoError(t, err)
 	assert.Equal(t, "do the thing", opts.prompt)
 	assert.True(t, opts.jsonl)
@@ -63,7 +63,7 @@ func TestRunOptionsFromFlagsEqualsForms(t *testing.T) {
 		"--model=smart",
 	})
 	require.NoError(t, err)
-	opts, err := runOptionsFromFlags(f)
+	opts, err := runOptionsFromFlags(nil, f)
 	require.NoError(t, err)
 	assert.Equal(t, "hi", opts.prompt)
 	assert.Equal(t, 1500*time.Millisecond, opts.timeout)
@@ -98,7 +98,7 @@ func TestRunCommandParseErrors(t *testing.T) {
 func TestRunOptionsRequiresPrompt(t *testing.T) {
 	f, _, err := runCommand.Parse([]string{"--jsonl"})
 	require.NoError(t, err)
-	_, err = runOptionsFromFlags(f)
+	_, err = runOptionsFromFlags(nil, f)
 	var ue *cli.UsageError
 	require.ErrorAs(t, err, &ue)
 	assert.Contains(t, err.Error(), "prompt is required")
@@ -107,16 +107,27 @@ func TestRunOptionsRequiresPrompt(t *testing.T) {
 func TestRunOptionsMutualExclusion(t *testing.T) {
 	f, _, err := runCommand.Parse([]string{"-p", "hi", "--continue-last", "--session", "x"})
 	require.NoError(t, err)
-	_, err = runOptionsFromFlags(f)
+	_, err = runOptionsFromFlags(nil, f)
 	var ue *cli.UsageError
 	require.ErrorAs(t, err, &ue)
 	assert.Contains(t, err.Error(), "mutually exclusive")
 }
 
+func TestRunOptionsRejectsPositionalArgs(t *testing.T) {
+	// An unquoted prompt: the shell hands "the" and "bug" over as positionals.
+	f, pos, err := runCommand.Parse([]string{"-p", "fix", "the", "bug"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"the", "bug"}, pos)
+	_, err = runOptionsFromFlags(pos, f)
+	var ue *cli.UsageError
+	require.ErrorAs(t, err, &ue)
+	assert.Contains(t, err.Error(), `unexpected argument "the"`)
+}
+
 func TestRunOptionsLeavesBuiltinToolsUnsetByDefault(t *testing.T) {
 	f, _, err := runCommand.Parse([]string{"-p", "hi"})
 	require.NoError(t, err)
-	opts, err := runOptionsFromFlags(f)
+	opts, err := runOptionsFromFlags(nil, f)
 	require.NoError(t, err)
 	assert.Empty(t, opts.builtinTools)
 	assert.Empty(t, opts.model)

@@ -33,6 +33,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- MCP: accept an SSE response framed as `data:{...}`, without the optional
+  space after the field colon, instead of failing with `parse http body`.
+- `phi run` rejects stray positional arguments with a usage error (exit 3).
+  An unquoted `phi run -p fix the bug` used to send only `fix` to the model,
+  silently dropping the rest of the prompt, and exit 0.
+- `phi sessions`, `phi mcp list`, `phi mcp doctor`, `phi plugin list`,
+  `phi config`, and `phi update` reject stray positional arguments with a
+  usage error (exit 3). A mistyped subcommand such as
+  `phi sessions delete <id>` used to list sessions, delete nothing, and exit 0.
+- Installer scripts no longer say that `phi config` opens a browser; it opens the
+  terminal configuration editor, as the README describes.
 - `phi mcp doctor` with an empty or missing `mcp.json` now prints the same hint
   as `phi mcp list` and exits 0, instead of `FAIL (none) no servers in mcp.json`
   and exit 1.
