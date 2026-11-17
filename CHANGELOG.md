@@ -10,7 +10,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Removed
 
+- Removed the built-in permission policy, permission configuration, approval UI, and `--yolo` flag. Tool calls now run through the normal extension and execution pipeline.
+
 ### Changed
+
+- Permission policies can be implemented by extensions through tool-call interception, blocking, and input rewriting.
 
 - MCP: compact tool summaries mark required params with a `*` name prefix
   (`*owner:s`) and the system prompt legend explains the notation
