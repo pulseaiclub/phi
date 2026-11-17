@@ -8,12 +8,29 @@ import (
 
 	"github.com/pulseaiclub/xui"
 
+	"github.com/pulseaiclub/phi/internal/debuglog"
+	"github.com/pulseaiclub/phi/internal/extension"
+
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 	"github.com/pulseaiclub/phi/internal/tui/editor"
 )
+
+// loadExtensions discovers ~/.phi/extensions and <cwd>/.phi/extensions.
+// Load errors are non-fatal (fail-open: no extensions).
+func loadExtensions(proj *project.Project) *extension.Runner {
+	r, warns, err := extension.Load(proj.Global().ExtensionsDir(), proj.ExtensionsDir())
+	if err != nil {
+		debuglog.Logf("extension: load failed: %v", err)
+		return nil
+	}
+	for _, w := range warns {
+		debuglog.Logf("extension: %s", w.String())
+	}
+	return r
+}
 
 // runTUI starts the interactive terminal UI (default entrypoint).
 func runTUI() error {
@@ -47,53 +64,55 @@ func runTUI() error {
 		}
 	}(vx)
 
-	cwd, err := os.Getwd()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "phi: getwd:", err)
-		return exitCode(ExitError)
-	}
-	th := components.DefaultTheme()
 	models := proj.Config().AllModels()
 	modelNames := make([]string, 0, len(models))
 	for _, m := range models {
 		modelNames = append(modelNames, m.Name)
 	}
 
-	application := app.NewApp(vx)
-	application.Anim = true
+	extRunner := loadExtensions(proj)
+	var extensionModels []extension.ModelRoute
+	if extRunner != nil {
+		extensionModels = extRunner.ExtensionModels()
+	}
+	for _, route := range extensionModels {
+		if !slices.Contains(modelNames, route.Reg.Name) {
+			modelNames = append(modelNames, route.Reg.Name)
+		}
+	}
+
+	model := proj.Config().Model()
+	modelName := model.Name
+	if think := model.Think.Mode; think != "off" && think != "" {
+		modelName = fmt.Sprintf("%s::%s", model.Name, string(think))
+	}
 
 	redraw := controller.NewRedrawRelay()
 	bus := controller.NewBus(redraw.Fire)
-	ctrl, err := controller.NewController(bus, proj)
+
+	ctrl, err := controller.NewController(bus, proj, extRunner)
 	if err != nil {
+		extRunner.Close()
 		fmt.Fprintln(os.Stderr, "phi:", err)
 		return exitCode(ExitError)
 	}
 	defer ctrl.Close()
 
-	// Extension models load with the controller; they shadow same-name config
-	// entries, so the palette lists each connection once.
-	if r := ctrl.Extensions(); r != nil {
-		for _, route := range r.ExtensionModels() {
-			if !slices.Contains(modelNames, route.Reg.Name) {
-				modelNames = append(modelNames, route.Reg.Name)
-			}
-		}
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "phi: getwd:", err)
+		return exitCode(ExitError)
 	}
 
-	model := ctrl.ModelName()
-	if think := ctrl.ThinkLevel(); think != "off" && think != "" {
-		model = fmt.Sprintf("%s::%s", model, think)
-	}
-
+	application := app.NewApp(vx, app.WithAnim(true))
 	ui := editor.NewEditor(
 		application,
 		bus,
 		ctrl,
 		vx,
-		th,
+		components.DefaultTheme(),
 		cwd,
-		model,
+		modelName,
 		proj.Config().SkillPaths,
 		modelNames,
 	)
