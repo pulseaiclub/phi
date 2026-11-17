@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
@@ -75,7 +74,7 @@ func TestLoopStopsToolBatchWithoutRunningTools(t *testing.T) {
 			tool := countingTool(&runs)
 			tool.Definition.Readable = readable
 			engine, err := NewEngine(llm.ModelConfig{Name: "stub"}, sess,
-				WithTools([]tooldef.Tool{tool}), WithGate(permission.AllowAll{}))
+				WithTools([]tooldef.Tool{tool}))
 			require.NoError(t, err)
 			client := &stubChatClient{streams: []func(context.Context, []llm.Message) iter.Seq2[llm.StreamEvent, error]{
 				stubMessageStream(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{

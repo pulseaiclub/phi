@@ -9,7 +9,6 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/project/model"
 )
 
@@ -24,9 +23,8 @@ type Config struct {
 	SkillPath string
 	// SkillPaths lists every root the agent reads skills from, in priority
 	// order: SkillPath, then the .agents/skills locations.
-	SkillPaths  []string
-	Permissions permission.Policy
-	Agents      AgentsConfig
+	SkillPaths []string
+	Agents     AgentsConfig
 }
 
 // AgentsConfig controls whether the main agent may spawn sub-agents
@@ -150,12 +148,11 @@ func loadConfig(global GlobalLayout, cwd string) (*Config, error) {
 	return cfg, nil
 }
 
-// parseConfigFileWithEnv reads models, skill_path, and permissions from the YAML
-// config file. A missing file yields a zero Config with DefaultPolicy for
-// permissions; a malformed file is an error so bad config never silently
-// degrades to defaults.
+// parseConfigFileWithEnv reads models and skill_path from the YAML config file.
+// A missing file yields a zero Config; a malformed file is an error so bad
+// config never silently degrades to defaults.
 func parseConfigFileWithEnv(path string, withEnv bool) (*Config, error) {
-	cfg := &Config{Permissions: permission.DefaultPolicy(), Agents: AgentsConfig{Enabled: true}}
+	cfg := &Config{Agents: AgentsConfig{Enabled: true}}
 
 	data, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
@@ -163,8 +160,8 @@ func parseConfigFileWithEnv(path string, withEnv bool) (*Config, error) {
 	}
 
 	// Pointer fields distinguish "key absent" from "zero value", so per-key
-	// defaults (and permission.DefaultPolicy) survive decoding and are only
-	// overridden by keys that are actually present.
+	// defaults survive decoding and are only overridden by keys that are actually
+	// present.
 	var raw ConfigDoc
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
@@ -186,11 +183,6 @@ func parseConfigFileWithEnv(path string, withEnv bool) (*Config, error) {
 	}
 	if raw.SkillPath != nil {
 		cfg.SkillPath = *raw.SkillPath
-	}
-	if raw.Permissions != nil {
-		if err := applyPermissions(&cfg.Permissions, raw.Permissions); err != nil {
-			return nil, fmt.Errorf("permissions: %w", err)
-		}
 	}
 	if raw.Agents != nil {
 		if raw.Agents.Enabled != nil {
@@ -264,76 +256,6 @@ func ResolveModelDoc(m ModelDoc) (llm.ModelConfig, error) {
 	return cfg, nil
 }
 
-// applyPermissions merges the file's permissions block over DefaultPolicy.
-// An explicitly set list (even an empty one) replaces the default list. Rules
-// are compiled here, so a typo fails the load instead of gating nothing.
-func applyPermissions(p *permission.Policy, raw *PermDoc) error {
-	if raw.Mode != "" {
-		p.Mode = permission.Mode(raw.Mode)
-	}
-	// Deprecated dangerously_allow_all folds into the mode; an explicit
-	// permissions.mode wins over it.
-	if raw.DangerouslyAllowAll != nil && *raw.DangerouslyAllowAll && raw.Mode == "" {
-		p.Mode = permission.ModeAllowAll
-	}
-	if raw.WorkspaceOnlyWrites != nil {
-		p.WorkspaceOnlyWrites = *raw.WorkspaceOnlyWrites
-	}
-	if raw.AskTimeoutSec != nil && *raw.AskTimeoutSec > 0 {
-		p.AskTimeoutSec = *raw.AskTimeoutSec
-	}
-	if b := raw.Bash; b != nil {
-		if b.Default != "" {
-			p.BashDefault = parseDecision(b.Default, p.BashDefault)
-		}
-		if b.Allow != nil {
-			p.BashAllow = *b.Allow
-		}
-		if b.Deny != nil {
-			p.BashDeny = *b.Deny
-		}
-	}
-	if len(raw.Rules) > 0 {
-		specs := make([]permission.RuleSpec, len(raw.Rules))
-		for i, rule := range raw.Rules {
-			rule.Path = expandAllHome(rule.Path)
-			specs[i] = rule
-		}
-		rules, err := permission.CompileRules(specs)
-		if err != nil {
-			return err
-		}
-		p.Rules = rules
-	}
-	return nil
-}
-
-// expandAllHome lets a rule be written as ~/.ssh while the gate compares
-// absolute prefixes; the doc keeps the shorthand until it is saved again.
-func expandAllHome(paths []string) []string {
-	if len(paths) == 0 {
-		return nil
-	}
-	out := make([]string, len(paths))
-	for i, path := range paths {
-		out[i] = expandHome(path)
-	}
-	return out
-}
-
-func parseDecision(val string, def permission.Decision) permission.Decision {
-	switch strings.ToLower(strings.TrimSpace(val)) {
-	case "allow":
-		return permission.Allow
-	case "deny", "reject":
-		return permission.Deny
-	case "ask":
-		return permission.Ask
-	default:
-		return def
-	}
-}
-
 func applyEnvOverrides(doc *ConfigDoc) {
 	index := 0
 	for i, m := range doc.Models {
@@ -375,21 +297,4 @@ func firstEnv(keys ...string) string {
 		}
 	}
 	return ""
-}
-
-// SetPermissionMode persists permissions.mode in config.yaml ("Allow All for
-// Every Session" writes allow-all). A deprecated dangerously_allow_all key is
-// dropped on save; the loader already folded it into the mode.
-func SetPermissionMode(global GlobalLayout, mode permission.Mode) error {
-	path := global.ConfigFile()
-	doc, err := ReadConfigDoc(path)
-	if err != nil {
-		return err
-	}
-	if doc.Permissions == nil {
-		doc.Permissions = &PermDoc{}
-	}
-	doc.Permissions.Mode = string(mode)
-	doc.Permissions.DangerouslyAllowAll = nil
-	return doc.Save(path)
 }

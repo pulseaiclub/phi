@@ -24,7 +24,7 @@ const (
 	Collapse = " ▼"
 )
 
-// Decision-row glyphs (permission / continue / confirm).
+// Decision-row glyphs (continue / confirm).
 const (
 	SelectArrow = "▸"
 	DotOn       = "●"

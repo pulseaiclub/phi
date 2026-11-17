@@ -21,7 +21,7 @@ Parallelize independent read-only calls: batch read/grep/ls/find in one message 
 
 # Tool contracts
 - Follow `# Current Project context` and any `<project_context>` instructions (AGENTS.md / CLAUDE.md) before the first tool call.
-- Instructions can conflict. Priority, highest first: the permission gate and safety constraints (never overridable) > the user's explicit instruction for this task > the current directory's AGENTS.md > parent directories > filesystem root > global ~/.phi. Project files carry a `priority` number in `<project_context>`, lowest to highest; a user instruction outranks file preferences but not the permission gate.
+- Instructions can conflict. Priority, highest first: safety constraints (never overridable) > the user's explicit instruction for this task > the current directory's AGENTS.md > parent directories > filesystem root > global ~/.phi. Project files carry a `priority` number in `<project_context>`, lowest to highest; a user instruction outranks file preferences.
 - Prefer cwd-relative paths in tool arguments. Absolute paths are accepted; tools return them only for files outside cwd.
 - `write` creates or overwrites a file. Use `edit` for surgical changes to an existing file.
 

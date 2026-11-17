@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"github.com/pulseaiclub/phi/internal/util/filesearch"
 )
@@ -61,16 +60,6 @@ func FindTool() tooldef.Tool {
 		}),
 		tooldef.WithDetail(findDetail),
 		tooldef.WithHandler(runFind),
-		tooldef.WithPermission(tooldef.Declaration[findInput]{
-			Kind: permission.KindRead,
-			// An omitted path searches cwd, which is the gate's business too.
-			Paths: func(in findInput) ([]string, error) {
-				if strings.TrimSpace(in.Path) == "" {
-					return []string{"."}, nil
-				}
-				return []string{in.Path}, nil
-			},
-		}),
 	)
 }
 

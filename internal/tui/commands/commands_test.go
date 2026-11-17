@@ -28,23 +28,6 @@ func TestThemeCommand_Submenu(t *testing.T) {
 	assert.Equal(t, "Pink", got)
 }
 
-func TestPermissionsCommand_Toggle(t *testing.T) {
-	var bypass *bool
-	cmd := buildPermissionsPalette(func(v bool) { bypass = &v }, true)
-	assert.Equal(t, "settings", cmd.Noun)
-	assert.Equal(t, "permissions", cmd.Verb)
-	require.Len(t, cmd.Submenu, 2)
-	assert.Equal(t, chrome.CurrentMarker(true)+"off — allow all (no prompts)", cmd.Submenu[0].Verb)
-	assert.Equal(t, chrome.CurrentMarker(false)+"on — ask before gated tools", cmd.Submenu[1].Verb)
-
-	cmd.Submenu[0].Run()
-	require.NotNil(t, bypass)
-	assert.True(t, *bypass)
-
-	cmd.Submenu[1].Run()
-	assert.False(t, *bypass)
-}
-
 func TestAgentsCommand_Toggle(t *testing.T) {
 	var enabled *bool
 	cmd := buildAgentsPalette(func(v bool) { enabled = &v }, nil, nil, false, nil)

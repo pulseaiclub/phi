@@ -9,15 +9,13 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/permission"
 )
 
 // ConfigDoc preserves absent keys when the config editor saves ~/.phi/config.yaml.
 type ConfigDoc struct {
-	Models      []ModelDoc `yaml:"models"`
-	SkillPath   *string    `yaml:"skill_path,omitempty"`
-	Permissions *PermDoc   `yaml:"permissions,omitempty"`
-	Agents      *AgentsDoc `yaml:"agents,omitempty"`
+	Models    []ModelDoc `yaml:"models"`
+	SkillPath *string    `yaml:"skill_path,omitempty"`
+	Agents    *AgentsDoc `yaml:"agents,omitempty"`
 }
 
 // ModelDoc is one models[] entry.
@@ -41,53 +39,12 @@ type ModelDoc struct {
 	RequestParameters llm.RequestParameters `yaml:"request_parameters,omitempty"`
 }
 
-// PermDoc is the permissions block.
-type PermDoc struct {
-	Mode                string `yaml:"mode,omitempty"`
-	WorkspaceOnlyWrites *bool  `yaml:"workspace_only_writes,omitempty"`
-	AskTimeoutSec       *int   `yaml:"ask_timeout_sec,omitempty"`
-	// DangerouslyAllowAll is deprecated: mode: allow-all replaces it. The
-	// loader still honors it; saves write the mode form.
-	DangerouslyAllowAll *bool    `yaml:"dangerously_allow_all,omitempty"`
-	Bash                *BashDoc `yaml:"bash,omitempty"`
-	// Rules are evaluated in strictest-first tiers: a configured deny outranks
-	// every ask, and an ask outranks every allow. See doc/permissions.md.
-	Rules []permission.RuleSpec `yaml:"rules,omitempty"`
-}
-
-// BashDoc is the permissions.bash block.
-type BashDoc struct {
-	Default string      `yaml:"default,omitempty"`
-	Allow   *StringList `yaml:"allow,omitempty"`
-	Deny    *StringList `yaml:"deny,omitempty"`
-}
-
 // AgentsDoc is the agents block.
 type AgentsDoc struct {
 	// Enabled is a pointer so omitting the key keeps the default (on) when only
 	// agents.models is set.
 	Enabled *bool             `yaml:"enabled,omitempty"`
 	Models  *AgentsRoleModels `yaml:"models,omitempty"`
-}
-
-// StringList accepts either a single YAML scalar or a sequence, so both
-// `allow: "go test ./..."` and the block list form in the README work.
-type StringList []string
-
-func (s *StringList) UnmarshalYAML(node *yaml.Node) error {
-	switch node.Kind {
-	case yaml.ScalarNode:
-		*s = StringList{node.Value}
-	case yaml.SequenceNode:
-		items := make(StringList, 0, len(node.Content))
-		for _, n := range node.Content {
-			items = append(items, n.Value)
-		}
-		*s = items
-	default:
-		return errors.New("expected a string or a list of strings")
-	}
-	return nil
 }
 
 // ReadConfigDoc loads path into an editable document. A missing file yields an

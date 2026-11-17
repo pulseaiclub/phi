@@ -12,7 +12,7 @@
   <a href="https://github.com/pulseaiclub/phi/releases"><img src="https://img.shields.io/github/v/release/pulseaiclub/phi?style=flat&colorA=222222&colorB=8957E5" alt="Release"></a>
 </p>
 
-- 15 MB · ~31 ms · sub-agent · 锚点编辑 · 权限门控 · 渐进式 MCP · PXB 插件 · 全屏审阅 & 代码选中 · OpenAI / Anthropic / Gemini
+- 15 MB · ~31 ms · sub-agent · 锚点编辑 · 渐进式 MCP · PXB 插件 · 全屏审阅 & 代码选中 · OpenAI / Anthropic / Gemini
 
 ![phi 欢迎界面](assets/phi.png)
 
@@ -35,7 +35,6 @@
 - [会话](#会话)
 - [无头模式](#无头模式)
 - [Skills（技能）](#skills技能)
-- [权限](#权限)
 - [Extensions（扩展）](#extensions扩展)
 - [MCP](#mcp)
 - [子代理](#子代理)
@@ -195,14 +194,6 @@ skill_path: ~/.phi/skills # SKILL.md 文件的加载目录；`~/…` 会被展�
 agents:
   enabled: true           # 默认；设为 false 可禁用 agent_* 子代理工具
 
-permissions:
-  mode: interactive       # interactive | readonly | autopilot | headless-strict | allow-all
-  bash:
-    default: ask          # ask | allow | deny
-    allow:
-      - "go test ./..."
-    deny:
-      - "rm -rf *"
 ```
 
 内置 preset 与思考参数上线格式见 [doc/models.md](doc/models.md)。
@@ -249,8 +240,7 @@ permissions:
 - `?` —— 快捷键帮助选择器（列出 `/`、`!`、`!!`、`@` 和按键绑定；`Esc` 关闭）
 - `!command` —— 在本地运行 shell 命令，并把输出流式写入对话记录
   （见 [命令](#命令)）
-- `Ctrl+K` —— 命令面板：设置 → 模型 / 主题 / 权限 / 代理（含各角色模型）/ 思考 / 调试，
-  以及扩展管理（`extensions`）。用 `/skill` 选择技能。
+- `Ctrl+K` —— 命令面板：设置 → 模型 / 主题 / 代理（含各角色模型）/ 思考 / 调试，以及扩展管理（`extensions`）。用 `/skill` 选择技能。
 
 ### 键盘快捷键
 
@@ -286,9 +276,8 @@ permissions:
 
 `/code <path>[:line]` 打开全屏源码查看器：语法高亮、支持 CJK 宽度的光标
 （`j`/`k`、`h`/`l`、`gg`/`G`），`v` 选中行后按 `a`，把选中的行作为
-`path:12-18` 引用交给聊天输入框，模型直接可读。查看器自己读文件，并遵守
-与工具门相同的敏感路径清单——`~/.ssh`、`.env` 等敏感路径、二进制文件和
-超过 8 MiB 的文件都会拒绝并以 toast 提示。
+`path:12-18` 引用交给聊天输入框，模型直接可读。查看器自己读文件；敏感路径
+（`~/.ssh`、`.env` 等）、二进制文件和超过 8 MiB 的文件会拒绝并以 toast 提示。
 
 `Esc` 关闭。阅读时状态栏显示路径、光标和行数；`v` 激活时显示已选中行数。
 
@@ -361,7 +350,6 @@ phi run -p "fix the failing test in internal/tools"
 | -------------------- | ---------------------------------------------- |
 | `-p, --prompt STRING` | 要运行的提示词（必填） |
 | `--jsonl` | 向 stdout 输出 JSONL 事件 |
-| `--yolo` | 本次运行跳过所有权限检查（仅用于 benchmark / CI） |
 | `--timeout DURATION` | 限制 Agent 运行总时长（例如 `10m`，默认不限制） |
 | `--session ID` | 按 id 或唯一前缀恢复已持久化的会话 |
 | `--continue-last` | 恢复当前目录最新的持久化会话 |
@@ -377,12 +365,6 @@ phi run -p "fix the failing test in internal/tools"
 
 退出码：`0` 成功 · `1` 运行时/LLM 错误 ·
 `3` 配置/用法错误。
-
-无头模式下，权限 `ask` 的决策会被拒绝（没有审批界面）：未设置
-`permissions.mode` 时，`phi run` 使用 `headless-strict`。这并不等同于
-`readonly`——策略本已允许的操作仍会执行，包括工作区内的写入和白名单中的
-bash。跑 benchmark 需要任意 shell（`pytest`、`npm test` 等）时，对该次运行加
-`--yolo` 即可跳过权限门控。
 
 ## Skills（技能）
 
@@ -418,32 +400,6 @@ Instructions the agent should follow when this skill is relevant.
 
 在 TUI 中，可以从面板添加技能（技能 → 列表），然后在勾选所需技能后发送
 消息。
-
-## 权限
-
-工具执行受权限策略门控，因此代理默认只读，遇到破坏性操作会先询问。在
-`~/.phi/config.yaml` 的 `permissions:` 下配置。
-
-模式：
-
-| 模式 | 行为 |
-| ------------------ | --------------------------------------------------- |
-| `interactive` | 默认。`ask` 决策在 TUI 中弹出询问。 |
-| `readonly` | 拒绝写入和 `ask`；策略允许的 bash 仍可执行。 |
-| `autopilot` | 把 `ask` 折叠为 deny（目前与 `headless-strict` 相同）。 |
-| `headless-strict` | 把 `ask` 折叠为 deny（`phi run` 使用）。 |
-| `allow-all` | 跳过所有权限检查。 |
-
-`readonly` 并不会拦截所有 bash 命令：底层策略允许的命令（`bash.allow`，或
-`bash.default: allow`）在通过拒绝列表检查后仍会执行。写入、其余 `ask` 决策以及
-`agent_spawn` 都会被拒绝。
-
-按工具的规则：`bash.default` / `bash.allow` / `bash.deny`（对整条命令做正则匹配）。
-全局键：`workspace_only_writes`（默认 true）和 `ask_timeout_sec`。
-已弃用的 `dangerously_allow_all: true` 仍按 `mode: allow-all` 加载。
-
-在 TUI 中，审批对话框会替换编辑器，提供批准、带反馈地拒绝、或对本次会话 /
-所有会话全部允许等选项。面板的 设置 → 权限 条目可切换会话级绕过。
 
 ## Extensions（扩展）
 
@@ -501,7 +457,8 @@ MCP 是挂在常规工具上的 **URL 命名空间**；系统提示里会列出�
 | 看单个工具的精简参数说明 | `read mcp://<server>/tools/<tool>` |
 | 执行工具 | `write mcp://<server>/tools/<tool>`，content 为 JSON 参数 |
 
-流程：从提示词里的 server 名出发 → `ls` → `read` → `write`。子进程**懒启动**。浏览是读级权限；执行仍走 PreHooks → write Gate / Ask → Run → PostHooks。
+流程：从提示词里的 server 名出发 → `ls` → `read` → `write`。子进程**懒启动**。
+浏览列出可用工具；执行指定的 MCP 工具并将结果返回给模型。
 
 ```sh
 phi mcp add browsermcp -- npx @browsermcp/mcp@latest
@@ -543,7 +500,7 @@ agents:
 | -------------- | -------------------------------------------- |
 | `bash` | 在工作目录运行 shell 命令 |
 | `read` | 读取文件 |
-| `write` | 写入文件（受权限门控） |
+| `write` | 写入文件 |
 | `edit` | 精准编辑文件的某一段 |
 | `grep` | 跨文件正则搜索 |
 | `find` | 文件模式匹配（fd） |

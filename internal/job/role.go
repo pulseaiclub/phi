@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// Role selects a sub-agent capability profile (tools + permission posture).
+// Role selects a sub-agent capability profile.
 type Role string
 
 const (
