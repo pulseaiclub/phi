@@ -33,6 +33,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Compaction: report which entry index lacks an ID instead of a bare
+  "session needs migration" message, so the user can identify the affected
+  session entry.
 - MCP: accept an SSE response framed as `data:{...}`, without the optional
   space after the field colon, instead of failing with `parse http body`.
 - `phi run` rejects stray positional arguments with a usage error (exit 3).
