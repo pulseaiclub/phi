@@ -15,6 +15,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- docs: the `go get` examples for the `ext/go` SDK name v0.25.6, the current tag,
+  instead of v0.21.0.
 - urls: an explicit `?limit=` outside 1-1000 now fails with the message that
   names that range, instead of the struct-field wording that also allows zero.
   Both messages come from named constants so the two cases cannot drift apart.
