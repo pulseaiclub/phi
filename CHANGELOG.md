@@ -29,6 +29,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - docs: the zh-CN README matches the English one again for the `/diff` table, the
   commands table, the keyboard shortcuts, the extension SDK list and the
   `agents.models` paragraph.
+- docs: the zh-CN README's resource table and its measurement note now match the
+  English README: 54k lines (49k non-blank) in 345 files, 84 packages, 8 direct
+  dependencies.
 
 ### Added
 
