@@ -5,7 +5,6 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/job"
-	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/session"
 )
 
@@ -129,23 +128,16 @@ func (BashSuggestionsMsg) isMsg() {}
 type OverlayKind int
 
 const (
-	OverlayPermissionAsk OverlayKind = iota
-	OverlayPermissionDismiss
-	OverlayExtConfirm
+	OverlayExtConfirm OverlayKind = iota
 	OverlayExtConfirmDismiss
 	OverlayErrorAsk
 	OverlayErrorDismiss
 )
 
-// OverlayMsg drives permission / extension-confirm / loop-error UI.
+// OverlayMsg drives extension-confirm / loop-error UI.
 // Kind selects which fields are meaningful; reply chans must be buffered(1).
 type OverlayMsg struct {
 	Kind OverlayKind
-
-	// Permission ask
-	Request   permission.Request
-	Reason    string
-	PermReply chan AskReply
 
 	// Extension confirm
 	Title        string

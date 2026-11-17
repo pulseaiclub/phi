@@ -294,7 +294,7 @@ the old JSONL file is gone. The same store call backs `phi sessions remove`.
 | ----- | -------------- |
 | `internal/components/*` | Draw/handle only; no bus, no engine |
 | `internal/tui/*` | State, routing, session projection, submit |
-| `internal/tui/controller` | Agent engine, jobs, permission gate, extensions/MCP |
+| `internal/tui/controller` | Agent engine, jobs, extensions/MCP |
 | `cmd` | Config, xui, bus/controller construction, `NewEditor` |
 
 Reference implementation patterns: panda `interactive.go` (assembly), `message.go` (transcript), `submit.go` (submit/cancel/bash).

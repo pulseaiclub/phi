@@ -5,7 +5,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/job"
 	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
 	"github.com/pulseaiclub/phi/internal/mcp"
-	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
@@ -21,30 +20,12 @@ func (f EngineConfigOptionFunc) Apply(config EngineConfig) EngineConfig {
 }
 
 type EngineConfig struct {
-	gate         permission.Gate
-	ask          permission.AskHandler
 	tools        []tooldef.Tool
 	jobs         *job.Manager
 	extensions   *extension.Runner
 	omitExtTools bool
 	mcp          *mcp.Pool
 	hooks        llmclient.Hooks
-}
-
-// WithGate sets the permission gate (nil = allow all).
-func WithGate(gate permission.Gate) EngineConfigOption {
-	return EngineConfigOptionFunc(func(c EngineConfig) EngineConfig {
-		c.gate = gate
-		return c
-	})
-}
-
-// WithAsk sets the ask callback (nil = deny on Ask).
-func WithAsk(ask permission.AskHandler) EngineConfigOption {
-	return EngineConfigOptionFunc(func(c EngineConfig) EngineConfig {
-		c.ask = ask
-		return c
-	})
 }
 
 // WithTools sets the base tool list (nil = tools.DefaultTools(mcp) when an MCP

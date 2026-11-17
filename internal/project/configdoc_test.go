@@ -7,8 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/pulseaiclub/phi/internal/permission"
 )
 
 func parseConfigFile(path string) (*Config, error) {
@@ -87,20 +85,6 @@ const configDocFixture = `models:
   - name: model-b
     api_key: key-b
     base_url: https://b.example/v1
-permissions:
-  mode: readonly
-  bash:
-    default: ask
-    allow:
-      - "^git "
-  rules:
-    - tool: "mcp__*"
-      kind: read
-      decision: ask
-      reason: external lookup needs approval
-    - path:
-        - "~/.ssh"
-      decision: deny
 agents:
   enabled: false
 `
@@ -116,14 +100,6 @@ func TestConfigDocRoundTripThroughLoader(t *testing.T) {
 	assert.True(t, doc.Models[0].Default)
 	require.NotNil(t, doc.Models[0].ImageEnabled)
 	assert.True(t, *doc.Models[0].ImageEnabled)
-	require.NotNil(t, doc.Permissions)
-	require.NotNil(t, doc.Permissions.Bash)
-	require.NotNil(t, doc.Permissions.Bash.Allow)
-	assert.Equal(t, StringList{"^git "}, *doc.Permissions.Bash.Allow)
-	require.Len(t, doc.Permissions.Rules, 2)
-	assert.Equal(t, "mcp__*", doc.Permissions.Rules[0].Tool)
-	// The document keeps "~" as written; expansion happens when it is loaded.
-	assert.Equal(t, []string{"~/.ssh"}, doc.Permissions.Rules[1].Path)
 	require.NotNil(t, doc.Agents)
 	require.NotNil(t, doc.Agents.Enabled)
 	assert.False(t, *doc.Agents.Enabled)
@@ -141,16 +117,6 @@ func TestConfigDocRoundTripThroughLoader(t *testing.T) {
 	assert.Equal(t, 1000, loaded.Model().ContextWindow)
 	assert.Equal(t, 900, loaded.Model().MaxTokens, "max_tokens survives an editor save")
 	assert.True(t, loaded.Model().ImageEnabled)
-	assert.Equal(t, "readonly", string(loaded.Permissions.Mode))
-	assert.Equal(t, []string{"^git "}, loaded.Permissions.BashAllow)
-	require.Len(t, loaded.Permissions.Rules, 2)
-	assert.Equal(t, "mcp__*", loaded.Permissions.Rules[0].Tool)
-	assert.Equal(t, permission.KindRead, loaded.Permissions.Rules[0].Kind)
-	assert.Equal(t, permission.Ask, loaded.Permissions.Rules[0].Decision)
-	assert.Equal(t, permission.Deny, loaded.Permissions.Rules[1].Decision)
-	require.Len(t, loaded.Permissions.Rules[1].Sensitive, 1)
-	assert.True(t, filepath.IsAbs(loaded.Permissions.Rules[1].Sensitive[0]))
-	assert.Equal(t, ".ssh", filepath.Base(loaded.Permissions.Rules[1].Sensitive[0]))
 	assert.False(t, loaded.Agents.Enabled)
 
 	// The previous file is kept as a backup.
@@ -183,65 +149,17 @@ func TestConfigDocKeepsAbsentKeysAbsent(t *testing.T) {
 
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
-	// Keys the editor never touched must not appear: their absence is what keeps
-	// the loader defaults (permissions policy, agents on) in force.
-	for _, key := range []string{"skill_path", "permissions", "agents", "image_enabled", "context_window"} {
+	// Keys the editor never touched must not appear.
+	for _, key := range []string{"skill_path", "agents", "image_enabled", "context_window"} {
 		assert.NotContains(t, string(data), key)
 	}
 	assert.Contains(t, string(data), "name: m")
-}
-
-// The deprecated dangerously_allow_all key folds into mode: allow-all; an
-// explicit mode wins over it.
-func TestLegacyDangerouslyAllowAllFoldsIntoMode(t *testing.T) {
-	for name, tc := range map[string]struct {
-		config string
-		want   permission.Mode
-	}{
-		"legacy true": {
-			"models:\n  - name: m\n    api_key: k\npermissions:\n  dangerously_allow_all: true\n",
-			permission.ModeAllowAll,
-		},
-		"legacy false": {
-			"models:\n  - name: m\n    api_key: k\npermissions:\n  dangerously_allow_all: false\n",
-			permission.ModeInteractive,
-		},
-		"mode wins": {
-			"models:\n  - name: m\n    api_key: k\npermissions:\n  mode: readonly\n  dangerously_allow_all: true\n",
-			permission.ModeReadonly,
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "config.yaml")
-			require.NoError(t, os.WriteFile(path, []byte(tc.config), 0o600))
-			cfg, err := parseConfigFile(path)
-			require.NoError(t, err)
-			assert.Equal(t, tc.want, cfg.Permissions.Mode)
-		})
-	}
-}
-
-// SetPermissionMode writes the mode form and drops the deprecated key.
-func TestSetPermissionMode(t *testing.T) {
-	global := GlobalLayout{root: t.TempDir()}
-	path := global.ConfigFile()
-	require.NoError(t, os.WriteFile(path, []byte(
-		"models:\n  - name: m\n    api_key: k\npermissions:\n  dangerously_allow_all: true\n",
-	), 0o600))
-
-	require.NoError(t, SetPermissionMode(global, permission.ModeAllowAll))
-	doc, err := ReadConfigDoc(path)
-	require.NoError(t, err)
-	require.NotNil(t, doc.Permissions)
-	assert.Equal(t, string(permission.ModeAllowAll), doc.Permissions.Mode)
-	assert.Nil(t, doc.Permissions.DangerouslyAllowAll)
 }
 
 func TestConfigDocMissingFileIsEmpty(t *testing.T) {
 	doc, err := ReadConfigDoc(filepath.Join(t.TempDir(), "nope.yaml"))
 	require.NoError(t, err)
 	assert.Empty(t, doc.Models)
-	assert.Nil(t, doc.Permissions)
 }
 
 func TestConfigDocMalformedFileFails(t *testing.T) {

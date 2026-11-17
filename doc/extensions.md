@@ -12,7 +12,7 @@ Shaped for subprocess PXB:
 
 ```
 user_input ──(transform|handled)──► before_agent_start ──► agent_start
-  └─ turn_start → LLM → tool_execution_start → tool_call → Gate/Ask → Run
+  └─ turn_start → LLM → tool_execution_start → tool_call → Run
        → tool_result → tool_execution_end → turn_end
   └─ (no tools) agent_end
 session_before_switch → session_shutdown → session_start
@@ -28,7 +28,7 @@ session_compact (after auto compaction)
 | `session_before_switch` | intercept | cancel switch |
 | `session_*` / `agent_*` / `turn_*` / `tool_execution_*` / `session_compact` | subscribe | observe (payload via `SubscribeEvent`) |
 
-Tool loop order remains **ExtensionPre → Gate/Ask → Run → ExtensionPost**.
+Tool loop order remains **ExtensionPre → Run → ExtensionPost**.
 
 Session lifecycle events carry a free-form `reason`. Current values:
 `session_start`: `startup`, `new`, `resume`, `fork`; `session_before_switch`:

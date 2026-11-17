@@ -20,7 +20,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/mcp"
-	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/project/model"
 	"github.com/pulseaiclub/phi/internal/session"
@@ -52,9 +51,7 @@ type EngineController struct {
 	jobs       *job.Manager
 	unsubJobs  func()
 
-	gate          permission.Gate
 	askTimeoutSec int
-	allowAll      atomic.Bool
 	agentsEnabled atomic.Bool
 	extRunner     atomic.Pointer[extension.Runner]
 	mcpPool       *mcp.Pool
@@ -79,10 +76,6 @@ func NewController(bus *Bus, proj *project.Project) (*EngineController, error) {
 		modelCfg:      config.Model(),
 		roleModels:    config.Agents.Models.RoleOverrides(),
 	}
-	// TUI defaults to bypass; palette → settings → permissions toggles it.
-	c.allowAll.Store(true)
-
-	c.initGate(config.Permissions)
 	c.agentsEnabled.Store(config.Agents.Enabled)
 
 	extRunner := loadExtensions(proj)
@@ -155,36 +148,6 @@ func (c *EngineController) shouldPublishJobProgress(p job.Progress) bool {
 	c.lastJobProgress.Store(slot, sig)
 	return true
 }
-
-func (c *EngineController) initGate(policy permission.Policy) {
-	if policy.AskTimeoutSec > 0 {
-		c.askTimeoutSec = policy.AskTimeoutSec
-	}
-	if policy.Mode == "" {
-		policy.Mode = permission.ModeInteractive
-	}
-	if policy.Mode == permission.ModeAllowAll {
-		c.allowAll.Store(true)
-	}
-	// Do not clear allowAll when config does not pin a mode — the TUI defaults
-	// to bypass, and the palette toggle must survive SetModel / re-init.
-	var inner permission.Gate
-	inner, err := permission.NewGate(policy, permission.WorkspaceRoot())
-	if err != nil {
-		inner, err = permission.NewGate(permission.DefaultPolicy(), permission.WorkspaceRoot())
-	}
-	if err != nil {
-		inner = permission.AllowAll{}
-	}
-	c.gate = &permission.BypassGate{Inner: inner, Enabled: &c.allowAll}
-}
-
-func (c *EngineController) SetAllowAll(v bool) {
-	c.allowAll.Store(v)
-}
-
-// AllowAll reports whether the permission gate is in bypass mode.
-func (c *EngineController) AllowAll() bool { return c.allowAll.Load() }
 
 func (c *EngineController) SetAgentsEnabled(v bool) {
 	c.agentsEnabled.Store(v)
@@ -421,31 +384,6 @@ func waitReply[T any](ctx context.Context, ch <-chan T, timeout time.Duration, o
 	}
 }
 
-func (c *EngineController) askPermission(
-	ctx context.Context,
-	req permission.Request,
-	reason string,
-) (permission.AskResult, error) {
-	if c.allowAll.Load() {
-		return permission.AskResult{Approved: true}, nil
-	}
-	reply := make(chan AskReply, 1)
-	c.publish(OverlayMsg{Kind: OverlayPermissionAsk, Request: req, Reason: reason, PermReply: reply})
-	r, err := waitReply(ctx, reply, c.askTimeout(), func() {
-		c.publish(OverlayMsg{Kind: OverlayPermissionDismiss})
-	})
-	if err != nil {
-		return permission.AskResult{}, err
-	}
-	if r.AllowSession || r.AllowPersistent {
-		c.allowAll.Store(true)
-	}
-	if r.AllowPersistent {
-		_ = project.SetPermissionMode(c.proj.Global(), permission.ModeAllowAll)
-	}
-	return permission.AskResult{Approved: r.Approved, Feedback: r.Feedback}, nil
-}
-
 func (c *EngineController) askExtConfirm(req ext.ConfirmRequest) ext.ConfirmReply {
 	reply := make(chan ExtConfirmReply, 1)
 	c.publish(OverlayMsg{
@@ -481,8 +419,6 @@ func (c *EngineController) SetModel(name string) error {
 		return err
 	}
 	c.Cancel()
-	c.initGate(c.proj.Config().Permissions)
-	c.engine.SetPermission(c.gate, permission.AskFunc(c.askPermission))
 	c.engine.SetJobs(c.engineJobs())
 	if _, _, err := c.ReloadExtensions(); err != nil {
 		debuglog.Logf("extension: reload on SetModel: %v", err)
@@ -737,8 +673,6 @@ func (c *EngineController) newEngine(
 	sess *agent.Session,
 ) (*agent.Engine, error) {
 	return agent.NewEngine(cfg, sess,
-		agent.WithGate(c.gate),
-		agent.WithAsk(permission.AskFunc(c.askPermission)),
 		agent.WithJobs(c.engineJobs()),
 		agent.WithExtensions(extRunner),
 		agent.WithMCP(c.mcpPool),

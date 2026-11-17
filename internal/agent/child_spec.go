@@ -2,7 +2,6 @@ package agent
 
 import (
 	"github.com/pulseaiclub/phi/internal/job"
-	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/tools"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
@@ -11,8 +10,7 @@ import (
 type ChildSpec struct {
 	Role  job.Role
 	Tools []tooldef.Tool
-	Mode  permission.Mode // used when EngineRunner.Gate is nil
-	Hint  string          // appended to the child prompt
+	Hint  string // appended to the child prompt
 }
 
 // ChildTools returns the default (explore) tool set.
@@ -20,7 +18,7 @@ func ChildTools() []tooldef.Tool {
 	return SpecForRole(job.RoleExplore).Tools
 }
 
-// SpecForRole returns tools, permission mode, and closing hint for a role.
+// SpecForRole returns tools and a closing hint for a role.
 func SpecForRole(role job.Role) ChildSpec {
 	role = job.NormalizeRole(string(role))
 	switch role {
@@ -28,21 +26,18 @@ func SpecForRole(role job.Role) ChildSpec {
 		return ChildSpec{
 			Role:  job.RoleWorker,
 			Tools: tools.DefaultTools(nil), // no agent_*; writable
-			Mode:  permission.ModeHeadlessStrict,
 			Hint:  workerSummaryHint,
 		}
 	case job.RoleReview:
 		return ChildSpec{
 			Role:  job.RoleReview,
 			Tools: tools.ReadonlyTools(nil),
-			Mode:  permission.ModeReadonly,
 			Hint:  reviewSummaryHint,
 		}
 	default:
 		return ChildSpec{
 			Role:  job.RoleExplore,
 			Tools: tools.ReadonlyTools(nil),
-			Mode:  permission.ModeReadonly,
 			Hint:  exploreSummaryHint,
 		}
 	}

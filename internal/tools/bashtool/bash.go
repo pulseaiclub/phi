@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
@@ -45,10 +44,6 @@ func BashTool() tooldef.Tool {
 		}),
 		tooldef.WithDetail(bashDetail),
 		tooldef.WithHandler(runBash),
-		tooldef.WithPermission(tooldef.Declaration[bashInput]{
-			Kind:    permission.KindExec,
-			Command: func(in bashInput) string { return strings.TrimSpace(in.Command) },
-		}),
 	)
 }
 

@@ -166,9 +166,6 @@ func (o *Overlays) beginErrorAsk(msg controller.OverlayMsg) {
 	if o.err != nil {
 		o.resolveError(controller.ErrorReply{})
 	}
-	if o.perm != nil {
-		o.resolvePermission(controller.AskReply{})
-	}
 	if o.confirm != nil {
 		o.resolveExtConfirm(controller.ExtConfirmReply{})
 	}

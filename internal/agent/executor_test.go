@@ -16,7 +16,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/extension/create"
 	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
@@ -33,65 +32,6 @@ func loadExt(t *testing.T, mainGo string) *extension.Runner {
 	return r
 }
 
-type fixedGate struct {
-	dec    permission.Decision
-	reason string
-}
-
-func (g fixedGate) Check(context.Context, permission.Request) (permission.Decision, string) {
-	return g.dec, g.reason
-}
-
-func TestExecutorDenyDoesNotRunHandler(t *testing.T) {
-	var ran atomic.Int32
-	reg := tooldef.Registry{
-		"bash": {
-			Definition: llm.ToolDefinition{Name: "bash"},
-			Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
-				ran.Add(1)
-				return tooldef.Result{Content: "ok"}, nil
-			},
-		},
-	}
-	ex := NewExecutor(reg, fixedGate{dec: permission.Deny, reason: "denied by test"}, nil, nil)
-	var statuses []session.ToolStatus
-	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{{
-		ID:       "c1",
-		Function: llm.Function{Name: "bash", Arguments: `{"command":"echo hi"}`},
-	}}, func(td session.ToolData) bool {
-		statuses = append(statuses, td.Run.Status)
-		return true
-	})
-	require.Equal(t, int32(0), ran.Load(), "handler should not run on deny")
-	require.Len(t, msgs, 1)
-	require.Equal(t, "denied by test", msgs[0].Content)
-	require.Contains(t, statuses, session.ToolRejected)
-}
-
-func TestExecutorAskFalseRejects(t *testing.T) {
-	var ran atomic.Int32
-	reg := tooldef.Registry{
-		"bash": {
-			Definition: llm.ToolDefinition{Name: "bash"},
-			Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
-				ran.Add(1)
-				return tooldef.Result{Content: "ok"}, nil
-			},
-		},
-	}
-	ask := permission.AskFunc(func(context.Context, permission.Request, string) (permission.AskResult, error) {
-		return permission.AskResult{Approved: false}, nil
-	})
-	ex := NewExecutor(reg, fixedGate{dec: permission.Ask, reason: "needs approval"}, ask, nil)
-	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{{
-		ID:       "c1",
-		Function: llm.Function{Name: "bash", Arguments: `{"command":"curl x"}`},
-	}}, func(session.ToolData) bool { return true })
-	require.Equal(t, int32(0), ran.Load(), "handler should not run when ask denied")
-	require.Len(t, msgs, 1)
-	require.NotEmpty(t, msgs[0].Content, "expected rejection message")
-}
-
 func TestExecutorEmitsToolName(t *testing.T) {
 	reg := tooldef.Registry{
 		"bash": {
@@ -101,7 +41,7 @@ func TestExecutorEmitsToolName(t *testing.T) {
 			},
 		},
 	}
-	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
+	ex := NewExecutor(reg, nil)
 	var names []string
 	_, _, _ = ex.Run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
@@ -116,82 +56,8 @@ func TestExecutorEmitsToolName(t *testing.T) {
 	}
 }
 
-func TestExecutorAskNilRejectsHeadless(t *testing.T) {
-	// Headless mode wires Ask=nil: an Ask decision must reject without
-	// running the handler (Ask≡Deny), even if the gate did not fold it.
-	var ran atomic.Int32
-	reg := tooldef.Registry{
-		"bash": {
-			Definition: llm.ToolDefinition{Name: "bash"},
-			Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
-				ran.Add(1)
-				return tooldef.Result{Content: "ok"}, nil
-			},
-		},
-	}
-	ex := NewExecutor(reg, fixedGate{dec: permission.Ask, reason: "needs approval"}, nil, nil)
-	var statuses []session.ToolStatus
-	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{{
-		ID:       "c1",
-		Function: llm.Function{Name: "bash", Arguments: `{"command":"rm -rf /tmp/x"}`},
-	}}, func(td session.ToolData) bool {
-		statuses = append(statuses, td.Run.Status)
-		return true
-	})
-	require.Equal(t, int32(0), ran.Load(), "handler should not run when ask handler is nil (headless)")
-	require.Len(t, msgs, 1)
-	require.NotEmpty(t, msgs[0].Content, "expected rejection message")
-	require.Contains(t, statuses, session.ToolRejected)
-}
-
-func TestExecutorAskTrueRuns(t *testing.T) {
-	var ran atomic.Int32
-	reg := tooldef.Registry{
-		"bash": {
-			Definition: llm.ToolDefinition{Name: "bash"},
-			Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
-				ran.Add(1)
-				return tooldef.Result{Content: "ran"}, nil
-			},
-		},
-	}
-	ask := permission.AskFunc(func(context.Context, permission.Request, string) (permission.AskResult, error) {
-		return permission.AskResult{Approved: true}, nil
-	})
-	ex := NewExecutor(reg, fixedGate{dec: permission.Ask, reason: "needs approval"}, ask, nil)
-	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{{
-		ID:       "c1",
-		Function: llm.Function{Name: "bash", Arguments: `{"command":"curl x"}`},
-	}}, func(session.ToolData) bool { return true })
-	require.Equal(t, int32(1), ran.Load(), "handler should run when ask approved")
-	require.Len(t, msgs, 1)
-	require.Equal(t, "ran", msgs[0].Content)
-}
-
-func TestExecutorAskFeedbackMessage(t *testing.T) {
-	reg := tooldef.Registry{
-		"bash": {
-			Definition: llm.ToolDefinition{Name: "bash"},
-			Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
-				return tooldef.Result{Content: "ok"}, nil
-			},
-		},
-	}
-	ask := permission.AskFunc(func(context.Context, permission.Request, string) (permission.AskResult, error) {
-		return permission.AskResult{Approved: false, Feedback: "use go test instead"}, nil
-	})
-	ex := NewExecutor(reg, fixedGate{dec: permission.Ask, reason: "ask me"}, ask, nil)
-	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{{
-		ID:       "c1",
-		Function: llm.Function{Name: "bash", Arguments: `{"command":"curl x"}`},
-	}}, func(session.ToolData) bool { return true })
-	require.Len(t, msgs, 1)
-	require.Contains(t, msgs[0].Content, "use go test instead")
-}
-
 func TestExecutorExtDenySkipsGateAsk(t *testing.T) {
 	var ran atomic.Int32
-	var askCalled atomic.Int32
 	reg := tooldef.Registry{
 		"bash": {
 			Definition: llm.ToolDefinition{Name: "bash"},
@@ -201,10 +67,6 @@ func TestExecutorExtDenySkipsGateAsk(t *testing.T) {
 			},
 		},
 	}
-	ask := permission.AskFunc(func(context.Context, permission.Request, string) (permission.AskResult, error) {
-		askCalled.Add(1)
-		return permission.AskResult{Approved: true}, nil
-	})
 	r := loadExt(t, `package main
 import (
   "github.com/pulseaiclub/phi/ext/go"
@@ -221,7 +83,7 @@ func main() {
   _ = m.Run()
 }
 `)
-	ex := NewExecutor(reg, fixedGate{dec: permission.Ask, reason: "needs approval"}, ask, r)
+	ex := NewExecutor(reg, r)
 	var statuses []session.ToolStatus
 	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
@@ -231,62 +93,9 @@ func main() {
 		return true
 	})
 	assert.Equal(t, int32(0), ran.Load())
-	assert.Equal(t, int32(0), askCalled.Load())
 	require.Len(t, msgs, 1)
 	assert.Equal(t, "ext blocked", msgs[0].Content)
 	assert.Contains(t, statuses, session.ToolRejected)
-}
-
-func TestExecutorExtModifySeenByGateAndRun(t *testing.T) {
-	var sawArgs string
-	reg := tooldef.Registry{
-		"bash": {
-			Definition: llm.ToolDefinition{Name: "bash"},
-			Permission: fakePermission("bash"),
-			DetailFromArgs: func(input json.RawMessage) string {
-				var in struct {
-					Command string `json:"command"`
-				}
-				_ = json.Unmarshal(input, &in)
-				return in.Command
-			},
-			Run: func(_ context.Context, input json.RawMessage) (tooldef.Result, error) {
-				sawArgs = string(input)
-				return tooldef.Result{Content: "ran", Output: "ran"}, nil
-			},
-		},
-	}
-	gate := &recordingGate{}
-	r := loadExt(t, `package main
-import (
-  "encoding/json"
-  "github.com/pulseaiclub/phi/ext/go"
-  "github.com/pulseaiclub/phi/ext/go/phi"
-)
-func main() {
-  m := phi.New("test", "0.0.1")
-  m.OnToolCall(func(ev ext.ToolCallEvent) *ext.ToolCallResult {
-    return &ext.ToolCallResult{Input: json.RawMessage(`+"`"+`{"command":"echo safe"}`+"`"+`)}
-  })
-  _ = m.Run()
-}
-`)
-	ex := NewExecutor(reg, gate, nil, r)
-	var detail string
-	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{{
-		ID:       "c1",
-		Function: llm.Function{Name: "bash", Arguments: `{"command":"rm -rf /"}`},
-	}}, func(td session.ToolData) bool {
-		if td.Run.Status == session.ToolDone {
-			detail = td.Run.Detail
-		}
-		return true
-	})
-	assert.Equal(t, "echo safe", gate.last.Command)
-	assert.Contains(t, sawArgs, "echo safe")
-	assert.Equal(t, "echo safe", detail)
-	require.Len(t, msgs, 1)
-	assert.Equal(t, "ran", msgs[0].Content)
 }
 
 func TestExecutorExtPostContextOnModelOnly(t *testing.T) {
@@ -311,7 +120,7 @@ func main() {
   _ = m.Run()
 }
 `)
-	ex := NewExecutor(reg, permission.AllowAll{}, nil, r)
+	ex := NewExecutor(reg, r)
 	var uiOut string
 	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
@@ -336,15 +145,6 @@ func TestAppendExtContextEscapesCloseTag(t *testing.T) {
 	assert.Contains(t, got, "<ext_context>")
 }
 
-type recordingGate struct {
-	last permission.Request
-}
-
-func (g *recordingGate) Check(_ context.Context, req permission.Request) (permission.Decision, string) {
-	g.last = req
-	return permission.Allow, ""
-}
-
 func TestExecutorToolErrorKeepsOutputEmptyForUI(t *testing.T) {
 	const errMsg = "2 lines have changed since last read"
 	reg := tooldef.Registry{
@@ -356,7 +156,7 @@ func TestExecutorToolErrorKeepsOutputEmptyForUI(t *testing.T) {
 		},
 	}
 
-	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
+	ex := NewExecutor(reg, nil)
 	var last session.ToolRun
 	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{
 		{
@@ -405,7 +205,7 @@ func TestExecutorRunsReadableBatchConcurrently(t *testing.T) {
 			},
 		},
 	}
-	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
+	ex := NewExecutor(reg, nil)
 	done := make(chan struct{})
 	var msgs []llm.Message
 	go func() {
@@ -453,7 +253,7 @@ func TestExecutorMixedBatchStaysSequential(t *testing.T) {
 			},
 		},
 	}
-	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
+	ex := NewExecutor(reg, nil)
 	done := make(chan struct{})
 	var msgs []llm.Message
 	go func() {

@@ -4,15 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/permission"
-	"github.com/pulseaiclub/phi/internal/tools/tooldef"
-	"github.com/pulseaiclub/phi/internal/util"
-
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
+	"github.com/pulseaiclub/phi/internal/util"
 )
 
 const agentLaunchGuidance = `Launch a specialized sub-agent. Pick a role:
@@ -39,7 +39,6 @@ type agentConfig struct {
 	manager  *job.Manager
 	parentID func() string
 	workDir  func() string
-	gate     permission.Gate
 }
 
 // AgentOption configures [AgentTools].
@@ -59,11 +58,6 @@ func WithParentID(parentID func() string) AgentOption {
 // WithWorkDir sets the session cwd that relative sub-agent workdirs resolve against.
 func WithWorkDir(workDir func() string) AgentOption {
 	return func(cfg *agentConfig) { cfg.workDir = workDir }
-}
-
-// WithGate sets the trusted parent gate; never accepted from tool arguments.
-func WithGate(gate permission.Gate) AgentOption {
-	return func(cfg *agentConfig) { cfg.gate = gate }
 }
 
 // AgentTools returns agent_spawn and agent_wait.
@@ -125,18 +119,12 @@ Concurrency cap: at most %d sub-agents run concurrently; spawning more fails (jo
 			},
 		}),
 		tooldef.WithDetail(spawnDetail),
-		tooldef.WithPermission(tooldef.Declaration[spawnInput]{
-			Kind: permission.KindDelegate,
-			// The workdir becomes the child's workspace root, so the gate must
-			// see it; an omitted workdir resolves to the session cwd.
-			Paths: func(in spawnInput) ([]string, error) { return []string{in.WorkDir}, nil },
-		}),
 		tooldef.WithHandler(func(ctx context.Context, in spawnInput) (tooldef.Result, error) {
 			role, err := job.ParseRole(in.Role)
 			if err != nil {
 				return tooldef.Result{}, err
 			}
-			wd, err := permission.AbsCleanAt(strings.TrimSpace(in.WorkDir), cfg.workDir())
+			wd, err := absCleanAt(strings.TrimSpace(in.WorkDir), cfg.workDir())
 			if err != nil {
 				return tooldef.Result{}, fmt.Errorf("agent_spawn workdir: %w", err)
 			}
@@ -148,7 +136,6 @@ Concurrency cap: at most %d sub-agents run concurrently; spawning more fails (jo
 				Depth:           0,
 				Role:            role,
 				WorkDir:         wd,
-				Gate:            cfg.gate,
 			}
 			if in.TimeoutSec > 0 {
 				req.Timeout = time.Duration(in.TimeoutSec) * time.Second
@@ -245,11 +232,6 @@ A wait timeout or interrupted wait does NOT cancel the job; it keeps running unt
 			},
 		}),
 		tooldef.WithDetail(jobIDDetail),
-		// wait/cancel touch no path: controlling existing work is not a new
-		// permission surface.
-		tooldef.WithPermission(tooldef.Declaration[jobIDInput]{
-			Kind: permission.KindControl,
-		}),
 		tooldef.WithRun(func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
 			res, err := cfg.manager.HandleWait(ctx, input)
 			if err != nil {
@@ -272,6 +254,30 @@ A wait timeout or interrupted wait does NOT cancel the job; it keeps running unt
 			}, nil
 		}),
 	)
+}
+
+func absCleanAt(path, cwd string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		path = "."
+	}
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path), nil
+	}
+	if cwd == "" {
+		var err error
+		cwd, err = os.Getwd()
+		if err != nil {
+			return "", err
+		}
+	} else {
+		var err error
+		cwd, err = filepath.Abs(cwd)
+		if err != nil {
+			return "", err
+		}
+	}
+	return filepath.Clean(filepath.Join(cwd, path)), nil
 }
 
 func mustJSON(v any) string {

@@ -30,7 +30,6 @@ import (
 type runOptions struct {
 	prompt       string
 	jsonl        bool
-	yolo         bool
 	timeout      time.Duration
 	session      string
 	continueLast bool
@@ -68,13 +67,10 @@ func runHeadless(opts runOptions) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	bs, err := loadRunBootstrap(ctx, opts.sessionDir, opts.yolo)
+	bs, err := loadRunBootstrap(ctx, opts.sessionDir)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "phi run:", err)
 		return exitCode(ExitUsage)
-	}
-	if opts.yolo {
-		fmt.Fprintln(os.Stderr, "warning: --yolo skips all permission checks for this run")
 	}
 
 	resumeID, resumePath := "", ""
@@ -110,7 +106,6 @@ func runHeadless(opts runOptions) error {
 		defer func() { _ = pool.Close() }()
 	}
 	engineOpts := []agent.EngineConfigOption{
-		agent.WithGate(bs.Gate),
 		agent.WithExtensions(extRunner),
 	}
 	if opts.builtinTools != "" {
