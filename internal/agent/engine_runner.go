@@ -10,7 +10,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/project/model"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
@@ -18,20 +17,17 @@ import (
 
 // EngineRunner runs a child [Engine.Loop] as a [job.Runner].
 //
-// Each Run creates a fresh Engine with a persisted session under
-// <job.Dir>/session/, ParentID from the job, and no Ask handler.
+// Each Run creates a fresh Engine with a persisted session under <job.Dir>/session/.
 // Child engines do not receive Jobs, so they have no agent_* tools.
-// Role (explore|worker|review) selects tools and default permission mode
-// when Gate/Tools are nil. ModelFn (when set) selects the model per role;
-// otherwise Model is used as a fixed snapshot.
+// Role (explore|worker|review) selects tools when Tools is nil. ModelFn
+// selects the model per role when set; otherwise Model is used as a snapshot.
 //
-// Extensions (or ExtensionsFn) are inherited from the parent so policy
-// tool_call handlers apply. Extension RegisterTool tools are not merged
+// Extensions (or ExtensionsFn) are inherited from the parent so tool_call
+// handlers apply. Extension RegisterTool tools are not merged
 // into child engines. ExtensionsFn wins when set (live reload).
 type EngineRunner struct {
 	Model        llm.ModelConfig
 	ModelFn      func(role job.Role) llm.ModelConfig // if set, preferred over Model
-	Gate         permission.Gate                     // additional constraint alongside role and parent gates
 	Tools        []tooldef.Tool                      // nil → SpecForRole(job.Role).Tools
 	Extensions   *extension.Runner
 	ExtensionsFn func() *extension.Runner
@@ -44,7 +40,7 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 	}
 
 	spec := SpecForRole(env.Job.Role)
-	engine, err := r.newEngine(env.Job, spec, env.Gate)
+	engine, err := r.newEngine(env.Job, spec)
 	if err != nil {
 		return "", err
 	}
@@ -110,17 +106,11 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 	return lastText, nil
 }
 
-func (r EngineRunner) newEngine(meta job.Meta, spec ChildSpec, parentGate permission.Gate) (*Engine, error) {
+func (r EngineRunner) newEngine(meta job.Meta, spec ChildSpec) (*Engine, error) {
 	cwd := meta.WorkDir
 	if cwd == "" {
 		cwd = "."
 	}
-
-	roleGate, err := permission.NewGate(permission.ChildPolicy(spec.Mode), cwd)
-	if err != nil {
-		return nil, err
-	}
-	gate := permission.Intersect(r.Gate, roleGate)
 
 	toolList := r.Tools
 	if toolList == nil {
@@ -147,7 +137,6 @@ func (r EngineRunner) newEngine(meta job.Meta, spec ChildSpec, parentGate permis
 		return nil, err
 	}
 	return NewEngine(cfg, sess,
-		WithGate(permission.Intersect(parentGate, gate)),
 		WithTools(toolList),
 		WithExtensions(extRunner),
 		WithOmitExtensionTools(true),

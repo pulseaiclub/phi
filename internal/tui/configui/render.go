@@ -19,7 +19,6 @@ const (
 	xModel      = 4
 	xField      = 4
 	xModelField = 6
-	xNested     = 8
 )
 
 // labelX is the column a row's label starts at: model fields sit one level
@@ -162,34 +161,6 @@ func (e *ConfigEditor) paintRow(s *components.Surface, y int, r row, selected bo
 		if r.note != "" {
 			s.Print(x, y, components.TruncateToWidth(r.note, max(s.Size.Width-2-x, 1), method), secondary, method)
 		}
-	case rowItem:
-		x := xNested
-		x += s.Print(x, y, "· ", withBG(th.Border, bg, selected), method)
-		style := e.valStyle(r.style, bg, selected)
-		text := r.label
-		if e.edit != nil && e.edit.key == r.key {
-			text = e.edit.line.Text()
-			style = base
-			if selected {
-				style.Bg = bg
-			}
-		}
-		s.Print(x, y, components.TruncateToWidth(text, s.Size.Width-2-x, method), style, method)
-		if e.edit != nil && e.edit.key == r.key {
-			before, _ := e.edit.line.Split()
-			e.caretX = x + xui.StringWidth(before, method)
-			e.caretY = y
-		}
-
-	case rowNote:
-		s.Print(xNested, y, components.TruncateToWidth(r.label, s.Size.Width-2-xNested, method),
-			e.valStyle(r.style, bg, selected), method)
-	case rowAdd:
-		style := th.ToolName
-		if selected {
-			style = base
-		}
-		s.Print(xNested, y, components.TruncateToWidth(r.label, s.Size.Width-2-xNested, method), style, method)
 	case rowField:
 		e.paintField(s, y, r, selected, base, secondary, bg, method)
 	}
@@ -295,8 +266,6 @@ func (e *ConfigEditor) hintSegments() []string {
 	case e.confirm != nil:
 		// The shared decision-panel line reads as one hint.
 		return []string{chrome.ConfirmHint()}
-	case e.expanded != "":
-		return []string{"↑↓ move", "⏎ edit", "a add", "d delete", "esc close"}
 	default:
 		// Save outranks fetch: nothing reaches the file until it runs.
 		return []string{

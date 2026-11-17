@@ -8,13 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
-
-func permissionRequest() permission.Request {
-	return permission.Request{Kind: permission.KindExec, Tool: "bash", Command: "true"}
-}
 
 const testErrText = "request ended without sending any chunks"
 
@@ -211,16 +206,4 @@ func TestErrorAskReplacesOtherModals(t *testing.T) {
 	default:
 		require.Fail(t, "replaced ext confirm should resolve")
 	}
-
-	// And vice versa: a permission ask resolves the error dialog as dismissed.
-	permReply := make(chan controller.AskReply, 1)
-	o.beginPermissionAsk(controller.OverlayMsg{
-		Kind:      controller.OverlayPermissionAsk,
-		Request:   permissionRequest(),
-		PermReply: permReply,
-	})
-	require.Nil(t, o.err)
-	require.Len(t, replies, 1, "replaced error dialog resolves as dismissed")
-	require.False(t, replies[0].Retry)
-	require.False(t, replies[0].Copy)
 }

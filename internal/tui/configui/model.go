@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/project/model"
 )
@@ -17,22 +16,11 @@ import (
 const (
 	keySkillPath = "skill_path"
 
-	keyPermMode        = "perm.mode"
-	keyPermWorkspace   = "perm.workspace_only_writes"
-	keyPermTimeout     = "perm.ask_timeout_sec"
-	keyPermBashDefault = "perm.bash.default"
-	keyPermBashAllow   = "perm.bash.allow"
-	keyPermBashDeny    = "perm.bash.deny"
-	keyPermRules       = "perm.rules"
-
 	keyAgentsEnabled = "agents.enabled"
 	keyAgentsExplore = "agents.models.explore"
 	keyAgentsReview  = "agents.models.review"
 	keyAgentsWorker  = "agents.models.worker"
 )
-
-// keyPermRulePrefix keys one read-only row per configured rule.
-const keyPermRulePrefix = "perm.rules."
 
 // Model fields live under model.<index>.<field>.
 const (
@@ -79,28 +67,6 @@ func splitModelKey(key string) (index int, field string, ok bool) {
 	return index, field, true
 }
 
-func listItemKey(key string, index int) string {
-	return key + "#" + strconv.Itoa(index)
-}
-
-func listAddKey(key string) string { return key + "#new" }
-
-// splitListKey parses <field>#<index>, where index -1 marks the add row.
-func splitListKey(key string) (field string, index int, ok bool) {
-	base, suffix, found := strings.Cut(key, "#")
-	if !found {
-		return "", 0, false
-	}
-	if suffix == "new" {
-		return base, -1, true
-	}
-	index, err := strconv.Atoi(suffix)
-	if err != nil || index < 0 {
-		return "", 0, false
-	}
-	return base, index, true
-}
-
 type rowKind int
 
 const (
@@ -108,9 +74,6 @@ const (
 	rowError
 	rowModel
 	rowField
-	rowItem
-	rowAdd
-	rowNote
 )
 
 type fieldKind int
@@ -122,7 +85,6 @@ const (
 	kindBool      // tri-state: auto / on / off
 	kindPlainBool // plain bool with a default of off
 	kindChoice
-	kindList
 )
 
 // option is one choice value. An empty value drops the key from the file,
@@ -160,22 +122,19 @@ type row struct {
 	name  string
 	badge string
 
-	// rowField / rowItem / rowAdd
-	field     fieldKind
-	label     string
-	raw       string
-	display   string
-	style     valueStyle
-	hint      string
-	options   []option
-	items     []string
-	listKey   string // owning field key for rowItem / rowAdd
-	inherited bool   // list rows showing built-in rules rather than file rules
+	// rowField
+	field   fieldKind
+	label   string
+	raw     string
+	display string
+	style   valueStyle
+	hint    string
+	options []option
 }
 
 func (r row) selectable() bool {
 	switch r.kind {
-	case rowSection, rowError, rowNote:
+	case rowSection, rowError:
 		return false
 	default:
 		return true
@@ -211,20 +170,6 @@ var (
 		llm.XHigh:   "deeper still",
 		llm.Max:     "provider maximum",
 	}
-	permModeOptions = []option{
-		opt("", "auto", "interactive: ask before gated tools"),
-		opt(string(permission.ModeInteractive), "interactive", "ask before gated tools"),
-		opt(string(permission.ModeReadonly), "readonly", "deny writes, keep reads"),
-		opt(string(permission.ModeAutopilot), "autopilot", "fold ask to allow"),
-		opt(string(permission.ModeHeadlessStrict), "headless-strict", "fold ask to deny"),
-		opt(string(permission.ModeAllowAll), "allow-all", "skip all permission checks"),
-	}
-	bashDefaultOptions = []option{
-		opt("", "auto", "policy default (ask)"),
-		opt("ask", "ask", "prompt before running"),
-		opt("allow", "allow", "run without asking"),
-		opt("deny", "deny", "never run"),
-	}
 )
 
 // build rebuilds rows from the document. The caller re-anchors the cursor
@@ -235,34 +180,6 @@ func (e *ConfigEditor) build() {
 	e.addSection("Skills", "")
 	skills := displayPath(e.skills)
 	e.addField(e.fieldRow(fieldSpec{key: keySkillPath, label: "skill path", kind: kindText, placeholder: skills}))
-	e.addSection("Permissions", "")
-	e.addField(e.fieldRow(fieldSpec{key: keyPermMode, label: "mode", kind: kindChoice, options: permModeOptions}))
-	e.addField(e.fieldRow(fieldSpec{
-		key: keyPermWorkspace, label: "workspace only writes", kind: kindBool, defaultOn: true,
-	}))
-	e.addField(e.fieldRow(fieldSpec{
-		key: keyPermTimeout, label: "ask timeout", kind: kindInt, placeholder: strconv.Itoa(defaultTimeout()),
-	}))
-	e.addSection("Bash", "")
-	e.addField(e.fieldRow(fieldSpec{
-		key: keyPermBashDefault, label: "default", kind: kindChoice, options: bashDefaultOptions,
-	}))
-	e.addListField(keyPermBashAllow, "allow patterns")
-	e.addListField(keyPermBashDeny, "deny patterns")
-	e.addSection("Rules", "")
-	note := "none — set permissions.rules in config.yaml"
-	if n := len(e.permRules()); n == 1 {
-		note = "1 rule, read-only here — edit permissions.rules in config.yaml"
-	} else if n > 1 {
-		note = plural(n, "rule") + ", read-only here — edit permissions.rules in config.yaml"
-	}
-	e.addField(row{kind: rowNote, key: keyPermRules, label: note, style: styleMuted})
-	for i, rule := range e.permRules() {
-		e.addField(row{
-			kind: rowNote, key: keyPermRulePrefix + strconv.Itoa(i),
-			label: rule.Summary(), style: styleValue,
-		})
-	}
 	e.addSection("Sub-agents", "")
 	e.addField(e.fieldRow(fieldSpec{key: keyAgentsEnabled, label: "enabled", kind: kindBool, defaultOn: true}))
 	for _, role := range []struct{ key, label string }{
@@ -357,48 +274,6 @@ func (e *ConfigEditor) addSection(title, note string) {
 }
 
 func (e *ConfigEditor) addField(r row) { e.rows = append(e.rows, r) }
-
-// addListField appends a list field and, while it is expanded, its item rows.
-func (e *ConfigEditor) addListField(key, label string) {
-	items := e.listItems(key)
-	inherited := !e.listSet(key)
-	display := plural(len(items), "pattern")
-	style := styleValue
-	if inherited {
-		display, style = "built-in · "+plural(len(items), "pattern"), styleMuted
-	}
-	e.addField(row{
-		kind: rowField, key: key, field: kindList, label: label,
-		raw: strconv.Itoa(len(items)), display: display, style: style,
-		items: items, listKey: key, inherited: inherited,
-	})
-	if e.expanded != key {
-		return
-	}
-	for i, item := range items {
-		style := styleValue
-		if inherited {
-			style = styleMuted
-		}
-		e.addField(row{
-			kind: rowItem, key: listItemKey(key, i), label: item, style: style,
-			items: items, listKey: key, inherited: inherited,
-		})
-	}
-	e.addField(row{
-		kind: rowAdd, key: listAddKey(key), label: addLabel(inherited),
-		style: styleMuted, listKey: key, inherited: inherited,
-	})
-}
-
-// addLabel names the "add a rule" row; a list that is still inheriting gets an
-// explicit warning that the first edit writes the built-in rules out too.
-func addLabel(inherited bool) string {
-	if inherited {
-		return "+ new pattern (keeps built-in rules)"
-	}
-	return "+ new pattern"
-}
 
 // fieldRow renders one field. It is the only place the value column is built,
 // so styling stays consistent across sections.
@@ -501,30 +376,9 @@ func (e *ConfigEditor) rawFor(key string) string {
 		}
 		return ""
 	}
-	if base, index, ok := splitListKey(key); ok {
-		items := e.listItems(base)
-		if index < 0 || index >= len(items) {
-			return ""
-		}
-		return items[index]
-	}
 	switch key {
 	case keySkillPath:
 		return stringValue(e.doc.SkillPath)
-	case keyPermMode:
-		return permString(e.doc, func(p *project.PermDoc) string {
-			// The deprecated bool reads as the mode it migrates to.
-			if p.Mode == "" && p.DangerouslyAllowAll != nil && *p.DangerouslyAllowAll {
-				return string(permission.ModeAllowAll)
-			}
-			return p.Mode
-		})
-	case keyPermWorkspace:
-		return triString(permBool(e.doc, func(p *project.PermDoc) *bool { return p.WorkspaceOnlyWrites }))
-	case keyPermTimeout:
-		return intString(permInt(e.doc, func(p *project.PermDoc) *int { return p.AskTimeoutSec }))
-	case keyPermBashDefault:
-		return bashString(e.doc, func(b *project.BashDoc) string { return b.Default })
 	case keyAgentsEnabled:
 		return triString(agentsBool(e.doc, func(a *project.AgentsDoc) *bool { return a.Enabled }))
 	case keyAgentsExplore, keyAgentsReview, keyAgentsWorker:
@@ -548,31 +402,9 @@ func (e *ConfigEditor) apply(key, value string) error {
 	if index, field, ok := splitModelKey(key); ok {
 		return e.applyModel(index, field, value)
 	}
-	if base, index, ok := splitListKey(key); ok {
-		return e.applyListItem(base, index, value)
-	}
 	switch key {
 	case keySkillPath:
 		e.doc.SkillPath = optionalString(strings.TrimSpace(value))
-	case keyPermMode:
-		p := perms(e.doc)
-		p.Mode = strings.TrimSpace(value)
-		// Saving a mode supersedes the deprecated key.
-		p.DangerouslyAllowAll = nil
-	case keyPermWorkspace:
-		on, err := parseTri(value)
-		if err != nil {
-			return err
-		}
-		perms(e.doc).WorkspaceOnlyWrites = on
-	case keyPermTimeout:
-		secs, err := parsePositiveInt(value, "seconds")
-		if err != nil {
-			return err
-		}
-		perms(e.doc).AskTimeoutSec = secs
-	case keyPermBashDefault:
-		bash(e.doc).Default = value
 	case keyAgentsEnabled:
 		on, err := parseTri(value)
 		if err != nil {
@@ -651,94 +483,6 @@ func (e *ConfigEditor) applyModel(index int, field, value string) error {
 	return nil
 }
 
-func (e *ConfigEditor) applyListItem(base string, index int, value string) error {
-	items := e.listItems(base)
-	// The pattern is stored verbatim: bash rules are regexes, and trimming one
-	// would quietly change what it matches.
-	rule := value
-	switch {
-	case index < 0:
-		if strings.TrimSpace(rule) == "" {
-			return errors.New("pattern cannot be empty")
-		}
-		items = append(items, rule)
-	case index < len(items):
-		if strings.TrimSpace(rule) == "" {
-			return errors.New("pattern cannot be empty")
-		}
-		items[index] = rule
-	default:
-		return fmt.Errorf("no pattern at %d", index+1)
-	}
-	return e.setList(base, items)
-}
-
-// listItems returns the effective rules of a bash list field: the explicit list
-// when the key is set, otherwise the loader's built-in defaults. Always a copy,
-// so callers may edit it.
-func (e *ConfigEditor) listItems(key string) []string {
-	var list []string
-	switch key {
-	case keyPermBashAllow:
-		list = bashStringList(e.doc, func(b *project.BashDoc) *project.StringList { return b.Allow })
-	case keyPermBashDeny:
-		list = bashStringList(e.doc, func(b *project.BashDoc) *project.StringList { return b.Deny })
-	default:
-		return nil
-	}
-	if list == nil {
-		policy := permission.DefaultPolicy()
-		if key == keyPermBashAllow {
-			list = policy.BashAllow
-		} else {
-			list = policy.BashDeny
-		}
-	}
-	return append([]string(nil), list...)
-}
-
-// listSet reports whether the rules are written in the file, which is when
-// there is no such key.
-func (e *ConfigEditor) listSet(key string) bool {
-	switch key {
-	case keyPermBashAllow:
-		return bashStringList(e.doc, func(b *project.BashDoc) *project.StringList { return b.Allow }) != nil
-	case keyPermBashDeny:
-		return bashStringList(e.doc, func(b *project.BashDoc) *project.StringList { return b.Deny }) != nil
-	default:
-		return false
-	}
-}
-
-// setList writes rules as an explicit list. An empty list stays explicit on
-// purpose: it is how a user says "no patterns at all".
-func (e *ConfigEditor) setList(key string, items []string) error {
-	list := project.StringList(items)
-	b := bash(e.doc)
-	switch key {
-	case keyPermBashAllow:
-		b.Allow = &list
-	case keyPermBashDeny:
-		b.Deny = &list
-	default:
-		return fmt.Errorf("unknown rule list %q", key)
-	}
-	return nil
-}
-
-// removeListItem drops one rule, materializing the built-in rules first when
-// the file had none.
-func (e *ConfigEditor) removeListItem(key string, index int) {
-	items := e.listItems(key)
-	if index < 0 || index >= len(items) {
-		return
-	}
-	items = append(items[:index:index], items[index+1:]...)
-	if err := e.setList(key, items); err != nil {
-		e.setError(err.Error())
-	}
-}
-
 func (e *ConfigEditor) modelAt(index int) *project.ModelDoc {
 	if index < 0 || index >= len(e.doc.Models) {
 		return nil
@@ -794,13 +538,6 @@ func humanTokens(n int) string {
 	default:
 		return strconv.Itoa(n)
 	}
-}
-
-func plural(n int, noun string) string {
-	if n == 1 {
-		return "1 " + noun
-	}
-	return strconv.Itoa(n) + " " + noun + "s"
 }
 
 func onOff(on bool) string {
@@ -880,32 +617,6 @@ func intString(v *int) string {
 	return strconv.Itoa(*v)
 }
 
-func defaultTimeout() int { return permission.DefaultPolicy().AskTimeoutSec }
-
-func perms(doc *project.ConfigDoc) *project.PermDoc {
-	if doc.Permissions == nil {
-		doc.Permissions = &project.PermDoc{}
-	}
-	return doc.Permissions
-}
-
-// permRules returns the configured rules; the editor shows them without
-// editing them, since a rule is a struct rather than the scalar this form edits.
-func (e *ConfigEditor) permRules() []permission.RuleSpec {
-	if e.doc.Permissions == nil {
-		return nil
-	}
-	return e.doc.Permissions.Rules
-}
-
-func bash(doc *project.ConfigDoc) *project.BashDoc {
-	p := perms(doc)
-	if p.Bash == nil {
-		p.Bash = &project.BashDoc{}
-	}
-	return p.Bash
-}
-
 func agents(doc *project.ConfigDoc) *project.AgentsDoc {
 	if doc.Agents == nil {
 		doc.Agents = &project.AgentsDoc{}
@@ -919,44 +630,6 @@ func agentsModels(doc *project.ConfigDoc) *project.AgentsRoleModels {
 		a.Models = &project.AgentsRoleModels{}
 	}
 	return a.Models
-}
-
-func permString(doc *project.ConfigDoc, pick func(*project.PermDoc) string) string {
-	if doc.Permissions != nil {
-		return pick(doc.Permissions)
-	}
-	return ""
-}
-
-func permBool(doc *project.ConfigDoc, pick func(*project.PermDoc) *bool) *bool {
-	if doc.Permissions != nil {
-		return pick(doc.Permissions)
-	}
-	return nil
-}
-
-func permInt(doc *project.ConfigDoc, pick func(*project.PermDoc) *int) *int {
-	if doc.Permissions != nil {
-		return pick(doc.Permissions)
-	}
-	return nil
-}
-
-func bashString(doc *project.ConfigDoc, pick func(*project.BashDoc) string) string {
-	if doc.Permissions != nil && doc.Permissions.Bash != nil {
-		return pick(doc.Permissions.Bash)
-	}
-	return ""
-}
-
-func bashStringList(doc *project.ConfigDoc, pick func(*project.BashDoc) *project.StringList) []string {
-	if doc.Permissions == nil || doc.Permissions.Bash == nil {
-		return nil
-	}
-	if list := pick(doc.Permissions.Bash); list != nil {
-		return *list
-	}
-	return nil
 }
 
 func agentsBool(doc *project.ConfigDoc, pick func(*project.AgentsDoc) *bool) *bool {

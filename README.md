@@ -12,7 +12,7 @@
   <a href="https://github.com/pulseaiclub/phi/releases"><img src="https://img.shields.io/github/v/release/pulseaiclub/phi?style=flat&colorA=222222&colorB=8957E5" alt="Release"></a>
 </p>
 
-- 15 MB · ~31 ms  · sub-agents · anchored sloppy edits · permission gate · progressive MCP · PXB extensions · native diff review & code selection · OpenAI / Anthropic / Gemini
+- 15 MB · ~31 ms  · sub-agents · anchored sloppy edits · progressive MCP · PXB extensions · native diff review & code selection · OpenAI / Anthropic / Gemini
 
 ![phi welcome](assets/phi.png)
 
@@ -32,7 +32,6 @@
 - [Sessions](#sessions)
 - [Headless mode](#headless-mode)
 - [Skills](#skills)
-- [Permissions](#permissions)
 - [Extensions](#extensions)
 - [MCP](#mcp)
 - [Tools](#tools)
@@ -218,19 +217,6 @@ agents:
     review: strong-model
     worker: coding-model
 
-permissions:
-  mode: interactive       # interactive | readonly | autopilot | headless-strict | allow-all
-  bash:
-    default: ask          # ask | allow | deny
-    allow:
-      - "go test ./..."
-    deny:
-      - "rm -rf *"
-  rules:                  # extra rules; deny > ask > allow, always
-    - kind: read
-      resource: url
-      decision: ask
-      reason: external lookup needs approval
 ```
 
 Built-in presets and thinking wire formats: [doc/models.md](doc/models.md).
@@ -280,7 +266,7 @@ The editor supports:
 - `?` — shortcut help picker (lists `/`, `!`, `!!`, `@`, and key bindings; `Esc` closes)
 - `!command` — run a shell command locally and stream its output into the
   transcript (see [Commands](#commands))
-- `Ctrl+K` — command palette: settings → model / theme / permissions / agents (incl. per-role models), hooks
+- `Ctrl+K` — command palette: settings → model / theme / agents (incl. per-role models) / thinking / debug, plus extension management (`extensions`); use `/skill` to select a skill.
 
 ### Keyboard shortcuts
 
@@ -328,9 +314,8 @@ diffs drops them and nothing is written to disk.
 CJK-aware caret (`j`/`k`, `h`/`l`, `gg`/`G`), in-file search (`/`, then `n`/`N`),
 `:line` to jump to a line, and `v` for lines or `p` for the paragraph under the
 caret, then `a` to hand the selection to the chat input as a `path:12-18`
-reference the model reads. The pane reads files itself and answers to the same
-deny list as the tool gate, so sensitive paths (`~/.ssh`, `.env`, …), binaries
-and files over 8 MiB are refused with a toast.
+reference the model reads. The pane reads files itself and refuses sensitive
+paths (`~/.ssh`, `.env`, …), binaries, and files over 8 MiB with a toast.
 
 `Esc` closes, or cancels a search back to where `/` was pressed. The status row
 shows the path, caret and line count while reading, the selection size while `v`
@@ -420,7 +405,6 @@ Flags:
 | -------------------- | ---------------------------------------------- |
 | `-p, --prompt STRING`| Prompt to run (required)                       |
 | `--jsonl`            | Emit JSONL events to stdout                    |
-| `--yolo`             | Skip all permission checks for this run (benchmarks / CI only) |
 | `--timeout DURATION` | Limit the agent run wall-clock time (e.g. `10m`; disabled by default) |
 | `--session ID`       | Resume a persisted session by id or unique prefix |
 | `--continue-last`    | Resume the newest persisted session for this directory |
@@ -436,13 +420,6 @@ An unknown `--model` name fails before the loop starts and exits with code 3.
 
 Exit codes: `0` success · `1` runtime/LLM error ·
 `3` config/usage error.
-
-In headless mode, permission `ask` decisions are denied (there is no approval
-UI): unless `permissions.mode` is set, `phi run` uses `headless-strict`. This
-is not `readonly` — anything the policy already allows still runs, including
-writes inside the workspace and allowlisted bash. For benchmarks that need
-arbitrary shell (`pytest`, `npm test`, …), pass `--yolo` to skip the
-permission gate for that run only.
 
 ## Skills
 
@@ -484,38 +461,6 @@ access control: the model can still find the file with `ls` / `find`.
 In the TUI, type `/skill` and pick a row from the list, then submit the message
 with the selected skills applied.
 
-## Permissions
-
-Tool execution is gated by a permission policy, so the agent can run read-only
-by default and ask before anything destructive. Configure it under
-`permissions:` in `~/.phi/config.yaml`.
-
-Modes:
-
-| Mode               | Behavior                                            |
-| ------------------ | --------------------------------------------------- |
-| `interactive`      | Default. `ask` decisions prompt in the TUI.         |
-| `readonly`         | Deny writes and `ask`; policy-allowed bash still runs. |
-| `autopilot`        | Fold `ask` → deny (same as `headless-strict` today). |
-| `headless-strict`  | Fold `ask` → deny (used by `phi run`).              |
-| `allow-all`        | Skip every permission check.                        |
-
-`readonly` does not block every bash command: a command the underlying policy
-allows (`bash.allow`, or `bash.default: allow`) still runs after the deny list
-is checked. Writes, other `ask` decisions, and `agent_spawn` are denied.
-
-Per-tool rules: `bash.default` / `bash.allow` / `bash.deny` (regexes against
-the command). `permissions.rules` adds your own rules by tool, kind, command,
-path, or workspace scope; they are evaluated strictest-first (`deny` > `ask` >
-`allow`), so a rule can tighten a policy but never loosen one. Global keys:
-`workspace_only_writes` (default true) and `ask_timeout_sec`. The deprecated
-`dangerously_allow_all: true` still loads as `mode: allow-all`. Full semantics
-and examples: [doc/permissions.md](doc/permissions.md).
-
-In the TUI, an approval dialog replaces the editor with options to approve,
-deny with feedback, or allow all for the session / for every session. The
-palette's settings → permissions entry toggles session-wide bypass.
-
 ## Extensions
 
 Extensions are native binaries speaking the **PXB** binary protocol over
@@ -525,7 +470,7 @@ stdin/stdout (author SDKs: Go `github.com/pulseaiclub/phi/ext/go/phi`, Rust
 subscribe to tool/session events, register LLM tools, and add slash commands.
 
 ```bash
-go get github.com/pulseaiclub/phi/ext/go@v0.21.0
+go get github.com/pulseaiclub/phi/ext/go@v0.25.6
 ```
 
 ```go
@@ -579,7 +524,7 @@ Instead MCP is a **URL namespace** on the regular tools, and the system prompt l
 | Invoke | `write mcp://<server>/tools/<tool>` with content = JSON args |
 
 Flow: pick a server from the prompt → `ls` → `read` → `write`. Subprocesses start **lazily** on first use.
-Browsing is read-tier; invokes still go through PreHooks → write Gate / Ask → Run → PostHooks.
+Browsing lists available tools; invokes call the selected MCP tool and return its result.
 
 ```sh
 phi mcp add browsermcp -- npx @browsermcp/mcp@latest
@@ -630,7 +575,7 @@ Built-in tools the model can call (see `internal/tools/`):
 | -------------- | -------------------------------------------- |
 | `bash`         | Run a shell command in the working directory |
 | `read`         | Read a file                                  |
-| `write`        | Write a file (gated by permissions)          |
+| `write`        | Write a file                                 |
 | `edit`         | Targeted edit of a file                      |
 | `grep`         | Regex search across files                    |
 | `find`         | File patterns (fd)                           |

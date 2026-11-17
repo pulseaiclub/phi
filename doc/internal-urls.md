@@ -1,7 +1,7 @@
 # Internal URLs
 
 `internal/urls` owns the `mcp://` URL grammar. It parses only: no pool access,
-no permission checks, no I/O.
+no I/O.
 
 ## Grammar
 
@@ -24,10 +24,6 @@ stays one opaque name instead of turning into a host/port pair.
 the JSON argument object as content. Plain paths fall through to file handling;
 a malformed `mcp://` URL is an error, never a silent fallback.
 
-Permission stays in `internal/permission`: internal URLs are kept verbatim
-(never cwd-joined or workspace-checked), browsing is read-tier, and invocation
-goes through the write gate. Any new URL-backed tool must preserve
-ExtensionPre → Gate/Ask → Run → ExtensionPost and authorize the same target it
-then reads.
+Internal URLs are kept verbatim (never cwd-joined or workspace-checked).
 
 No artifact, network, or `file://` handlers are provided.

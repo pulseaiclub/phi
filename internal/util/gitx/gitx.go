@@ -49,9 +49,6 @@ type Status struct {
 	Op    string // in-progress operation: merge, rebase, cherry-pick, revert, bisect
 }
 
-// Clean reports whether switching is safe without touching local work.
-func (s Status) Clean() bool { return s.Dirty == 0 && s.Op == "" }
-
 // LocalName is the local branch a row stands for. A remote-tracking ref means
 // "the local branch of that name, tracking this one": origin/feat is what
 // `git switch feat` checks out. Non-remote branches return their own name.

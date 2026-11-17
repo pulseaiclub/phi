@@ -20,7 +20,7 @@
 | `internal/tui/transcript/` | Session→widget projection (Mapper, Pane) |
 | `internal/tui/composer/` | Chat input, `/` `?` `@` `!` pickers, palette |
 | `internal/tui/footer/`   | Activity spinner, token labels, update hint |
-| `internal/tui/overlays/` | Permission / ext-confirm / error panels |
+| `internal/tui/overlays/` | Extension confirmation / error panels |
 | `internal/tui/diffpane/` | Git diff review overlay (`/diff`) |
 | `internal/tui/codepane/` | Source viewer overlay (`/code`) |
 | `internal/tui/submit/`   | Submit, cancel, slash dispatch, bash runner |
@@ -30,7 +30,6 @@
 | `internal/version/`      | Build-time `Version` (splash / `phi update`) |
 | `internal/util/`         | Shared helpers (diff, retry, SSE, file search, …) |
 | `internal/util/diffreview/` | Unified-diff parse/render, in-memory review notes, git load |
-| `internal/permission/`   | Permission policy and ask gate                 |
 | `internal/extension/`    | PXB extension host: runner + layers (`core`/`loader`/`install`/`create`) |
 | `internal/mcp/`          | MCP config + stdio client + pool (mcp:// URL route) |
 

@@ -100,7 +100,7 @@ func TestPreflightReportsDirtyAndOperation(t *testing.T) {
 
 	st, err := Preflight(t.Context(), dir)
 	require.NoError(t, err)
-	assert.True(t, st.Clean())
+	assert.Equal(t, Status{}, st)
 
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "new.txt"), []byte("x"), 0o600))
 	st, err = Preflight(t.Context(), dir)
@@ -113,7 +113,7 @@ func TestPreflightReportsDirtyAndOperation(t *testing.T) {
 	st, err = Preflight(t.Context(), dir)
 	require.NoError(t, err)
 	assert.Equal(t, "merge", st.Op)
-	assert.False(t, st.Clean())
+	assert.NotEqual(t, Status{}, st)
 }
 
 func TestSwitchChangesCurrentBranch(t *testing.T) {

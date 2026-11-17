@@ -47,7 +47,7 @@ func TestSetModelUpdatesFooterContextWindow(t *testing.T) {
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
 	bus := controller.NewBus(nil)
-	ctrl, err := controller.NewController(bus, proj)
+	ctrl, err := controller.NewController(bus, proj, nil)
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 	require.Equal(t, 192000, ctrl.ContextWindow())
@@ -91,7 +91,7 @@ func TestSettingsPaletteMarksCurrentValues(t *testing.T) {
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
 	bus := controller.NewBus(nil)
-	ctrl, err := controller.NewController(bus, proj)
+	ctrl, err := controller.NewController(bus, proj, nil)
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 
@@ -113,11 +113,6 @@ func TestSettingsPaletteMarksCurrentValues(t *testing.T) {
 	theme := byID["settings-theme"]
 	require.NotEmpty(t, theme.Submenu)
 	assert.Equal(t, chrome.CurrentMarker(true)+"Dark (builtin)", theme.Submenu[0].Verb)
-
-	// The TUI starts in bypass, so "off — allow all" is current.
-	perm := byID["settings-permissions"]
-	require.Len(t, perm.Submenu, 2)
-	assert.Equal(t, chrome.CurrentMarker(true)+"off — allow all (no prompts)", perm.Submenu[0].Verb)
 
 	// No per-role override configured, so each role inherits the parent.
 	agents := byID["settings-agents"]

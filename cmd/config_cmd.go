@@ -18,7 +18,7 @@ var configCommand = cli.Command{
 	Name: "config",
 	Desc: "edit the meta config in a terminal UI",
 	Long: `Edit the meta config in a full-screen terminal UI (models, skills,
-permissions, sub-agents). Changes are written only on save; the previous file
+sub-agents). Changes are written only on save; the previous file
 is kept next to it as config.yaml.bak.`,
 }
 

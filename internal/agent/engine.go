@@ -18,7 +18,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/llm/extmodel"
 	"github.com/pulseaiclub/phi/internal/llm/skills"
 	"github.com/pulseaiclub/phi/internal/mcp"
-	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/session/compaction"
 	"github.com/pulseaiclub/phi/internal/tools"
@@ -34,8 +33,6 @@ type Engine struct {
 	executor     *Executor
 	modelCfg     llm.ModelConfig
 	hooks        llmclient.Hooks
-	gate         permission.Gate
-	ask          permission.AskFunc
 	jobs         *job.Manager
 	extensions   *extension.Runner // nil = disabled; all methods are nil-safe no-ops
 	baseTools    []tooldef.Tool    // nil = DefaultTools; preserved across rebind
@@ -46,20 +43,18 @@ type Engine struct {
 }
 
 // NewEngine wires an LLM client, tool executor, and an externally created session.
-func NewEngine(model llm.ModelConfig, sess *Session, opts ...EngineOption) (*Engine, error) {
+func NewEngine(model llm.ModelConfig, sess *Session, opts ...EngineConfigOption) (*Engine, error) {
 	if sess == nil {
 		return nil, errors.New("agent: session is required")
 	}
-	var cfg engineConfig
+	var cfg EngineConfig
 	for _, opt := range opts {
-		opt(&cfg)
+		cfg = opt.Apply(cfg)
 	}
 	engine := &Engine{
 		modelCfg:     model,
 		hooks:        cfg.hooks,
 		session:      sess,
-		gate:         cfg.gate,
-		ask:          cfg.ask,
 		jobs:         cfg.jobs,
 		extensions:   cfg.extensions,
 		omitExtTools: cfg.omitExtTools,
@@ -117,7 +112,6 @@ func (engine *Engine) buildCoreTools(base []tooldef.Tool) []tooldef.Tool {
 		agenttool.WithManager(engine.jobs),
 		agenttool.WithParentID(engine.SessionID),
 		agenttool.WithWorkDir(engine.SessionCwd),
-		agenttool.WithGate(engine.gate),
 	)
 	merged := make([]tooldef.Tool, 0, len(out)+len(agentTools))
 	merged = append(merged, out...)
@@ -154,7 +148,7 @@ func (engine *Engine) rebindTools() {
 	}
 	toolList := engine.buildToolList(engine.baseTools)
 	engine.client = engine.newChatClient(toolList)
-	engine.executor = NewExecutor(tooldef.NewRegistry(toolList), engine.gate, engine.ask, engine.extensions)
+	engine.executor = NewExecutor(tooldef.NewRegistry(toolList), engine.extensions)
 	engine.executor.cwd = engine.SessionCwd()
 }
 
@@ -182,16 +176,6 @@ func (engine *Engine) systemPrompt() string {
 func (engine *Engine) HasTool(name string) bool {
 	_, ok := engine.executor.registry[name]
 	return ok
-}
-
-// SetPermission updates the gate and ask handler used by the tool executor.
-func (engine *Engine) SetPermission(gate permission.Gate, ask permission.AskFunc) {
-	engine.gate = gate
-	engine.ask = ask
-	engine.executor.gate = gate
-	engine.executor.ask = ask
-	// Spawn handlers capture the gate for each parent configuration.
-	engine.executor.registry = tooldef.NewRegistry(engine.buildToolList(engine.baseTools))
 }
 
 // SetExtensions replaces the extension runner. Pass nil to disable extensions.

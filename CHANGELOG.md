@@ -10,8 +10,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Removed
 
+- Removed the built-in permission policy, permission configuration, approval UI, and `--yolo` flag. Tool calls now run through the normal extension and execution pipeline.
+- agent: remove the unused `ChildTools` helper. Sub-agent tool lists come from
+  `SpecForRole`, which was already the only implementation.
+- gitx: remove `Status.Clean`, which only tests used; they now compare the
+  status directly.
+
 ### Changed
 
+- Permission policies can be implemented by extensions through tool-call interception, blocking, and input rewriting.
+- docs: the `go get` examples for the `ext/go` SDK name v0.25.6, the current tag,
+  instead of v0.21.0.
+- urls: an explicit `?limit=` outside 1-1000 now fails with the message that
+  names that range, instead of the struct-field wording that also allows zero.
+  Both messages come from named constants so the two cases cannot drift apart.
 - MCP: compact tool summaries mark required params with a `*` name prefix
   (`*owner:s`) and the system prompt legend explains the notation
   (`s`/`n`/`b`/`o`/`a`/`?`/`{enum}`/`*`).

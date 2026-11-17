@@ -3,8 +3,6 @@ package job
 import (
 	"fmt"
 	"time"
-
-	"github.com/pulseaiclub/phi/internal/permission"
 )
 
 // Status is the lifecycle state of a job.
@@ -67,8 +65,7 @@ type SpawnRequest struct {
 	Depth           int           // 0 = top-level; tool layer should force Depth for children
 	Role            Role          // explore | worker | review; empty → explore
 	WorkDir         string
-	Timeout         time.Duration   // 0 = no run timeout; Cancel still works
-	Gate            permission.Gate // trusted parent constraint; never persisted
+	Timeout         time.Duration // 0 = no run timeout; Cancel still works
 }
 
 func (r SpawnRequest) validate() error {
