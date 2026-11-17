@@ -95,7 +95,7 @@ func extractToolContent(raw json.RawMessage) string {
 	return out
 }
 
-// parseHTTPOrSSEBody accepts plain JSON or SSE lines starting with "data: ".
+// parseHTTPOrSSEBody accepts plain JSON or SSE data frames.
 // Servers may interleave log notifications (notifications/message, no id)
 // before the response frame, so the first frame that is an actual response
 // (id set, no method) wins. If none matches, the first parseable frame is
@@ -106,11 +106,12 @@ func parseHTTPOrSSEBody(body []byte) (jsonRPCResponse, error) {
 	found := false
 	for line := range strings.SplitSeq(text, "\n") {
 		s := strings.TrimSpace(line)
-		if !strings.HasPrefix(s, "data: ") {
+		payload, ok := sseData(s)
+		if !ok {
 			continue
 		}
 		var rpc jsonRPCResponse
-		if err := json.Unmarshal([]byte(s[len("data: "):]), &rpc); err != nil {
+		if err := json.Unmarshal([]byte(payload), &rpc); err != nil {
 			continue
 		}
 		if !found {
@@ -128,6 +129,17 @@ func parseHTTPOrSSEBody(body []byte) (jsonRPCResponse, error) {
 		return jsonRPCResponse{}, fmt.Errorf("parse http body: %w; raw=%q", err, util.TruncateBytes(text, 200, "…"))
 	}
 	return rpc, nil
+}
+
+// sseData returns the value of one Server-Sent Events "data:" field line.
+// The space after the colon is optional framing: the spec strips one when it
+// is present, so both "data:{...}" and "data: {...}" carry the same payload.
+func sseData(line string) (string, bool) {
+	value, ok := strings.CutPrefix(line, "data:")
+	if !ok {
+		return "", false
+	}
+	return strings.TrimPrefix(value, " "), true
 }
 
 func resultOrError(method string, rpc jsonRPCResponse) (json.RawMessage, error) {

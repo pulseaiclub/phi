@@ -42,7 +42,7 @@ func TestModelLifecycle(t *testing.T) {
 	ctrl.Close()
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
-	restarted, err := NewController(NewBus(nil), proj)
+	restarted, err := NewController(NewBus(nil), proj, nil)
 	require.NoError(t, err)
 	defer restarted.Close()
 	assert.Equal(t, "primary", restarted.ModelName(), "startup must use the configured default")
@@ -75,7 +75,7 @@ func newTestController(t *testing.T, baseURL string) *EngineController {
 	cwd := t.TempDir()
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
-	ctrl, err := NewController(NewBus(nil), proj)
+	ctrl, err := NewController(NewBus(nil), proj, nil)
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 	return ctrl

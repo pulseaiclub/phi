@@ -64,7 +64,7 @@ type EngineController struct {
 
 // NewController returns a live EngineController. proj must be non-nil.
 // Failure returns (nil, err), never a half-initialized value.
-func NewController(bus *Bus, proj *project.Project) (*EngineController, error) {
+func NewController(bus *Bus, proj *project.Project, extRunner *extension.Runner) (*EngineController, error) {
 	if err := proj.LoadConfig(); err != nil {
 		return nil, err
 	}
@@ -85,7 +85,6 @@ func NewController(bus *Bus, proj *project.Project) (*EngineController, error) {
 	c.initGate(config.Permissions)
 	c.agentsEnabled.Store(config.Agents.Enabled)
 
-	extRunner := loadExtensions(proj)
 	c.extRunner.Store(extRunner)
 	c.bindExtensionHost(extRunner)
 

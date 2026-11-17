@@ -33,6 +33,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- MCP: accept an SSE response framed as `data:{...}`, without the optional
+  space after the field colon, instead of failing with `parse http body`.
 - `find` no longer reports "results limit reached" when the total number of
   matching files equals the requested limit.
 - `phi run` rejects stray positional arguments with a usage error (exit 3).
