@@ -63,7 +63,10 @@ func PrepareCompact(
 
 	firstKeptEntry := pathEntries[cutPoint.firstKeptEntryIndex]
 	if firstKeptEntry.GetID() == "" {
-		return nil, fmt.Errorf("session compaction: entry at index %d has no ID (pre-migration format)", cutPoint.firstKeptEntryIndex)
+		return nil, fmt.Errorf(
+			"session compaction: entry at index %d has no ID (pre-migration format)",
+			cutPoint.firstKeptEntryIndex,
+		)
 	}
 
 	firstKeptEntryID := firstKeptEntry.GetID()
