@@ -254,9 +254,15 @@ func TestFDArgsLimitCannotOverflow(t *testing.T) {
 		assert.Equal(t, maxFindLimit+1, n, "limit %d must be capped at %d", limit, maxFindLimit)
 	}
 
-	// The hint multiplies the limit too, so it must not print a negative page.
+	// At maxFindLimit, the hint must not suggest an impossible limit above the cap.
 	hint := renderFindResult([]string{"/a"}, true, normalizeFindLimit(math.MaxInt))
-	assert.Contains(t, hint, fmt.Sprintf("limit=%d", maxFindLimit*2))
+	assert.Contains(t, hint, fmt.Sprintf("(%d results limit reached.", maxFindLimit))
+	assert.Contains(t, hint, "Refine pattern/path")
+	assert.NotContains(t, hint, "Use limit=")
+
+	// Below maxFindLimit, the suggested retry limit stays within maxFindLimit.
+	nearCapHint := renderFindResult([]string{"/a"}, true, maxFindLimit-1000)
+	assert.Contains(t, nearCapHint, fmt.Sprintf("limit=%d", maxFindLimit))
 }
 
 func argValue(args []string, name string) (string, bool) {

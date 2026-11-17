@@ -324,11 +324,18 @@ func renderFindResult(files []string, truncated bool, limit int) string {
 	}
 	result := strings.Join(files, "\n")
 	if truncated {
-		result += fmt.Sprintf(
-			"\n(%d results limit reached. Use limit=%d for more, or refine pattern/path.)",
-			limit,
-			limit*2,
-		)
+		if limit >= maxFindLimit {
+			result += fmt.Sprintf(
+				"\n(%d results limit reached. Refine pattern/path to narrow results.)",
+				limit,
+			)
+		} else {
+			result += fmt.Sprintf(
+				"\n(%d results limit reached. Use limit=%d for more, or refine pattern/path.)",
+				limit,
+				min(limit*2, maxFindLimit),
+			)
+		}
 	}
 	return result
 }
