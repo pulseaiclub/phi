@@ -56,7 +56,7 @@ func TestExecutorEmitsToolName(t *testing.T) {
 	}
 }
 
-func TestExecutorExtDenySkipsGateAsk(t *testing.T) {
+func TestExecutorExtensionCanBlockTool(t *testing.T) {
 	var ran atomic.Int32
 	reg := tooldef.Registry{
 		"bash": {

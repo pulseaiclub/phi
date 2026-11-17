@@ -89,9 +89,6 @@ func runHeadless(opts runOptions) error {
 		resumeID = opts.session
 	}
 
-	// Ask stays nil: in headless mode any Ask decision is denied, so no
-	// approval UI is ever reachable (Ask≡Deny even if the config mode
-	// does not fold Ask).
 	extRunner := loadRunExtensions(bs)
 	if extRunner != nil {
 		defer extRunner.Close()

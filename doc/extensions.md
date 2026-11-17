@@ -4,7 +4,7 @@ Extensions are **native binaries** that speak the **Phi eXtension Binary (PXB)**
 protocol over stdin/stdout. They replace the former yaegi-interpreted `.go`
 sources.
 
-> **Security:** Extension processes inherit your permissions. Only install from sources you trust.
+> **Security:** Extension processes run with full process access. Only install from sources you trust.
 
 ## Full event chain
 

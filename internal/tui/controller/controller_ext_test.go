@@ -31,7 +31,9 @@ func TestSwapExtensionRunner_ClosesPrevious(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, proj.LoadConfig())
 
-	ctrl, err := NewController(NewBus(nil), proj)
+	extRunner, _, err := extension.Load(proj.Global().ExtensionsDir(), proj.ExtensionsDir())
+	require.NoError(t, err)
+	ctrl, err := NewController(NewBus(nil), proj, extRunner)
 	require.NoError(t, err)
 
 	first, _, err := extension.Load(t.TempDir(), "")
@@ -103,7 +105,9 @@ func main() {
 
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
-	ctrl, err := NewController(NewBus(nil), proj)
+	extRunner, _, err := extension.Load(proj.Global().ExtensionsDir(), proj.ExtensionsDir())
+	require.NoError(t, err)
+	ctrl, err := NewController(NewBus(nil), proj, extRunner)
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 

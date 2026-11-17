@@ -266,7 +266,7 @@ The editor supports:
 - `?` — shortcut help picker (lists `/`, `!`, `!!`, `@`, and key bindings; `Esc` closes)
 - `!command` — run a shell command locally and stream its output into the
   transcript (see [Commands](#commands))
-- `Ctrl+K` — command palette: settings → model / theme / agents (incl. per-role models), hooks
+- `Ctrl+K` — command palette: settings → model / theme / agents (incl. per-role models) / thinking / debug, plus extension management (`extensions`); use `/skill` to select a skill.
 
 ### Keyboard shortcuts
 
