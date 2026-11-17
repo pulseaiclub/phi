@@ -10,6 +10,21 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Removed
 
+### Changed
+
+### Added
+
+### Fixed
+
+### Security
+
+<!-- Released section -->
+<!-- Don't change this section unless doing release -->
+
+## [0.30.0] - 2026-11-17
+
+### Removed
+
 - Removed the built-in permission policy, permission configuration, approval UI, and `--yolo` flag. Tool calls now run through the normal extension and execution pipeline.
 
 ### Changed
@@ -59,9 +74,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   similarly named sibling directories now retain their actual paths.
 
 ### Security
-
-<!-- Released section -->
-<!-- Don't change this section unless doing release -->
 
 ## [0.29.9] - 2026-11-12
 
@@ -1567,7 +1579,8 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.29.9...HEAD
+[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.30.0...HEAD
+[0.30.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.30.0
 [0.29.9]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.9
 [0.29.8]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.8
 [0.29.7]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.7
