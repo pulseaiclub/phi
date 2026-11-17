@@ -261,6 +261,8 @@ permissions:
 | `Ctrl+A` | 光标跳到行首 |
 | `Ctrl+E` | 光标跳到行尾 |
 | `Ctrl+U` | 清空输入框（含图片和技能） |
+| `Ctrl+V` | 粘贴文本或附加剪贴板中的图片 |
+| `Shift+Enter` | 在输入框中换行 |
 | `Ctrl+Shift+C` | 复制选中的对话文本 |
 
 主题：`Dark`（默认）、`Darcula`、`Pink` 和 `Terminal`，可在面板的
@@ -276,6 +278,12 @@ permissions:
 | `/diff` | 工作区（`git diff`） |
 | `/diff staged` | 暂存区 |
 | `/diff HEAD` | 最近一次提交（`git show`） |
+| `/diff @path` | 仅查看指定文件。用 `@` 补全路径，自动加上 `--` 分隔符 |
+| `/diff staged @a.go @b.go` | 查看两个文件的暂存改动 |
+| `/diff HEAD @path` | 查看指定文件在 `HEAD` 提交中的改动 |
+| `/diff main..feat @path` | 比较指定文件在两个引用间的差异 |
+
+`/diff -- <argv>` 可指定 Git 命令，例如 `/diff -- git show HEAD~1`。
 
 斜杠选择器里回车会把 `/diff` 连同一个空格填进输入框；再提交才打开。
 审阅层内：`j`/`k` 移动，`s` 左右对照，`i` 添加/编辑批注，`x` 删除，`a` 发给代理，
@@ -321,6 +329,9 @@ HEAD 新建一个。敲名字本身就是「新建分支」的全部流程，比
 | `phi sessions` | 列出当前目录的持久化会话 |
 | `phi sessions fork <id>` | 在当前点复制会话并打印新 id |
 | `phi sessions remove <id>` | 删除当前目录的持久化会话（别名 `rm`；唯一 id 前缀即可） |
+| `phi mcp …` | 管理 MCP 服务（list、add、remove、call、doctor），见 [MCP](#mcp) |
+| `phi plugin …` | 管理扩展（install、list、update、remove），见 [Extensions](#extensions扩展) |
+| `phi config` | 在终端界面编辑全局配置，见 [配置](#配置) |
 | `/sessions` | 列出当前目录的会话（TUI 内） |
 | `/branch` | 切换工作分支 — 见 [切换分支](#切换分支) |
 | `/new` | 开启一个全新的空会话（TUI 内） |
@@ -328,6 +339,7 @@ HEAD 新建一个。敲名字本身就是「新建分支」的全部流程，比
 | `/diff` | 全屏 git 审阅 — 见 [Diff 审阅](#diff-审阅) |
 | `/code` | 全屏源码查看器 — 见 [代码查看器](#代码查看器) |
 | `!command` | 在本地运行 shell 命令，把输出流式写入对话记录；`Esc` 取消 |
+| `!!command` | 与 `!command` 相同，并将输出加入模型上下文 |
 
 在 TUI 中，`!command` 通过 `bash -c` 在本地运行——在代理循环之外。它不计入
 代理忙碌状态，运行中的命令可以用 `Esc` 取消，且不影响正在进行的代理回合。
@@ -446,7 +458,7 @@ Instructions the agent should follow when this skill is relevant.
 
 ## Extensions（扩展）
 
-扩展是讲 **PXB** 二进制协议的原生进程（作者 SDK：Go `github.com/pulseaiclub/phi/ext/go/phi` 和 Rust [`ext/rust`](ext/rust) `phi-ext`）：订阅工具/会话事件、注册 LLM 工具、添加斜杠命令。
+扩展是讲 **PXB** 二进制协议的原生进程（作者 SDK：Go `github.com/pulseaiclub/phi/ext/go/phi` 、Rust [`ext/rust`](ext/rust) `phi-ext`，以及 TypeScript [`ext/ts`](ext/ts) `@pulseaiclub/phi-ext`）：订阅工具/会话事件、注册 LLM 工具、添加斜杠命令。
 
 ```bash
 go get github.com/pulseaiclub/phi/ext/go@v0.21.0
@@ -523,6 +535,17 @@ agents:
 ```
 
 也可以在当前会话中通过面板切换：设置 → 代理。禁用后这些工具不会注册，模型无法派发任务给子代理。
+
+可在 `agents.models` 下为各角色配置默认模型。值为配置中已有的模型名称，未配置的角色
+继承父会话的模型。下例中的名称需在模型配置中存在：
+
+```yaml
+agents:
+  models:
+    explore: fast-model
+    review: review-model
+    worker: coding-model
+```
 
 子代理本身使用一种 **role**（`explore` 默认 | `review` | `worker`）：
 
