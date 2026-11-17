@@ -32,9 +32,30 @@ type App struct {
 	pending xui.Event
 }
 
+type AppOption interface {
+	apply(App) App
+}
+
+type appOptionFunc func(App) App
+
+func (f appOptionFunc) apply(app App) App {
+	return f(app)
+}
+
+func WithAnim(anim bool) AppOption {
+	return appOptionFunc(func(app App) App {
+		app.Anim = anim
+		return app
+	})
+}
+
 // NewApp creates an App around an existing Vaxis.
-func NewApp(vx *xui.XUI) *App {
-	return &App{ui: vx, redraw: true}
+func NewApp(vx *xui.XUI, opt ...AppOption) *App {
+	app := App{ui: vx, redraw: false}
+	for _, o := range opt {
+		app = o.apply(app)
+	}
+	return &app
 }
 
 // RequestRedraw schedules a frame from any goroutine (stream updates, etc).

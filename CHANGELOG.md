@@ -33,6 +33,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- MCP: accept an SSE response framed as `data:{...}`, without the optional
+  space after the field colon, instead of failing with `parse http body`.
 - MCP: match a stdio response to its request id. A server-initiated request
   or a late reply to a timed-out call is no longer returned as the current
   call's result.
