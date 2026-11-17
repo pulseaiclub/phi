@@ -42,7 +42,7 @@ func forkEditor(t *testing.T) *Editor {
 	proj, err := project.Discover(dir)
 	require.NoError(t, err)
 	bus := controller.NewBus(nil)
-	ctrl, err := controller.NewController(bus, proj)
+	ctrl, err := controller.NewController(bus, proj, nil)
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 
