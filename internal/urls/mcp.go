@@ -12,6 +12,17 @@ import (
 	"unicode/utf8"
 )
 
+// The MCP limit is validated twice, and the two cases mean different things.
+const (
+	// errLimitQuery rejects an explicit ?limit= value. Zero is refused here: the
+	// caller typed a number, so a zero is a mistake rather than "unspecified".
+	errLimitQuery = "MCP limit must be an integer from 1 to 1000"
+
+	// errLimitField rejects an out-of-range struct field. Zero stays valid because
+	// it is how a caller says the value was not set.
+	errLimitField = "MCP limit must be an integer from 1 to 1000, or zero when unspecified"
+)
+
 // MCPCall is a tool endpoint and its required JSON object arguments.
 type MCPCall struct {
 	Target MCPURL
@@ -124,11 +135,13 @@ func (u *MCPURL) parseQuery(search string) error {
 		case "limit":
 			value := values[0]
 			if value == "" || strings.ContainsFunc(value, func(r rune) bool { return r < '0' || r > '9' }) {
-				return errors.New("MCP limit must be an integer from 1 to 1000")
+				return errors.New(errLimitQuery)
 			}
 			u.Limit, err = strconv.Atoi(value)
-			if err != nil || u.Limit < 1 {
-				return errors.New("MCP limit must be an integer from 1 to 1000")
+			if err != nil || u.Limit < 1 || u.Limit > 1000 {
+				// Range-check the explicit value here so that one query parameter
+				// cannot fail with the struct-field wording further down.
+				return errors.New(errLimitQuery)
 			}
 		default:
 			return fmt.Errorf("unknown MCP query parameter %q", key)
@@ -152,7 +165,7 @@ func (u MCPURL) validate() error {
 		}
 	}
 	if u.Limit < 0 || u.Limit > 1000 {
-		return errors.New("MCP limit must be an integer from 1 to 1000, or zero when unspecified")
+		return errors.New(errLimitField)
 	}
 	if u.Kind == MCPTool && (u.Cursor != "" || u.Limit != 0) {
 		return errors.New("MCP tool endpoints do not allow queries")
