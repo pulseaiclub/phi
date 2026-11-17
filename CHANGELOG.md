@@ -10,6 +10,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Removed
 
+- agent: remove the unused `ChildTools` helper. Sub-agent tool lists come from
+  `SpecForRole`, which was already the only implementation.
 - gitx: remove `Status.Clean`, which only tests used; they now compare
   the status directly.
 

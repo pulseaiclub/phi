@@ -64,14 +64,14 @@ func TestSetJobsTogglesAgentTools(t *testing.T) {
 }
 
 func TestChildToolsHaveNoAgent(t *testing.T) {
-	for _, tool := range agent.ChildTools() {
+	for _, tool := range agent.SpecForRole(job.RoleExplore).Tools {
 		assert.NotContains(t, tool.Definition.Name, "agent_")
 	}
 }
 
 func TestChildToolsAreReadonly(t *testing.T) {
 	names := map[string]bool{}
-	for _, tool := range agent.ChildTools() {
+	for _, tool := range agent.SpecForRole(job.RoleExplore).Tools {
 		names[tool.Definition.Name] = true
 	}
 	assert.True(t, names["read"])

@@ -15,11 +15,6 @@ type ChildSpec struct {
 	Hint  string          // appended to the child prompt
 }
 
-// ChildTools returns the default (explore) tool set.
-func ChildTools() []tooldef.Tool {
-	return SpecForRole(job.RoleExplore).Tools
-}
-
 // SpecForRole returns tools, permission mode, and closing hint for a role.
 func SpecForRole(role job.Role) ChildSpec {
 	role = job.NormalizeRole(string(role))
