@@ -79,9 +79,9 @@ func TestExecutorAskFalseRejects(t *testing.T) {
 			},
 		},
 	}
-	ask := func(context.Context, permission.Request, string) (permission.AskResult, error) {
+	ask := permission.AskFunc(func(context.Context, permission.Request, string) (permission.AskResult, error) {
 		return permission.AskResult{Approved: false}, nil
-	}
+	})
 	ex := NewExecutor(reg, fixedGate{dec: permission.Ask, reason: "needs approval"}, ask, nil)
 	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
@@ -155,9 +155,9 @@ func TestExecutorAskTrueRuns(t *testing.T) {
 			},
 		},
 	}
-	ask := func(context.Context, permission.Request, string) (permission.AskResult, error) {
+	ask := permission.AskFunc(func(context.Context, permission.Request, string) (permission.AskResult, error) {
 		return permission.AskResult{Approved: true}, nil
-	}
+	})
 	ex := NewExecutor(reg, fixedGate{dec: permission.Ask, reason: "needs approval"}, ask, nil)
 	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
@@ -177,9 +177,9 @@ func TestExecutorAskFeedbackMessage(t *testing.T) {
 			},
 		},
 	}
-	ask := func(context.Context, permission.Request, string) (permission.AskResult, error) {
+	ask := permission.AskFunc(func(context.Context, permission.Request, string) (permission.AskResult, error) {
 		return permission.AskResult{Approved: false, Feedback: "use go test instead"}, nil
-	}
+	})
 	ex := NewExecutor(reg, fixedGate{dec: permission.Ask, reason: "ask me"}, ask, nil)
 	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
@@ -201,10 +201,10 @@ func TestExecutorExtDenySkipsGateAsk(t *testing.T) {
 			},
 		},
 	}
-	ask := func(context.Context, permission.Request, string) (permission.AskResult, error) {
+	ask := permission.AskFunc(func(context.Context, permission.Request, string) (permission.AskResult, error) {
 		askCalled.Add(1)
 		return permission.AskResult{Approved: true}, nil
-	}
+	})
 	r := loadExt(t, `package main
 import (
   "github.com/pulseaiclub/phi/ext/go"

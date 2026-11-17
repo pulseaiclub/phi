@@ -482,7 +482,7 @@ func (c *EngineController) SetModel(name string) error {
 	}
 	c.Cancel()
 	c.initGate(c.proj.Config().Permissions)
-	c.engine.SetPermission(c.gate, c.askPermission)
+	c.engine.SetPermission(c.gate, permission.AskFunc(c.askPermission))
 	c.engine.SetJobs(c.engineJobs())
 	if _, _, err := c.ReloadExtensions(); err != nil {
 		debuglog.Logf("extension: reload on SetModel: %v", err)
@@ -738,7 +738,7 @@ func (c *EngineController) newEngine(
 ) (*agent.Engine, error) {
 	return agent.NewEngine(cfg, sess,
 		agent.WithGate(c.gate),
-		agent.WithAsk(c.askPermission),
+		agent.WithAsk(permission.AskFunc(c.askPermission)),
 		agent.WithJobs(c.engineJobs()),
 		agent.WithExtensions(extRunner),
 		agent.WithMCP(c.mcpPool),

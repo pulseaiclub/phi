@@ -35,7 +35,7 @@ type Engine struct {
 	modelCfg     llm.ModelConfig
 	hooks        llmclient.Hooks
 	gate         permission.Gate
-	ask          permission.AskFunc
+	ask          permission.AskHandler
 	jobs         *job.Manager
 	extensions   *extension.Runner // nil = disabled; all methods are nil-safe no-ops
 	baseTools    []tooldef.Tool    // nil = DefaultTools; preserved across rebind
@@ -185,7 +185,7 @@ func (engine *Engine) HasTool(name string) bool {
 }
 
 // SetPermission updates the gate and ask handler used by the tool executor.
-func (engine *Engine) SetPermission(gate permission.Gate, ask permission.AskFunc) {
+func (engine *Engine) SetPermission(gate permission.Gate, ask permission.AskHandler) {
 	engine.gate = gate
 	engine.ask = ask
 	engine.executor.gate = gate

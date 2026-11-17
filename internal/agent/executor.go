@@ -27,7 +27,7 @@ const (
 type Executor struct {
 	registry tooldef.Registry
 	gate     permission.Gate
-	ask      permission.AskFunc
+	ask      permission.AskHandler
 	ext      *extension.Runner // nil = disabled; methods are nil-safe no-ops
 	cwd      string
 	// askMu serializes approval prompts: a concurrent read-only batch can
@@ -39,7 +39,7 @@ type Executor struct {
 func NewExecutor(
 	registry tooldef.Registry,
 	gate permission.Gate,
-	ask permission.AskFunc,
+	ask permission.AskHandler,
 	extRunner *extension.Runner,
 ) *Executor {
 	if gate == nil {
@@ -305,7 +305,7 @@ func (e *Executor) checkPermission(
 		res, askErr := func() (permission.AskResult, error) {
 			e.askMu.Lock()
 			defer e.askMu.Unlock()
-			return e.ask(ctx, req, reason)
+			return e.ask.Ask(ctx, req, reason)
 		}()
 		if askErr != nil {
 			msg := fmt.Sprintf("approval failed: %v", askErr)

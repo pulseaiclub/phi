@@ -22,7 +22,7 @@ func (f EngineConfigOptionFunc) Apply(config EngineConfig) EngineConfig {
 
 type EngineConfig struct {
 	gate         permission.Gate
-	ask          permission.AskFunc
+	ask          permission.AskHandler
 	tools        []tooldef.Tool
 	jobs         *job.Manager
 	extensions   *extension.Runner
@@ -40,7 +40,7 @@ func WithGate(gate permission.Gate) EngineConfigOption {
 }
 
 // WithAsk sets the ask callback (nil = deny on Ask).
-func WithAsk(ask permission.AskFunc) EngineConfigOption {
+func WithAsk(ask permission.AskHandler) EngineConfigOption {
 	return EngineConfigOptionFunc(func(c EngineConfig) EngineConfig {
 		c.ask = ask
 		return c
