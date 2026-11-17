@@ -12,6 +12,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- Report the entry index and migration step when compaction finds a missing ID.
+
 - MCP: compact tool summaries mark required params with a `*` name prefix
   (`*owner:s`) and the system prompt legend explains the notation
   (`s`/`n`/`b`/`o`/`a`/`?`/`{enum}`/`*`).

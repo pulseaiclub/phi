@@ -82,7 +82,8 @@ func TestPrepareCompact_SessionNeedsMigration_ReturnsError(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Nil(t, prep)
-	assert.Contains(t, err.Error(), "migration")
+	assert.ErrorContains(t, err, "entry at index 0 has no ID")
+	assert.ErrorContains(t, err, "migrate the session")
 }
 
 func TestPrepareCompact_NoPreviousCompaction_SplitsByKeepRecentTokens(t *testing.T) {
