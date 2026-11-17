@@ -37,6 +37,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   space after the field colon, instead of failing with `parse http body`.
 - `find` no longer reports "results limit reached" when the total number of
   matching files equals the requested limit.
+- `find` caps `limit` at 10000, so a huge value can no longer reach fd as a
+  negative `--max-results`.
 - `phi run` rejects stray positional arguments with a usage error (exit 3).
   An unquoted `phi run -p fix the bug` used to send only `fix` to the model,
   silently dropping the rest of the prompt, and exit 0.
