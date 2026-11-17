@@ -12,6 +12,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- MCP URL errors distinguish explicit query limits from an unset struct field.
+
 - MCP: compact tool summaries mark required params with a `*` name prefix
   (`*owner:s`) and the system prompt legend explains the notation
   (`s`/`n`/`b`/`o`/`a`/`?`/`{enum}`/`*`).

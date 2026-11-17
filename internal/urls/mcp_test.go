@@ -108,3 +108,11 @@ func TestInvalidMCPURLBuild(t *testing.T) {
 		require.Error(t, err, "%+v", target)
 	}
 }
+func TestMCPLimitErrorsNameTheRangeForTheInput(t *testing.T) {
+	for _, value := range []string{"", "0", "bad", "1001"} {
+		_, err := ParseMCPURL("mcp://?limit=" + value)
+		assert.EqualError(t, err, "MCP limit must be an integer from 1 to 1000")
+	}
+	_, err := (MCPURL{Kind: MCPRoot, Limit: 1001}).Build()
+	assert.EqualError(t, err, "MCP limit must be an integer from 1 to 1000, or zero when unspecified")
+}

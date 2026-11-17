@@ -109,6 +109,8 @@ func ParseMCPURL(input string) (MCPURL, error) {
 	return target, target.validate()
 }
 
+const mcpQueryLimitError = "MCP limit must be an integer from 1 to 1000"
+
 func (u *MCPURL) parseQuery(search string) error {
 	query, err := url.ParseQuery(strings.TrimPrefix(search, "?"))
 	if err != nil {
@@ -124,11 +126,11 @@ func (u *MCPURL) parseQuery(search string) error {
 		case "limit":
 			value := values[0]
 			if value == "" || strings.ContainsFunc(value, func(r rune) bool { return r < '0' || r > '9' }) {
-				return errors.New("MCP limit must be an integer from 1 to 1000")
+				return errors.New(mcpQueryLimitError)
 			}
 			u.Limit, err = strconv.Atoi(value)
-			if err != nil || u.Limit < 1 {
-				return errors.New("MCP limit must be an integer from 1 to 1000")
+			if err != nil || u.Limit < 1 || u.Limit > 1000 {
+				return errors.New(mcpQueryLimitError)
 			}
 		default:
 			return fmt.Errorf("unknown MCP query parameter %q", key)
