@@ -77,7 +77,7 @@ enabled: true          # optional, default true
 Lightweight module (no TUI deps):
 
 ```bash
-go get github.com/pulseaiclub/phi/ext/go@v0.21.0
+go get github.com/pulseaiclub/phi/ext/go@v0.25.6
 ```
 
 (`scripts/bump.sh` tags both `vX.Y.Z` and `ext/go/vX.Y.Z`.)

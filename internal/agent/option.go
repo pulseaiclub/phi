@@ -29,7 +29,7 @@ type EngineConfig struct {
 }
 
 // WithTools sets the base tool list (nil = tools.DefaultTools(mcp) when an MCP
-// pool is attached; sub-agents use ChildTools()).
+// pool is attached; sub-agents use SpecForRole(role).Tools).
 func WithTools(list []tooldef.Tool) EngineConfigOption {
 	return EngineConfigOptionFunc(func(c EngineConfig) EngineConfig {
 		c.tools = list

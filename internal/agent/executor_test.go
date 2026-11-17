@@ -15,6 +15,7 @@ import (
 	ext "github.com/pulseaiclub/phi/ext/go"
 	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/extension/create"
+	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
@@ -318,7 +319,7 @@ func main() {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(childSession.Cwd(), "child.txt"), []byte("child content"), 0o600))
 	child, err := NewEngine(llm.ModelConfig{Name: "test"}, childSession,
-		WithExtensions(r), WithOmitExtensionTools(true), WithTools(ChildTools()))
+		WithExtensions(r), WithOmitExtensionTools(true), WithTools(SpecForRole(job.RoleExplore).Tools))
 	require.NoError(t, err)
 	for _, phase := range []string{"construction", "rebind"} {
 		t.Run(phase, func(t *testing.T) {
