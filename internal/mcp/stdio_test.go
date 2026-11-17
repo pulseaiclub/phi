@@ -4,8 +4,11 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -108,8 +111,134 @@ func TestReadResponseRepliesToServerPingAndUnsupportedRequests(t *testing.T) {
 
 	lines := strings.Split(strings.TrimSpace(sent.String()), "\n")
 	require.Len(t, lines, 2)
-	require.Equal(t, `{"id":9007199254740993,"jsonrpc":"2.0","result":{}}`, lines[0])
+
+	// The ping id must come back byte for byte: decoding it as a float64 would
+	// round it to 9007199254740992.
+	var ping struct {
+		ID     json.RawMessage `json:"id"`
+		Result json.RawMessage `json:"result"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(lines[0]), &ping))
+	require.Equal(t, "9007199254740993", string(ping.ID))
+	require.JSONEq(t, `{}`, string(ping.Result))
 	require.JSONEq(t, `{"jsonrpc":"2.0","id":99,"error":{"code":-32601,"message":"method not found"}}`, lines[1])
+}
+
+// The stdio tests below run their fake server as this test binary, not as a
+// shell script: Windows has no `#!/bin/sh`, so a script fixture passed on three
+// runners and failed on the fourth.
+const (
+	helperModeEnv   = "PHI_MCP_STDIO_HELPER"
+	helperMarkerEnv = "PHI_MCP_STDIO_HELPER_MARKER"
+
+	helperStaleID    = "stale-id"
+	helperHoldStdout = "hold-stdout"
+	helperDescendant = "descendant"
+)
+
+// TestStdioHelperProcess is not a test: it is the fake MCP server the stdio
+// transport spawns, so the same fixture runs on Linux, macOS, and Windows.
+func TestStdioHelperProcess(t *testing.T) {
+	switch os.Getenv(helperModeEnv) {
+	case "":
+		return
+	case helperDescendant:
+		// A descendant that keeps the inherited stdout open after its parent dies
+		// is what makes a naive Close wait forever.
+		time.Sleep(30 * time.Second)
+		return
+	case helperStaleID:
+		serveStaleID(os.Getenv(helperMarkerEnv))
+	case helperHoldStdout:
+		serveHoldingStdout(t, os.Getenv(helperMarkerEnv))
+	}
+	// The transport kills this process; returning would print PASS on the pipe
+	// the parent is still parsing.
+	for {
+		time.Sleep(time.Hour)
+	}
+}
+
+// stdioHelper builds a server config that reruns this test binary in the given
+// helper mode.
+func stdioHelper(mode, marker string) ServerConfig {
+	return ServerConfig{
+		Command: []string{os.Args[0], "-test.run=^TestStdioHelperProcess$"},
+		Env: map[string]string{
+			helperModeEnv:   mode,
+			helperMarkerEnv: marker,
+		},
+	}
+}
+
+// forEachRequest calls fn with the id and method of each JSON-RPC request on
+// stdin. Notifications carry no id and are skipped, as a server would.
+func forEachRequest(fn func(id, method string)) {
+	scan := bufio.NewScanner(os.Stdin)
+	for scan.Scan() {
+		var req struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+		}
+		if err := json.Unmarshal(scan.Bytes(), &req); err != nil || len(req.ID) == 0 {
+			continue
+		}
+		fn(string(req.ID), req.Method)
+	}
+}
+
+func writeStdioFrame(frame string) {
+	_, _ = fmt.Fprintln(os.Stdout, frame)
+}
+
+func writeInitializeResult(id string) {
+	writeStdioFrame(`{"jsonrpc":"2.0","id":` + id + `,"result":{"protocolVersion":"2024-11-05","capabilities":{}}}`)
+}
+
+// serveStaleID answers the first tools/call with a reply carrying another id
+// and then the real reply, so the transport must reject the first frame. The
+// marker records that the first run happened, so the restarted server answers
+// "ok".
+func serveStaleID(marker string) {
+	restarted := false
+	if _, err := os.Stat(marker); err == nil {
+		restarted = true
+	} else {
+		_ = os.WriteFile(marker, []byte("1"), 0o600)
+	}
+	forEachRequest(func(id, method string) {
+		switch method {
+		case "initialize":
+			writeInitializeResult(id)
+		case "tools/call":
+			if restarted {
+				writeStdioFrame(`{"jsonrpc":"2.0","id":` + id + `,"result":{"content":[{"type":"text","text":"ok"}]}}`)
+				return
+			}
+			writeStdioFrame(`{"jsonrpc":"2.0","id":999,"result":{"content":[]}}`)
+			writeStdioFrame(`{"jsonrpc":"2.0","id":` + id + `,"result":{"content":[{"type":"text","text":"stale"}]}}`)
+		}
+	})
+}
+
+// serveHoldingStdout starts a descendant that inherits the transport's stdout
+// pipe, then records the call and never answers it, so only Close can end it.
+func serveHoldingStdout(t *testing.T, marker string) {
+	//nolint:gosec // the argv is this test binary, not user input
+	descendant := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestStdioHelperProcess$")
+	descendant.Env = append(os.Environ(), helperModeEnv+"="+helperDescendant)
+	descendant.Stdout = os.Stdout
+	if err := descendant.Start(); err != nil {
+		return
+	}
+	forEachRequest(func(id, method string) {
+		switch method {
+		case "initialize":
+			writeInitializeResult(id)
+		case "tools/call":
+			_ = os.WriteFile(marker, []byte("called"), 0o600)
+		}
+	})
 }
 
 func TestSessionResetsAfterResponseIDMismatch(t *testing.T) {
@@ -118,42 +247,15 @@ func TestSessionResetsAfterResponseIDMismatch(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", tmp)
 
 	marker := filepath.Join(tmp, "restarted")
-	scriptPath := filepath.Join(tmp, "server.sh")
-	script := `#!/bin/sh
-first=1
-if [ -f "` + marker + `" ]; then
-  first=0
-else
-  touch "` + marker + `"
-fi
-while IFS= read -r line; do
-  id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
-  case "$line" in
-    *'"method":"initialize"'*)
-      printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2024-11-05","capabilities":{}}}\n' "$id"
-      ;;
-    *'"method":"tools/call"'*)
-      if [ "$first" = "1" ]; then
-        printf '{"jsonrpc":"2.0","id":999,"result":{"content":[]}}\n'
-        printf '{"jsonrpc":"2.0","id":%s,"result":{"content":[{"type":"text","text":"stale"}]}}\n' "$id"
-      else
-        printf '{"jsonrpc":"2.0","id":%s,"result":{"content":[{"type":"text","text":"ok"}]}}\n' "$id"
-      fi
-      ;;
-  esac
-done
-`
-	require.NoError(t, os.WriteFile(scriptPath, []byte(script), 0o755))
-
-	tr, err := newStdioTransport("test", ServerConfig{Command: []string{scriptPath}})
+	tr, err := newStdioTransport("test", stdioHelper(helperStaleID, marker))
 	require.NoError(t, err)
 	sess := newSession("test", tr)
 	defer func() { _ = sess.Close() }()
 
-	_, err = sess.CallTool(context.Background(), "echo", nil)
+	_, err = sess.CallTool(t.Context(), "echo", nil)
 	require.ErrorIs(t, err, errResponseIDMismatch)
 
-	out, err := sess.CallTool(context.Background(), "echo", nil)
+	out, err := sess.CallTool(t.Context(), "echo", nil)
 	require.NoError(t, err)
 	require.Equal(t, "ok", out)
 }
@@ -164,28 +266,11 @@ func TestSessionCloseDoesNotHangWhenDescendantHoldsStdout(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", tmp)
 
 	calledMarker := filepath.Join(tmp, "called")
-	scriptPath := filepath.Join(tmp, "server.sh")
-	script := `#!/bin/sh
-sleep 30 &
-while IFS= read -r line; do
-  id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
-  case "$line" in
-    *'"method":"initialize"'*)
-      printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2024-11-05","capabilities":{}}}\n' "$id"
-      ;;
-    *'"method":"tools/call"'*)
-      touch "` + calledMarker + `"
-      ;;
-  esac
-done
-`
-	require.NoError(t, os.WriteFile(scriptPath, []byte(script), 0o755))
-
-	tr, err := newStdioTransport("test", ServerConfig{Command: []string{scriptPath}})
+	tr, err := newStdioTransport("test", stdioHelper(helperHoldStdout, calledMarker))
 	require.NoError(t, err)
 	sess := newSession("test", tr)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	callDone := make(chan error, 1)
 	go func() {
 		_, cerr := sess.CallTool(ctx, "echo", nil)

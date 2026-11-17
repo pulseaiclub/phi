@@ -71,9 +71,7 @@ func (t *stdioTransport) call(ctx context.Context, method string, params map[str
 		err error
 	}
 	ch := make(chan outcome, 1)
-	t.readerWG.Add(1)
-	go func() {
-		defer t.readerWG.Done()
+	t.readerWG.Go(func() {
 		if _, werr := stdin.Write(payload); werr != nil {
 			ch <- outcome{err: fmt.Errorf("write %s: %w", method, werr)}
 			return
@@ -85,7 +83,7 @@ func (t *stdioTransport) call(ctx context.Context, method string, params map[str
 		}
 		raw, err := resultOrError(method, rpc)
 		ch <- outcome{raw: raw, err: err}
-	}()
+	})
 
 	timer := time.NewTimer(deadline)
 	defer timer.Stop()
