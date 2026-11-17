@@ -2,7 +2,7 @@ package compaction
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"maps"
 	"slices"
 	"strings"
@@ -63,7 +63,7 @@ func PrepareCompact(
 
 	firstKeptEntry := pathEntries[cutPoint.firstKeptEntryIndex]
 	if firstKeptEntry.GetID() == "" {
-		return nil, errors.New("session needs migration")
+		return nil, fmt.Errorf("session compaction: entry at index %d has no ID (pre-migration format)", cutPoint.firstKeptEntryIndex)
 	}
 
 	firstKeptEntryID := firstKeptEntry.GetID()
