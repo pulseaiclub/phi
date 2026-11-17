@@ -525,7 +525,7 @@ stdin/stdout (author SDKs: Go `github.com/pulseaiclub/phi/ext/go/phi`, Rust
 subscribe to tool/session events, register LLM tools, and add slash commands.
 
 ```bash
-go get github.com/pulseaiclub/phi/ext/go@v0.21.0
+go get github.com/pulseaiclub/phi/ext/go@v0.25.6
 ```
 
 ```go
