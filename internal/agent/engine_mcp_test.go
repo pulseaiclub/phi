@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/agent"
+	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/mcp"
 )
@@ -34,7 +35,7 @@ func TestEngineMCPAddsNoTools(t *testing.T) {
 	// Explicit child tool list: unchanged, no MCP meta tools anywhere.
 	sess2, err := agent.NewSession(agent.WithCwd(t.TempDir()))
 	require.NoError(t, err)
-	eng2, err := agent.NewEngine(testModel, sess2, agent.WithTools(agent.ChildTools()))
+	eng2, err := agent.NewEngine(testModel, sess2, agent.WithTools(agent.SpecForRole(job.RoleExplore).Tools))
 	require.NoError(t, err)
 	assert.False(t, eng2.HasTool("mcp_list"))
 }
