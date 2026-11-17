@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"github.com/pulseaiclub/phi/internal/job"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -518,7 +519,7 @@ func main() {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(childSession.Cwd(), "child.txt"), []byte("child content"), 0o600))
 	child, err := NewEngine(llm.ModelConfig{Name: "test"}, childSession,
-		WithExtensions(r), WithOmitExtensionTools(true), WithTools(ChildTools()))
+		WithExtensions(r), WithOmitExtensionTools(true), WithTools(SpecForRole(job.RoleExplore).Tools))
 	require.NoError(t, err)
 	for _, phase := range []string{"construction", "rebind"} {
 		t.Run(phase, func(t *testing.T) {

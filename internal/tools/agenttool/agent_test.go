@@ -258,7 +258,7 @@ func TestAgentToolsDualSpawnWaitKeepsTranscriptsInJobLog(t *testing.T) {
 }
 
 func TestChildToolsExcludeAgentAndWriteTools(t *testing.T) {
-	for _, tool := range agent.ChildTools() {
+	for _, tool := range agent.SpecForRole(job.RoleExplore).Tools {
 		assert.NotEqual(t, "agent_spawn", tool.Definition.Name)
 		assert.False(t, strings.HasPrefix(tool.Definition.Name, "agent_"))
 		assert.NotEqual(t, "write", tool.Definition.Name)

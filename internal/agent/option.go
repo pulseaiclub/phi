@@ -34,7 +34,7 @@ func WithAsk(ask permission.AskFunc) EngineOption {
 }
 
 // WithTools sets the base tool list (nil = tools.DefaultTools(mcp) when an MCP
-// pool is attached; sub-agents use ChildTools()).
+// pool is attached; sub-agents get their tools from SpecForRole).
 func WithTools(list []tooldef.Tool) EngineOption {
 	return func(c *engineConfig) { c.tools = list }
 }
