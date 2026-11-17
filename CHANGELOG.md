@@ -10,6 +10,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Removed
 
+- gitx: remove `Status.Clean`, which only tests used; they now compare
+  the status directly.
+
 ### Changed
 
 - MCP: compact tool summaries mark required params with a `*` name prefix
