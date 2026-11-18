@@ -18,15 +18,23 @@ import (
 	"github.com/pulseaiclub/phi/internal/util/filesearch"
 )
 
-const defaultFindLimit = 100
+const (
+	defaultFindLimit = 100
+	// maxFindLimit bounds a page so the values derived from it stay in range:
+	// fd is asked for limit+1, and the truncation hint prints limit*2. Without
+	// the bound, a huge limit from the schema overflows into a negative
+	// --max-results, which fd rejects.
+	maxFindLimit = 10_000
+)
 
 var findDescription = fmt.Sprintf(
 	`Find files matching a glob pattern and return cwd-relative paths.
 
 Uses fd (respects .gitignore). Use path to restrict the search directory.
-Supports * / ** / ? / [abc] / {a,b}. Returns at most %d results.
+Supports * / ** / ? / [abc] / {a,b}. Returns at most %d results; a larger limit is capped at %d.
 Prefer this over bash find/ls for filename search.`,
 	defaultFindLimit,
+	maxFindLimit,
 )
 
 // FindTool returns the find tool definition + handler.
@@ -49,7 +57,8 @@ func FindTool() tooldef.Tool {
 					"limit": llm.Object{
 						"type": "integer",
 						"description": fmt.Sprintf(
-							"Maximum results to return. Example: 50 (default: %d)",
+							"Maximum results to return; capped at %d. Example: 50 (default: %d)",
+							maxFindLimit,
 							defaultFindLimit,
 						),
 					},
@@ -106,10 +115,7 @@ func runFind(ctx context.Context, in findInput) (tooldef.Result, error) {
 		return tooldef.Result{}, fmt.Errorf("path is not a directory: %s (find expects a directory path)", absPath)
 	}
 
-	limit := in.Limit
-	if limit <= 0 {
-		limit = defaultFindLimit
-	}
+	limit := normalizeFindLimit(in.Limit)
 
 	files, truncated, err := runFD(ctx, pattern, absPath, limit)
 	if err != nil {
@@ -127,33 +133,62 @@ func runFind(ctx context.Context, in findInput) (tooldef.Result, error) {
 	}, nil
 }
 
-func runFD(ctx context.Context, pattern, absSearchRoot string, limit int) ([]string, bool, error) {
-	bin, err := filesearch.ResolveFD()
-	if err != nil {
-		return nil, false, err
+// normalizeFindLimit folds a missing limit into the default and caps an
+// oversized one, so every derived value (fd's limit+1, the hint's limit*2)
+// stays positive.
+func normalizeFindLimit(limit int) int {
+	if limit <= 0 {
+		return defaultFindLimit
 	}
+	if limit > maxFindLimit {
+		return maxFindLimit
+	}
+	return limit
+}
 
+// fdArgs builds fd's command line for one page. The limit is normalized here as
+// well, so no caller can reach fd with the negative --max-results that a
+// limit+1 overflow would produce.
+func fdArgs(pattern, absSearchRoot string, limit int) ([]string, error) {
+	limit = normalizeFindLimit(limit)
 	args := []string{
 		"--color=never",
 		"--hidden",
 		"--no-require-git",
 		"--type", "f",
 		"--ignore-case",
-		"--max-results", strconv.Itoa(limit),
+		// Ask for one more than the page: exactly limit results means there
+		// is nothing more to show, and only the extra result proves there is.
+		"--max-results", strconv.Itoa(limit + 1),
 	}
 
 	// On Windows, fd's --glob matching is broken (globset matches backslash
 	// paths against slash-only pattern semantics), so we translate the glob
 	// to a regex. On other platforms, --glob works correctly and is simpler.
 	if runtime.GOOS == "windows" {
+		var err error
 		args, err = appendWindowsPattern(args, pattern)
 		if err != nil {
-			return nil, false, err
+			return nil, err
 		}
 	} else {
 		args = appendGlobPattern(args, pattern)
 	}
-	args = append(args, absSearchRoot)
+	return append(args, absSearchRoot), nil
+}
+
+func runFD(ctx context.Context, pattern, absSearchRoot string, limit int) ([]string, bool, error) {
+	bin, err := filesearch.ResolveFD()
+	if err != nil {
+		return nil, false, err
+	}
+
+	args, err := fdArgs(pattern, absSearchRoot, limit)
+	if err != nil {
+		return nil, false, err
+	}
+	// parseFDOutput decides truncation against this same cap.
+	limit = normalizeFindLimit(limit)
 
 	cmd := exec.CommandContext(ctx, bin, args...)
 	var stdout, stderr bytes.Buffer
@@ -172,24 +207,35 @@ func runFD(ctx context.Context, pattern, absSearchRoot string, limit int) ([]str
 		return nil, false, nil
 	}
 
+	files, truncated := parseFDOutput(out, absSearchRoot, limit)
+	return files, truncated, nil
+}
+
+// parseFDOutput turns fd's newline-separated output into absolute, cleaned
+// paths. It keeps at most limit and reports truncation only when fd returned
+// more than the page, so a directory holding exactly limit files is a complete
+// listing rather than a cut one.
+func parseFDOutput(out, searchRoot string, limit int) ([]string, bool) {
+	if out == "" {
+		return nil, false
+	}
 	lines := strings.Split(out, "\n")
 	files := make([]string, 0, len(lines))
 	for _, line := range lines {
-		line = strings.TrimSpace(strings.TrimSuffix(line, "\r"))
+		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
 		abs := line
 		if !filepath.IsAbs(abs) {
-			abs = filepath.Join(absSearchRoot, abs)
+			abs = filepath.Join(searchRoot, abs)
 		}
 		files = append(files, filepath.Clean(abs))
-		if len(files) >= limit {
-			break
+		if len(files) > limit {
+			return files[:limit], true
 		}
 	}
-	truncated := len(files) >= limit
-	return files, truncated, nil
+	return files, false
 }
 
 // fdRunError turns a failed fd run into an actionable error, or nil when the run
@@ -267,11 +313,18 @@ func renderFindResult(files []string, truncated bool, limit int) string {
 	}
 	result := strings.Join(files, "\n")
 	if truncated {
-		result += fmt.Sprintf(
-			"\n(%d results limit reached. Use limit=%d for more, or refine pattern/path.)",
-			limit,
-			limit*2,
-		)
+		if limit >= maxFindLimit {
+			result += fmt.Sprintf(
+				"\n(%d results limit reached. Refine pattern/path to narrow results.)",
+				limit,
+			)
+		} else {
+			result += fmt.Sprintf(
+				"\n(%d results limit reached. Use limit=%d for more, or refine pattern/path.)",
+				limit,
+				min(limit*2, maxFindLimit),
+			)
+		}
 	}
 	return result
 }

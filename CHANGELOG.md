@@ -22,6 +22,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - Updated the Go, Rust, and TypeScript SDK comments to describe tool-call
   interception before execution without referring to the removed permission gate.
+- `find` no longer reports "results limit reached" when the total number of
+  matching files equals the requested limit.
+- `find` caps `limit` at 10000, so a huge value can no longer reach fd as a
+  negative `--max-results`.
 
 ### Security
 

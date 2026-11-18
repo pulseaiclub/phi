@@ -1,8 +1,11 @@
 package findtool
 
 import (
+	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -34,6 +37,35 @@ func TestFindDetail(t *testing.T) {
 	assert.Equal(t, `"**/*.go" in src`, findDetail(findInput{Pattern: "**/*.go", Path: "src"}))
 	assert.Equal(t, `"**/*.go" in .`, findDetail(findInput{Pattern: " **/*.go "}))
 	assert.Equal(t, "src", findDetail(findInput{Path: "src"}))
+}
+
+// fd is asked for one result more than the page, so a page that exactly fills
+// the limit is complete. Only the extra result proves there is more to show.
+func TestParseFDOutputTruncation(t *testing.T) {
+	root := t.TempDir()
+	a := filepath.Join(root, "a.txt")
+	b := filepath.Join(root, "b.txt")
+	c := filepath.Join(root, "c.txt")
+
+	files, truncated := parseFDOutput(a+"\n"+b, root, 2)
+	require.False(t, truncated, "exactly the page size is not truncation")
+	require.Equal(t, []string{a, b}, files)
+
+	files, truncated = parseFDOutput(strings.Join([]string{a, b, c}, "\n"), root, 2)
+	require.True(t, truncated)
+	require.Equal(t, []string{a, b}, files, "the extra result only proves more exist")
+
+	files, truncated = parseFDOutput(a+"\r\n\n"+b+"\n", root, 10)
+	require.False(t, truncated)
+	require.Equal(t, []string{a, b}, files, "CRLF and blank lines are framing, not paths")
+
+	files, truncated = parseFDOutput("sub/rel.txt\n", root, 10)
+	require.False(t, truncated)
+	require.Equal(t, []string{filepath.Join(root, "sub", "rel.txt")}, files)
+
+	files, truncated = parseFDOutput("", root, 10)
+	require.False(t, truncated)
+	require.Nil(t, files)
 }
 
 func TestRunFD_MatchLimitAndGitignore(t *testing.T) {
@@ -201,4 +233,43 @@ func TestFind_Errors(t *testing.T) {
 	_, err = runFind(t.Context(), findInput{Pattern: "*.go", Path: missing})
 	require.Error(t, err)
 	assert.Contains(t, strings.ToLower(err.Error()), "path not found")
+}
+
+// fd receives limit+1, so a limit big enough to overflow turns the argument
+// negative and fd rejects the run. This pins the fd argument itself:
+// parseFDOutput never sees an fd argument, so parsing tests cannot catch it.
+func TestFDArgsLimitCannotOverflow(t *testing.T) {
+	root := t.TempDir()
+
+	for _, limit := range []int{math.MaxInt, math.MaxInt - 1, math.MaxInt/2 + 1, maxFindLimit + 1} {
+		args, err := fdArgs("*.go", root, limit)
+		require.NoError(t, err, "limit %d", limit)
+
+		raw, ok := argValue(args, "--max-results")
+		require.True(t, ok, "--max-results missing for limit %d", limit)
+
+		n, err := strconv.Atoi(raw)
+		require.NoError(t, err)
+		assert.Positive(t, n, "limit %d reached fd as %q", limit, raw)
+		assert.Equal(t, maxFindLimit+1, n, "limit %d must be capped at %d", limit, maxFindLimit)
+	}
+
+	// At maxFindLimit, the hint must not suggest an impossible limit above the cap.
+	hint := renderFindResult([]string{"/a"}, true, normalizeFindLimit(math.MaxInt))
+	assert.Contains(t, hint, fmt.Sprintf("(%d results limit reached.", maxFindLimit))
+	assert.Contains(t, hint, "Refine pattern/path")
+	assert.NotContains(t, hint, "Use limit=")
+
+	// Below maxFindLimit, the suggested retry limit stays within maxFindLimit.
+	nearCapHint := renderFindResult([]string{"/a"}, true, maxFindLimit-1000)
+	assert.Contains(t, nearCapHint, fmt.Sprintf("limit=%d", maxFindLimit))
+}
+
+func argValue(args []string, name string) (string, bool) {
+	for i, arg := range args {
+		if arg == name && i+1 < len(args) {
+			return args[i+1], true
+		}
+	}
+	return "", false
 }
