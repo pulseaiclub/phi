@@ -621,26 +621,27 @@ func TestPickerFrameTracksResultCount(t *testing.T) {
 	}
 	p.Show(items, ShowConfig{})
 	ctx := &components.EventContext{}
-	check := func() {
+	// Explicit heights: deriving them from p.maxItems() would follow whatever
+	// the cap is, and the frame would never contradict the code it mirrors.
+	check := func(height int) {
 		t.Helper()
 		s := p.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 24}, Method: xui.WidthUnicode})
 		require.Len(t, s.Children, 1)
-		height := min(max(len(p.filtered), 1), p.maxItems()) + 6
 		assert.Equal(t, components.Size{Width: 72, Height: height}, s.Children[0].Surface.Size)
 		assert.Equal(t, components.Point{X: 4, Y: (24 - height) / 3}, s.Children[0].Origin)
 	}
-	check()
+	check(18) // 21 items capped at twelve visible rows
 	typeQuery(p, ctx, "target")
 	require.Len(t, p.filtered, 1)
-	check()
+	check(7)
 	typeQuery(p, ctx, "missing")
 	require.Empty(t, p.filtered)
-	check()
+	check(7)
 	p.Show(nil, ShowConfig{Title: "Empty"})
-	check()
+	check(7)
 	typeQuery(p, ctx, "!")
 	require.True(t, p.commandMode)
-	check()
+	check(7)
 }
 
 func TestPickerFitsSmallTerminal(t *testing.T) {
