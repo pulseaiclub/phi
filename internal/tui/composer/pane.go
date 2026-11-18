@@ -463,7 +463,7 @@ func (c *ComposerPane) SetBottomLeftLabel(label layout.BorderLabel) {
 
 // SetPaletteCommands replaces Ctrl+K root commands.
 func (c *ComposerPane) SetPaletteCommands(cmds []palette.PaletteCommand) {
-	c.palette.Commands = cmds
+	c.palette.SetRoot(cmds)
 }
 
 // PushPalette opens or nests a palette submenu.

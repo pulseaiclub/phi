@@ -46,7 +46,13 @@ func (c PaletteCommand) Label() string {
 // CommandPalette maps palette commands onto the shared list picker. It owns
 // command behavior and nested pages; listpicker owns all rendering and input.
 type CommandPalette struct {
-	Title    string
+	Title string
+	// Root is the command registry shown on entry, replaced live by extension
+	// syncs. Commands is the page on screen — a snapshot of Root or of a
+	// pushed submenu. Keeping them apart means a sync under an open submenu
+	// cannot orphan its rows: they still resolve against the page they came
+	// from.
+	Root     []PaletteCommand
 	Commands []PaletteCommand
 	Picker   listpicker.Picker
 
@@ -61,7 +67,19 @@ type paletteFrame struct {
 
 func (p *CommandPalette) Show() {
 	p.stack = nil
-	p.show("Command Palette", p.Commands)
+	p.show("Command Palette", p.Root)
+}
+
+// SetRoot replaces the root registry. A sync that lands while the root page
+// is open refreshes it in place, keeping the query; an open submenu keeps
+// running from its snapshot, so its rows never silently stop resolving.
+func (p *CommandPalette) SetRoot(cmds []PaletteCommand) {
+	p.Root = cmds
+	if !p.Picker.Open || len(p.stack) > 0 {
+		return
+	}
+	p.Commands = cmds
+	p.Picker.SetItems(p.items(cmds))
 }
 
 func (p *CommandPalette) Hide() {
@@ -91,6 +109,19 @@ func (p *CommandPalette) Pop() bool {
 
 func (p *CommandPalette) show(title string, cmds []PaletteCommand) {
 	p.Title, p.Commands = title, cmds
+	p.Picker.OnAccept = p.accept
+	p.Picker.OnEscape = p.Pop
+	p.Picker.OnSave = p.save
+	p.Picker.CanSave = func(item listpicker.Item) bool {
+		cmd, ok := p.command(item.ID)
+		return ok && !cmd.Disabled && cmd.OnSave != nil
+	}
+	p.Picker.OnClose = nil
+	p.Picker.Show(p.items(cmds), p.config())
+}
+
+// items maps page commands onto picker rows.
+func (p *CommandPalette) items(cmds []PaletteCommand) []listpicker.Item {
 	items := make([]listpicker.Item, 0, len(cmds))
 	for _, cmd := range cmds {
 		current, verb := splitMarker(cmd.Verb)
@@ -102,8 +133,14 @@ func (p *CommandPalette) show(title string, cmds []PaletteCommand) {
 			ID: cmd.ID, Primary: verb, Detail: detail, Keywords: cmd.Label(), Current: current,
 		})
 	}
+	return items
+}
+
+// config builds the picker chrome for a page; save copy rides on the page's
+// own saveability.
+func (p *CommandPalette) config() listpicker.ShowConfig {
 	cfg := listpicker.ShowConfig{
-		Title: title, FilterHint: "filter commands…", Empty: "No commands",
+		Title: p.Title, FilterHint: "filter commands…", Empty: "No commands",
 		EmptyFilter: "No commands match %q", Hint: chrome.ListHint("run"),
 		ConfirmMessage: "Apply this model and save as global default?",
 		ConfirmHint:    " y/enter save" + chrome.Sep + "n/esc cancel ",
@@ -114,15 +151,7 @@ func (p *CommandPalette) show(title string, cmds []PaletteCommand) {
 	if p.saveAvailable() {
 		cfg.Hint = chrome.ListHintExtra("run", "ctrl+s save default")
 	}
-	p.Picker.OnAccept = p.accept
-	p.Picker.OnEscape = p.Pop
-	p.Picker.OnSave = p.save
-	p.Picker.CanSave = func(item listpicker.Item) bool {
-		cmd, ok := p.command(item.ID)
-		return ok && !cmd.Disabled && cmd.OnSave != nil
-	}
-	p.Picker.OnClose = nil
-	p.Picker.Show(items, cfg)
+	return cfg
 }
 
 func splitMarker(label string) (current bool, text string) {

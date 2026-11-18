@@ -16,7 +16,7 @@ import (
 
 func TestCommandPaletteUsesSharedPicker(t *testing.T) {
 	accepted := ""
-	p := &CommandPalette{Commands: []PaletteCommand{
+	p := &CommandPalette{Root: []PaletteCommand{
 		{ID: "1", Noun: "settings", Verb: "theme", Description: "Change the color theme"},
 		{ID: "2", Noun: "app", Verb: "help", Description: "Show help", Run: func() { accepted = "2" }},
 	}}
@@ -54,7 +54,7 @@ func TestCommandPaletteUsesSharedPicker(t *testing.T) {
 
 func TestCommandPaletteNestedSubmenu(t *testing.T) {
 	picked := ""
-	p := &CommandPalette{Commands: []PaletteCommand{
+	p := &CommandPalette{Root: []PaletteCommand{
 		{
 			ID: "settings-theme", Noun: "settings", Verb: "theme", SubmenuTitle: "Select Theme",
 			Submenu: []PaletteCommand{
@@ -94,7 +94,7 @@ func TestCommandPaletteNestedSubmenu(t *testing.T) {
 
 func TestCommandPaletteDisabledRowDoesNotRun(t *testing.T) {
 	ran := false
-	p := &CommandPalette{Commands: []PaletteCommand{
+	p := &CommandPalette{Root: []PaletteCommand{
 		{ID: "disabled", Verb: "unavailable", Disabled: true, Run: func() { ran = true }},
 	}}
 	p.Show()
@@ -106,7 +106,7 @@ func TestCommandPaletteDisabledRowDoesNotRun(t *testing.T) {
 func TestCommandPaletteSaveUsesSharedConfirmation(t *testing.T) {
 	saved := ""
 	success := false
-	p := &CommandPalette{Commands: []PaletteCommand{
+	p := &CommandPalette{Root: []PaletteCommand{
 		{ID: "other", Verb: "other", OnSave: func() bool { saved = "other"; return true }},
 		{ID: "target", Verb: "target", OnSave: func() bool { saved = "target"; return success }},
 	}}
@@ -147,4 +147,60 @@ func TestCommandPaletteSaveUsesSharedConfirmation(t *testing.T) {
 	p.Handle(ctx, saveKey)
 	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
 	assert.False(t, p.Picker.Open)
+}
+
+// An extension sync replaces the root registry while a submenu page is on
+// screen. The page's rows must keep resolving against the snapshot they came
+// from — Enter silently cancelling was the old registry-stomp behavior.
+func TestSyncUnderOpenSubmenuKeepsPageRowsWorking(t *testing.T) {
+	ran := ""
+	p := &CommandPalette{Root: []PaletteCommand{{
+		ID:   "extensions",
+		Verb: "manage",
+		Submenu: []PaletteCommand{
+			{ID: "extensions-list", Verb: "list", Run: func() { ran = "list" }},
+			{ID: "extensions-reload", Verb: "reload all"},
+		},
+	}}}
+	ctx := &components.EventContext{}
+	enter := xui.KeyEvent{Code: xui.KeyEnter, Press: true}
+	p.Show()
+	p.Handle(ctx, enter) // pushes the Extensions page
+	require.True(t, p.Picker.Open)
+
+	p.SetRoot([]PaletteCommand{{ID: "extensions", Verb: "manage"}})
+	p.Handle(ctx, enter)
+	assert.Equal(t, "list", ran, "the page snapshot keeps accepting after a root sync")
+
+	// Popping back lands on the root page the sync refreshed.
+	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEscape, Press: true})
+	require.True(t, p.Picker.Open)
+	ran = ""
+	p.Handle(ctx, enter) // reload all has no Run here; acceptance closes
+	assert.True(t, p.Picker.Open, "a row without Run stays put")
+}
+
+// A sync that lands while the root page itself is open refreshes its rows in
+// place instead of waiting for a reopen.
+func TestSetRootRefreshesOpenRootPage(t *testing.T) {
+	p := &CommandPalette{Root: []PaletteCommand{{ID: "alpha", Verb: "alpha"}}}
+	p.Show()
+	ctx := &components.EventContext{}
+	for _, r := range "alp" {
+		p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: r, Press: true})
+	}
+
+	ran := ""
+	p.SetRoot([]PaletteCommand{
+		{ID: "alpha", Verb: "alpha", Run: func() { ran = "alpha" }},
+		{ID: "beta", Verb: "beta"},
+	})
+	assert.Equal(t, "alp", p.Picker.Query(), "an in-place refresh keeps the query")
+	ids := make([]string, 0, len(p.Picker.Items))
+	for _, item := range p.Picker.Items {
+		ids = append(ids, item.ID)
+	}
+	assert.Contains(t, ids, "beta", "the refreshed registry reaches the open page")
+	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
+	assert.Equal(t, "alpha", ran)
 }
