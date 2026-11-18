@@ -106,9 +106,14 @@ func TestCommandPaletteDisabledRowDoesNotRun(t *testing.T) {
 func TestCommandPaletteSaveUsesSharedConfirmation(t *testing.T) {
 	saved := ""
 	success := false
+	attempts := 0
 	p := &CommandPalette{Root: []PaletteCommand{
 		{ID: "other", Verb: "other", OnSave: func() bool { saved = "other"; return true }},
-		{ID: "target", Verb: "target", OnSave: func() bool { saved = "target"; return success }},
+		{ID: "target", Verb: "target", OnSave: func() bool {
+			attempts++
+			saved = "target"
+			return success
+		}},
 	}}
 	p.Show()
 	for _, r := range "target" {
@@ -140,14 +145,17 @@ func TestCommandPaletteSaveUsesSharedConfirmation(t *testing.T) {
 	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEscape, Press: true})
 	assert.False(t, p.Picker.IsConfirming())
 	assert.True(t, p.Picker.Open)
+	assert.Zero(t, attempts, "Esc must not have saved")
 
 	p.Handle(ctx, saveKey)
 	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: 'y', Press: true})
+	assert.Equal(t, 1, attempts)
 	assert.Equal(t, "target", saved)
 	assert.True(t, p.Picker.Open, "failed saves leave the selection available for retry")
 	success = true
 	p.Handle(ctx, saveKey)
 	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
+	assert.Equal(t, 2, attempts, "the retry really saves")
 	assert.False(t, p.Picker.Open)
 }
 
