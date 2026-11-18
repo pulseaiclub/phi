@@ -684,9 +684,15 @@ func TestCompactIgnoresThreshold(t *testing.T) {
 		WithTools([]tooldef.Tool{}),
 	)
 	require.NoError(t, err)
-	engine.client = fakeCompactClient{compact: func(context.Context) error { return nil }}
 
-	var started, completed bool
+	// The footer's busy marker has to reach the UI before the provider call, or
+	// a slow summary looks like a hang. Record what the provider saw.
+	var started, completed, startedAtProvider bool
+	engine.client = fakeCompactClient{compact: func(context.Context) error {
+		startedAtProvider = started
+		return nil
+	}}
+
 	did, err := engine.Compact(t.Context(), func(ev session.Event) bool {
 		switch e := ev.(type) {
 		case session.CompactionStarted:
@@ -699,10 +705,52 @@ func TestCompactIgnoresThreshold(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, did)
 	require.True(t, started, "the UI needs the busy marker before the summary call")
+	require.True(t, startedAtProvider, "CompactionStarted must be emitted before the provider request")
 	require.True(t, completed)
 
 	entries := sess.PathEntries()
 	require.Equal(t, session.EntryCompaction, entries[0].GetType())
+}
+
+// Esc during a manual compaction cancels it through the public contract: the
+// provider may still answer, but a cancelled run must report did=false, a
+// cancellation error, a failed completion, and no checkpoint. Exercising it via
+// Compact (not runCompact) pins the notification contract the UI reads.
+func TestCompactDropsSummaryAfterCancel(t *testing.T) {
+	sess, err := NewSession(WithCwd(t.TempDir()))
+	require.NoError(t, err)
+	require.NoError(t, sess.Append(
+		llm.Message{Role: llm.RoleUser, Content: compactionSeed},
+		llm.Message{Role: llm.RoleAssistant, Content: compactionSeed},
+		llm.Message{Role: llm.RoleUser, Content: compactionSeed},
+	))
+	engine, err := NewEngine(
+		llm.ModelConfig{Name: "fake", BaseURL: "http://unused.test", ContextWindow: 1_000_000},
+		sess,
+		WithTools([]tooldef.Tool{}),
+	)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	var failed bool
+	engine.client = fakeCompactClient{compact: func(context.Context) error {
+		// The user hits Esc while the provider is thinking, and it answers
+		// anyway: the summary that lands afterwards must not become the leaf.
+		cancel()
+		return nil
+	}}
+
+	did, err := engine.Compact(ctx, func(ev session.Event) bool {
+		if done, ok := ev.(session.CompactionComplete); ok {
+			failed = done.Failed
+		}
+		return true
+	})
+	require.ErrorIs(t, err, context.Canceled)
+	require.False(t, did)
+	require.True(t, failed, "the marker must clear the busy state")
+	requireNoCompactionEntry(t, sess)
 }
 
 // Nothing outside the retained tail means no summary: the caller reports
