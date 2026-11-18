@@ -190,6 +190,9 @@ func NewEditor(
 		RequestFocus:          e.App.RequestFocus,
 		CtrlClose:             e.ctrl.Close,
 	})
+	// The palette draws inside the transcript area, so the draft below stays
+	// clickable; keep it from taking the keyboard while the palette is open.
+	e.App.ModalInput = e.composer.PaletteOpen
 
 	e.extCmds.Sync()
 	return e

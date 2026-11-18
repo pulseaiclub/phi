@@ -28,6 +28,11 @@ type App struct {
 	redraw   bool
 	// Anim requests a redraw on every frame tick (spinners, etc).
 	Anim bool
+	// ModalInput, when set, reports that a modal overlay owns the keyboard.
+	// While it returns true, mouse presses must not move focus onto another
+	// text-entry widget: clicking the draft under an open palette would
+	// otherwise redirect typing and Enter away from the modal.
+	ModalInput func() bool
 	// pending is a single push-back slot used when coalesceWheel peeks past a
 	// non-wheel event (must not Post to the end of the queue — that reorders).
 	pending xui.Event
@@ -201,7 +206,7 @@ func (a *App) handleEvent(ev xui.Event) (quit bool) {
 			// handle clicks themselves (the pane expands or selects), and used
 			// to steal focus — leaving the composer cursor visible but dead.
 			if e.Action == xui.MousePress {
-				if acceptsKeyboardFocus(hit) {
+				if acceptsKeyboardFocus(hit) && a.mayStealFocus(hit) {
 					a.focused = hit
 				} else if a.focused != nil && !acceptsKeyboardFocus(a.focused) {
 					// Drop stale focus on list rows so keys bubble to the composer.
@@ -274,6 +279,16 @@ func (a *App) RequestFocus(w components.Widget) {
 	}
 	a.focused = w
 	a.redraw = true
+}
+
+// mayStealFocus reports whether a press on w may move the keyboard focus.
+// Behind a modal, only a press on the widget that already holds focus (the
+// modal's own text field) may re-take it.
+func (a *App) mayStealFocus(w components.Widget) bool {
+	if a.ModalInput == nil || !a.ModalInput() {
+		return true
+	}
+	return w == a.focused
 }
 
 // acceptsKeyboardFocus reports whether a mouse-press target should become the

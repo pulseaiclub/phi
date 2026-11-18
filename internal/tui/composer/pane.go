@@ -589,6 +589,11 @@ func (c *ComposerPane) PickerOverlays(ctx components.DrawContext, listH, width i
 	return out
 }
 
+// PaletteOpen reports whether the Ctrl+K palette is showing. The editor wires
+// it as the app's ModalInput so clicks below the palette cannot move the
+// keyboard focus out from under it.
+func (c *ComposerPane) PaletteOpen() bool { return c.palette.Picker.Open }
+
 // PaletteOverlay returns the Ctrl+K palette surface when open.
 func (c *ComposerPane) PaletteOverlay(ctx components.DrawContext) (components.SubSurface, bool) {
 	if !c.palette.Picker.Open {
