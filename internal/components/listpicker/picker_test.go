@@ -745,3 +745,44 @@ func TestPickerFuzzyMatchesNameSubsequences(t *testing.T) {
 	}
 	assert.Empty(t, p.filtered, "without Fuzzy the exact tiers are the whole story")
 }
+
+// A confirmation names one row. If SetItems swaps the list while it is
+// pending, Enter must not save or delete whichever row now sits there.
+func TestConfirmDoesNotFireOnASwappedRow(t *testing.T) {
+	ctx := &components.EventContext{}
+	ctrlS := xui.KeyEvent{Code: xui.KeyRune, Rune: 's', Mods: xui.ModCtrl, Press: true}
+	enter := xui.KeyEvent{Code: xui.KeyEnter, Press: true}
+
+	var saved []string
+	p := &Picker{}
+	p.OnSave = func(item Item) bool { saved = append(saved, item.ID); return true }
+	p.Show([]Item{{ID: "a", Primary: "a"}, {ID: "b", Primary: "b"}}, ShowConfig{})
+	p.Handle(ctx, ctrlS)
+	require.True(t, p.IsConfirming())
+
+	p.SetItems([]Item{{ID: "z", Primary: "z"}, {ID: "b", Primary: "b"}})
+	p.Handle(ctx, enter)
+	assert.Empty(t, saved, "a swapped row is not the row the user confirmed")
+	assert.False(t, p.IsConfirming(), "the mismatch disarms instead of guessing")
+	assert.True(t, p.Open)
+
+	// The same row surviving a refresh still saves.
+	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyDown, Press: true}) // onto "b"
+	p.Handle(ctx, ctrlS)
+	require.True(t, p.IsConfirming())
+	p.SetItems([]Item{{ID: "z", Primary: "z"}, {ID: "b", Primary: "b"}})
+	p.Handle(ctx, enter)
+	assert.Equal(t, []string{"b"}, saved, "a refresh that keeps the row must not block the save")
+	assert.False(t, p.Open, "a successful save closes")
+
+	// A CanSave flip between arming and Enter stops the save.
+	p.Show([]Item{{ID: "b", Primary: "b"}}, ShowConfig{})
+	allow := true
+	p.CanSave = func(Item) bool { return allow }
+	p.Handle(ctx, ctrlS)
+	require.True(t, p.IsConfirming())
+	allow = false
+	p.Handle(ctx, enter)
+	assert.Len(t, saved, 1, "CanSave is rechecked when the confirmation fires")
+	assert.False(t, p.IsConfirming())
+}

@@ -121,6 +121,7 @@ type Picker struct {
 	scroll       int
 	confirming   bool
 	saveConfirm  bool
+	confirmID    string // row the pending confirmation was armed on
 	cancelAccept bool
 	commandMode  bool // Query opens with CommandPrefix and Commands is non-empty
 	hintSet      bool // caller supplied ShowConfig.Hint; keep the command advert out
@@ -158,6 +159,7 @@ func (p *Picker) Show(items []Item, cfg ShowConfig) {
 	p.scroll = 0
 	p.confirming = false
 	p.saveConfirm = false
+	p.confirmID = ""
 	p.cancelAccept = false
 	p.refilter()
 }
@@ -205,6 +207,7 @@ func (p *Picker) Hide() {
 	p.commandMode = false
 	p.confirming = false
 	p.saveConfirm = false
+	p.confirmID = ""
 	p.cancelAccept = false
 	if p.OnClose != nil {
 		p.OnClose()
@@ -582,9 +585,10 @@ func (p *Picker) handleKey(ctx *components.EventContext, e xui.KeyEvent) {
 				// Arm delete-confirm only for callers that own a delete path;
 				// picker domains without one keep Ctrl+X inert. Never while the
 				// line holds a command: the selected row is not theirs.
-				if p.OnDelete != nil && !p.commandMode {
+				if item, ok := p.selectedItem(); p.OnDelete != nil && !p.commandMode && ok {
 					p.confirming = true
 					p.saveConfirm = false
+					p.confirmID = item.ID
 					ctx.ConsumeAndRedraw()
 				}
 			case 's', 'S':
@@ -593,6 +597,7 @@ func (p *Picker) handleKey(ctx *components.EventContext, e xui.KeyEvent) {
 					(p.CanSave == nil || p.CanSave(item)) {
 					p.confirming = true
 					p.saveConfirm = true
+					p.confirmID = item.ID
 					ctx.ConsumeAndRedraw()
 				}
 			}
@@ -622,14 +627,20 @@ func (p *Picker) handleConfirmKey(ctx *components.EventContext, e xui.KeyEvent) 
 	switch {
 	case confirm:
 		p.confirming = false
+		// The confirmation names one row. A refresh that moved another row
+		// into place (or a CanSave flip) must not act on the wrong item.
+		item, ok := p.selectedItem()
+		if !ok || item.ID != p.confirmID {
+			break
+		}
 		if p.saveConfirm {
-			if item, ok := p.selectedItem(); ok && p.OnSave != nil && p.OnSave(item) {
+			if p.OnSave != nil && (p.CanSave == nil || p.CanSave(item)) && p.OnSave(item) {
 				p.Hide()
 				p.returnFocus(ctx)
 			}
 			break
 		}
-		if item, ok := p.selectedItem(); ok && p.OnDelete != nil {
+		if p.OnDelete != nil {
 			p.OnDelete(item)
 		}
 	case cancel:
