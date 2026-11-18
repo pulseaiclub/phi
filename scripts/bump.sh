@@ -2,18 +2,16 @@
 #
 # Usage: ./scripts/bump.sh <new-version>
 #
-# Updates internal/version/version.go, keeps root go.mod's require on the nested
-# ext module in sync, commits the change, and creates annotated git tags for phi
-# (vX.Y.Z) and the nested ext module (ext/go/vX.Y.Z). Pushing the phi tag triggers
-# .github/workflows/release.yml (GoReleaser); release notes come from the matching
-# CHANGELOG.md section (see release.yml).
+# Updates internal/version/version.go, commits the change, and creates an
+# annotated git tag for phi (vX.Y.Z). Pushing the tag triggers
+# .github/workflows/release.yml (GoReleaser); release notes come from the
+# matching CHANGELOG.md section (see release.yml).
 # Example: ./scripts/bump.sh v0.2.0
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VERSION_FILE="$ROOT/internal/version/version.go"
-ROOT_GOMOD="$ROOT/go.mod"
 
 if [ $# -ne 1 ]; then
     echo "Usage: $0 <new-version>" >&2
@@ -45,33 +43,22 @@ if ! grep -qE '^var Version = "v[^"]+"$' "$VERSION_FILE"; then
     exit 1
 fi
 
-EXT_TAG="ext/go/$NEW_VERSION"
-
 # Bump the in-tree version shown on the splash screen.
 sed -i.bak -E "s|^var Version = \"v[^\"]+\"$|var Version = \"$NEW_VERSION\"|" "$VERSION_FILE"
 rm -f "${VERSION_FILE}.bak"
 
-# Keep root go.mod's require on the nested ext module in sync.
-if [ -f "$ROOT_GOMOD" ]; then
-    sed -i.bak -E "s|github.com/pulseaiclub/phi/ext/go v[0-9][^[:space:]]*|github.com/pulseaiclub/phi/ext/go $NEW_VERSION|" "$ROOT_GOMOD"
-    rm -f "${ROOT_GOMOD}.bak"
-fi
-
-if git -C "$ROOT" diff --quiet -- "$VERSION_FILE" "$ROOT_GOMOD" 2>/dev/null; then
-    echo "Error: version files unchanged (already $NEW_VERSION?)" >&2
+if git -C "$ROOT" diff --quiet -- "$VERSION_FILE" 2>/dev/null; then
+    echo "Error: version file unchanged (already $NEW_VERSION?)" >&2
     exit 1
 fi
 
 git -C "$ROOT" add "$VERSION_FILE"
-[ -f "$ROOT_GOMOD" ] && git -C "$ROOT" add "$ROOT_GOMOD"
 git -C "$ROOT" commit -m "chore: bump version to $NEW_VERSION"
 
-# Tag the version-bump commit (phi binary + nested Go ext module).
+# Tag the version-bump commit.
 git -C "$ROOT" tag -a "$NEW_VERSION" -m "Release $NEW_VERSION"
-git -C "$ROOT" tag -a "$EXT_TAG" -m "Release $EXT_TAG"
 
 echo ""
 echo "Updated $VERSION_FILE"
-echo "Created commit + tags: $NEW_VERSION , $EXT_TAG"
+echo "Created commit + tag: $NEW_VERSION"
 echo "To push: git push origin HEAD --follow-tags"
-echo "Also push the nested-module tag: git push origin $EXT_TAG"

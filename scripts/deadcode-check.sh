@@ -49,7 +49,13 @@ if [ ! -f "$BASELINE" ]; then
 	exit 1
 fi
 
-grep -v '^[[:space:]]*#' "$BASELINE" | grep -v '^[[:space:]]*$' | sort -u >"$sorted_baseline"
+# `|| true`: an all-comment (empty) baseline makes grep exit 1 and pipefail
+# would kill the script before the comparison runs.
+{
+	grep -v '^[[:space:]]*#' "$BASELINE" || true
+} | {
+	grep -v '^[[:space:]]*$' || true
+} | sort -u >"$sorted_baseline"
 
 new="$(comm -23 "$findings" "$sorted_baseline")"
 stale="$(comm -13 "$findings" "$sorted_baseline")"
