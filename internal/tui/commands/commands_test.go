@@ -153,7 +153,7 @@ func TestFilterSlashCommands(t *testing.T) {
 	(&DiffCommands{}).Register(r)
 
 	all := r.FilterSlash("")
-	require.Len(t, all, 4) // sessions, new, fork, diff
+	require.Len(t, all, 5) // sessions, new, fork, summarize, diff
 
 	nw := r.FilterSlash("ne")
 	require.Len(t, nw, 1)
@@ -165,6 +165,7 @@ func TestFilterSlashCommands(t *testing.T) {
 	assert.Equal(t, "/sessions", r.LookupInsert("sessions"))
 	assert.Equal(t, "/new", r.LookupInsert("new"))
 	assert.Equal(t, "/fork", r.LookupInsert("fork"))
+	assert.Equal(t, "/summarize", r.LookupInsert("summarize"))
 	assert.Equal(t, "/diff ", r.LookupInsert("diff"))
 }
 

@@ -14,6 +14,7 @@ import (
 
 	ext "github.com/pulseaiclub/phi/ext/go"
 	"github.com/pulseaiclub/phi/internal/agent"
+	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/debuglog"
 	"github.com/pulseaiclub/phi/internal/extension"
@@ -33,12 +34,13 @@ type EngineController struct {
 	engine *agent.Engine
 	proj   *project.Project
 
-	streamMu       sync.Mutex
-	streamCancel   context.CancelFunc
-	streamGen      int
-	lastPrompt     LastPrompt
-	promptAppended bool
-	retryReady     bool
+	streamMu        sync.Mutex
+	streamCancel    context.CancelFunc
+	summarizeCancel context.CancelFunc
+	streamGen       int
+	lastPrompt      LastPrompt
+	promptAppended  bool
+	retryReady      bool
 
 	bus *Bus
 
@@ -707,6 +709,76 @@ func (c *EngineController) startPromptLocked() {
 	go c.runLoop(ctx, c.streamGen, c.engine, c.lastPrompt, c.promptAppended)
 }
 
+// Summarize runs a manual context compaction for the active session.
+//
+// The outcome is reported as a toast, not through the loop-error dialog: the
+// dialog offers Retry, which replays a prompt, and the user asked for a
+// summary. Esc cancels the run through Cancel, like any other in-flight work.
+// Refusing a second concurrent run matters because both would summarize the
+// same leaf and the loser aborts on the anchor check.
+func (c *EngineController) Summarize() error {
+	c.streamMu.Lock()
+	if c.summarizeCancel != nil {
+		c.streamMu.Unlock()
+		return errors.New("a summary is already running")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	c.summarizeCancel = cancel
+	engine := c.engine
+	c.streamMu.Unlock()
+
+	go c.runSummarize(ctx, engine)
+	return nil
+}
+
+func (c *EngineController) runSummarize(ctx context.Context, engine *agent.Engine) {
+	defer func() {
+		c.streamMu.Lock()
+		cancel := c.summarizeCancel
+		c.summarizeCancel = nil
+		c.streamMu.Unlock()
+		if cancel != nil {
+			cancel()
+		}
+	}()
+
+	var before int
+	did, err := engine.Summarize(ctx, func(ev session.Event) bool {
+		if done, ok := ev.(session.CompactionComplete); ok && !done.Failed {
+			before = done.TokensBefore
+		}
+		// Gen 0: these events belong to no prompt loop. The footer activity and
+		// the compaction marker come from CompactionStarted/Complete themselves.
+		c.publish(SessionEventMsg{Event: ev})
+		return true
+	})
+
+	switch {
+	case errors.Is(err, context.Canceled) || ctx.Err() != nil:
+		c.publish(ToastMsg{Message: "Summary cancelled", Kind: toast.ToastWarning, Duration: 3 * time.Second})
+	case err != nil:
+		c.publish(ToastMsg{
+			Message:  "Summary failed: " + err.Error(),
+			Kind:     toast.ToastError,
+			Duration: 4 * time.Second,
+		})
+	case !did:
+		c.publish(ToastMsg{
+			Message:  "Nothing to summarize yet",
+			Kind:     toast.ToastWarning,
+			Duration: 3 * time.Second,
+		})
+	default:
+		// A provider that reports no usage leaves TokensBefore at zero; claim a
+		// number only when there is one.
+		msg := "Summarized context"
+		if before > 0 {
+			msg = fmt.Sprintf("Summarized context (was %s tokens)", components.FormatTokens(before))
+		}
+		c.publish(ToastMsg{Message: msg, Kind: toast.ToastSuccess, Duration: 3 * time.Second})
+	}
+}
+
 // RetryLastPrompt resumes a failed turn without appending its user message again.
 func (c *EngineController) RetryLastPrompt() bool {
 	c.streamMu.Lock()
@@ -723,6 +795,11 @@ func (c *EngineController) Cancel() {
 	defer c.streamMu.Unlock()
 	if c.streamCancel != nil {
 		c.streamCancel()
+	}
+	// A manual summary is cancellable too: Esc must not leave it running
+	// against a session the user is about to act on.
+	if c.summarizeCancel != nil {
+		c.summarizeCancel()
 	}
 	// Invalidate queued completion messages as well as the running request.
 	c.streamGen++

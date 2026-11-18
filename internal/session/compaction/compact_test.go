@@ -48,6 +48,17 @@ func editEntry(id, path string) session.MessageEntry {
 	}
 }
 
+// A fresh session has no entries: manual /summarize must report "nothing to
+// summarize" instead of indexing an empty slice.
+func TestPrepareCompact_EmptySession_ReturnsEmptyPreparation(t *testing.T) {
+	prep, err := PrepareCompact(nil, Settings{keepRecentTokens: 100})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, prep)
+	assert.Empty(t, prep.FirstKeptEntryId)
+	assert.Nil(t, prep.MessagesToSummarize)
+}
+
 func TestPrepareCompact_AlreadyCompacted_ReturnsEmptyPreparation(t *testing.T) {
 	entries := []session.MessageEntry{
 		msgEntry("e1", llm.RoleUser, 10, 0),
