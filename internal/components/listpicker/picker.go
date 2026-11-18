@@ -60,6 +60,7 @@ type ShowConfig struct {
 	Empty          string // no items at all
 	EmptyFilter    string // no matches; may contain %q for the query
 	Hint           string // bottom border caption
+	HintShort      string // compact Hint for narrow panels; default chrome.ListHintShort("select")
 	ConfirmMessage string // replaces the filter prompt while confirming a delete
 	ConfirmHint    string // bottom border caption while confirming; default " y/enter delete · n/esc cancel "
 	ConfirmShort   string // narrow-screen confirmation caption; optional
@@ -917,6 +918,9 @@ func (p *Picker) drawHint(
 		return
 	}
 	hint, short := p.cfg.Hint, chrome.ListHintShort("select")
+	if p.cfg.HintShort != "" {
+		short = p.cfg.HintShort
+	}
 	switch {
 	case p.confirming:
 		hint = p.cfg.ConfirmHint

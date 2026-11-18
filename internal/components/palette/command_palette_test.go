@@ -126,6 +126,8 @@ func TestCommandPaletteSaveUsesSharedConfirmation(t *testing.T) {
 	}
 	text := draw(100)
 	assert.Equal(t, 1, strings.Count(text, "ctrl+s save default"))
+	assert.Contains(t, draw(32), "ctrl+s save default",
+		"the save shortcut survives the narrow fallback")
 	p.Handle(ctx, saveKey)
 	assert.True(t, p.Picker.IsConfirming())
 	assert.Empty(t, saved, "Ctrl+S asks before saving")

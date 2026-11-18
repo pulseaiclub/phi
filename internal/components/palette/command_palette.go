@@ -142,6 +142,9 @@ func (p *CommandPalette) config() listpicker.ShowConfig {
 	cfg := listpicker.ShowConfig{
 		Title: p.Title, FilterHint: "filter commands…", Empty: "No commands",
 		EmptyFilter: "No commands match %q", Hint: chrome.ListHint("run"),
+		// The full caption folds at narrow widths; keep the save shortcut
+		// alive there — a hidden ctrl+s reads as "saving unsupported".
+		HintShort: " ctrl+s save default ",
 		ConfirmMessage: "Apply this model and save as global default?",
 		ConfirmHint:    " y/enter save" + chrome.Sep + "n/esc cancel ",
 		ConfirmShort:   " y save" + chrome.Sep + "n cancel ",
