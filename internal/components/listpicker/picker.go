@@ -616,7 +616,7 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 		p.refilter()
 	}
 
-	boxW := p.panelWidth(maxW, ctx.Method)
+	boxW := p.panelWidth(maxW)
 	visible, boxH := p.panelHeight(maxH)
 	p.syncScroll(visible)
 
@@ -671,7 +671,7 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 	return out
 }
 
-func (p *Picker) panelWidth(maxW int, method xui.WidthMethod) int {
+func (p *Picker) panelWidth(maxW int) int {
 	boxW := p.Width
 	if boxW <= 0 && p.cfg.Style == StyleCommand {
 		boxW = min(maxW-2, 76)
