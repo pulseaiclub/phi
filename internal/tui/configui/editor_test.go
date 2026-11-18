@@ -471,6 +471,12 @@ func TestChoicePickerCommitsSelection(t *testing.T) {
 	typeRune(e, 'b') // filter to model-b
 	press(e, xui.KeyEnter, 0)
 	assert.Equal(t, "model-b", doc.Agents.Models.Explore)
+
+	focus(t, e, keyAgentsExplore)
+	press(e, xui.KeyEnter, 0)
+	require.True(t, e.picker.Open)
+	press(e, xui.KeyEnter, 0)
+	assert.Equal(t, "model-b", doc.Agents.Models.Explore, "opening and accepting must keep the current value")
 }
 
 func TestDrawPaintsFormAndStatus(t *testing.T) {

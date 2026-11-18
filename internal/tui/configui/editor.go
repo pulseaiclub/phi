@@ -18,8 +18,6 @@ import (
 const (
 	// fetchTimeout caps one provider model-list request.
 	fetchTimeout = 15 * time.Second
-	// pickerPrimaryWidth keeps choice labels in one column.
-	pickerPrimaryWidth = 22
 )
 
 // ConfigEditor is the full-screen config form. It implements components.Widget and is
@@ -669,25 +667,17 @@ func (e *ConfigEditor) openKeyPicker(title, key string, options []option) {
 	if len(options) == 0 {
 		return
 	}
-	current := e.rawFor(key)
 	items := make([]listpicker.Item, 0, len(options))
 	for _, o := range options {
-		badge := ""
-		if o.value == current {
-			badge = "current"
-		}
-		items = append(items, listpicker.Item{ID: o.value, Primary: o.label, Badge: badge, Detail: o.desc})
+		items = append(items, listpicker.Item{ID: o.value, Primary: o.label, Detail: o.desc})
 	}
 	e.picker = listpicker.Picker{
 		Theme:    e.theme,
 		OnAccept: func(item listpicker.Item) { e.commit(key, item.ID) },
 	}
-	// Rows carry no leading column, so the picker collapses it on its own;
-	// setting a width here would only promise a gutter that is never drawn.
-	e.picker.Show(items, listpicker.ShowConfig{
-		Title:        title,
-		PrimaryWidth: pickerPrimaryWidth,
-	})
+	// Choice rows use the same name/description columns as every other picker.
+	e.picker.Show(items, listpicker.ShowConfig{Title: title})
+	e.picker.Restore(listpicker.State{SelectedID: e.rawFor(key)})
 }
 
 func (e *ConfigEditor) handleMouse(ctx *components.EventContext, m xui.MouseEvent) {

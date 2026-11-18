@@ -572,7 +572,8 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	if !e.overlays.Active() {
 		root.Children = append(root.Children, e.composer.PickerOverlays(ctx, listH, maxSize.Width)...)
 	}
-	if pal, ok := e.composer.PaletteOverlay(ctx); ok {
+	paletteCtx := ctx.WithConstraints(components.Size{}, components.Size{Width: maxSize.Width, Height: listH})
+	if pal, ok := e.composer.PaletteOverlay(paletteCtx); ok {
 		root.Children = append(root.Children, pal)
 	}
 	if list, ok := e.composer.ListOverlay(ctx); ok {

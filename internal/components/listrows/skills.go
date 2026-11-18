@@ -6,10 +6,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/llm/skills"
 )
 
-// skillColumn fits the longest builtin skill name; longer ones elide, and a
-// few typed characters filter them back into view.
-const skillColumn = 28
-
 // SkillConfig returns chrome copy for the skills picker.
 func SkillConfig() listpicker.ShowConfig {
 	return listpicker.ShowConfig{
@@ -20,7 +16,6 @@ func SkillConfig() listpicker.ShowConfig {
 		Hint:        chrome.ListHint("attach"),
 		// No delete path: the picker keeps Ctrl+X inert instead of arming a
 		// confirm nobody answers.
-		PrimaryWidth: skillColumn,
 	}
 }
 

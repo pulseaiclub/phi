@@ -1,6 +1,7 @@
 package listpicker
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -21,12 +22,12 @@ func TestPickerFilterAndAccept(t *testing.T) {
 		},
 	}
 	p.Show([]Item{
-		{ID: "aaaaaaaa-1111", Leading: "2m ago", Primary: "aaaaaaaa", Detail: "fix resume leak"},
-		{ID: "bbbbbbbb-2222", Leading: "1h ago", Primary: "bbbbbbbb", Detail: "add themes", Badge: "current"},
-		{ID: "cccccccc-3333", Leading: "2h ago", Primary: "cccccccc", Detail: "hello world"},
+		{ID: "aaaaaaaa-1111", Primary: "aaaaaaaa", Detail: "fix resume leak"},
+		{ID: "bbbbbbbb-2222", Primary: "bbbbbbbb", Detail: "add themes"},
+		{ID: "cccccccc-3333", Primary: "cccccccc", Detail: "hello world"},
 	}, ShowConfig{Title: "Sessions"})
 	require.True(t, p.Open)
-	assert.Equal(t, 1, p.Selected, "prefer badged row")
+	assert.Zero(t, p.Selected)
 
 	ctx := &components.EventContext{}
 	typeQuery(p, ctx, "resume")
@@ -144,23 +145,23 @@ func TestPickerEmptyDraw(t *testing.T) {
 	assert.Contains(t, text, "No sessions")
 }
 
-func TestPickerDrawBadge(t *testing.T) {
+func TestPickerDrawTwoColumns(t *testing.T) {
 	p := &Picker{Theme: components.DefaultTheme()}
 	p.Show([]Item{
-		{ID: "deadbeef-0001", Leading: "2m ago", Primary: "deadbeef", Detail: "first", Badge: "current"},
+		{ID: "deadbeef-0001", Primary: "deadbeef", Detail: "first"},
 	}, ShowConfig{Title: "Sessions"})
 	s := p.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 24}, Method: xui.WidthUnicode})
 	require.Len(t, s.Children, 1)
 	text := components.SurfaceText(s.Children[0].Surface)
 	assert.Contains(t, text, "Sessions")
 	assert.Contains(t, text, "deadbeef")
-	assert.Contains(t, text, "current")
 
 	rows := strings.Split(text, "\n")
-	require.GreaterOrEqual(t, len(rows), 4)
-	assert.NotContains(t, rows[1], "─", "the search row stays separate from the divider")
-	assert.Contains(t, rows[2], "─", "the divider sits below the search row")
-	assert.Contains(t, rows[3], "deadbeef", "the list starts below the divider")
+	require.GreaterOrEqual(t, len(rows), 5)
+	assert.Contains(t, rows[1], "Sessions", "the title has its own row")
+	assert.NotContains(t, rows[2], "─", "the search row has no divider")
+	assert.Empty(t, strings.Trim(rows[3], "│ "), "the list breathes below the search row")
+	assert.Contains(t, rows[4], "deadbeef", "the list starts below the gap")
 }
 
 func TestPickerDeleteConfirmFlow(t *testing.T) {
@@ -483,31 +484,165 @@ func drawRowLines(t *testing.T, p *Picker) []string {
 	return strings.Split(strings.TrimSuffix(components.SurfaceText(s.Children[0].Surface), "\n"), "\n")
 }
 
-// Rows with no leading content must not pay the leading gutter: skills carry
-// no marker, and a blank margin ahead of every name is dead space. Lists that
-// do use the column keep it, blanks included, so a branch ● stays aligned
-// with the unmarked rows around it.
-func TestPickerDrawLeadingColumnFollowsContent(t *testing.T) {
-	t.Run("collapses when no row leads", func(t *testing.T) {
-		p := &Picker{Theme: components.DefaultTheme()}
-		p.Show([]Item{{ID: "a", Primary: "alpha", Detail: "does a"}}, ShowConfig{Title: "Skills"})
-		lines := drawRowLines(t, p)
-		assert.True(t, strings.HasPrefix(lines[3], "│ alpha"),
-			"first row starts at the left padding, got %q", lines[3])
-	})
+func TestPickerColumnsAlignAcrossRowsAndFiltering(t *testing.T) {
+	p := &Picker{}
+	items := []Item{
+		{ID: "license", Primary: "LICENSE", Detail: "."},
+		{ID: "readme", Primary: "README.md", Detail: "docs"},
+		{ID: "image", Leading: "●", Primary: "图标.png", Detail: "assets"},
+	}
+	for range 10 {
+		items = append(items, Item{Primary: "short", Detail: "."})
+	}
+	// The widest row is off-screen; scrolling or filtering must not move the columns.
+	items = append(items, Item{Primary: "abcdefghijklmnopqrst", Detail: "description"})
+	p.Show(items, ShowConfig{Title: "Files"})
+	draw := func() components.Surface {
+		t.Helper()
+		s := p.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 24}, Method: xui.WidthUnicode})
+		require.Len(t, s.Children, 1)
+		return s.Children[0].Surface
+	}
+	panel := draw()
+	for i, first := range []string{"L", "R", "图"} {
+		row := panel.Buffer[(4+i)*panel.Size.Width : (5+i)*panel.Size.Width]
+		require.Equal(t, first, row[4].Char, "names share one left edge")
+		assert.Equal(t, " ", row[3].Char)
+		assert.True(t, row[4].Style.Bold)
+		assert.Equal(t, " ", row[24].Char)
+		assert.Equal(t, " ", row[25].Char, "column boxes are separated by two cells")
+		assert.Equal(t, []string{".", "d", "a"}[i], row[26].Char, "details share one left edge")
+	}
+	assert.Equal(t, "●", panel.Buffer[6*panel.Size.Width+2].Char)
+	for x := 1; x < panel.Size.Width-1; x++ {
+		assert.Equal(t, components.DefaultTheme().SelectionBg.Bg, panel.Buffer[4*panel.Size.Width+x].Style.Bg)
+	}
 
-	t.Run("keeps the column when a row leads", func(t *testing.T) {
-		p := &Picker{Theme: components.DefaultTheme()}
-		p.Show([]Item{
-			{ID: "a", Leading: "2m ago", Primary: "alpha", Detail: "does a"},
-			{ID: "b", Primary: "beta", Detail: "does b"},
-		}, ShowConfig{Title: "Sessions"})
-		lines := drawRowLines(t, p)
-		assert.True(t, strings.HasPrefix(lines[3], "│ 2m ago    alpha"),
-			"led row keeps the fixed column, got %q", lines[3])
-		assert.True(t, strings.HasPrefix(lines[4], "│           beta"),
-			"unled row keeps the same column, got %q", lines[4])
-	})
+	typeQuery(p, &components.EventContext{}, "license")
+	require.Len(t, p.filtered, 1)
+	panel = draw()
+	assert.Equal(t, "L", panel.Buffer[4*panel.Size.Width+4].Char)
+	assert.Equal(t, ".", panel.Buffer[4*panel.Size.Width+26].Char)
+
+	p.Commands = []Command{{Name: "fetch", Detail: "description"}, {Name: "pull", Detail: "sync"}}
+	p.Show(nil, ShowConfig{})
+	typeQuery(p, &components.EventContext{}, "!")
+	panel = draw()
+	for i, name := range []string{"!fetch", "!pull"} {
+		row := panel.Buffer[(4+i)*panel.Size.Width : (5+i)*panel.Size.Width]
+		for x, char := range name {
+			assert.Equal(t, string(char), row[4+x].Char)
+		}
+		assert.Equal(t, " ", row[10].Char)
+		assert.Equal(t, " ", row[11].Char)
+		assert.Equal(t, []string{"d", "s"}[i], row[12].Char)
+	}
+}
+
+func TestPickerUsesColorForCurrentChoice(t *testing.T) {
+	p := &Picker{Theme: components.DefaultTheme()}
+	p.Show([]Item{{Primary: "current", Current: true}, {Primary: "other"}}, ShowConfig{})
+	p.Selected = 1
+	s := p.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 24}, Method: xui.WidthUnicode})
+	require.Len(t, s.Children, 1)
+	panel := s.Children[0].Surface
+	row := panel.Buffer[4*panel.Size.Width : 5*panel.Size.Width]
+	x := slices.IndexFunc(row, func(cell xui.Cell) bool { return cell.Char == "c" })
+	require.NotEqual(t, -1, x)
+	assert.Equal(t, components.DefaultTheme().Success.Fg, row[x].Style.Fg)
+	assert.NotContains(t, components.SurfaceText(panel), "●")
+}
+
+func TestPickerCentersSingleColumnPages(t *testing.T) {
+	p := &Picker{}
+	p.Show([]Item{
+		{ID: "short", Primary: "short"},
+		{ID: "long", Primary: "a much longer model name"},
+	}, ShowConfig{})
+	s := p.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 24}, Method: xui.WidthUnicode})
+	require.Len(t, s.Children, 1)
+	panel := s.Children[0].Surface
+
+	const start = (72 - len("a much longer model name")) / 2
+	assert.Equal(t, "s", panel.Buffer[4*panel.Size.Width+start].Char)
+	assert.Equal(t, "a", panel.Buffer[5*panel.Size.Width+start].Char)
+	assert.NotContains(t, components.SurfaceText(panel), "—")
+
+	typeQuery(p, &components.EventContext{}, "short")
+	panel = p.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 24}, Method: xui.WidthUnicode}).Children[0].Surface
+	assert.Equal(t, "s", panel.Buffer[4*panel.Size.Width+start].Char, "filtering does not move the column")
+	assert.Equal(t, 7, panel.Size.Height, "one result does not reserve empty list rows")
+}
+
+func TestPickerFrameTracksResultCount(t *testing.T) {
+	p := &Picker{Commands: []Command{{Name: "fetch", Detail: "fetch remotes"}}}
+	items := []Item{{ID: "target", Primary: "target"}}
+	for range 20 {
+		items = append(items, Item{ID: "other", Primary: "other"})
+	}
+	p.Show(items, ShowConfig{})
+	ctx := &components.EventContext{}
+	check := func() {
+		t.Helper()
+		s := p.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 24}, Method: xui.WidthUnicode})
+		require.Len(t, s.Children, 1)
+		height := min(max(len(p.filtered), 1), p.maxItems()) + 6
+		assert.Equal(t, components.Size{Width: 72, Height: height}, s.Children[0].Surface.Size)
+		assert.Equal(t, components.Point{X: 4, Y: (24 - height) / 3}, s.Children[0].Origin)
+	}
+	check()
+	typeQuery(p, ctx, "target")
+	require.Len(t, p.filtered, 1)
+	check()
+	typeQuery(p, ctx, "missing")
+	require.Empty(t, p.filtered)
+	check()
+	p.Show(nil, ShowConfig{Title: "Empty"})
+	check()
+	typeQuery(p, ctx, "!")
+	require.True(t, p.commandMode)
+	check()
+}
+
+func TestPickerFitsSmallTerminal(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		width, height int
+		panelHeight   int
+	}{
+		{"narrow", 32, 24, 7},
+		{"short", 80, 12, 7},
+		{"minimum full header", 80, 7, 7},
+		{"compact", 80, 6, 6},
+		{"no content space", 80, 3, 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &Picker{}
+			p.Show([]Item{{Leading: "●", Primary: strings.Repeat("宽", 40), Detail: "description"}},
+				ShowConfig{Title: strings.Repeat("标题", 30)})
+			s := p.Draw(components.DrawContext{
+				Max: components.Size{Width: tc.width, Height: tc.height}, Method: xui.WidthUnicode,
+			})
+			require.Len(t, s.Children, 1)
+			child := s.Children[0]
+			panel := child.Surface
+			assert.Equal(t, tc.panelHeight, panel.Size.Height)
+			assert.GreaterOrEqual(t, child.Origin.Y, 0)
+			assert.LessOrEqual(t, child.Origin.Y+panel.Size.Height, tc.height)
+			assert.LessOrEqual(t, child.Origin.X+panel.Size.Width, tc.width)
+			for y := 1; y < panel.Size.Height-1; y++ {
+				assert.Equal(t, "│", panel.Buffer[y*panel.Size.Width+panel.Size.Width-1].Char,
+					"right border at row %d must survive long content", y)
+			}
+			if tc.height >= 4 {
+				text := components.SurfaceText(panel)
+				assert.Contains(t, text, "宽")
+				assert.Contains(t, text, "descr", "the second column remains visible")
+				require.NotNil(t, panel.Cursor)
+				assert.Less(t, panel.Cursor.Y, panel.Size.Height-1)
+			}
+		})
+	}
 }
 
 // A detail wider than the remaining columns elides with a visible ellipsis
@@ -518,8 +653,8 @@ func TestPickerDrawElidesLongDetail(t *testing.T) {
 	p.Show([]Item{{ID: "a", Primary: "alpha", Detail: detail}}, ShowConfig{Title: "Skills"})
 	lines := drawRowLines(t, p)
 
-	assert.Contains(t, lines[3], "…", "the cut detail carries an ellipsis")
-	assert.NotContains(t, lines[3], "any change", "the cut tail is gone")
+	assert.Contains(t, lines[4], "…", "the cut detail carries an ellipsis")
+	assert.NotContains(t, lines[4], "any change", "the cut tail is gone")
 }
 
 func TestPickerDrawConfirmChrome(t *testing.T) {

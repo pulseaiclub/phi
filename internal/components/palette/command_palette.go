@@ -2,25 +2,23 @@ package palette
 
 import (
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/pulseaiclub/xui"
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/chrome"
-	"github.com/pulseaiclub/phi/internal/components/layout"
-	"github.com/pulseaiclub/phi/internal/components/textfield"
+	"github.com/pulseaiclub/phi/internal/components/listpicker"
 )
 
 // PaletteCommand is one entry in the command palette.
 type PaletteCommand struct {
-	ID       string
-	Noun     string // category column, e.g. "settings"; empty = flat select list
-	Verb     string // action / label, e.g. "theme" or "Dark (builtin)"
-	Shortcut string // e.g. "Ctrl+K"
-	Keywords []string
-	Disabled bool
+	ID          string
+	Noun        string // optional category used for filtering
+	Verb        string // command label in the first column
+	Description string // explanation in the second column
+	Shortcut    string // e.g. "Ctrl+K"
+	Keywords    []string
+	Disabled    bool
 	// Submenu opens a nested picker (e.g. Select Theme).
 	Submenu      []PaletteCommand
 	SubmenuTitle string // header for the nested list; default Verb
@@ -45,580 +43,141 @@ func (c PaletteCommand) Label() string {
 	return strings.Join(parts, " ")
 }
 
-// CommandPalette is a Ctrl+K fuzzy picker overlay.
-// Nested lists (Select Theme, etc.) are a stack of pages via Push/Pop or PaletteCommand.Submenu.
+// CommandPalette maps palette commands onto the shared list picker. It owns
+// command behavior and nested pages; listpicker owns all rendering and input.
 type CommandPalette struct {
-	Open     bool
 	Title    string
 	Commands []PaletteCommand
-	// line is the shared single-line search buffer; Query()/SetQuery expose it.
-	line textfield.Field
+	Picker   listpicker.Picker
 
-	Selected int
-	Theme    components.Theme
-	MaxItems int // visible rows; default 12
-	Width    int // panel width; 0 = auto
-	OnClose  func()
-	OnAccept func(PaletteCommand)
-	// FocusReturn is focused when the palette closes (typically the tui input).
-	FocusReturn components.Widget
-
-	filtered       []int // indices into Commands
-	stack          []paletteFrame
-	saveConfirming bool
+	stack []paletteFrame
 }
 
-// paletteFrame is a nested picker page under the current view.
 type paletteFrame struct {
-	Title    string
-	Commands []PaletteCommand
-	line     textfield.Field
-	Selected int
+	title    string
+	commands []PaletteCommand
+	state    listpicker.State
 }
 
-func (p *CommandPalette) theme() components.Theme {
-	if p.Theme.Border.Fg.Kind == 0 && p.Theme.Foreground.Fg.Kind == 0 {
-		return components.DefaultTheme()
-	}
-	return p.Theme
-}
-
-func (p *CommandPalette) title() string {
-	if p.Title == "" {
-		return "Command Palette"
-	}
-	return p.Title
-}
-
-func (p *CommandPalette) maxItems() int {
-	if p.MaxItems < 1 {
-		return 12
-	}
-	return p.MaxItems
-}
-
-// Query returns the search line.
-func (p *CommandPalette) Query() string { return p.line.Text() }
-
-// SetQuery replaces the search line and parks the caret at the end.
-func (p *CommandPalette) SetQuery(q string) { p.line.SetText(q) }
-
-// Show opens the palette and resets query/selection.
 func (p *CommandPalette) Show() {
-	p.Open = true
-	p.line.SetText("")
-	p.Selected = 0
-
 	p.stack = nil
-	p.saveConfirming = false
-	if p.Title == "" {
-		p.Title = "Command Palette"
-	}
-	p.refilter()
+	p.show("Command Palette", p.Commands)
 }
 
-// Hide closes the palette and restores the root page.
 func (p *CommandPalette) Hide() {
-	for len(p.stack) > 0 {
-		p.Pop()
-	}
-	p.Open = false
-	p.line.SetText("")
-	p.saveConfirming = false
-	if p.OnClose != nil {
-		p.OnClose()
-	}
+	p.stack = nil
+	p.Picker.Hide()
 }
 
-// Push replaces the current list with a nested picker (e.g. Select Theme).
-// Escape pops back to the previous page.
 func (p *CommandPalette) Push(title string, cmds []PaletteCommand) {
-	p.saveConfirming = false
-	p.stack = append(p.stack, paletteFrame{
-		Title:    p.Title,
-		Commands: p.Commands,
-		line:     p.line,
-		Selected: p.Selected,
-	})
-	p.Title = title
-	p.Commands = cmds
-	p.line.SetText("")
-	p.Selected = 0
-
-	p.refilter()
+	if p.Picker.Open {
+		p.stack = append(p.stack, paletteFrame{
+			title: p.Title, commands: p.Commands, state: p.Picker.State(),
+		})
+	}
+	p.show(title, cmds)
 }
 
-// Pop restores the previous picker page. Returns false if already at the root.
 func (p *CommandPalette) Pop() bool {
-	p.saveConfirming = false
-	n := len(p.stack)
-	if n == 0 {
+	if len(p.stack) == 0 {
 		return false
 	}
-	frame := p.stack[n-1]
-	p.stack = p.stack[:n-1]
-	p.Title = frame.Title
-	p.Commands = frame.Commands
-	p.line = frame.line
-	p.Selected = frame.Selected
-
-	p.refilter()
+	frame := p.stack[len(p.stack)-1]
+	p.stack = p.stack[:len(p.stack)-1]
+	p.show(frame.title, frame.commands)
+	p.Picker.Restore(frame.state)
 	return true
 }
 
-func (p *CommandPalette) returnFocus(ctx *components.EventContext) {
-	if p.FocusReturn != nil {
-		ctx.RequestFocus(p.FocusReturn)
+func (p *CommandPalette) show(title string, cmds []PaletteCommand) {
+	p.Title, p.Commands = title, cmds
+	items := make([]listpicker.Item, 0, len(cmds))
+	for _, cmd := range cmds {
+		current, verb := splitMarker(cmd.Verb)
+		detail := strings.TrimSpace(cmd.Description + " " + cmd.Shortcut)
+		if cmd.Disabled {
+			detail = strings.TrimSpace(detail + " unavailable")
+		}
+		items = append(items, listpicker.Item{
+			ID: cmd.ID, Primary: verb, Detail: detail, Keywords: cmd.Label(), Current: current,
+		})
 	}
+	cfg := listpicker.ShowConfig{
+		Title: title, FilterHint: "filter commands…", Empty: "No commands",
+		EmptyFilter: "No commands match %q", Hint: chrome.ListHint("run"),
+		ConfirmMessage: "Apply this model and save as global default?",
+		ConfirmHint:    " y/enter save" + chrome.Sep + "n/esc cancel ",
+		ConfirmShort:   " y save" + chrome.Sep + "n cancel ",
+		Style:          listpicker.StyleCommand,
+	}
+	if p.saveAvailable() {
+		cfg.Hint = chrome.ListHintExtra("run", "ctrl+s save default")
+	}
+	p.Picker.OnAccept = p.accept
+	p.Picker.OnEscape = p.Pop
+	p.Picker.OnSave = p.save
+	p.Picker.CanSave = func(item listpicker.Item) bool {
+		cmd, ok := p.command(item.ID)
+		return ok && !cmd.Disabled && cmd.OnSave != nil
+	}
+	p.Picker.OnClose = nil
+	p.Picker.Show(items, cfg)
 }
 
-func (p *CommandPalette) refilter() {
-	p.filtered = p.filtered[:0]
-	q := strings.TrimSpace(p.Query())
-
-	type scored struct {
-		idx   int
-		score float64
+func splitMarker(label string) (current bool, text string) {
+	if after, found := strings.CutPrefix(label, chrome.CurrentMarker(true)); found {
+		return true, after
 	}
-	var ranked []scored
-	for i, cmd := range p.Commands {
-		ok, score := fuzzyMatch(q, cmd.Label())
-		if !ok {
-			continue
-		}
-		ranked = append(ranked, scored{i, score})
-	}
-	// Stable-ish: higher score first; empty query keeps original order.
-	for i := 0; i < len(ranked); i++ {
-		for j := i + 1; j < len(ranked); j++ {
-			if ranked[j].score > ranked[i].score {
-				ranked[i], ranked[j] = ranked[j], ranked[i]
-			}
-		}
-	}
-	for _, r := range ranked {
-		p.filtered = append(p.filtered, r.idx)
-	}
-	if p.Selected >= len(p.filtered) {
-		p.Selected = len(p.filtered) - 1
-	}
-	if p.Selected < 0 {
-		p.Selected = 0
-	}
+	return false, strings.TrimPrefix(label, chrome.CurrentMarker(false))
 }
 
-func (p *CommandPalette) accept() (stillOpen bool) {
-	if p.Selected < 0 || p.Selected >= len(p.filtered) {
-		return p.Open
+func (p *CommandPalette) command(id string) (PaletteCommand, bool) {
+	for _, cmd := range p.Commands {
+		if cmd.ID == id {
+			return cmd, true
+		}
 	}
-	cmd := p.Commands[p.filtered[p.Selected]]
-	if cmd.Disabled {
-		return true
+	return PaletteCommand{}, false
+}
+
+func (p *CommandPalette) accept(item listpicker.Item) {
+	cmd, ok := p.command(item.ID)
+	if !ok || cmd.Disabled {
+		p.Picker.CancelAccept()
+		return
 	}
-	depth := len(p.stack)
 	if len(cmd.Submenu) > 0 {
 		title := cmd.SubmenuTitle
 		if title == "" {
 			title = cmd.Verb
 		}
 		p.Push(title, cmd.Submenu)
-		return true
-	}
-	if p.OnAccept != nil {
-		p.OnAccept(cmd)
-	} else if cmd.Run != nil {
-		cmd.Run()
-	}
-	// Run may have called Push for a custom nested flow.
-	if len(p.stack) > depth || cmd.KeepOpen {
-		return true
-	}
-	p.Hide()
-	return false
-}
-
-// Handle drives palette interaction: query editing, selection navigation,
-// accept on Enter, and close on Escape / Ctrl+K / click-outside.
-func (p *CommandPalette) Handle(ctx *components.EventContext, ev xui.Event) {
-	if !p.Open {
+		p.Picker.CancelAccept()
 		return
 	}
-	switch e := ev.(type) {
-	case xui.KeyEvent:
-		if !e.Press {
-			return
-		}
-		if p.saveConfirming {
-			p.handleSaveConfirmKey(ctx, e)
-			return
-		}
-		// Ctrl+K toggles closed (same binding that opens it).
-		if e.Mods.Has(xui.ModCtrl) && e.Code == xui.KeyRune && (e.Rune == 'k' || e.Rune == 'K') {
-			p.Hide()
-			p.returnFocus(ctx)
-			ctx.ConsumeAndRedraw()
-			return
-		}
-		switch e.Code {
-		case xui.KeyEscape:
-			if p.Pop() {
-				ctx.ConsumeAndRedraw()
-				return
-			}
-			p.Hide()
-			p.returnFocus(ctx)
-			ctx.ConsumeAndRedraw()
-			return
-		case xui.KeyEnter:
-			if !p.accept() {
-				p.returnFocus(ctx)
-			}
-			ctx.ConsumeAndRedraw()
-			return
-		case xui.KeyUp:
-			if p.Selected > 0 {
-				p.Selected--
-			}
-			ctx.ConsumeAndRedraw()
-			return
-		case xui.KeyDown:
-			if p.Selected < len(p.filtered)-1 {
-				p.Selected++
-			}
-			ctx.ConsumeAndRedraw()
-			return
-		case xui.KeyTab:
-			if e.Mods.Has(xui.ModShift) {
-				if p.Selected > 0 {
-					p.Selected--
-				}
-			} else if p.Selected < len(p.filtered)-1 {
-				p.Selected++
-			}
-			ctx.ConsumeAndRedraw()
-			return
-		case xui.KeyBackspace:
-			if p.line.DeleteBefore() {
-				p.Selected = 0
-				p.refilter()
-			}
-			ctx.ConsumeAndRedraw()
-			return
-		case xui.KeyLeft:
-			p.line.Move(-1)
-			ctx.ConsumeAndRedraw()
-			return
-		case xui.KeyRight:
-			p.line.Move(1)
-			ctx.ConsumeAndRedraw()
-			return
-		case xui.KeyHome:
-			p.line.Home()
-			ctx.ConsumeAndRedraw()
-			return
-		case xui.KeyEnd:
-			p.line.End()
-			ctx.ConsumeAndRedraw()
-			return
-
-		case xui.KeyRune:
-			if e.Mods.Has(xui.ModCtrl) {
-				switch e.Rune {
-				case 's', 'S':
-					if p.Selected >= 0 && p.Selected < len(p.filtered) {
-						cmd := p.Commands[p.filtered[p.Selected]]
-						if !cmd.Disabled && cmd.OnSave != nil {
-							p.saveConfirming = true
-							ctx.ConsumeAndRedraw()
-						}
-					}
-					return
-				case 'n', 'N':
-					if p.Selected < len(p.filtered)-1 {
-						p.Selected++
-					}
-					ctx.ConsumeAndRedraw()
-					return
-				case 'p', 'P':
-					if p.Selected > 0 {
-						p.Selected--
-					}
-					ctx.ConsumeAndRedraw()
-					return
-				}
-				// Let other Ctrl chords bubble (e.g. future bindings).
-				return
-			}
-			if e.Mods.Has(xui.ModAlt) {
-				return
-			}
-			if e.Rune >= 0x20 || e.Rune == '\t' {
-				p.line.Insert(string(e.Rune))
-				p.Selected = 0
-				p.refilter()
-				ctx.ConsumeAndRedraw()
-			}
-			return
-		}
-		ctx.Consume = true
-	case xui.PasteEvent:
-		if p.saveConfirming {
-			ctx.ConsumeAndRedraw()
-			return
-		}
-		p.line.Insert(e.Text)
-		p.Selected = 0
-		p.refilter()
-		ctx.ConsumeAndRedraw()
-
-	case xui.MouseEvent:
-		if e.Action == xui.MousePress && e.Button == xui.MouseLeft {
-			ctx.ConsumeAndRedraw()
-		}
+	depth := len(p.stack)
+	if cmd.Run != nil {
+		cmd.Run()
+	}
+	if len(p.stack) > depth || cmd.KeepOpen {
+		p.Picker.CancelAccept()
 	}
 }
 
-// handleSaveConfirmKey drives the two-stage default-save action. The selected
-// command stays fixed until the user answers the question.
-func (p *CommandPalette) handleSaveConfirmKey(ctx *components.EventContext, e xui.KeyEvent) {
-	plainRune := func(r rune) bool {
-		return e.Code == xui.KeyRune && !e.Mods.Has(xui.ModCtrl) && !e.Mods.Has(xui.ModAlt) && e.Rune == r
-	}
-	confirm := e.Code == xui.KeyEnter || plainRune('y') || plainRune('Y')
-	cancel := e.Code == xui.KeyEscape || plainRune('n') || plainRune('N')
-	switch {
-	case confirm:
-		p.saveConfirming = false
-		if p.Selected >= 0 && p.Selected < len(p.filtered) {
-			cmd := p.Commands[p.filtered[p.Selected]]
-			if !cmd.Disabled && cmd.OnSave != nil && cmd.OnSave() {
-				p.Hide()
-				p.returnFocus(ctx)
-			}
-		}
-	case cancel:
-		p.saveConfirming = false
-	}
-	ctx.ConsumeAndRedraw()
+func (p *CommandPalette) save(item listpicker.Item) bool {
+	cmd, ok := p.command(item.ID)
+	return ok && !cmd.Disabled && cmd.OnSave != nil && cmd.OnSave()
 }
 
-// Draw renders the overlay dim layer and the bordered palette panel with
-// title, query prompt, and the scrolled filtered command list.
+// Draw delegates the complete overlay to the shared list picker. Keep the
+// adapter as the surface widget so focus follows nested palette pages.
 func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
-	th := p.theme()
-	maxW, maxH := ctx.Max.Width, ctx.Max.Height
-	if maxW <= 0 {
-		maxW = 80
-	}
-	if maxH <= 0 {
-		maxH = 24
-	}
-	if !p.Open {
-		return components.Surface{Size: components.Size{Width: maxW, Height: maxH}, Widget: p}
-	}
-	if p.filtered == nil {
-		p.refilter()
-	}
-
-	boxW := p.Width
-	if boxW <= 0 {
-		boxW = maxW * 3 / 4
-		boxW = min(boxW, 72)
-		if boxW < 40 {
-			boxW = maxW
-			boxW = min(boxW, 60)
-		}
-	}
-	if boxW > maxW-2 {
-		boxW = maxW - 2
-		if boxW < 20 {
-			boxW = maxW
-		}
-	}
-
-	innerW := boxW - 2
-	catW := categoryWidth(p.Commands, ctx.Method)
-	maxVisible := p.maxItems()
-	availRows := maxH - 6 // borders + title gap + prompt + margin
-	availRows = max(availRows, 3)
-	if maxVisible > availRows {
-		maxVisible = availRows
-	}
-	nItems := len(p.filtered)
-	visible := nItems
-	visible = min(visible, maxVisible)
-	visible = max(visible, 1) // empty state row
-
-	// Layout: border + prompt row + item rows
-	boxH := 2 + 1 + visible
-	if boxH > maxH-2 {
-		boxH = maxH - 2
-		visible = boxH - 3
-		if visible < 1 {
-			visible = 1
-			boxH = 4
-		}
-	}
-
-	// Scroll window so selection stays visible.
-	scroll := 0
-	if p.Selected >= visible {
-		scroll = p.Selected - visible + 1
-	}
-	if scroll < 0 {
-		scroll = 0
-	}
-	if nItems > 0 && scroll > nItems-visible {
-		scroll = nItems - visible
-		scroll = max(scroll, 0)
-	}
-
-	panel := components.NewSurface(boxW, boxH, p)
-	// Opaque panel background so tui doesn't bleed through.
-	fillStyle := xui.Style{Fg: th.Foreground.Fg}
-	for y := 0; y < boxH; y++ {
-		for x := 0; x < boxW; x++ {
-			panel.SetCell(x, y, xui.Cell{Char: " ", Width: 1, Style: fillStyle})
-		}
-	}
-	borderSt := th.Border
-	titleSt := chrome.PanelTitle(th)
-	if p.saveConfirming {
-		borderSt = chrome.ModalBorder(th)
-		titleSt.Fg = borderSt.Fg
-		titleSt.Bold = true
-	}
-	layout.DrawRoundedBorder(&panel, layout.BorderRounded, borderSt, nil, nil, nil, nil, ctx.Method)
-
-	// Centered title on top border.
-	title := " " + p.title() + " "
-	tw := xui.StringWidth(title, ctx.Method)
-	tx := (boxW - tw) / 2
-	tx = max(tx, 1)
-	panel.Print(tx, 0, title, titleSt, ctx.Method)
-
-	// Prompt: "> query"
-	promptY := 1
-	q := p.Query()
-	qx := 3
-	availQ := innerW - 2
-	availQ = max(availQ, 1)
-	if p.saveConfirming {
-		message := components.TruncateToWidth(
-			"Apply this model and save as global default?",
-			max(innerW-1, 1),
-			ctx.Method,
-		)
-		panel.Print(1, promptY, message, chrome.DecisionPrimary(th), ctx.Method)
-	} else {
-		panel.Print(1, promptY, chrome.FilterPrompt, th.Foreground, ctx.Method)
-		panel.Print(qx, promptY, components.TruncateToWidth(q, availQ, ctx.Method), th.Foreground, ctx.Method)
-		before, _ := p.line.Split()
-		curCol := xui.StringWidth(before, ctx.Method)
-		if curCol >= availQ {
-			curCol = availQ - 1
-			curCol = max(curCol, 0)
-		}
-		panel.Cursor = &components.Point{X: qx + curCol, Y: promptY}
-	}
-
-	padL := 1
-	listY := 2
-	if nItems == 0 {
-		panel.Print(padL+1, listY, "No matching commands", th.Muted, ctx.Method)
-	} else {
-		for row := 0; row < visible; row++ {
-			fi := row + scroll
-			if fi < 0 || fi >= nItems {
-				break
-			}
-			cmd := p.Commands[p.filtered[fi]]
-			sel := fi == p.Selected
-			y := listY + row
-			rowStyle := th.Foreground
-			nounStyle := th.Muted
-			shortcutStyle := th.ToolName
-			if sel {
-				bg := th.SelectionBg.Bg
-				for x := 1; x < boxW-1; x++ {
-					panel.SetCell(x, y, xui.Cell{Char: " ", Width: 1, Style: xui.Style{Bg: bg}})
-				}
-				// Text must carry Bg too — Print replaces the whole cell style.
-				fg := th.SelectionFg
-				fg.Bg = bg
-				rowStyle = fg
-				nounStyle = fg
-				shortcutStyle = fg
-				shortcutStyle.Bold = true
-			}
-			if cmd.Disabled {
-				rowStyle.Dim = true
-				nounStyle.Dim = true
-			}
-
-			x := padL
-			noun := strings.ToLower(cmd.Noun)
-			verb := strings.ToLower(cmd.Verb)
-			if catW > 0 {
-				nw := xui.StringWidth(noun, ctx.Method)
-				nx := x + catW - nw
-				nx = max(nx, x)
-				panel.Print(nx, y, components.TruncateToWidth(noun, catW, ctx.Method), nounStyle, ctx.Method)
-				x += catW + 2
-			}
-			verbSt := rowStyle
-			verbSt.Bold = true
-			if cmd.Disabled {
-				verbSt.Dim = true
-			}
-			shortcutW := 0
-			if cmd.Shortcut != "" {
-				shortcutW = xui.StringWidth(cmd.Shortcut, ctx.Method) + 1
-			}
-			verbAvail := boxW - 1 - x - shortcutW
-			verbAvail = max(verbAvail, 1)
-			panel.Print(x, y, components.TruncateToWidth(verb, verbAvail, ctx.Method), verbSt, ctx.Method)
-			if cmd.Shortcut != "" {
-				sw := xui.StringWidth(cmd.Shortcut, ctx.Method)
-				panel.Print(boxW-1-sw, y, cmd.Shortcut, shortcutStyle, ctx.Method)
-			}
-		}
-	}
-	if p.saveAvailable() {
-		hint := chrome.ListHintExtra("switch", "ctrl+s save default")
-		short := " ctrl+s save default "
-		if p.saveConfirming {
-			hint = " y/enter save" + chrome.Sep + "n/esc cancel "
-			short = " y save" + chrome.Sep + "n cancel "
-		}
-		if xui.StringWidth(hint, ctx.Method) > boxW-2 {
-			hint = short
-		}
-		x := max((boxW-xui.StringWidth(hint, ctx.Method))/2, 1)
-		panel.Print(x, boxH-1, components.TruncateToWidth(hint, boxW-2, ctx.Method), th.Muted, ctx.Method)
-	}
-
-	out := components.Surface{Size: components.Size{Width: maxW, Height: maxH}, Widget: p}
-	ox := (maxW - boxW) / 2
-	oy := (maxH - boxH) / 3
-	if ox < 0 {
-		ox = 0
-	}
-	if oy < 1 {
-		oy = 1
-	}
-	out.Children = []components.SubSurface{{
-		Origin:  components.Point{X: ox, Y: oy},
-		Surface: panel,
-		Z:       10,
-	}}
-	return out
+	surface := p.Picker.Draw(ctx)
+	surface.Widget = p
+	return surface
 }
 
 func (p *CommandPalette) saveAvailable() bool {
-	if p.saveConfirming {
-		return true
-	}
 	for _, cmd := range p.Commands {
 		if !cmd.Disabled && cmd.OnSave != nil {
 			return true
@@ -627,76 +186,19 @@ func (p *CommandPalette) saveAvailable() bool {
 	return false
 }
 
-func categoryWidth(cmds []PaletteCommand, method xui.WidthMethod) int {
-	maxVal := 0
-	for _, c := range cmds {
-		w := xui.StringWidth(strings.ToLower(c.Noun), method)
-		if w > maxVal {
-			maxVal = w
+// Handle adds palette navigation around the shared picker.
+func (p *CommandPalette) Handle(ctx *components.EventContext, ev xui.Event) {
+	key, ok := ev.(xui.KeyEvent)
+	if ok && key.Press && !p.Picker.IsConfirming() {
+		if key.Mods.Has(xui.ModCtrl) && key.Code == xui.KeyRune && (key.Rune == 'k' || key.Rune == 'K') {
+			p.Hide()
+			ctx.ConsumeAndRedraw()
+			return
+		}
+		if key.Code == xui.KeyEscape && p.Pop() {
+			ctx.ConsumeAndRedraw()
+			return
 		}
 	}
-	return maxVal
-}
-
-// fuzzyMatch: empty query matches all;
-// otherwise require a subsequence / substring score above ~0.15.
-func fuzzyMatch(query, label string) (bool, float64) {
-	q := strings.ToLower(strings.TrimSpace(query))
-	l := strings.ToLower(label)
-	if q == "" {
-		return true, 1
-	}
-	if l == q {
-		return true, 1
-	}
-	if strings.HasPrefix(l, q) {
-		return true, 0.95
-	}
-	if strings.Contains(l, q) {
-		return true, 0.75
-	}
-	score := subsequenceScore(l, q)
-	return score > 0.15, score
-}
-
-func subsequenceScore(label, query string) float64 {
-	if query == "" {
-		return 1
-	}
-	li, matched, consecutive, gaps := 0, 0, 0, 0
-	run := 0
-	for _, qr := range query {
-		found := false
-		for li < len(label) {
-			lr, size := utf8.DecodeRuneInString(label[li:])
-			li += size
-			if unicode.ToLower(lr) == unicode.ToLower(qr) {
-				matched++
-				run++
-				if run > 1 {
-					consecutive++
-				}
-				found = true
-				break
-			}
-			if matched > 0 {
-				gaps++
-			}
-			run = 0
-		}
-		if !found {
-			return 0
-		}
-	}
-	base := float64(matched) / float64(utf8.RuneCountInString(query))
-	bonus := float64(consecutive) * 0.05
-	penalty := float64(gaps) * 0.02
-	score := base + bonus - penalty
-	if score > 1 {
-		score = 1
-	}
-	if score < 0 {
-		score = 0
-	}
-	return score
+	p.Picker.Handle(ctx, ev)
 }

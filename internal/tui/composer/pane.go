@@ -93,7 +93,7 @@ func NewComposerPane(theme components.Theme, modelLabel, cwd string) *ComposerPa
 			NoPrefix: true,
 		},
 		palette: palette.CommandPalette{
-			Theme: theme,
+			Picker: listpicker.Picker{Theme: theme},
 		},
 		listPicker: listpicker.Picker{
 			Theme: theme,
@@ -136,7 +136,7 @@ func (c *ComposerPane) Wire(deps WireDeps) {
 	c.requestFocus = deps.RequestFocus
 	c.ctrlClose = deps.CtrlClose
 
-	c.palette.FocusReturn = &c.Chat
+	c.palette.Picker.FocusReturn = &c.Chat
 	c.listPicker.FocusReturn = &c.Chat
 	c.Chat.OnSubmit = func(text string) {
 		c.rememberPrompt(text)
@@ -226,7 +226,7 @@ func (c *ComposerPane) ShowSessionList(
 	onDelete func(id string),
 ) {
 	c.ShowList(
-		listrows.SessionItems(items, currentID, time.Time{}),
+		listrows.SessionItems(items),
 		listrows.SessionConfig(),
 		func(item listpicker.Item) {
 			if onAccept != nil {
@@ -239,15 +239,16 @@ func (c *ComposerPane) ShowSessionList(
 			}
 		},
 	)
+	c.listPicker.Restore(listpicker.State{SelectedID: currentID})
 }
 
 // RefreshSessionList swaps the rows of an open session picker in place,
 // keeping the filter query — used after a delete instead of reopening.
-func (c *ComposerPane) RefreshSessionList(items []session.SessionMeta, currentID string) {
+func (c *ComposerPane) RefreshSessionList(items []session.SessionMeta) {
 	if !c.listPicker.Open {
 		return
 	}
-	c.listPicker.SetItems(listrows.SessionItems(items, currentID, time.Time{}))
+	c.listPicker.SetItems(listrows.SessionItems(items))
 	if c.onRedraw != nil {
 		c.onRedraw()
 	}
@@ -467,12 +468,12 @@ func (c *ComposerPane) SetPaletteCommands(cmds []palette.PaletteCommand) {
 
 // PushPalette opens or nests a palette submenu.
 func (c *ComposerPane) PushPalette(title string, cmds []palette.PaletteCommand) {
-	if !c.palette.Open {
+	if !c.palette.Picker.Open {
 		c.palette.Show()
 	}
 	c.palette.Push(title, cmds)
 	if c.requestFocus != nil {
-		c.requestFocus(&c.palette)
+		c.requestFocus(&c.palette.Picker)
 	}
 }
 
@@ -488,7 +489,7 @@ func (c *ComposerPane) SetTheme(th components.Theme) {
 	} else {
 		c.Chat.TopRightLabel.Style = th.IdentityOrSuccess()
 	}
-	c.palette.Theme = th
+	c.palette.Picker.Theme = th
 	c.listPicker.Theme = th
 	c.mention.Theme = th
 	c.slash.Theme = th
@@ -590,7 +591,7 @@ func (c *ComposerPane) PickerOverlays(ctx components.DrawContext, listH, width i
 
 // PaletteOverlay returns the Ctrl+K palette surface when open.
 func (c *ComposerPane) PaletteOverlay(ctx components.DrawContext) (components.SubSurface, bool) {
-	if !c.palette.Open {
+	if !c.palette.Picker.Open {
 		return components.SubSurface{}, false
 	}
 	return components.SubSurface{
@@ -612,9 +613,9 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			if c.requestFocus != nil {
 				c.requestFocus(&c.listPicker)
 			}
-		} else if c.palette.Open {
+		} else if c.palette.Picker.Open {
 			if c.requestFocus != nil {
-				c.requestFocus(&c.palette)
+				c.requestFocus(&c.palette.Picker)
 			}
 		} else {
 			c.FocusChat()
@@ -634,6 +635,13 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			return
 		}
 		if ev.Press && ev.Code == xui.KeyEscape {
+			if c.palette.Picker.Open {
+				c.palette.Handle(ctx, ev)
+				if !c.palette.Picker.Open {
+					c.FocusChat()
+				}
+				return
+			}
 			if c.handleEscape(ctx) {
 				return
 			}
@@ -647,7 +655,7 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 		if ev.Press && ev.Mods.Has(xui.ModCtrl) && ev.Code == xui.KeyRune &&
 			(ev.Rune == 'k' || ev.Rune == 'K') {
-			if c.palette.Open {
+			if c.palette.Picker.Open {
 				c.palette.Hide()
 				c.FocusChat()
 			} else {
@@ -657,15 +665,15 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 				}
 				c.palette.Show()
 				if c.requestFocus != nil {
-					c.requestFocus(&c.palette)
+					c.requestFocus(&c.palette.Picker)
 				}
 			}
 			ctx.ConsumeAndRedraw()
 			return
 		}
-		if c.palette.Open {
+		if c.palette.Picker.Open {
 			c.palette.Handle(ctx, ev)
-			if !c.palette.Open {
+			if !c.palette.Picker.Open {
 				c.FocusChat()
 			}
 			return
@@ -725,7 +733,7 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			c.listPicker.Handle(ctx, ev)
 			return
 		}
-		if c.palette.Open {
+		if c.palette.Picker.Open {
 			c.palette.Handle(ctx, ev)
 			return
 		}
@@ -737,7 +745,7 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			c.listPicker.Handle(ctx, ev)
 			return
 		}
-		if c.palette.Open {
+		if c.palette.Picker.Open {
 			c.palette.Handle(ctx, ev)
 			return
 		}
@@ -756,7 +764,7 @@ func (c *ComposerPane) handleEscape(ctx *components.EventContext) bool {
 		ctx.ConsumeAndRedraw()
 		return true
 	}
-	if c.palette.Open {
+	if c.palette.Picker.Open {
 		c.palette.Hide()
 		c.FocusChat()
 		ctx.ConsumeAndRedraw()
