@@ -26,6 +26,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Bash commands now get shell syntax highlighting in the transcript — the
   `$ command` title row and bash rows inside the agent tool tree — with token
   colors mapped to the active theme.
+- docs: the zh-CN README matches the English one again for the `/diff` table, the
+  commands table, the keyboard shortcuts, the extension SDK list and the
+  `agents.models` paragraph.
 
 ### Added
 
