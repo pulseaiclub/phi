@@ -204,8 +204,7 @@ type StreamEvent struct {
 	Err   string          `json:"err,omitempty"`
 }
 
-// ChatClient is the transport the agent loop drives a turn with: the builtin
-// HTTP client (*client.Client) or an extension-served model connection.
+// ChatClient is the transport the agent loop drives a turn with.
 // Compactor rides along because compaction summarizes through the same
 // connection.
 type ChatClient interface {

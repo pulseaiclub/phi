@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/job"
 	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
 	"github.com/pulseaiclub/phi/internal/mcp"
@@ -20,12 +19,10 @@ func (f EngineConfigOptionFunc) Apply(config EngineConfig) EngineConfig {
 }
 
 type EngineConfig struct {
-	tools        []tooldef.Tool
-	jobs         *job.Manager
-	extensions   *extension.Runner
-	omitExtTools bool
-	mcp          *mcp.Pool
-	hooks        llmclient.Hooks
+	tools []tooldef.Tool
+	jobs  *job.Manager
+	mcp   *mcp.Pool
+	hooks llmclient.Hooks
 }
 
 // WithTools sets the base tool list (nil = tools.DefaultTools(mcp) when an MCP
@@ -41,23 +38,6 @@ func WithTools(list []tooldef.Tool) EngineConfigOption {
 func WithJobs(jobs *job.Manager) EngineConfigOption {
 	return EngineConfigOptionFunc(func(c EngineConfig) EngineConfig {
 		c.jobs = jobs
-		return c
-	})
-}
-
-// WithExtensions attaches an extension runner (nil = no extensions).
-func WithExtensions(runner *extension.Runner) EngineConfigOption {
-	return EngineConfigOptionFunc(func(c EngineConfig) EngineConfig {
-		c.extensions = runner
-		return c
-	})
-}
-
-// WithOmitExtensionTools keeps Runner events but skips RegisterTool merge (sub-agents).
-// The child also leaves the shared runner's host metadata and base tools with the parent.
-func WithOmitExtensionTools(omit bool) EngineConfigOption {
-	return EngineConfigOptionFunc(func(c EngineConfig) EngineConfig {
-		c.omitExtTools = omit
 		return c
 	})
 }

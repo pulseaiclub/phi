@@ -61,7 +61,7 @@ func TestEngineRunnerChildUsesItsOwnWorkdir(t *testing.T) {
 
 	mgr, err := job.New(job.Options{
 		Root: t.TempDir(),
-		Runner: agent.EngineRunner{
+		Runner: &agent.EngineRunner{
 			Model: llm.ModelConfig{Name: "fake", BaseURL: srv.URL, APIKey: "x"},
 		},
 	})

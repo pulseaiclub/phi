@@ -23,7 +23,6 @@ type Builtin struct {
 	Sessions *SessionCommands
 	Branches *BranchCommands
 	Skills   *SkillsCommands
-	Ext      *ExtCommands
 }
 
 // NewBuiltinRegistry constructs the registry and every builtin domain handler.
@@ -39,13 +38,7 @@ func NewBuiltinRegistry(
 	openCode func(args []string),
 ) *Builtin {
 	r := NewCommandRegistry()
-	ext := &ExtCommands{
-		Registry: r,
-		Ctrl:     ctrl,
-		Composer: composer,
-		Bus:      bus,
-	}
-	sessions := NewSessionCommands(ctrl, tr, bus, ext.Sync)
+	sessions := NewSessionCommands(ctrl, tr, bus, nil)
 	sessions.Composer = composer
 	branches := NewBranchCommands(bus)
 	settings := &SettingsCommands{
@@ -65,17 +58,19 @@ func NewBuiltinRegistry(
 	sessions.Register(r)
 	branches.Register(r)
 	settings.Register(r)
-	ext.Register(r)
 	skills.Register(r)
 	diff.Register(r)
 	code.Register(r)
 
-	return &Builtin{Registry: r, Sessions: sessions, Branches: branches, Skills: skills, Ext: ext}
+	return &Builtin{Registry: r, Sessions: sessions, Branches: branches, Skills: skills}
 }
 
 // Bind attaches late UI collaborators (Submitter, pickers, stream guard).
 func (b *Builtin) Bind(
-	submitter extSubmitter,
+	submitter interface {
+		IsBusy() bool
+		Submit(string)
+	},
 	commandCtx Context,
 	openPicker func(items []session.SessionMeta, currentID string),
 	refreshPicker func(items []session.SessionMeta),
@@ -85,8 +80,9 @@ func (b *Builtin) Bind(
 	cwd string,
 	streamActive func() bool,
 ) {
-	b.Ext.Submitter = submitter
-	b.Ext.CommandCtx = commandCtx
+	_ = submitter
+	_ = commandCtx
+	_ = streamActive
 	b.Sessions.OpenPicker = openPicker
 	b.Sessions.RefreshPicker = refreshPicker
 	b.Sessions.StreamActive = streamActive

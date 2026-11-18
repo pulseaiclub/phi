@@ -54,7 +54,7 @@ phi update         install the latest release (see 'phi update --help')
 phi run -p "..."   run one agent loop headlessly (see 'phi run --help')
 phi sessions       list persisted sessions for this directory
 phi mcp …          manage MCP servers (see 'phi mcp --help')
-phi plugin …       install/list/update/remove extensions (see 'phi plugin --help')`,
+phi mcp …          manage MCP servers (see 'phi mcp --help')`,
 	}
 	r.Run = func(args []string, _ cli.Flags) error {
 		if len(args) > 0 {
@@ -66,7 +66,6 @@ phi plugin …       install/list/update/remove extensions (see 'phi plugin --he
 		&runCommand,
 		&sessionsCommand,
 		&mcpCommand,
-		&pluginCommand,
 		&configCommand,
 		&updateCommand,
 	)

@@ -18,8 +18,7 @@ type FooterChrome struct {
 
 // State contains the ambient text rendered on the bottom footer row.
 type State struct {
-	ExtensionStatus string
-	UpdateHint      string
+	UpdateHint string
 }
 
 // StatusInput contains the domain state needed for the composer's status slot.
@@ -73,20 +72,12 @@ func activityStatusLabel(th components.Theme, showSpinner bool, spin flowSpinner
 // Draw renders the bottom footer row.
 func (f *FooterChrome) Draw(ctx components.DrawContext, width int, state State) components.Surface {
 	footer := components.NewSurface(width, 1, nil)
-	dim := f.theme.Muted
-	msg := strings.TrimSpace(state.ExtensionStatus)
-
-	x := 1
-	if msg != "" {
-		footer.Print(x, 0, msg, dim, ctx.Method)
-		x += xui.StringWidth(msg, ctx.Method)
-	}
 
 	hint := strings.TrimSpace(state.UpdateHint)
 	if hint != "" {
 		hw := xui.StringWidth(hint, ctx.Method)
 		hx := width - hw - 1
-		hx = max(hx, x+2)
+		hx = max(hx, 1)
 		if hx+hw <= width {
 			st := f.theme.TitleOrForeground()
 			st.Bold = false

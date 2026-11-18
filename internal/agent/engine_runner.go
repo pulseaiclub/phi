@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/project/model"
@@ -21,16 +20,10 @@ import (
 // Child engines do not receive Jobs, so they have no agent_* tools.
 // Role (explore|worker|review) selects tools when Tools is nil. ModelFn
 // selects the model per role when set; otherwise Model is used as a snapshot.
-//
-// Extensions (or ExtensionsFn) are inherited from the parent so tool_call
-// handlers apply. Extension RegisterTool tools are not merged
-// into child engines. ExtensionsFn wins when set (live reload).
 type EngineRunner struct {
-	Model        llm.ModelConfig
-	ModelFn      func(role job.Role) llm.ModelConfig // if set, preferred over Model
-	Tools        []tooldef.Tool                      // nil → SpecForRole(job.Role).Tools
-	Extensions   *extension.Runner
-	ExtensionsFn func() *extension.Runner
+	Model   llm.ModelConfig
+	ModelFn func(role job.Role) llm.ModelConfig // if set, preferred over Model
+	Tools   []tooldef.Tool                      // nil → SpecForRole(job.Role).Tools
 }
 
 // Run implements [job.Runner].
@@ -122,11 +115,6 @@ func (r EngineRunner) newEngine(meta job.Meta, spec ChildSpec) (*Engine, error) 
 		cfg = r.ModelFn(meta.Role)
 	}
 
-	extRunner := r.Extensions
-	if r.ExtensionsFn != nil {
-		extRunner = r.ExtensionsFn()
-	}
-
 	sess, err := NewSession(
 		WithCwd(cwd),
 		WithSessionDir(filepath.Join(meta.Dir, "session")),
@@ -138,8 +126,6 @@ func (r EngineRunner) newEngine(meta job.Meta, spec ChildSpec) (*Engine, error) 
 	}
 	return NewEngine(cfg, sess,
 		WithTools(toolList),
-		WithExtensions(extRunner),
-		WithOmitExtensionTools(true),
 		WithHooks(model.HooksForConfig(cfg)),
 	)
 }

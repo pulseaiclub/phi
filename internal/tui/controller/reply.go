@@ -2,11 +2,6 @@ package controller
 
 import "github.com/pulseaiclub/phi/internal/llm"
 
-// ExtConfirmReply is the user's response for an extension Confirm dialog.
-type ExtConfirmReply struct {
-	OK bool
-}
-
 // ErrorReply is the user's response to a loop-error dialog.
 type ErrorReply struct {
 	Retry bool // re-run the last prompt

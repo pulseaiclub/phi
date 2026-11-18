@@ -29,7 +29,7 @@ func pathIDs(s *agent.Session) []string {
 // and the transcript has something to copy.
 func forkTestController(t *testing.T) *EngineController {
 	t.Helper()
-	ctrl := newThinkingTestController(t, setupThinkingTest(t, llm.OpenAI, "http://127.0.0.1:9"))
+	ctrl := newThinkingTestController(t, setupThinkingTest(t, "http://127.0.0.1:9"))
 	require.NoError(t, ctrl.engine.Session().Append(
 		llm.Message{Role: llm.RoleUser, Content: "hello"},
 		llm.Message{Role: llm.RoleAssistant, Content: "hi"},
@@ -118,7 +118,7 @@ func TestForkSessionFailureKeepsSourceActive(t *testing.T) {
 }
 
 func TestForkSessionOfEmptySession(t *testing.T) {
-	ctrl := newThinkingTestController(t, setupThinkingTest(t, llm.OpenAI, "http://127.0.0.1:9"))
+	ctrl := newThinkingTestController(t, setupThinkingTest(t, "http://127.0.0.1:9"))
 	require.Empty(t, ctrl.ReplaySnapshot().Messages)
 
 	newID, err := ctrl.ForkSession()

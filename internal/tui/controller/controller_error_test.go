@@ -99,7 +99,7 @@ func TestRetryLastPromptResumesWithoutDuplicateUserMessage(t *testing.T) {
 	}))
 	defer server.Close()
 
-	ctrl := newThinkingTestController(t, setupThinkingTest(t, llm.OpenAI, server.URL))
+	ctrl := newThinkingTestController(t, setupThinkingTest(t, server.URL))
 	_ = ctrl.bus.Drain()
 	requests = make(chan struct{}, 4)
 
@@ -139,7 +139,7 @@ func TestCancelInFlightPromptPublishesSilentCompletion(t *testing.T) {
 	}))
 	defer server.Close()
 
-	ctrl := newThinkingTestController(t, setupThinkingTest(t, llm.OpenAI, server.URL))
+	ctrl := newThinkingTestController(t, setupThinkingTest(t, server.URL))
 	_ = ctrl.bus.Drain()
 	ctrl.StartPrompt("cancel this", nil, nil)
 

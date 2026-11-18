@@ -56,7 +56,7 @@ func TestEngineRunnerViaJobManager(t *testing.T) {
 	}
 	mgr, err := job.New(job.Options{
 		Root:   jobsRoot,
-		Runner: runner,
+		Runner: &runner,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = mgr.Close(t.Context()) })

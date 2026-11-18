@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/agent"
-	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/mcp"
@@ -33,7 +32,7 @@ type runOptions struct {
 	timeout      time.Duration
 	session      string
 	continueLast bool
-	sessionDir   string
+	sessionDir   string // raw --session-dir; empty keeps default
 	builtinTools string // raw --tools value; empty means all default tools
 	model        string // --model name; empty keeps PHI_MODEL / config default
 }
@@ -89,10 +88,6 @@ func runHeadless(opts runOptions) error {
 		resumeID = opts.session
 	}
 
-	extRunner := loadRunExtensions(bs)
-	if extRunner != nil {
-		defer extRunner.Close()
-	}
 	// Load the pool before tool selection so an explicit --tools list still
 	// gets MCP-aware ls/read/write.
 	var mcpPool *mcp.Pool
@@ -102,9 +97,7 @@ func runHeadless(opts runOptions) error {
 		mcpPool = pool
 		defer func() { _ = pool.Close() }()
 	}
-	engineOpts := []agent.EngineConfigOption{
-		agent.WithExtensions(extRunner),
-	}
+	engineOpts := []agent.EngineConfigOption{}
 	if opts.builtinTools != "" {
 		selected, err := selectBuiltinTools(opts.builtinTools, mcpPool)
 		if err != nil {
@@ -129,8 +122,6 @@ func runHeadless(opts runOptions) error {
 				return cfg
 			}
 			return parent
-		}, func() *extension.Runner {
-			return extRunner
 		})
 		if jobErr != nil {
 			fmt.Fprintln(os.Stderr, "phi run:", jobErr)
@@ -175,26 +166,6 @@ func runHeadless(opts runOptions) error {
 	}
 
 	return exitCode(runLoop(runCtx, engine, opts))
-}
-
-// loadRunExtensions discovers user + project extensions for headless `phi run`.
-// Failures are non-fatal (fail-open). Warnings go to stderr as a one-line hint.
-func loadRunExtensions(bs *runBootstrap) *extension.Runner {
-	if bs == nil || bs.Proj == nil {
-		return nil
-	}
-	r, warns, err := extension.Load(bs.Proj.Global().ExtensionsDir(), bs.Proj.ExtensionsDir())
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "warning: extensions:", err)
-		return nil
-	}
-	if n := len(warns); n > 0 {
-		fmt.Fprintf(os.Stderr, "warning: extensions: %d warning(s) while loading\n", n)
-		for _, w := range warns {
-			fmt.Fprintln(os.Stderr, "  ", w.String())
-		}
-	}
-	return r
 }
 
 // runLoop consumes the same engine.Loop the TUI uses — no second loop is

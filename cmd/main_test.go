@@ -23,7 +23,6 @@ func TestNoArgCommandsRejectPositionalArgs(t *testing.T) {
 		{[]string{"sessions", "delete", "abc"}, `unknown command "delete"`},
 		{[]string{"mcp", "list", "extra"}, `unexpected argument "extra"`},
 		{[]string{"mcp", "doctor", "extra"}, `unexpected argument "extra"`},
-		{[]string{"plugin", "list", "extra"}, `unexpected argument "extra"`},
 		{[]string{"config", "extra"}, `unexpected argument "extra"`},
 		{[]string{"update", "--check", "extra"}, `unexpected argument "extra"`},
 	}

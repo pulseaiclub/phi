@@ -168,7 +168,7 @@ func (s *SessionCommands) refreshPicker() {
 	s.RefreshPicker(list)
 }
 
-// NewSession starts a new empty session. Blocks while a stream or extension command is active.
+// NewSession starts a new empty session. Blocks while a stream is active.
 func (s *SessionCommands) NewSession() {
 	if s.blocked("start a new session") {
 		return

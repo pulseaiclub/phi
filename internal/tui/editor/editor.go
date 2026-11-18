@@ -2,11 +2,11 @@
 package editor
 
 import (
+	"context"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/pulseaiclub/sev/commitmsg"
 	"github.com/pulseaiclub/xui"
 
 	"github.com/pulseaiclub/phi/internal/components"
@@ -18,6 +18,9 @@ import (
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/session/shellhist"
 	"github.com/pulseaiclub/phi/internal/tui/codepane"
+
+	"github.com/pulseaiclub/sev"
+
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/composer"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
@@ -64,14 +67,12 @@ type Editor struct {
 	spin       *status.Spinner
 	spinTick   int
 	activity   *controller.ActivityHandler
-	extStatus  string
 	updateHint string
 
 	ctrl *controller.EngineController
 
 	commands  *commands.CommandRegistry
 	sessions  *commands.SessionCommands
-	extCmds   *commands.ExtCommands
 	submitter *submit.Submitter
 }
 
@@ -105,8 +106,13 @@ func NewEditor(
 		activity: controller.NewActivityHandler(),
 	}
 	e.activity.SetOnChange(e.onActivityChange)
-	commitMessages := commitmsg.New(ctrl.GenerateCommitMessage)
-	e.composer.SetBashPredictor(composer.NewBashPredictor(cwd, commitMessages.Complete))
+	// Bash completion falls back to history.
+	e.composer.SetBashPredictor(
+		composer.NewBashPredictor(
+			cwd,
+			func(context.Context, sev.Request) ([]sev.Item, bool, error) { return nil, false, nil },
+		),
+	)
 	// Prompt recall is opt-in: it persists what the user typed under the home
 	// directory, so it stays off until PHI_PROMPT_HISTORY turns it on.
 	if dir := ctrl.SessionDir(); dir != "" && shellhist.PromptsEnabled() {
@@ -147,9 +153,7 @@ func NewEditor(
 	e.commands = builtins.Registry
 	e.sessions = builtins.Sessions
 	e.sessions.ResetActivity = e.resetActivity
-	e.extCmds = builtins.Ext
-	e.extCmds.SetStatus = e.setExtensionStatus
-	e.composer.OnPaletteOpen = builtins.Ext.RefreshPalette
+	e.composer.OnPaletteOpen = func() {}
 
 	cmdCtx := commands.NewContext(e.bus, e.composer.PushPalette)
 	e.submitter = submit.NewSubmitter(
@@ -193,8 +197,6 @@ func NewEditor(
 	// The palette draws inside the transcript area, so the draft below stays
 	// clickable; keep it from taking the keyboard while the palette is open.
 	e.App.ModalInput = e.composer.PaletteOpen
-
-	e.extCmds.Sync()
 	return e
 }
 
@@ -247,23 +249,9 @@ func (e *Editor) Update(m controller.Msg) {
 		case "think_level":
 			e.composer.SetModelLabel(e.ctrl.ModelName(), msg.Value)
 		}
-	case controller.ExtSessionEffectsMsg:
-		if msg.StatusSet {
-			e.extStatus = msg.Status
-		}
-		if msg.Toast != "" {
-			e.toast.Show(msg.Toast, toast.ToastSuccess, 3*time.Second)
-		}
 	case controller.BranchLabelMsg:
 		e.composer.SetBranchLabel(msg.Text)
 		e.vx.QueueRefresh()
-	case controller.ExtCommandResultMsg:
-		e.extCmds.Apply(msg)
-	case controller.ExtTopologyChangedMsg:
-		// Extensions changed underneath us (a reload): the agent still holds the old
-		// tool schemas and the palette the commands of the process that died.
-		e.ctrl.SyncExtensionTools()
-		e.extCmds.Sync()
 	case controller.JobProgressMsg:
 		// Applied in drainBus so we can skip Sync when the tree is unchanged.
 	}
@@ -335,14 +323,8 @@ func (e *Editor) resetActivity() {
 	e.activity.Apply(controller.ActivityIdle)
 }
 
-func (e *Editor) setExtensionStatus(status string) {
-	e.extStatus = status
-}
-
 func (e *Editor) applyFooterMessage(msg controller.FooterMsg) {
 	switch msg.Kind {
-	case controller.FooterClearIfActivity:
-		e.overlays.ClearActivityIf(msg.If)
 	case controller.FooterSetActivity:
 		e.activity.Apply(msg.Activity)
 	case controller.FooterUpdateAvailable:
@@ -563,8 +545,7 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 		chatSurf = e.composer.DrawChat(ctx, maxSize.Width, chatH)
 	}
 	footerSurf := e.footer.Draw(ctx, maxSize.Width, footer.State{
-		ExtensionStatus: e.extStatus,
-		UpdateHint:      e.updateHint,
+		UpdateHint: e.updateHint,
 	})
 
 	root.Children = []components.SubSurface{

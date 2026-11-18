@@ -40,16 +40,6 @@ func FetchLatest(ctx context.Context, repo string) (Release, error) {
 	))
 }
 
-// FetchTag queries a release by tag name (with or without a leading "v").
-func FetchTag(ctx context.Context, repo, tag string) (Release, error) {
-	tag = strings.TrimSpace(tag)
-	if tag == "" {
-		return Release{}, fmt.Errorf("empty release tag for %s", repo)
-	}
-	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/tags/%s", repo, tag)
-	return fetchRelease(ctx, repo, url, fmt.Sprintf("no release tagged %q for %s", tag, repo))
-}
-
 func fetchRelease(ctx context.Context, repo, url, notFoundMsg string) (Release, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {

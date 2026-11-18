@@ -59,8 +59,7 @@ type SessionBaseEntry struct {
 
 // SessionMessageEntry wraps an LLM message as a session tree node.
 // Usage lives here (not on llm.Message, whose Usage is json:"-" and so is
-// dropped at flush) so token counts survive persist/reload for diagnostics
-// and session lifecycle extensions.
+// dropped at flush) so token counts survive persist/reload for diagnostics.
 type SessionMessageEntry struct {
 	SessionBaseEntry
 	Message llm.Message `json:"message"`
