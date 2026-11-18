@@ -34,13 +34,13 @@ type EngineController struct {
 	engine *agent.Engine
 	proj   *project.Project
 
-	streamMu        sync.Mutex
-	streamCancel    context.CancelFunc
-	compactCancel context.CancelFunc
-	streamGen       int
-	lastPrompt      LastPrompt
-	promptAppended  bool
-	retryReady      bool
+	streamMu       sync.Mutex
+	streamCancel   context.CancelFunc
+	compactCancel  context.CancelFunc
+	streamGen      int
+	lastPrompt     LastPrompt
+	promptAppended bool
+	retryReady     bool
 
 	bus *Bus
 
@@ -717,30 +717,42 @@ func (c *EngineController) startPromptLocked() {
 // work. Refusing a second concurrent run matters because both would compact
 // the same leaf and the loser aborts on the anchor check.
 func (c *EngineController) Compact() error {
-	c.streamMu.Lock()
-	if c.compactCancel != nil {
-		c.streamMu.Unlock()
+	ctx, ok := c.beginCompaction()
+	if !ok {
 		return errors.New("a compaction is already running")
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	c.compactCancel = cancel
 	engine := c.engine
-	c.streamMu.Unlock()
-
 	go c.runCompact(ctx, engine)
 	return nil
 }
 
+// beginCompaction claims the manual-compaction slot, so prompts and a second
+// command cannot act on the session while a summary is in flight.
+func (c *EngineController) beginCompaction() (context.Context, bool) {
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	if c.compactCancel != nil {
+		return nil, false
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	c.compactCancel = cancel
+	return ctx, true
+}
+
+// endCompaction releases the slot and cancels the context, so a finished run
+// leaves no stale cancellation behind.
+func (c *EngineController) endCompaction() {
+	c.streamMu.Lock()
+	cancel := c.compactCancel
+	c.compactCancel = nil
+	c.streamMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
 func (c *EngineController) runCompact(ctx context.Context, engine *agent.Engine) {
-	defer func() {
-		c.streamMu.Lock()
-		cancel := c.compactCancel
-		c.compactCancel = nil
-		c.streamMu.Unlock()
-		if cancel != nil {
-			cancel()
-		}
-	}()
+	defer c.endCompaction()
 
 	var before int
 	did, err := engine.Compact(ctx, func(ev session.Event) bool {
@@ -753,29 +765,34 @@ func (c *EngineController) runCompact(ctx context.Context, engine *agent.Engine)
 		return true
 	})
 
+	c.publish(compactionToast(did, err, ctx.Err(), before))
+}
+
+// compactionToast maps one manual compaction result to the toast to show.
+//
+// A committed checkpoint wins over a late cancel: Esc can land after the
+// compaction entry was appended, and reporting "cancelled" would deny a
+// summary the transcript already shows.
+func compactionToast(did bool, err, ctxErr error, before int) ToastMsg {
 	switch {
-	case errors.Is(err, context.Canceled) || ctx.Err() != nil:
-		c.publish(ToastMsg{Message: "Summary cancelled", Kind: toast.ToastWarning, Duration: 3 * time.Second})
-	case err != nil:
-		c.publish(ToastMsg{
-			Message:  "Summary failed: " + err.Error(),
-			Kind:     toast.ToastError,
-			Duration: 4 * time.Second,
-		})
-	case !did:
-		c.publish(ToastMsg{
-			Message:  "Nothing to summarize yet",
-			Kind:     toast.ToastWarning,
-			Duration: 3 * time.Second,
-		})
-	default:
+	case did:
 		// A provider that reports no usage leaves TokensBefore at zero; claim a
 		// number only when there is one.
-		msg := "Summarized context"
+		msg := "Compacted context"
 		if before > 0 {
-			msg = fmt.Sprintf("Summarized context (was %s tokens)", components.FormatTokens(before))
+			msg = fmt.Sprintf("Compacted context (was %s tokens)", components.FormatTokens(before))
 		}
-		c.publish(ToastMsg{Message: msg, Kind: toast.ToastSuccess, Duration: 3 * time.Second})
+		return ToastMsg{Message: msg, Kind: toast.ToastSuccess, Duration: 3 * time.Second}
+	case err != nil && !errors.Is(err, context.Canceled):
+		return ToastMsg{
+			Message:  "Compaction failed: " + err.Error(),
+			Kind:     toast.ToastError,
+			Duration: 4 * time.Second,
+		}
+	case errors.Is(err, context.Canceled) || ctxErr != nil:
+		return ToastMsg{Message: "Compaction cancelled", Kind: toast.ToastWarning, Duration: 3 * time.Second}
+	default:
+		return ToastMsg{Message: "Nothing to compact yet", Kind: toast.ToastWarning, Duration: 3 * time.Second}
 	}
 }
 

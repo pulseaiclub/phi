@@ -1,11 +1,15 @@
 package controller
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/pulseaiclub/phi/internal/components/toast"
 )
 
 // drainToasts empties the bus and returns the toast messages, newest last.
@@ -37,31 +41,79 @@ func TestCompactReportsNothingToCompact(t *testing.T) {
 		return true
 	}, 5*time.Second, 10*time.Millisecond)
 
-	assert.Equal(t, "Nothing to summarize yet", got.Message)
+	assert.Equal(t, "Nothing to compact yet", got.Message)
 }
 
-// A second /compact must be refused while the first is still running: both
-// would cut the same leaf and the loser would abort on the anchor check.
-func TestCompactRefusesConcurrentRun(t *testing.T) {
+// The slot is claimed for as long as a summary runs: a second /compact must be
+// refused, because both would cut the same leaf and the loser would abort on
+// the anchor check. Releasing the slot must accept the next one.
+func TestBeginCompactionRefusesConcurrentRun(t *testing.T) {
 	ctrl := newTestController(t, "http://127.0.0.1:1")
-	ctrl.streamMu.Lock()
-	ctrl.compactCancel = func() {}
-	ctrl.streamMu.Unlock()
 
-	err := ctrl.Compact()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "already running")
+	_, ok := ctrl.beginCompaction()
+	require.True(t, ok, "the first run claims the slot")
+
+	_, ok = ctrl.beginCompaction()
+	require.False(t, ok, "a second run must be refused while the first holds the slot")
+
+	ctrl.endCompaction()
+	_, ok = ctrl.beginCompaction()
+	require.True(t, ok, "releasing the slot accepts the next run")
+	ctrl.endCompaction()
 }
 
-// Esc during a summary cancels it, so it cannot keep compacting a session the
-// user is about to switch away from.
-func TestCompactIsCancelledByCancel(t *testing.T) {
+// Esc during a compaction cancels the context the summary worker runs on, so it
+// cannot keep compacting a session the user is about to switch away from.
+func TestCancelCancelsRunningCompaction(t *testing.T) {
 	ctrl := newTestController(t, "http://127.0.0.1:1")
-	cancelled := false
-	ctrl.streamMu.Lock()
-	ctrl.compactCancel = func() { cancelled = true }
-	ctrl.streamMu.Unlock()
+
+	ctx, ok := ctrl.beginCompaction()
+	require.True(t, ok)
+	require.NoError(t, ctx.Err())
 
 	ctrl.Cancel()
-	assert.True(t, cancelled)
+	require.ErrorIs(t, ctx.Err(), context.Canceled, "Cancel must reach the compaction context")
+	ctrl.endCompaction()
+}
+
+// compactionToast is the whole outcome mapping. The committed-checkpoint row
+// pins the late-cancel case: Esc after AppendCompaction succeeded must not
+// report "cancelled" while the transcript already shows the summary.
+func TestCompactionToast(t *testing.T) {
+	tests := []struct {
+		name    string
+		did     bool
+		err     error
+		ctxErr  error
+		before  int
+		message string
+		kind    toast.ToastKind
+	}{
+		{name: "committed", did: true, before: 0, message: "Compacted context", kind: toast.ToastSuccess},
+		{
+			name: "committed with tokens", did: true, before: 12000, message: "Compacted context (was 12k tokens)",
+			kind: toast.ToastSuccess,
+		},
+		{
+			name: "committed despite a late cancel", did: true, ctxErr: context.Canceled, before: 2048,
+			message: "Compacted context (was 2.0k tokens)", kind: toast.ToastSuccess,
+		},
+		{
+			name: "cancelled", err: context.Canceled, ctxErr: context.Canceled,
+			message: "Compaction cancelled", kind: toast.ToastWarning,
+		},
+		{
+			name: "cancelled by ctx alone", ctxErr: context.Canceled,
+			message: "Compaction cancelled", kind: toast.ToastWarning,
+		},
+		{name: "failed", err: errors.New("boom"), message: "Compaction failed: boom", kind: toast.ToastError},
+		{name: "nothing to do", message: "Nothing to compact yet", kind: toast.ToastWarning},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := compactionToast(tt.did, tt.err, tt.ctxErr, tt.before)
+			assert.Equal(t, tt.message, got.Message)
+			assert.Equal(t, tt.kind, got.Kind)
+		})
+	}
 }
