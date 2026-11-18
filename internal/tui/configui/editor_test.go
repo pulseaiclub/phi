@@ -476,6 +476,7 @@ func TestChoicePickerCommitsSelection(t *testing.T) {
 	press(e, xui.KeyEnter, 0)
 	require.True(t, e.picker.Open)
 	press(e, xui.KeyEnter, 0)
+	assert.False(t, e.picker.Open, "Enter must close the reopened picker")
 	assert.Equal(t, "model-b", doc.Agents.Models.Explore, "opening and accepting must keep the current value")
 }
 
