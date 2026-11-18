@@ -10,6 +10,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Removed
 
+- The extension/plugin system: the PXB wire protocol and its Go/Rust/TypeScript
+  author SDKs (`ext/`), the extension host (`internal/extension`), extension
+  tool/model/command wiring in the agent and TUI, the `phi plugin` CLI, and the
+  extension review/lint gates in CI. `~/.phi/extensions` is no longer created or
+  scanned.
+
 ### Changed
 
 - Command Palette now uses the shared list picker with a dedicated command-list
@@ -33,7 +39,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - Command Palette: `thm` finds `theme` again (subsequence search), Tab moves
   the highlight instead of firing the highlighted row, submenu rows keep
-  working across an extension sync, the save shortcut stays visible on narrow
+  working across a sync, the save shortcut stays visible on narrow
   terminals, the selected branch keeps its current-row hue, a short terminal
   can no longer collapse the open palette to an empty box, and clicking the
   draft below an open palette can no longer take the keyboard.

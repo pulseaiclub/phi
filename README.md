@@ -12,7 +12,7 @@
   <a href="https://github.com/pulseaiclub/phi/releases"><img src="https://img.shields.io/github/v/release/pulseaiclub/phi?style=flat&colorA=222222&colorB=8957E5" alt="Release"></a>
 </p>
 
-- 15 MB · ~31 ms  · sub-agents · anchored sloppy edits · progressive MCP · PXB extensions · native diff review & code selection · OpenAI / Anthropic / Gemini
+- 15 MB · ~31 ms  · sub-agents · anchored sloppy edits · progressive MCP · native diff review & code selection · OpenAI / Anthropic / Gemini
 
 ![phi welcome](assets/phi.png)
 
@@ -32,7 +32,6 @@
 - [Sessions](#sessions)
 - [Headless mode](#headless-mode)
 - [Skills](#skills)
-- [Extensions](#extensions)
 - [MCP](#mcp)
 - [Tools](#tools)
 - [Project layout](doc/project-layout.md)
@@ -111,7 +110,6 @@ On first start, phi automatically creates these directories under `~/.phi/`:
 
 - `bin/` — downloaded search tools (`fd`, `rg`)
 - `skills/` — global `SKILL.md` files
-- `extensions/` — installed extensions (see [doc/extensions.md](doc/extensions.md))
 - `session/` — persisted sessions, one folder per project directory
 - `jobs/` — sub-agent transcripts, one folder per job
 
@@ -242,7 +240,6 @@ Provider routing uses the explicit `api` field (`OpenAI` / `Anthropic` /
 ├── config.yaml   # global configuration
 ├── bin/          # downloaded search tools (fd, ripgrep)
 ├── skills/       # SKILL.md skill directories
-├── extensions/   # PXB binaries + phi.yaml
 ├── jobs/         # sub-agent job artifacts (meta, logs, result.md)
 └── session/      # persisted sessions, one dir per working directory
     └── <encoded-cwd>/
@@ -357,7 +354,6 @@ unfinished.
 | `phi sessions fork <id>` | Copy a session at its current point, print the new id |
 | `phi sessions remove <id>` | Delete a persisted session for this directory (alias `rm`; unique id prefix ok) |
 | `phi mcp …`        | Manage MCP servers (list, add, remove, call, doctor) — see [MCP](#mcp) |
-| `phi plugin …`     | Manage extensions (install, list, update, remove) — see [Extensions](#extensions) |
 | `phi config`       | Edit the meta config in a terminal UI — see [Configuration](#configuration) |
 | `/sessions`        | List sessions for this directory (TUI)        |
 | `/branch`          | Switch the working branch — see [Branch switching](#branch-switching) |
@@ -460,53 +456,6 @@ access control: the model can still find the file with `ls` / `find`.
 
 In the TUI, type `/skill` and pick a row from the list, then submit the message
 with the selected skills applied.
-
-## Extensions
-
-Extensions are native binaries speaking the **PXB** binary protocol over
-stdin/stdout (author SDKs: Go `github.com/pulseaiclub/phi/ext/go/phi`, Rust
-[`ext/rust`](ext/rust) (`phi-ext`), and TypeScript
-[`ext/ts`](ext/ts) (`@pulseaiclub/phi-ext`)). They
-subscribe to tool/session events, register LLM tools, and add slash commands.
-
-```bash
-go get github.com/pulseaiclub/phi/ext/go@v0.25.6
-```
-
-```go
-package main
-
-import (
-	"github.com/pulseaiclub/phi/ext/go"
-	"github.com/pulseaiclub/phi/ext/go/phi"
-)
-
-func main() {
-	m := phi.New("hello", "0.1.0")
-	m.OnToolCall(func(ev ext.ToolCallEvent) *ext.ToolCallResult {
-		// return &ext.ToolCallResult{Block: true, Reason: "..."}
-		return nil
-	})
-	_ = m.Run()
-}
-```
-
-Install under `~/.phi/extensions/<name>/` with a `phi.yaml` pointing at the
-binary. In the TUI: `Ctrl+K` → **extensions**. Disable with
-`PHI_EXTENSIONS=off`. Full guide: [doc/extensions.md](doc/extensions.md).
-
-Codec throughput on Apple Silicon (release, single-threaded):
-
-| Implementation | Hello encode+decode | Frame write+read (in-memory) | Allocs |
-|---|---|---|---|
-| Rust PXB (`phi-ext`) | ~0.12 µs | ~0.06 µs | — |
-| Go PXB (`ext/go/pxb`) | ~0.11 µs | ~0.05 µs | 3 / op |
-| Go JSON lines | ~1.2 µs | — | 15 / op |
-
-The ~10× gap over JSON lines is the protocol (fixed header + tagged fields), not
-the language — Rust and Go are within noise on the same codec work. Real
-extension latency is dominated by process spawn and pipe RTT anyway. Re-probe:
-`cargo run --release --example bench` in [`ext/rust`](ext/rust).
 
 ## MCP
 

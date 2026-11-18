@@ -16,8 +16,8 @@ In the TUI model picker, Enter switches the current session. Ctrl+S opens an
 in-place confirmation: Y/Enter applies the highlighted model and saves it as
 the global default; N/Esc returns to the picker. The default uses `models[].default`
 in `~/.phi/config.yaml`, the same setting as `phi config` → `use by default`.
-Only models already in that file can be saved as defaults; add extension-only
-or environment-only models with `phi config` first.
+Only models already in that file can be saved as defaults; add
+environment-only models with `phi config` first.
 
 Startup uses the configured default with the usual environment overrides; it
 does not scan past sessions. Resuming a session restores its selected branch's
@@ -223,21 +223,6 @@ limits remain managed by phi. Gemini options must merge into `generationConfig`
 without replacing it or changing `maxOutputTokens` / `candidateCount` (including
 snake_case aliases). Anthropic validates final thinking budgets. Vendor fields
 belong directly under `request_parameters`, not an `extra_body` wrapper.
-
-## Models from extensions
-
-Extensions can add connections at runtime without touching config.yaml:
-
-- **Direct-connect** — the host dials `base_url` with the registered
-  `api`/`api_key`, same as a config entry.
-- **Extension-served** (`Conn: ext`) — the extension proxies or generates
-  every request itself and streams deltas back; see
-  [extensions.md § Models](extensions.md#models-from-extensions).
-
-Extension names shadow config entries with the same name; preset resolution,
-thinking validation and context-window handling match config entries. The
-`/model` palette snapshots names at startup, so restart once after installing
-a model extension.
 
 ## Related
 

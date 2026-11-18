@@ -12,7 +12,7 @@
   <a href="https://github.com/pulseaiclub/phi/releases"><img src="https://img.shields.io/github/v/release/pulseaiclub/phi?style=flat&colorA=222222&colorB=8957E5" alt="Release"></a>
 </p>
 
-- 15 MB · ~31 ms · sub-agent · 锚点编辑 · 渐进式 MCP · PXB 插件 · 全屏审阅 & 代码选中 · OpenAI / Anthropic / Gemini
+- 15 MB · ~31 ms · sub-agent · 锚点编辑 · 渐进式 MCP · 全屏审阅 & 代码选中 · OpenAI / Anthropic / Gemini
 
 ![phi 欢迎界面](assets/phi.png)
 
@@ -20,8 +20,7 @@
 
 ![phi diff 审阅](assets/diff.png)
 
-你可以通过 [Skills（技能）](#skills技能)、[Extensions（扩展）](#extensions扩展)
-和 [MCP](#mcp) 扩展它——不必做成插件框架。
+你可以通过 [Skills（技能）](#skills技能)和 [MCP](#mcp) 扩展它——不必做成插件框架。
 
 - [赞助商](#赞助商)
 - [文档](https://pulseaiclub.github.io/docs/getting-started/)
@@ -35,7 +34,6 @@
 - [会话](#会话)
 - [无头模式](#无头模式)
 - [Skills（技能）](#skills技能)
-- [Extensions（扩展）](#extensions扩展)
 - [MCP](#mcp)
 - [子代理](#子代理)
 - [工具](#工具)
@@ -111,7 +109,7 @@ make build          # 生成 ./phi
 make install        # 构建并安装到 $GOBIN
 ```
 
-首次启动时，phi 会自动创建 `~/.phi/{bin,skills,extensions,session,jobs}`。搜索工具
+首次启动时，phi 会自动创建 `~/.phi/{bin,skills,session,jobs}`。搜索工具
 （`fd`、`rg`）缺失时会在后台下载到 `~/.phi/bin`。
 
 TUI 给模型提供四个核心工具——`read`、`write`、`edit` 和 `bash`——外加 `grep`、`find`、`ls`。模型用这些工具来完成你的请求。外部 HTTP 抓取在配置 MCP 后可用。
@@ -218,7 +216,6 @@ agents:
 ├── config.yaml   # 全局配置
 ├── bin/          # 下载的搜索工具（fd、ripgrep）
 ├── skills/       # SKILL.md 技能目录
-├── extensions/   # PXB 二进制 + phi.yaml
 ├── jobs/         # 子代理任务产物（meta、logs、result.md）
 └── session/      # 持久化会话，每个工作目录一个目录
     └── <encoded-cwd>/
@@ -240,7 +237,7 @@ agents:
 - `?` —— 快捷键帮助选择器（列出 `/`、`!`、`!!`、`@` 和按键绑定；`Esc` 关闭）
 - `!command` —— 在本地运行 shell 命令，并把输出流式写入对话记录
   （见 [命令](#命令)）
-- `Ctrl+K` —— 命令面板：设置 → 模型 / 主题 / 代理（含各角色模型）/ 思考 / 调试，以及扩展管理（`extensions`）。用 `/skill` 选择技能。
+- `Ctrl+K` —— 命令面板：设置 → 模型 / 主题 / 代理（含各角色模型）/ 思考 / 调试。用 `/skill` 选择技能。
 
 ### 键盘快捷键
 
@@ -400,47 +397,6 @@ Instructions the agent should follow when this skill is relevant.
 
 在 TUI 中，可以从面板添加技能（技能 → 列表），然后在勾选所需技能后发送
 消息。
-
-## Extensions（扩展）
-
-扩展是讲 **PXB** 二进制协议的原生进程（作者 SDK：Go `github.com/pulseaiclub/phi/ext/go/phi` 和 Rust [`ext/rust`](ext/rust) `phi-ext`）：订阅工具/会话事件、注册 LLM 工具、添加斜杠命令。
-
-```bash
-go get github.com/pulseaiclub/phi/ext/go@v0.25.6
-```
-
-```go
-package main
-
-import (
-	"github.com/pulseaiclub/phi/ext/go"
-	"github.com/pulseaiclub/phi/ext/go/phi"
-)
-
-func main() {
-	m := phi.New("hello", "0.1.0")
-	m.OnToolCall(func(ev ext.ToolCallEvent) *ext.ToolCallResult {
-		// return &ext.ToolCallResult{Block: true, Reason: "..."}
-		return nil
-	})
-	_ = m.Run()
-}
-```
-
-放到 `~/.phi/extensions/<name>/`，附带 `phi.yaml` 指向二进制。
-TUI：`Ctrl+K` → **extensions**。禁用：`PHI_EXTENSIONS=off`。完整指南见 [doc/extensions.md](doc/extensions.md)。
-
-Codec 吞吐（Apple Silicon，release，单线程）：
-
-| 实现 | Hello encode+decode | Frame write+read（内存） | Allocs |
-|---|---|---|---|
-| Rust PXB (`phi-ext`) | ~0.12 µs | ~0.06 µs | — |
-| Go PXB (`ext/go/pxb`) | ~0.11 µs | ~0.05 µs | 3 / op |
-| Go JSON lines | ~1.2 µs | — | 15 / op |
-
-相对 JSON lines 约 10× 来自协议本身（定长头 + tagged fields），不是语言——同套
-codec 工作下 Rust / Go 在噪声内。扩展真实延迟仍由进程 spawn 和 pipe RTT 主导。
-复测：在 [`ext/rust`](ext/rust) 里跑 `cargo run --release --example bench`。
 
 ## MCP
 
