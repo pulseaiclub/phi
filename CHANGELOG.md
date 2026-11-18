@@ -12,6 +12,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- Command Palette now uses the shared list picker with a dedicated command-list
+  style: stable width, left-aligned rows, visible secondary descriptions, a
+  full-row selection bar, and centered placement in the transcript area.
+  Nested commands, disabled entries, and save confirmation remain supported.
+  List pickers share two common fields (name and core description) with a fixed
+  two-cell column gap. Column widths are measured across the whole list; both
+  columns align left within a twelve-row list area. Branch names are capped at
+  thirty columns so long refs cannot displace commit subjects. Filtering does
+  not resize the panel or move its columns. Panels use quiet square borders,
+  separate titles, and a gap above the list.
 - Bash commands now get shell syntax highlighting in the transcript — the
   `$ command` title row and bash rows inside the agent tool tree — with token
   colors mapped to the active theme.
