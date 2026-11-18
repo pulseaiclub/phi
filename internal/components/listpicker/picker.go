@@ -68,6 +68,7 @@ type ShowConfig struct {
 	EmptyCommand   string // no command matches; may contain %q for the typed name
 	PrimaryWidth   int    // maximum name width; 0 = widest name in the list
 	TabNavigates   bool   // Tab/Shift+Tab move the highlight; default Tab accepts
+	Fuzzy          bool   // name fields also match as a subsequence ("thm" → theme)
 	Style          Style
 }
 
@@ -261,12 +262,13 @@ type matchTier int
 const (
 	tierNone     matchTier = iota // no hit at all
 	tierText                      // only Detail / Keywords matched
+	tierSubseq                    // name fields match as a subsequence (fuzzy)
 	tierContains                  // Primary or ID contains the query
 	tierPrefix                    // Primary or ID starts with it
 	tierExact                     // Primary or ID is exactly the query
 )
 
-func matchTierOf(item Item, q string) matchTier {
+func matchTierOf(item Item, q string, fuzzy bool) matchTier {
 	primary, id := strings.ToLower(item.Primary), strings.ToLower(item.ID)
 	switch {
 	case primary == q || id == q:
@@ -275,10 +277,27 @@ func matchTierOf(item Item, q string) matchTier {
 		return tierPrefix
 	case strings.Contains(primary, q) || strings.Contains(id, q):
 		return tierContains
+	case fuzzy && nameSubseq(item, q):
+		return tierSubseq
 	case itemMatches(item, q):
 		return tierText
 	}
 	return tierNone
+}
+
+// nameSubseq reports whether q appears in order across the row's name fields:
+// "thm" finds "theme". A name-shaped guess outranks a literal match in free
+// text, which is what made palette search forgiving before the shared picker.
+func nameSubseq(item Item, q string) bool {
+	hay := strings.ToLower(item.Primary + " " + item.ID + " " + item.Keywords)
+	target := []rune(q)
+	i := 0
+	for _, r := range hay {
+		if i < len(target) && r == target[i] {
+			i++
+		}
+	}
+	return i == len(target)
 }
 
 func (p *Picker) refilter() {
@@ -298,7 +317,7 @@ func (p *Picker) refilter() {
 	for i, item := range p.rows() {
 		tier := tierText // no query: every row stays, in the caller's order
 		if q != "" {
-			tier = matchTierOf(item, q)
+			tier = matchTierOf(item, q, p.cfg.Fuzzy)
 		}
 		if tier > tierNone {
 			p.filtered = append(p.filtered, hit{index: i, tier: tier})

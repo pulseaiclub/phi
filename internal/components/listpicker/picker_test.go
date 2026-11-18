@@ -701,3 +701,36 @@ func TestPickerDrawConfirmChrome(t *testing.T) {
 	assert.Contains(t, text, "y/enter delete")
 	assert.Contains(t, text, "n/esc cancel")
 }
+
+// Subsequence matching is opt-in: the palette lost "thm" → theme when it
+// moved onto the shared picker, and this pins the return.
+func TestPickerFuzzyMatchesNameSubsequences(t *testing.T) {
+	items := []Item{
+		{ID: "theme-dark", Primary: "Dark (builtin)", Keywords: "settings theme dark"},
+		{ID: "help", Primary: "help", Keywords: "app help"},
+	}
+	ctx := &components.EventContext{}
+	search := func(q string) []string {
+		p := &Picker{}
+		p.Show(items, ShowConfig{Fuzzy: true})
+		for _, r := range q {
+			p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: r, Press: true})
+		}
+		var got []string
+		for _, h := range p.filtered {
+			got = append(got, p.rows()[h.index].ID)
+		}
+		return got
+	}
+
+	assert.Contains(t, search("thm"), "theme-dark", "subsequence finds the row")
+	assert.NotContains(t, search("thm"), "help", "unrelated rows stay out")
+	assert.Empty(t, search("zzz"), "no subsequence, no hit")
+
+	p := &Picker{}
+	p.Show(items, ShowConfig{})
+	for _, r := range "thm" {
+		p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: r, Press: true})
+	}
+	assert.Empty(t, p.filtered, "without Fuzzy the exact tiers are the whole story")
+}

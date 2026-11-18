@@ -146,6 +146,7 @@ func (p *CommandPalette) config() listpicker.ShowConfig {
 		ConfirmHint:    " y/enter save" + chrome.Sep + "n/esc cancel ",
 		ConfirmShort:   " y save" + chrome.Sep + "n cancel ",
 		TabNavigates:   true,
+		Fuzzy:          true,
 		Style:          listpicker.StyleCommand,
 	}
 	if p.saveAvailable() {

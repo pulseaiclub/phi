@@ -204,3 +204,24 @@ func TestSetRootRefreshesOpenRootPage(t *testing.T) {
 	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
 	assert.Equal(t, "alpha", ran)
 }
+
+// The palette opts into subsequence search: "thm" must still reach the theme
+// submenu, as it did before the shared picker.
+func TestPaletteSearchStaysForgiving(t *testing.T) {
+	p := &CommandPalette{Root: []PaletteCommand{
+		{ID: "settings-theme", Verb: "theme", Submenu: []PaletteCommand{
+			{ID: "theme-dark", Verb: "Dark (builtin)", Keywords: []string{"theme", "dark"}},
+		}},
+		{ID: "app-help", Verb: "help"},
+	}}
+	p.Show()
+	ctx := &components.EventContext{}
+	for _, r := range "thm" {
+		p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: r, Press: true})
+	}
+	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
+	require.True(t, p.Picker.Open)
+	assert.Equal(t, "theme", p.Title, "thm still resolves to the theme submenu")
+	require.Len(t, p.Commands, 1)
+	assert.Equal(t, "theme-dark", p.Commands[0].ID)
+}
