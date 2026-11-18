@@ -59,9 +59,6 @@ func (o *Overlays) beginExtConfirm(msg controller.OverlayMsg) {
 	if o.confirm != nil {
 		o.resolveExtConfirm(controller.ExtConfirmReply{})
 	}
-	if o.perm != nil {
-		o.resolvePermission(controller.AskReply{})
-	}
 	if o.err != nil {
 		o.resolveError(controller.ErrorReply{})
 	}

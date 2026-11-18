@@ -33,11 +33,10 @@ type ConfigEditor struct {
 	list   ModelLister
 	redraw func()
 
-	rows     []row
-	cursor   int
-	scroll   int
-	expanded string
-	dirty    bool
+	rows   []row
+	cursor int
+	scroll int
+	dirty  bool
 
 	status     string
 	statusKind statusKind
@@ -167,11 +166,7 @@ func (e *ConfigEditor) handleNavKey(ctx *components.EventContext, k xui.KeyEvent
 	case xui.KeyEnter, xui.KeyTab:
 		e.activate()
 	case xui.KeyEscape:
-		if e.expanded != "" {
-			e.collapse()
-		} else {
-			e.requestQuit(ctx)
-		}
+		e.requestQuit(ctx)
 	case xui.KeyRune:
 		if k.Mods.Has(xui.ModAlt) {
 			ctx.Consume = true
@@ -252,21 +247,12 @@ func (e *ConfigEditor) jumpEdge(last bool) {
 	}
 }
 
-// setCursor moves the cursor, collapsing an expanded list when the cursor
-// leaves it. Row indices shift on collapse, so the target key is captured
-// first.
+// setCursor moves the cursor to a selectable row.
 func (e *ConfigEditor) setCursor(index int) {
 	if index < 0 || index >= len(e.rows) || !e.rows[index].selectable() {
 		return
 	}
-	key := e.rows[index].key
-	if e.expanded != "" {
-		if base, _, ok := splitListKey(key); !ok || base != e.expanded {
-			e.expanded = ""
-			e.rebuild()
-		}
-	}
-	e.anchor(key, index)
+	e.anchor(e.rows[index].key, index)
 }
 
 // refocus rebuilds rows and puts the cursor back on key.
@@ -303,39 +289,17 @@ func (e *ConfigEditor) activate() {
 	if !ok {
 		return
 	}
-	switch r.kind {
-	case rowAdd:
-		e.startEdit(r.key, "")
-	case rowItem:
-		e.startEdit(r.key, r.label)
-	case rowField:
-		switch r.field {
-		case kindList:
-			e.expand(r.key)
-		case kindBool, kindPlainBool:
-			e.toggleFocused()
-		case kindChoice:
-			e.openKeyPicker(r.label, r.key, r.options)
-		default:
-			e.startEdit(r.key, r.raw)
-		}
-	}
-}
-
-func (e *ConfigEditor) expand(key string) {
-	e.expanded = key
-	e.rebuild()
-	if len(e.listItems(key)) > 0 {
-		e.anchor(listItemKey(key, 0), e.cursor)
+	if r.kind != rowField {
 		return
 	}
-	e.anchor(listAddKey(key), e.cursor)
-}
-
-func (e *ConfigEditor) collapse() {
-	key := e.expanded
-	e.expanded = ""
-	e.refocus(key)
+	switch r.field {
+	case kindBool, kindPlainBool:
+		e.toggleFocused()
+	case kindChoice:
+		e.openKeyPicker(r.label, r.key, r.options)
+	default:
+		e.startEdit(r.key, r.raw)
+	}
 }
 
 func (e *ConfigEditor) toggleFocused() {
@@ -390,7 +354,6 @@ func (e *ConfigEditor) commit(key, value string) {
 }
 
 func (e *ConfigEditor) addModel() {
-	e.expanded = ""
 	e.doc.Models = append(e.doc.Models, project.ModelDoc{})
 	if len(e.doc.Models) == 1 {
 		e.doc.Models[0].Default = true
@@ -405,13 +368,6 @@ func (e *ConfigEditor) addModel() {
 func (e *ConfigEditor) deleteFocused() {
 	r, ok := e.focused()
 	if !ok {
-		return
-	}
-	if r.kind == rowItem {
-		_, index, _ := splitListKey(r.key)
-		e.removeListItem(r.listKey, index)
-		e.dirty = true
-		e.refocus(listAddKey(r.listKey))
 		return
 	}
 	index, ok := modelOf(r)
@@ -630,10 +586,6 @@ func (e *ConfigEditor) commitEdit() {
 	e.edit = nil
 	e.dirty = true
 	e.status, e.statusKind = "", statusNone
-	if base, index, ok := splitListKey(key); ok && index < 0 {
-		e.refocus(listItemKey(base, len(e.listItems(base))-1))
-		return
-	}
 	e.refocus(key)
 }
 

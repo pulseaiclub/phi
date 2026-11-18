@@ -226,7 +226,9 @@ func TestRunBashCwd(t *testing.T) {
 
 func TestFindBashOnPath(t *testing.T) {
 	path := findBashOnPath()
-	require.NotEmpty(t, path)
+	if path == "" {
+		t.Skip("bash is not installed on PATH")
+	}
 	assert.True(t, isFile(path))
 }
 

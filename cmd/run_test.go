@@ -19,7 +19,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/mcp"
-	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools"
@@ -30,7 +29,6 @@ func TestRunOptionsFromFlags(t *testing.T) {
 	f, _, err := runCommand.Parse([]string{
 		"-p", "do the thing",
 		"--jsonl",
-		"--yolo",
 		"--timeout", "10m",
 		"--session", "abc123",
 		"--tools", "grep, read,grep",
@@ -41,7 +39,6 @@ func TestRunOptionsFromFlags(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "do the thing", opts.prompt)
 	assert.True(t, opts.jsonl)
-	assert.True(t, opts.yolo)
 	assert.Equal(t, 10*time.Minute, opts.timeout)
 	assert.Equal(t, "abc123", opts.session)
 	assert.Equal(t, "grep, read,grep", opts.builtinTools)
@@ -235,7 +232,6 @@ func TestRunLoopTimeoutCancelsLLMRequest(t *testing.T) {
 			APIKey:  "test",
 		},
 		sess,
-		agent.WithGate(permission.AllowAll{}),
 	)
 	require.NoError(t, err)
 
@@ -329,7 +325,6 @@ func TestRunCommandHelp(t *testing.T) {
 	require.ErrorAs(t, err, &he)
 	assert.Contains(t, he.Help, "usage: phi run")
 	assert.Contains(t, he.Help, "--prompt")
-	assert.Contains(t, he.Help, "--yolo")
 	assert.Contains(t, he.Help, "--tools")
 	assert.Contains(t, he.Help, "--model")
 	assert.Contains(t, he.Help, "--model > config model > PHI_MODEL")

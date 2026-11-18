@@ -8,14 +8,12 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/agent"
 	"github.com/pulseaiclub/phi/internal/job"
-	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
 func TestSpecForRoleExplore(t *testing.T) {
 	spec := agent.SpecForRole(job.RoleExplore)
 	assert.Equal(t, job.RoleExplore, spec.Role)
-	assert.Equal(t, permission.ModeReadonly, spec.Mode)
 	assert.Contains(t, spec.Hint, "explore sub-agent")
 	assert.Contains(t, spec.Hint, "cannot modify files")
 	names := toolNameSet(spec.Tools)
@@ -29,7 +27,6 @@ func TestSpecForRoleExplore(t *testing.T) {
 func TestSpecForRoleWorker(t *testing.T) {
 	spec := agent.SpecForRole(job.RoleWorker)
 	assert.Equal(t, job.RoleWorker, spec.Role)
-	assert.Equal(t, permission.ModeHeadlessStrict, spec.Mode)
 	assert.Contains(t, spec.Hint, "worker sub-agent")
 	assert.Contains(t, spec.Hint, "cannot spawn further agents")
 	names := toolNameSet(spec.Tools)
@@ -42,7 +39,6 @@ func TestSpecForRoleWorker(t *testing.T) {
 func TestSpecForRoleReview(t *testing.T) {
 	spec := agent.SpecForRole(job.RoleReview)
 	assert.Equal(t, job.RoleReview, spec.Role)
-	assert.Equal(t, permission.ModeReadonly, spec.Mode)
 	assert.Contains(t, spec.Hint, "review sub-agent")
 	assert.NotContains(t, spec.Hint, "allowlisted")
 	names := toolNameSet(spec.Tools)

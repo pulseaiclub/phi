@@ -16,7 +16,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/chrome"
 	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/project"
 )
 
@@ -74,39 +73,13 @@ func TestBuildRowsCoverEverySection(t *testing.T) {
 			sections = append(sections, r.title)
 		}
 	}
-	assert.Equal(t, []string{
-		"Models", "Skills", "Permissions", "Bash", "Rules", "Sub-agents",
-	}, sections)
+	assert.Equal(t, []string{"Models", "Skills", "Sub-agents"}, sections)
 
 	// Every row key must be addressable, and the first model's default badge
 	// must follow the document.
 	require.Equal(t, "default", e.rows[1].badge)
 	assert.Equal(t, "model-a", e.rows[1].name)
 	assert.Empty(t, e.rows[2].badge)
-}
-
-func TestPermissionRulesAreListedReadOnly(t *testing.T) {
-	doc := sampleDoc()
-	doc.Permissions = &project.PermDoc{Rules: []permission.RuleSpec{
-		{Kind: "read", Resource: "url", Decision: "ask"},
-		{Path: []string{"~/.ssh"}, Decision: "deny"},
-	}}
-	e := newTestEditor(t, doc)
-
-	var notes []string
-	for _, r := range e.rows {
-		if r.kind == rowNote {
-			notes = append(notes, r.label)
-			// A rule is a struct, not the scalar this form edits: the rows are
-			// shown so a configured rule is never invisible, and the cursor
-			// must not land on something it cannot edit.
-			assert.False(t, r.selectable())
-		}
-	}
-	require.Len(t, notes, 3)
-	assert.Contains(t, notes[0], "2 rules")
-	assert.Equal(t, "read url → ask", notes[1])
-	assert.Equal(t, "~/.ssh → deny", notes[2])
 }
 
 func TestThinkingChoicesFollowPresetAndEndpoint(t *testing.T) {
@@ -288,13 +261,11 @@ func TestCycleChoiceAndTriState(t *testing.T) {
 	doc := sampleDoc()
 	e := newTestEditor(t, doc)
 
-	focus(t, e, keyPermMode)
-	assert.Nil(t, doc.Permissions)
+	focus(t, e, modelKey(0, fAPI))
 	press(e, xui.KeyRight, 0)
-	require.NotNil(t, doc.Permissions)
-	assert.Equal(t, "interactive", doc.Permissions.Mode)
+	assert.Equal(t, "OpenAI", doc.Models[0].API)
 	press(e, xui.KeyLeft, 0)
-	assert.Empty(t, doc.Permissions.Mode)
+	assert.Empty(t, doc.Models[0].API)
 
 	focus(t, e, modelKey(0, fImage))
 	press(e, xui.KeyRight, 0)
@@ -396,71 +367,6 @@ func TestDeleteModelCanBeCancelled(t *testing.T) {
 	assert.Len(t, doc.Models, 2)
 }
 
-func TestBashRulesInheritUntilEdited(t *testing.T) {
-	doc := sampleDoc()
-	e := newTestEditor(t, doc)
-
-	// Collapsed, the field says the rules are the built-in ones.
-	focus(t, e, keyPermBashAllow)
-	r, _ := e.focused()
-	assert.True(t, r.inherited)
-	assert.Contains(t, r.display, "built-in")
-
-	// Expanding lists the effective rules and offers a new-pattern row.
-	press(e, xui.KeyEnter, 0)
-	assert.Equal(t, keyPermBashAllow, e.expanded)
-	require.Greater(t, len(e.rows), len(e.listItems(keyPermBashAllow)))
-	assert.Nil(t, doc.Permissions, "looking at the rules must not write them")
-	r, _ = e.focused()
-	assert.Equal(t, rowItem, r.kind)
-
-	// Editing one rule materializes the whole list, built-ins included.
-	press(e, xui.KeyEnter, 0)
-	require.NotNil(t, e.edit)
-	assert.Equal(t, e.listItems(keyPermBashAllow)[0], e.edit.line.Text())
-	press(e, xui.KeyEnd, 0)
-	typeRune(e, 'x')
-	press(e, xui.KeyEnter, 0)
-	require.NotNil(t, doc.Permissions)
-	require.NotNil(t, doc.Permissions.Bash)
-	require.NotNil(t, doc.Permissions.Bash.Allow)
-	assert.Len(t, *doc.Permissions.Bash.Allow, len(e.listItems(keyPermBashAllow)))
-}
-
-func TestAddBashRuleRow(t *testing.T) {
-	doc := sampleDoc()
-	e := newTestEditor(t, doc)
-
-	focus(t, e, keyPermBashAllow)
-	press(e, xui.KeyEnter, 0)
-	focus(t, e, listAddKey(keyPermBashAllow))
-	press(e, xui.KeyEnter, 0)
-	require.NotNil(t, e.edit)
-
-	for _, r := range "^make " {
-		typeRune(e, r)
-	}
-	press(e, xui.KeyEnter, 0)
-	require.NotNil(t, doc.Permissions.Bash.Allow)
-	assert.Equal(t, "^make ", (*doc.Permissions.Bash.Allow)[len(*doc.Permissions.Bash.Allow)-1])
-	// The cursor lands on the row it just created.
-	assert.Equal(t, listItemKey(keyPermBashAllow, len(*doc.Permissions.Bash.Allow)-1), e.rows[e.cursor].key)
-}
-
-func TestDeleteBashRule(t *testing.T) {
-	doc := sampleDoc()
-	e := newTestEditor(t, doc)
-
-	focus(t, e, keyPermBashDeny)
-	press(e, xui.KeyEnter, 0)
-	before := len(e.listItems(keyPermBashDeny))
-	press(e, xui.KeyEnter, 0) // edit
-	press(e, xui.KeyEscape, 0)
-	typeRune(e, 'd')
-	require.NotNil(t, doc.Permissions.Bash.Deny)
-	assert.Len(t, *doc.Permissions.Bash.Deny, before-1)
-}
-
 func TestSaveWritesFileAndBackup(t *testing.T) {
 	home := t.TempDir()
 	dir := filepath.Join(home, ".phi")
@@ -528,7 +434,7 @@ func TestQuitGuardsUnsavedChanges(t *testing.T) {
 	ctx := press(e, xui.KeyEscape, 0)
 	assert.True(t, ctx.Quit, "a clean editor quits on Esc")
 
-	focus(t, e, keyPermWorkspace)
+	focus(t, e, modelKey(0, fImage))
 	typeRune(e, ' ') // toggle a bool through the space shortcut
 	require.True(t, e.Dirty())
 
@@ -543,20 +449,6 @@ func TestQuitGuardsUnsavedChanges(t *testing.T) {
 	press(e, xui.KeyEscape, 0)
 	ctx = press(e, xui.KeyRune, 'y') // discard
 	assert.True(t, ctx.Quit)
-}
-
-func TestEscapeClosesExpandedListFirst(t *testing.T) {
-	doc := sampleDoc()
-	e := newTestEditor(t, doc)
-
-	focus(t, e, keyPermBashAllow)
-	press(e, xui.KeyEnter, 0)
-	require.NotEmpty(t, e.expanded)
-
-	ctx := press(e, xui.KeyEscape, 0)
-	assert.Empty(t, e.expanded)
-	assert.False(t, ctx.Quit)
-	assert.Equal(t, keyPermBashAllow, e.rows[e.cursor].key)
 }
 
 func TestChoicePickerCommitsSelection(t *testing.T) {
@@ -594,9 +486,6 @@ func TestDrawPaintsFormAndStatus(t *testing.T) {
 	assert.Contains(t, text, "~/.phi/config.yaml")
 	assert.Contains(t, text, "auto")
 	assert.Contains(t, text, "MODELS")
-	assert.Contains(t, text, "PERMISSIONS")
-	assert.Contains(t, text, "allow patterns")
-	assert.Contains(t, text, "built-in · ")
 	assert.Contains(t, text, "↑↓ move")
 
 	// The caret follows the inline editor.
@@ -658,16 +547,10 @@ func TestDrawIsStableOnTinyScreens(t *testing.T) {
 	}
 }
 
-// Every state's footer has to name its destructive key: `d` deletes a model or
-// a rule, and the top-level line used to leave it out.
+// The footer keeps the destructive shortcut visible while the model is focused.
 func TestFooterHintsDeletion(t *testing.T) {
 	e := newTestEditor(t, sampleDoc())
 	ctx := components.DrawContext{Max: components.Size{Width: 100, Height: 32}, Method: xui.WidthUnicode}
-	assert.Contains(t, components.SurfaceText(e.Draw(ctx)), "d delete")
-
-	focus(t, e, keyPermBashAllow)
-	press(e, xui.KeyEnter, 0) // expand the rule list
-	require.Equal(t, keyPermBashAllow, e.expanded)
 	assert.Contains(t, components.SurfaceText(e.Draw(ctx)), "d delete")
 }
 

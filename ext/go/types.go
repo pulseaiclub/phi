@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 )
 
-// ToolCallEvent is emitted before Gate for each tool invocation.
+// ToolCallEvent is emitted before each tool invocation.
 type ToolCallEvent struct {
 	ToolName   string
 	ToolCallID string

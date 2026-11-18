@@ -7,25 +7,11 @@ import (
 	"os"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/toolmanager"
 )
 
 const bootstrapDownloadTimeout = 5 * time.Minute
-
-// HeadlessGate builds the permission gate for non-interactive entrypoints.
-// An empty policy mode defaults to headless-strict so Ask decisions fold to
-// Deny (Ask≡Deny); allow-all skips the gate exactly like the TUI bypass.
-func HeadlessGate(policy permission.Policy) (permission.Gate, error) {
-	if policy.Mode == "" {
-		policy.Mode = permission.ModeHeadlessStrict
-	}
-	if policy.Mode == permission.ModeAllowAll {
-		return permission.AllowAll{}, nil
-	}
-	return permission.NewGate(policy, permission.WorkspaceRoot())
-}
 
 // runBootstrap is the shared startup state for headless entrypoints:
 // Discover → config → search tools → gate → session dir.
@@ -34,28 +20,17 @@ type runBootstrap struct {
 	Config     *project.Config
 	Cwd        string
 	SessionDir string
-	Gate       permission.Gate
 }
 
 // loadRunBootstrap wires the shared startup path used by `phi run` (and any
-// future headless subcommand). It must stay in sync with the TUI controller's
-// initialization; search-tool install failures are non-fatal warnings.
-// When yolo is true, permission checks are skipped for this run only.
-func loadRunBootstrap(ctx context.Context, sessionDirOverride string, yolo bool) (*runBootstrap, error) {
+// future headless subcommand). Search-tool install failures are non-fatal warnings.
+func loadRunBootstrap(ctx context.Context, sessionDirOverride string) (*runBootstrap, error) {
 	proj := project.GetDefaultProject()
 	if err := proj.LoadConfig(); err != nil {
 		return nil, err
 	}
 	if err := EnsureSearchTools(ctx, proj); err != nil {
 		fmt.Fprintln(os.Stderr, "warning: could not install search tools:", err)
-	}
-	policy := proj.Config().Permissions
-	if yolo {
-		policy.Mode = permission.ModeAllowAll
-	}
-	gate, err := HeadlessGate(policy)
-	if err != nil {
-		return nil, fmt.Errorf("permissions: %w", err)
 	}
 	cwd, _ := os.Getwd()
 	sessionDir := sessionDirOverride
@@ -67,7 +42,6 @@ func loadRunBootstrap(ctx context.Context, sessionDirOverride string, yolo bool)
 		Config:     proj.Config(),
 		Cwd:        cwd,
 		SessionDir: sessionDir,
-		Gate:       gate,
 	}, nil
 }
 
