@@ -18,8 +18,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-- `/summarize` compacts the session context on demand instead of waiting for the
-  automatic threshold, and reports the outcome (compacted, nothing to summarize,
+- `/compact` compacts the session context on demand instead of waiting for the
+  automatic threshold, and reports the outcome (compacted, nothing to compact,
   failed) as a toast. Extension `session_compact` handlers see `reason: manual`
   for it.
 

@@ -394,15 +394,15 @@ const (
 	CompactManual = "manual"
 )
 
-// Summarize compacts the session on demand, bypassing the context-window
-// threshold. It is the manual entry point behind /summarize and reuses the
+// Compact compacts the session on demand, bypassing the context-window
+// threshold. It is the manual entry point behind /compact and reuses the
 // automatic path (PrepareCompact → Compact → AppendCompaction), so both
 // produce the same tree node and differ only in the reported reason.
 //
 // did is false when there is nothing worth summarizing (already compacted, or
 // no history outside the retained tail). Callers must report that state: a
 // silent success would read as "context was reclaimed" when it was not.
-func (engine *Engine) Summarize(
+func (engine *Engine) Compact(
 	ctx context.Context,
 	notify func(session.Event) bool,
 ) (did bool, err error) {
@@ -416,7 +416,7 @@ func (engine *Engine) Summarize(
 
 // runCompact prepares and persists a compaction entry.
 // When force is false, it no-ops unless usage crosses the window threshold.
-// When force is true (overflow recovery, manual /summarize), it skips the
+// When force is true (overflow recovery, manual /compact), it skips the
 // threshold check but still no-ops when there is nothing useful to summarize
 // (avoids burning the single overflow retry on a no-op compact).
 // reason is reported to session_compact handlers as CompactAuto/CompactManual.

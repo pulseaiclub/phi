@@ -667,9 +667,9 @@ func TestRunCompactReportsSummaryAndEntryID(t *testing.T) {
 	require.Equal(t, persisted.Summary, complete.Summary, "marker must show what the model reads")
 }
 
-// /summarize goes through Summarize, which must ignore the window threshold and
+// /compact goes through Compact, which must ignore the window threshold and
 // persist the same checkpoint the automatic path would.
-func TestSummarizeCompactsBelowThreshold(t *testing.T) {
+func TestCompactIgnoresThreshold(t *testing.T) {
 	sess, err := NewSession(WithCwd(t.TempDir()))
 	require.NoError(t, err)
 	require.NoError(t, sess.Append(
@@ -687,7 +687,7 @@ func TestSummarizeCompactsBelowThreshold(t *testing.T) {
 	engine.client = fakeCompactClient{compact: func(context.Context) error { return nil }}
 
 	var started, completed bool
-	did, err := engine.Summarize(t.Context(), func(ev session.Event) bool {
+	did, err := engine.Compact(t.Context(), func(ev session.Event) bool {
 		switch e := ev.(type) {
 		case session.CompactionStarted:
 			started = true
@@ -706,8 +706,8 @@ func TestSummarizeCompactsBelowThreshold(t *testing.T) {
 }
 
 // Nothing outside the retained tail means no summary: the caller reports
-// "nothing to summarize" rather than a success that reclaimed nothing.
-func TestSummarizeReportsNothingToSummarize(t *testing.T) {
+// "nothing to compact" rather than a success that reclaimed nothing.
+func TestCompactReportsNothingToCompact(t *testing.T) {
 	sess, err := NewSession(WithCwd(t.TempDir()))
 	require.NoError(t, err)
 	require.NoError(t, sess.Append(llm.Message{Role: llm.RoleUser, Content: "hi"}))
@@ -724,16 +724,16 @@ func TestSummarizeReportsNothingToSummarize(t *testing.T) {
 		return nil
 	}}
 
-	did, err := engine.Summarize(t.Context(), func(session.Event) bool { return true })
+	did, err := engine.Compact(t.Context(), func(session.Event) bool { return true })
 	require.NoError(t, err)
 	require.False(t, did)
 	require.False(t, compacted, "no summary request when the history already fits")
 	requireNoCompactionEntry(t, sess)
 }
 
-// An empty session is the state /summarize hits on a fresh start; it must
-// report nothing to summarize instead of panicking in the cut planner.
-func TestSummarizeEmptySessionDoesNotPanic(t *testing.T) {
+// An empty session is the state /compact hits on a fresh start; it must
+// report nothing to compact instead of panicking in the cut planner.
+func TestCompactEmptySessionDoesNotPanic(t *testing.T) {
 	sess, err := NewSession(WithCwd(t.TempDir()))
 	require.NoError(t, err)
 	engine, err := NewEngine(
@@ -744,7 +744,7 @@ func TestSummarizeEmptySessionDoesNotPanic(t *testing.T) {
 	require.NoError(t, err)
 	engine.client = fakeCompactClient{compact: func(context.Context) error { return nil }}
 
-	did, err := engine.Summarize(t.Context(), nil)
+	did, err := engine.Compact(t.Context(), nil)
 	require.NoError(t, err)
 	require.False(t, did)
 	requireNoCompactionEntry(t, sess)

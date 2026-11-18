@@ -168,16 +168,16 @@ func TestSessionCommands_DeleteUnknownIdToastsAndKeepsList(t *testing.T) {
 	assert.False(t, refreshed, "failed delete must not touch the picker")
 }
 
-func TestSessionCommands_SummarizeRejectsArguments(t *testing.T) {
+func TestSessionCommands_CompactRejectsArguments(t *testing.T) {
 	bus := controller.NewBus(nil)
 	s := &SessionCommands{Bus: bus, StreamActive: func() bool { return false }}
-	s.Summarize([]string{"now"})
-	assert.Contains(t, drainToast(t, bus), "Usage: /summarize")
+	s.Compact([]string{"now"})
+	assert.Contains(t, drainToast(t, bus), "Usage: /compact")
 }
 
-func TestSessionCommands_SummarizeBlocksWhenBusy(t *testing.T) {
+func TestSessionCommands_CompactBlocksWhenBusy(t *testing.T) {
 	bus := controller.NewBus(nil)
 	s := &SessionCommands{Bus: bus, StreamActive: func() bool { return true }}
-	s.Summarize(nil)
-	assert.Contains(t, drainToast(t, bus), "Cannot summarize")
+	s.Compact(nil)
+	assert.Contains(t, drainToast(t, bus), "Cannot compact")
 }

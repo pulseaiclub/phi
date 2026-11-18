@@ -19,13 +19,13 @@ func drainToasts(bus *Bus) []ToastMsg {
 	return out
 }
 
-// /summarize on a fresh session has nothing to walk. It must report that state
+// /compact on a fresh session has nothing to walk. It must report that state
 // rather than a success that reclaimed nothing (and must not panic in the cut
 // planner, which indexes the first retained entry).
-func TestSummarizeReportsNothingToSummarize(t *testing.T) {
+func TestCompactReportsNothingToCompact(t *testing.T) {
 	ctrl := newTestController(t, "http://127.0.0.1:1")
 
-	require.NoError(t, ctrl.Summarize())
+	require.NoError(t, ctrl.Compact())
 
 	var got ToastMsg
 	require.Eventually(t, func() bool {
@@ -40,26 +40,26 @@ func TestSummarizeReportsNothingToSummarize(t *testing.T) {
 	assert.Equal(t, "Nothing to summarize yet", got.Message)
 }
 
-// A second /summarize must be refused while the first is still running: both
+// A second /compact must be refused while the first is still running: both
 // would cut the same leaf and the loser would abort on the anchor check.
-func TestSummarizeRefusesConcurrentRun(t *testing.T) {
+func TestCompactRefusesConcurrentRun(t *testing.T) {
 	ctrl := newTestController(t, "http://127.0.0.1:1")
 	ctrl.streamMu.Lock()
-	ctrl.summarizeCancel = func() {}
+	ctrl.compactCancel = func() {}
 	ctrl.streamMu.Unlock()
 
-	err := ctrl.Summarize()
+	err := ctrl.Compact()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "already running")
 }
 
 // Esc during a summary cancels it, so it cannot keep compacting a session the
 // user is about to switch away from.
-func TestSummarizeIsCancelledByCancel(t *testing.T) {
+func TestCompactIsCancelledByCancel(t *testing.T) {
 	ctrl := newTestController(t, "http://127.0.0.1:1")
 	cancelled := false
 	ctrl.streamMu.Lock()
-	ctrl.summarizeCancel = func() { cancelled = true }
+	ctrl.compactCancel = func() { cancelled = true }
 	ctrl.streamMu.Unlock()
 
 	ctrl.Cancel()

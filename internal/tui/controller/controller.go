@@ -36,7 +36,7 @@ type EngineController struct {
 
 	streamMu        sync.Mutex
 	streamCancel    context.CancelFunc
-	summarizeCancel context.CancelFunc
+	compactCancel context.CancelFunc
 	streamGen       int
 	lastPrompt      LastPrompt
 	promptAppended  bool
@@ -709,33 +709,33 @@ func (c *EngineController) startPromptLocked() {
 	go c.runLoop(ctx, c.streamGen, c.engine, c.lastPrompt, c.promptAppended)
 }
 
-// Summarize runs a manual context compaction for the active session.
+// Compact runs a manual context compaction for the active session.
 //
 // The outcome is reported as a toast, not through the loop-error dialog: the
 // dialog offers Retry, which replays a prompt, and the user asked for a
-// summary. Esc cancels the run through Cancel, like any other in-flight work.
-// Refusing a second concurrent run matters because both would summarize the
-// same leaf and the loser aborts on the anchor check.
-func (c *EngineController) Summarize() error {
+// compaction. Esc cancels the run through Cancel, like any other in-flight
+// work. Refusing a second concurrent run matters because both would compact
+// the same leaf and the loser aborts on the anchor check.
+func (c *EngineController) Compact() error {
 	c.streamMu.Lock()
-	if c.summarizeCancel != nil {
+	if c.compactCancel != nil {
 		c.streamMu.Unlock()
-		return errors.New("a summary is already running")
+		return errors.New("a compaction is already running")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	c.summarizeCancel = cancel
+	c.compactCancel = cancel
 	engine := c.engine
 	c.streamMu.Unlock()
 
-	go c.runSummarize(ctx, engine)
+	go c.runCompact(ctx, engine)
 	return nil
 }
 
-func (c *EngineController) runSummarize(ctx context.Context, engine *agent.Engine) {
+func (c *EngineController) runCompact(ctx context.Context, engine *agent.Engine) {
 	defer func() {
 		c.streamMu.Lock()
-		cancel := c.summarizeCancel
-		c.summarizeCancel = nil
+		cancel := c.compactCancel
+		c.compactCancel = nil
 		c.streamMu.Unlock()
 		if cancel != nil {
 			cancel()
@@ -743,7 +743,7 @@ func (c *EngineController) runSummarize(ctx context.Context, engine *agent.Engin
 	}()
 
 	var before int
-	did, err := engine.Summarize(ctx, func(ev session.Event) bool {
+	did, err := engine.Compact(ctx, func(ev session.Event) bool {
 		if done, ok := ev.(session.CompactionComplete); ok && !done.Failed {
 			before = done.TokensBefore
 		}
@@ -798,8 +798,8 @@ func (c *EngineController) Cancel() {
 	}
 	// A manual summary is cancellable too: Esc must not leave it running
 	// against a session the user is about to act on.
-	if c.summarizeCancel != nil {
-		c.summarizeCancel()
+	if c.compactCancel != nil {
+		c.compactCancel()
 	}
 	// Invalidate queued completion messages as well as the running request.
 	c.streamGen++

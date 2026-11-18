@@ -48,7 +48,7 @@ func editEntry(id, path string) session.MessageEntry {
 	}
 }
 
-// A fresh session has no entries: manual /summarize must report "nothing to
+// A fresh session has no entries: manual /compact must report "nothing to
 // summarize" instead of indexing an empty slice.
 func TestPrepareCompact_EmptySession_ReturnsEmptyPreparation(t *testing.T) {
 	prep, err := PrepareCompact(nil, Settings{keepRecentTokens: 100})

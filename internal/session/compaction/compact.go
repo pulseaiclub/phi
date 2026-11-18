@@ -42,7 +42,7 @@ func PrepareCompact(
 	settings Settings,
 ) (*CompactionPreparation, error) {
 	// A fresh session has nothing to walk: the cut point below would index [0]
-	// of an empty slice. Manual compaction can reach this state (/summarize on a
+	// of an empty slice. Manual compaction can reach this state (/compact on a
 	// new session); the automatic path cannot, because it only runs once a usage
 	// report crosses the threshold.
 	if len(pathEntries) == 0 {

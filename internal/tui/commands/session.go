@@ -43,7 +43,7 @@ func NewSessionCommands(
 	}
 }
 
-// Register wires /sessions, /new, /fork and /summarize into r.
+// Register wires /sessions, /new, /fork and /compact into r.
 func (s *SessionCommands) Register(r *CommandRegistry) {
 	r.Register(Command{
 		Name:        "new",
@@ -73,12 +73,12 @@ func (s *SessionCommands) Register(r *CommandRegistry) {
 		},
 	})
 	r.Register(Command{
-		Name:        "summarize",
+		Name:        "compact",
 		Description: "Compact this session's context now instead of waiting for the threshold",
 		Slash:       true,
-		Insert:      "/summarize",
+		Insert:      "/compact",
 		Run: func(_ Context, args []string) {
-			s.Summarize(args)
+			s.Compact(args)
 		},
 	})
 }
@@ -213,21 +213,21 @@ func (s *SessionCommands) Fork(args []string) {
 	publishToast(s.Bus, "Forked "+session.ShortID(id), toast.ToastSuccess, 3*time.Second)
 }
 
-// Summarize compacts the session on demand. Automatic compaction waits for the
+// Compact compacts the session on demand. Automatic compaction waits for the
 // context-window threshold, so this is the user's only way to reclaim context
 // early — and the retry path when an automatic run failed.
-func (s *SessionCommands) Summarize(args []string) {
+func (s *SessionCommands) Compact(args []string) {
 	if len(args) > 0 {
-		publishToast(s.Bus, "Usage: /summarize", toast.ToastWarning, 3*time.Second)
+		publishToast(s.Bus, "Usage: /compact", toast.ToastWarning, 3*time.Second)
 		return
 	}
-	if s.blocked("summarize") {
+	if s.blocked("compact") {
 		return
 	}
 	if s.Ctrl == nil {
 		return // test stub without an engine
 	}
-	if err := s.Ctrl.Summarize(); err != nil {
+	if err := s.Ctrl.Compact(); err != nil {
 		publishToast(s.Bus, err.Error(), toast.ToastError, 4*time.Second)
 	}
 }
