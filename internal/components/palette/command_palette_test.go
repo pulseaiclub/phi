@@ -161,7 +161,7 @@ func TestCommandPaletteSaveUsesSharedConfirmation(t *testing.T) {
 
 // An extension sync replaces the root registry while a submenu page is on
 // screen. The page's rows must keep resolving against the snapshot they came
-// from — Enter silently cancelling was the old registry-stomp behavior.
+// from — Enter silently canceling was the old registry-stomp behavior.
 func TestSyncUnderOpenSubmenuKeepsPageRowsWorking(t *testing.T) {
 	ran := ""
 	p := &CommandPalette{Root: []PaletteCommand{{

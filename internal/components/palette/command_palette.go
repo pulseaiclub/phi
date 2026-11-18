@@ -121,7 +121,7 @@ func (p *CommandPalette) show(title string, cmds []PaletteCommand) {
 }
 
 // items maps page commands onto picker rows.
-func (p *CommandPalette) items(cmds []PaletteCommand) []listpicker.Item {
+func (*CommandPalette) items(cmds []PaletteCommand) []listpicker.Item {
 	items := make([]listpicker.Item, 0, len(cmds))
 	for _, cmd := range cmds {
 		current, verb := splitMarker(cmd.Verb)
@@ -144,7 +144,7 @@ func (p *CommandPalette) config() listpicker.ShowConfig {
 		EmptyFilter: "No commands match %q", Hint: chrome.ListHint("run"),
 		// The full caption folds at narrow widths; keep the save shortcut
 		// alive there — a hidden ctrl+s reads as "saving unsupported".
-		HintShort: " ctrl+s save default ",
+		HintShort:      " ctrl+s save default ",
 		ConfirmMessage: "Apply this model and save as global default?",
 		ConfirmHint:    " y/enter save" + chrome.Sep + "n/esc cancel ",
 		ConfirmShort:   " y save" + chrome.Sep + "n cancel ",
