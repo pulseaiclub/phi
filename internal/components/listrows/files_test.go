@@ -32,7 +32,6 @@ func TestFileConfig(t *testing.T) {
 	assert.Equal(t, "filename or path", cfg.FilterHint)
 	assert.Equal(t, "No files found", cfg.Empty)
 	assert.Equal(t, chrome.ListHint("open"), cfg.Hint)
-	assert.Equal(t, 30, cfg.PrimaryWidth)
 }
 
 func TestFilePickerFiltersFullPath(t *testing.T) {

@@ -98,7 +98,7 @@ func TestPaletteReopenReflectsThinkingSelectionAndModelSwitch(t *testing.T) {
 	key(xui.KeyDown) // minimal
 	key(xui.KeyDown) // low
 	key(xui.KeyEnter)
-	require.False(t, p.Open)
+	require.False(t, p.Picker.Open)
 	require.Equal(t, llm.Low, ctrl.ThinkLevel())
 	p = openSettings("think", "Thinking Level")
 	assertCurrent(p, llm.Low)
@@ -110,7 +110,7 @@ func TestPaletteReopenReflectsThinkingSelectionAndModelSwitch(t *testing.T) {
 	assert.Equal(t, chrome.CurrentMarker(false)+"secondary", p.Commands[1].Verb)
 	key(xui.KeyDown)
 	key(xui.KeyEnter)
-	require.False(t, p.Open)
+	require.False(t, p.Picker.Open)
 	require.Equal(t, "secondary", ctrl.ModelName())
 
 	p = openSettings("settings model", "Select Model")
@@ -210,7 +210,7 @@ func TestModelPaletteSavesDefaultAndRestoresSession(t *testing.T) {
 
 	p := openModel("secondary")
 	key(xui.KeyEnter, 0, 0)
-	require.False(t, p.Open)
+	require.False(t, p.Picker.Open)
 	require.Equal(t, "secondary", ctrl.ModelName())
 	data, err := os.ReadFile(configPath)
 	require.NoError(t, err)
@@ -229,19 +229,19 @@ func TestModelPaletteSavesDefaultAndRestoresSession(t *testing.T) {
 	// A failed write must keep the picker open and leave the active model alone.
 	require.NoError(t, os.Mkdir(configPath+".bak", 0o700))
 	key(xui.KeyRune, 's', xui.ModCtrl)
-	require.True(t, p.Open)
+	require.True(t, p.Picker.Open)
 	key(xui.KeyRune, 'y', 0)
-	require.True(t, p.Open)
+	require.True(t, p.Picker.Open)
 	require.Equal(t, "primary", ctrl.ModelName())
 	require.NoError(t, os.Remove(configPath+".bak"))
 	key(xui.KeyRune, 's', xui.ModCtrl)
-	require.True(t, p.Open)
+	require.True(t, p.Picker.Open)
 	require.Equal(t, "primary", ctrl.ModelName())
 	data, err = os.ReadFile(configPath)
 	require.NoError(t, err)
 	assert.Equal(t, config, string(data), "Ctrl+S must wait for confirmation before writing")
 	key(xui.KeyEnter, 0, 0)
-	require.False(t, p.Open)
+	require.False(t, p.Picker.Open)
 	require.Equal(t, "secondary", ctrl.ModelName())
 	assert.Equal(t, "secondary", e.composer.Chat.TopRightLabel.Text)
 	assert.Equal(t, 1000000, ctrl.ContextWindow())
@@ -260,4 +260,28 @@ func TestModelPaletteSavesDefaultAndRestoresSession(t *testing.T) {
 	_, err = restarted.Resume(firstID)
 	require.NoError(t, err)
 	assert.Equal(t, "primary", restarted.ModelName(), "session model must take precedence on resume")
+}
+
+// On a short terminal the transcript area can shrink to a few rows. The open
+// palette must not follow it down to an empty box that still captures keys.
+func TestPaletteStaysUsableOnShortTerminals(t *testing.T) {
+	e := newTestEditor(t)
+	e.composer.Handle(&components.EventContext{},
+		xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'k', Mods: xui.ModCtrl})
+	require.True(t, e.composer.PaletteOpen())
+
+	root := e.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 8}, Method: xui.WidthUnicode})
+	var overlay *components.Surface
+	for i := range root.Children {
+		if _, ok := root.Children[i].Surface.Widget.(*palette.CommandPalette); ok {
+			overlay = &root.Children[i].Surface
+		}
+	}
+	require.NotNil(t, overlay, "the palette overlay draws")
+	require.Len(t, overlay.Children, 1)
+	panel := overlay.Children[0].Surface
+	assert.Equal(t, 7, panel.Size.Height, "one row plus full chrome, not an empty box")
+	text := components.SurfaceText(panel)
+	assert.Contains(t, text, chrome.FilterPrompt, "the filter line is visible")
+	assert.Contains(t, text, "esc close", "the hint is visible")
 }

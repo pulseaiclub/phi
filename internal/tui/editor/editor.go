@@ -190,6 +190,9 @@ func NewEditor(
 		RequestFocus:          e.App.RequestFocus,
 		CtrlClose:             e.ctrl.Close,
 	})
+	// The palette draws inside the transcript area, so the draft below stays
+	// clickable; keep it from taking the keyboard while the palette is open.
+	e.App.ModalInput = e.composer.PaletteOpen
 
 	e.extCmds.Sync()
 	return e
@@ -572,7 +575,16 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	if !e.overlays.Active() {
 		root.Children = append(root.Children, e.composer.PickerOverlays(ctx, listH, maxSize.Width)...)
 	}
-	if pal, ok := e.composer.PaletteOverlay(ctx); ok {
+	// The palette may not shrink to an empty box: below this height the picker
+	// draws neither rows nor prompt nor hint, yet keeps eating keys while it
+	// is open. Let it overlap the draft instead — it is a modal, like it was
+	// before it moved into the transcript area.
+	const minPaletteOverlayHeight = 9
+	paletteCtx := ctx.WithConstraints(components.Size{}, components.Size{
+		Width:  maxSize.Width,
+		Height: max(listH, minPaletteOverlayHeight),
+	})
+	if pal, ok := e.composer.PaletteOverlay(paletteCtx); ok {
 		root.Children = append(root.Children, pal)
 	}
 	if list, ok := e.composer.ListOverlay(ctx); ok {

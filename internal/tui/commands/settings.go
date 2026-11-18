@@ -199,6 +199,7 @@ func buildThinkPalette(ctrl *controller.EngineController, set func(llm.ThinkMode
 		ID:           "settings-think",
 		Noun:         "settings",
 		Verb:         "think",
+		Description:  "Set the thinking effort",
 		Keywords:     []string{"thinking", "reasoning", "effort", "budget"},
 		SubmenuTitle: "Thinking Level",
 		Submenu:      cmds,
@@ -212,6 +213,7 @@ func buildDebugPalette(set func(bool)) palette.PaletteCommand {
 		ID:           "settings-debug",
 		Noun:         "settings",
 		Verb:         "debug",
+		Description:  "Enable or disable debug logging",
 		Keywords:     []string{"debug", "log", "logging", "diagnostics", "troubleshoot", "trace"},
 		SubmenuTitle: "Debug Logging",
 		Submenu: []palette.PaletteCommand{
@@ -265,6 +267,7 @@ func buildModelPalette(
 		ID:           "settings-model",
 		Noun:         "settings",
 		Verb:         "model",
+		Description:  "Switch the active model",
 		Keywords:     []string{"model"},
 		SubmenuTitle: "Select Model",
 		Submenu:      models,
@@ -290,6 +293,7 @@ func buildThemePalette(apply func(string), current string) palette.PaletteComman
 		ID:           "settings-theme",
 		Noun:         "settings",
 		Verb:         "theme",
+		Description:  "Change the color theme",
 		Keywords:     []string{"theme", "color", "appearance", "dark", "darcula", "pink"},
 		SubmenuTitle: "Select Theme",
 		Submenu:      submenu,
@@ -311,8 +315,11 @@ func buildAgentsPalette(
 			current = roleModel(role)
 		}
 		models := make([]palette.PaletteCommand, 0, len(modelNames)+1)
+		// The synthetic row needs an ID no configured model can produce, or a
+		// model literally named "inherit" would collide and the palette's
+		// first-match lookup would clear the override instead of setting it.
 		models = append(models, palette.PaletteCommand{
-			ID:   "agents-model-" + role + "-inherit",
+			ID:   "agents-inherit-" + role,
 			Verb: chrome.CurrentMarker(current == "") + "(inherit parent)",
 			Run: func() {
 				if setRoleModel != nil {
@@ -343,6 +350,7 @@ func buildAgentsPalette(
 		ID:           "settings-agents",
 		Noun:         "settings",
 		Verb:         "agents",
+		Description:  "Configure sub-agents and their models",
 		Keywords:     []string{"agent", "subagent", "spawn", "jobs", "parallel", "model"},
 		SubmenuTitle: "Sub-agents",
 		Submenu: []palette.PaletteCommand{
