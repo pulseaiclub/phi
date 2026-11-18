@@ -19,9 +19,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   List pickers share two common fields (name and core description) with a fixed
   two-cell column gap. Column widths are measured across the whole list; both
   columns align left within a twelve-row list area. Branch names are capped at
-  thirty columns so long refs cannot displace commit subjects. Filtering does
-  not resize the panel or move its columns. Panels use quiet square borders,
-  separate titles, and a gap above the list.
+  thirty columns so long refs cannot displace commit subjects. Filtering keeps
+  the panel width and column positions; the panel height follows the result
+  count, so the panel re-centers vertically as it shrinks. Panels use quiet
+  square borders, separate titles, and a gap above the list.
 - Bash commands now get shell syntax highlighting in the transcript — the
   `$ command` title row and bash rows inside the agent tool tree — with token
   colors mapped to the active theme.
@@ -30,6 +31,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Command Palette: `thm` finds `theme` again (subsequence search), Tab moves
+  the highlight instead of firing the highlighted row, submenu rows keep
+  working across an extension sync, the save shortcut stays visible on narrow
+  terminals, the selected branch keeps its current-row hue, a short terminal
+  can no longer collapse the open palette to an empty box, and clicking the
+  draft below an open palette can no longer take the keyboard.
+- List picker: a save or delete confirmation no longer fires on a different
+  row when a refresh swaps the list mid-confirmation, and rechecks its
+  per-row guard before saving.
+- Sub-agents palette: a configured model named `inherit` no longer collides
+  with the synthetic `(inherit parent)` row.
 - Updated the Go, Rust, and TypeScript SDK comments to describe tool-call
   interception before execution without referring to the removed permission gate.
 - `find` no longer reports "results limit reached" when the total number of
