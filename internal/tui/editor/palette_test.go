@@ -261,3 +261,27 @@ func TestModelPaletteSavesDefaultAndRestoresSession(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "primary", restarted.ModelName(), "session model must take precedence on resume")
 }
+
+// On a short terminal the transcript area can shrink to a few rows. The open
+// palette must not follow it down to an empty box that still captures keys.
+func TestPaletteStaysUsableOnShortTerminals(t *testing.T) {
+	e := newTestEditor(t)
+	e.composer.Handle(&components.EventContext{},
+		xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'k', Mods: xui.ModCtrl})
+	require.True(t, e.composer.PaletteOpen())
+
+	root := e.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 8}, Method: xui.WidthUnicode})
+	var overlay *components.Surface
+	for i := range root.Children {
+		if _, ok := root.Children[i].Surface.Widget.(*palette.CommandPalette); ok {
+			overlay = &root.Children[i].Surface
+		}
+	}
+	require.NotNil(t, overlay, "the palette overlay draws")
+	require.Len(t, overlay.Children, 1)
+	panel := overlay.Children[0].Surface
+	assert.Equal(t, 7, panel.Size.Height, "one row plus full chrome, not an empty box")
+	text := components.SurfaceText(panel)
+	assert.Contains(t, text, chrome.FilterPrompt, "the filter line is visible")
+	assert.Contains(t, text, "esc close", "the hint is visible")
+}
