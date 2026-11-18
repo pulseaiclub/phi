@@ -886,9 +886,11 @@ func (p *Picker) drawRow(
 		muted = fg
 	}
 
-	if item.Current && !sel {
-		base = th.Success
-		muted = th.Success
+	if item.Current {
+		// The current row keeps its hue on top of the selection bar: the
+		// selected branch must still say it is where you are.
+		base.Fg = th.Success.Fg
+		muted.Fg = th.Success.Fg
 	}
 	primary := components.TruncateToWidthSuffix(strings.TrimSpace(item.Primary), columns.primaryWidth, "…", ctx.Method)
 	detail := components.TruncateToWidthSuffix(strings.TrimSpace(item.Detail), columns.detailWidth, "…", ctx.Method)

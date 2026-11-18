@@ -551,6 +551,17 @@ func TestPickerUsesColorForCurrentChoice(t *testing.T) {
 	require.NotEqual(t, -1, x)
 	assert.Equal(t, components.DefaultTheme().Success.Fg, row[x].Style.Fg)
 	assert.NotContains(t, components.SurfaceText(panel), "●")
+
+	// Selecting the current row keeps the hue on the selection bar, so the
+	// branch you are on never reads as just another choice.
+	p.Selected = 0
+	s = p.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 24}, Method: xui.WidthUnicode})
+	panel = s.Children[0].Surface
+	row = panel.Buffer[4*panel.Size.Width : 5*panel.Size.Width]
+	x = slices.IndexFunc(row, func(cell xui.Cell) bool { return cell.Char == "c" })
+	require.NotEqual(t, -1, x)
+	assert.Equal(t, components.DefaultTheme().Success.Fg, row[x].Style.Fg)
+	assert.Equal(t, components.DefaultTheme().SelectionBg.Bg, row[x].Style.Bg)
 }
 
 func TestPickerTabNavigatesOnlyWhenConfigured(t *testing.T) {
