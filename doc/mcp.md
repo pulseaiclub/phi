@@ -17,7 +17,7 @@ That is the main difference from hosts that dump every `tools/list` schema into 
 | --- | --- | --- |
 | Context | All schemas injected at startup | Model sees zero extra tools; URLs ride `ls` / `read` / `write` |
 | Many servers | Uninstall / reload Tetris | Always configured; call on demand |
-| Permissions | Separate system or wide open | Browsing is read-tier; calls go through the write Gate / Ask / Hooks |
+| Control | Separate system or wide open | Browsing lists tools; calls use the regular tool flow |
 | Footprint | Heavy SDKs, always-on processes | Hand-rolled Go stdio client, lazy start |
 
 MCP is a **URL namespace**, not a tool set. The regular tools gain `mcp://` superpowers:
@@ -48,7 +48,7 @@ User prompt
   → ls mcp://<server>/tools/
   → lazy Client → spawn → initialize → tools/list → names only
   → read mcp://<server>/tools/<tool> → compact param summary
-  → write mcp://… + JSON args → Executor → PreHooks → write Gate → tools/call → result to model
+  → write mcp://… + JSON args → Executor → PreHooks → tools/call → result to model
 ```
 
 Human CLI and the agent share the same `internal/mcp` stack:

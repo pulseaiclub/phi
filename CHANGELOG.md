@@ -12,11 +12,42 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- Bash commands now get shell syntax highlighting in the transcript — the
+  `$ command` title row and bash rows inside the agent tool tree — with token
+  colors mapped to the active theme.
+
+### Added
+
+### Fixed
+
+- Updated the Go, Rust, and TypeScript SDK comments to describe tool-call
+  interception before execution without referring to the removed permission gate.
+- `find` no longer reports "results limit reached" when the total number of
+  matching files equals the requested limit.
+- `find` caps `limit` at 10000, so a huge value can no longer reach fd as a
+  negative `--max-results`.
+
+### Security
+
+<!-- Released section -->
+<!-- Don't change this section unless doing release -->
+
+## [0.30.0] - 2026-11-17
+
+### Removed
+
+- Removed the built-in permission policy, permission configuration, approval UI, and `--yolo` flag. Tool calls now run through the normal extension and execution pipeline.
+
+### Changed
+
+- Permission policies can be implemented by extensions through tool-call interception, blocking, and input rewriting.
+- docs: the `go get` examples for the `ext/go` SDK name v0.25.6, the current tag,
+  instead of v0.21.0.
+- urls: an explicit `?limit=` outside 1-1000 now fails with the message that
+  names that range, instead of the struct-field wording that also allows zero.
 - MCP: compact tool summaries mark required params with a `*` name prefix
   (`*owner:s`) and the system prompt legend explains the notation
   (`s`/`n`/`b`/`o`/`a`/`?`/`{enum}`/`*`).
-- Add test coverage for the `/skill` command's empty-state warning, picker
-  wiring, and attachment flow.
 
 ### Added
 
@@ -33,12 +64,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Compaction: report which entry index lacks an ID instead of a bare
+  "session needs migration" message, so the user can identify the affected
+  session entry.
 - MCP: accept an SSE response framed as `data:{...}`, without the optional
   space after the field colon, instead of failing with `parse http body`.
-- `find` no longer reports "results limit reached" when the total number of
-  matching files equals the requested limit.
-- `find` caps `limit` at 10000, so a huge value can no longer reach fd as a
-  negative `--max-results`.
 - `phi run` rejects stray positional arguments with a usage error (exit 3).
   An unquoted `phi run -p fix the bug` used to send only `fix` to the model,
   silently dropping the rest of the prompt, and exit 0.
@@ -58,9 +88,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   similarly named sibling directories now retain their actual paths.
 
 ### Security
-
-<!-- Released section -->
-<!-- Don't change this section unless doing release -->
 
 ## [0.29.9] - 2026-11-12
 
@@ -1566,7 +1593,8 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.29.9...HEAD
+[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.30.0...HEAD
+[0.30.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.30.0
 [0.29.9]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.9
 [0.29.8]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.8
 [0.29.7]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.7

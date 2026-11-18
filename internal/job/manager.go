@@ -7,8 +7,6 @@ import (
 	"slices"
 	"sync"
 	"time"
-
-	"github.com/pulseaiclub/phi/internal/permission"
 )
 
 // Options configures a [Manager].
@@ -42,7 +40,6 @@ type liveJob struct {
 	meta            Meta
 	parentToolUseID string
 	parentContext   ParentContext
-	gate            permission.Gate
 	cancel          context.CancelFunc
 	done            chan struct{}
 }
@@ -207,7 +204,6 @@ func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (Info, error) {
 		meta:            meta,
 		parentToolUseID: req.ParentToolUseID,
 		parentContext:   req.ParentContext,
-		gate:            req.Gate,
 		cancel:          cancel,
 		done:            make(chan struct{}),
 	}
@@ -233,7 +229,6 @@ func (m *Manager) run(ctx context.Context, lj *liveJob) {
 	env := RunEnv{
 		Job:           meta,
 		ParentContext: lj.parentContext,
-		Gate:          lj.gate,
 		Log: func(message string) {
 			m.persistEvent(meta, message)
 		},

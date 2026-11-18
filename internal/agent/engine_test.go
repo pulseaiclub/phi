@@ -16,7 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
@@ -148,7 +147,6 @@ func TestRunCompactUsesModelOutputLimit(t *testing.T) {
 					ContextWindow: tc.contextWindow, MaxTokens: tc.maxTokens,
 				},
 				sess,
-				WithGate(permission.AllowAll{}),
 				WithTools([]tooldef.Tool{}),
 			)
 			require.NoError(t, err)
@@ -187,7 +185,6 @@ func TestLoopOverflowCompactsAndRetries(t *testing.T) {
 	engine, err := NewEngine(
 		llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 200_000},
 		sess,
-		WithGate(permission.AllowAll{}),
 		WithTools([]tooldef.Tool{}),
 	)
 	require.NoError(t, err)
@@ -248,7 +245,6 @@ func TestLoopOverflowFailsClosedAfterOneRetry(t *testing.T) {
 	engine, err := NewEngine(
 		llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 200_000},
 		sess,
-		WithGate(permission.AllowAll{}),
 		WithTools([]tooldef.Tool{}),
 	)
 	require.NoError(t, err)
@@ -305,7 +301,6 @@ func TestLoopOverflowRejectsCappedSummary(t *testing.T) {
 	engine, err := NewEngine(
 		llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 200_000},
 		sess,
-		WithGate(permission.AllowAll{}),
 		WithTools([]tooldef.Tool{}),
 	)
 	require.NoError(t, err)
@@ -373,7 +368,6 @@ func TestLoopOverflowRejectsBlankSummary(t *testing.T) {
 	engine, err := NewEngine(
 		llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 200_000},
 		sess,
-		WithGate(permission.AllowAll{}),
 		WithTools([]tooldef.Tool{}),
 	)
 	require.NoError(t, err)
@@ -496,7 +490,6 @@ func TestLoopResumeReusesCompletedToolResult(t *testing.T) {
 	}}
 	engine, err := NewEngine(
 		llm.ModelConfig{Name: "stub"}, sess,
-		WithGate(permission.AllowAll{}),
 		WithTools([]tooldef.Tool{countingTool(&runs)}),
 	)
 	require.NoError(t, err)
@@ -607,7 +600,6 @@ func runCompactWith(
 	engine, err := NewEngine(
 		llm.ModelConfig{Name: "fake", BaseURL: "http://unused.test", ContextWindow: 200_000},
 		sess,
-		WithGate(permission.AllowAll{}),
 		WithTools([]tooldef.Tool{}),
 	)
 	require.NoError(t, err)
@@ -684,7 +676,6 @@ func TestLoopNonOverflowErrorDoesNotCompact(t *testing.T) {
 	engine, err := NewEngine(
 		llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x"},
 		sess,
-		WithGate(permission.AllowAll{}),
 		WithTools([]tooldef.Tool{}),
 	)
 	require.NoError(t, err)
@@ -785,7 +776,6 @@ func TestLoopCompactsMidTurnBeforeNextRequest(t *testing.T) {
 	engine, err := NewEngine(
 		llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 40_000},
 		sess,
-		WithGate(permission.AllowAll{}),
 		WithTools([]tooldef.Tool{bulkyTool()}),
 	)
 	require.NoError(t, err)

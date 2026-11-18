@@ -30,7 +30,6 @@ import (
 type runOptions struct {
 	prompt       string
 	jsonl        bool
-	yolo         bool
 	timeout      time.Duration
 	session      string
 	continueLast bool
@@ -68,13 +67,10 @@ func runHeadless(opts runOptions) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	bs, err := loadRunBootstrap(ctx, opts.sessionDir, opts.yolo)
+	bs, err := loadRunBootstrap(ctx, opts.sessionDir)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "phi run:", err)
 		return exitCode(ExitUsage)
-	}
-	if opts.yolo {
-		fmt.Fprintln(os.Stderr, "warning: --yolo skips all permission checks for this run")
 	}
 
 	resumeID, resumePath := "", ""
@@ -93,9 +89,6 @@ func runHeadless(opts runOptions) error {
 		resumeID = opts.session
 	}
 
-	// Ask stays nil: in headless mode any Ask decision is denied, so no
-	// approval UI is ever reachable (Ask≡Deny even if the config mode
-	// does not fold Ask).
 	extRunner := loadRunExtensions(bs)
 	if extRunner != nil {
 		defer extRunner.Close()
@@ -109,8 +102,7 @@ func runHeadless(opts runOptions) error {
 		mcpPool = pool
 		defer func() { _ = pool.Close() }()
 	}
-	engineOpts := []agent.EngineOption{
-		agent.WithGate(bs.Gate),
+	engineOpts := []agent.EngineConfigOption{
 		agent.WithExtensions(extRunner),
 	}
 	if opts.builtinTools != "" {

@@ -34,7 +34,8 @@ type BashBlock struct {
 	// OnToggle is called when the user expands/collapses (click title / Enter).
 	OnToggle func(expanded bool)
 
-	titleH int // title row count; only the title responds to ClickAt
+	titleH int            // title row count; only the title responds to ClickAt
+	hl     shellHighlight // memoised command token spans
 }
 
 func (bashBlock *BashBlock) theme() components.Theme {
@@ -138,10 +139,10 @@ func (bashBlock *BashBlock) titleSpans(th components.Theme) []components.Span {
 		cmdStyle.Strikethrough = true
 	}
 
-	title := []components.Span{
-		{Text: chrome.BashPrompt, Style: prefixStyle},
-		{Text: bashBlock.Command, Style: cmdStyle},
-	}
+	title := append(
+		[]components.Span{{Text: chrome.BashPrompt, Style: prefixStyle}},
+		bashBlock.hl.spans(bashBlock.Command, cmdStyle, th)...,
+	)
 	if bashBlock.InContext {
 		title = append(title, components.Span{Text: " · ctx", Style: th.Muted})
 	}

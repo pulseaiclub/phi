@@ -20,7 +20,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/chat"
 	"github.com/pulseaiclub/phi/internal/components/chrome"
 	"github.com/pulseaiclub/phi/internal/components/codeview"
-	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/util"
 )
 
@@ -34,10 +33,6 @@ const (
 	// stopping mid-line.
 	selLineWide = 1 << 20
 )
-
-// sensitivePaths is a snapshot of the gate's deny list. The viewer reads files
-// itself, so it checks the same list rather than becoming the one hole in it.
-var sensitivePaths = permission.SensitivePaths()
 
 // Pane is a full-screen source-file overlay. Reading, key handling and painting
 // all happen on the UI goroutine, so the state needs no lock.
@@ -399,12 +394,9 @@ func (p *Pane) resolve(path string) string {
 	return filepath.Clean(filepath.Join(p.cwd, path))
 }
 
-// readFileLines reads a text file into display lines. Sensitive paths, binary
-// files and oversized files are refused rather than half-rendered.
+// readFileLines reads a text file into display lines. Binary files and
+// oversized files are refused rather than half-rendered.
 func readFileLines(abs string) ([]string, error) {
-	if permission.IsSensitivePath(abs, sensitivePaths) {
-		return nil, fmt.Errorf("%s is a sensitive path", filepath.Base(abs))
-	}
 	st, err := os.Stat(abs)
 	if err != nil {
 		return nil, err

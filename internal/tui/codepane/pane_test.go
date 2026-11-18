@@ -302,16 +302,6 @@ func TestEscapeCancelsSelectionBeforeClosing(t *testing.T) {
 	assert.False(t, h.pane.Active())
 }
 
-// The viewer answers to the same deny list as the tool gate.
-func TestRefusesSensitivePath(t *testing.T) {
-	home, err := os.UserHomeDir()
-	require.NoError(t, err)
-
-	h := newHarness(t, nil)
-	h.pane.Open(filepath.Join(home, ".ssh", "id_rsa"))
-	assert.Contains(t, h.pane.loadErr, "sensitive")
-}
-
 func TestDisplayColCountsWideGlyphs(t *testing.T) {
 	assert.Equal(t, 0, displayCol("日本", 0, xui.WidthUnicode))
 	assert.Equal(t, 2, displayCol("日本", len("日"), xui.WidthUnicode))

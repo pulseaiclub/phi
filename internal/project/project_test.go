@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/job"
-	"github.com/pulseaiclub/phi/internal/permission"
 )
 
 // discoverInTempHome runs Discover("") with HOME redirected to a temp dir so
@@ -104,6 +103,7 @@ models:
 	assert.Equal(t, "sk-test", cfg.Model().APIKey)
 	assert.Equal(t, "https://api.openai.com/v1", cfg.Model().BaseURL)
 	assert.Equal(t, p.Global().SkillsDir(), cfg.SkillPath)
+	assert.True(t, cfg.Agents.Enabled) // default on when agents: absent
 	// SkillPaths starts at the configured root; ~/.agents/skills follows.
 	require.NotEmpty(t, cfg.SkillPaths)
 	assert.Equal(t, p.Global().SkillsDir(), cfg.SkillPaths[0])
@@ -231,80 +231,6 @@ func TestLoadConfigConfigFileMissing(t *testing.T) {
 
 	require.NoError(t, p.LoadConfig())
 	assert.Equal(t, "env-model", p.Config().Model().Name)
-	assert.Equal(t, "interactive", string(p.Config().Permissions.Mode))
-}
-
-func TestLoadConfigPermissions(t *testing.T) {
-	p := discoverInTempHome(t)
-	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
-models:
-  - name: m
-    api_key: k
-permissions:
-  mode: headless-strict
-  ask_timeout_sec: 30
-  workspace_only_writes: true
-  bash:
-    default: ask
-    allow:
-      - '^echo\b'
-    deny:
-      - '\bsudo\b'
-`), 0o644))
-
-	require.NoError(t, p.LoadConfig())
-	perm := p.Config().Permissions
-	assert.Equal(t, "headless-strict", string(perm.Mode))
-	assert.Equal(t, 30, perm.AskTimeoutSec)
-	assert.Equal(t, []string{`^echo\b`}, perm.BashAllow)
-	assert.Equal(t, []string{`\bsudo\b`}, perm.BashDeny)
-	assert.True(t, p.Config().Agents.Enabled) // default on when agents: absent
-}
-
-func TestLoadConfigPermissionRules(t *testing.T) {
-	p := discoverInTempHome(t)
-	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
-models:
-  - name: m
-    api_key: k
-permissions:
-  rules:
-    - kind: read
-      resource: url
-      decision: ask
-      reason: external lookup needs approval
-    - path:
-        - "~/vault"
-      decision: deny
-`), 0o644))
-
-	require.NoError(t, p.LoadConfig())
-	rules := p.Config().Permissions.Rules
-	require.Len(t, rules, 2)
-	assert.Equal(t, permission.KindRead, rules[0].Kind)
-	assert.Equal(t, permission.ResourceURL, rules[0].Resource)
-	assert.Equal(t, permission.Ask, rules[0].Decision)
-	assert.Equal(t, "external lookup needs approval", rules[0].Reason)
-	assert.Equal(t, permission.Deny, rules[1].Decision)
-	require.Len(t, rules[1].Sensitive, 1)
-	assert.Equal(t, filepath.Join(os.Getenv("HOME"), "vault"), rules[1].Sensitive[0])
-}
-
-func TestLoadConfigRejectsBadRule(t *testing.T) {
-	p := discoverInTempHome(t)
-	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
-models:
-  - name: m
-    api_key: k
-permissions:
-  rules:
-    - kind: readonly
-      decision: deny
-`), 0o644))
-
-	err := p.LoadConfig()
-	require.ErrorContains(t, err, "permissions: rule 1")
-	require.ErrorContains(t, err, `kind: unknown "readonly"`)
 }
 
 func TestLoadConfigAgentsEnabled(t *testing.T) {
@@ -408,32 +334,12 @@ func TestAgentsRoleModelsForRole(t *testing.T) {
 	}, models.RoleOverrides())
 }
 
-func TestLoadConfigScalarOrInlineListForms(t *testing.T) {
-	// The old line scanner only understood block lists (and treated an inline
-	// sequence as one literal string); real YAML handles scalar and flow forms.
-	p := discoverInTempHome(t)
-	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
-models:
-  - name: m
-    api_key: k
-permissions:
-  bash:
-    allow: "go test ./..."
-    deny: ['rm -rf', 'sudo']
-`), 0o644))
-
-	require.NoError(t, p.LoadConfig())
-	perm := p.Config().Permissions
-	assert.Equal(t, []string{"go test ./..."}, perm.BashAllow)
-	assert.Equal(t, []string{"rm -rf", "sudo"}, perm.BashDeny)
-}
-
 func TestLoadConfigInvalidYAML(t *testing.T) {
 	// A malformed config must fail loudly instead of silently degrading to
 	// defaults (the old line scanner ignored malformed lines).
 	p := discoverInTempHome(t)
 	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(
-		"models:\n  - name: m\n    api_key: k\npermissions: [unclosed\n",
+		"models: [unclosed\n",
 	), 0o644))
 
 	require.Error(t, p.LoadConfig())

@@ -14,7 +14,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
-// SettingsCommands owns settings-* palette commands (model, theme, permissions, agents).
+// SettingsCommands owns settings-* palette commands (model, theme, agents).
 type SettingsCommands struct {
 	Ctrl       *controller.EngineController
 	Bus        *controller.Bus
@@ -45,12 +45,6 @@ func (s *SettingsCommands) Register(r *CommandRegistry) {
 		},
 	})
 	r.Register(Command{
-		Name: "settings-permissions",
-		Build: func(_ Context) palette.PaletteCommand {
-			return buildPermissionsPalette(s.setPermissions, s.allowAll())
-		},
-	})
-	r.Register(Command{
 		Name: "settings-agents",
 		Build: func(_ Context) palette.PaletteCommand {
 			return buildAgentsPalette(s.setAgents, s.setRoleModel, s.ModelNames, s.agentsEnabled(), s.roleModel)
@@ -70,7 +64,7 @@ func (s *SettingsCommands) Register(r *CommandRegistry) {
 	})
 }
 
-// modelName, allowAll, agentsEnabled, and roleModel read the live state each
+// modelName, agentsEnabled, and roleModel read the live state each
 // picker marks as current. A nil controller (constructor-less tests) reads as
 // the zero value, so the submenu just shows nothing marked.
 
@@ -80,8 +74,6 @@ func (s *SettingsCommands) modelName() string {
 	}
 	return s.Ctrl.ModelName()
 }
-
-func (s *SettingsCommands) allowAll() bool { return s.Ctrl != nil && s.Ctrl.AllowAll() }
 
 func (s *SettingsCommands) agentsEnabled() bool { return s.Ctrl != nil && s.Ctrl.AgentsEnabled() }
 
@@ -135,17 +127,6 @@ func (s *SettingsCommands) applyModel(name string) error {
 func (s *SettingsCommands) applyTheme(name string) {
 	s.CurrentTheme = name
 	s.Bus.Publish(controller.ThemeMsg{Name: name})
-}
-
-func (s *SettingsCommands) setPermissions(bypass bool) {
-	s.Ctrl.SetAllowAll(bypass)
-	kind := toast.ToastWarning
-	msg := "Permissions: on (ask)"
-	if bypass {
-		kind = toast.ToastSuccess
-		msg = "Permissions: off (allow all)"
-	}
-	publishToast(s.Bus, msg, kind, 3*time.Second)
 }
 
 func (s *SettingsCommands) setAgents(enabled bool) {
@@ -312,38 +293,6 @@ func buildThemePalette(apply func(string), current string) palette.PaletteComman
 		Keywords:     []string{"theme", "color", "appearance", "dark", "darcula", "pink"},
 		SubmenuTitle: "Select Theme",
 		Submenu:      submenu,
-	}
-}
-
-func buildPermissionsPalette(set func(bool), bypass bool) palette.PaletteCommand {
-	return palette.PaletteCommand{
-		ID:           "settings-permissions",
-		Noun:         "settings",
-		Verb:         "permissions",
-		Keywords:     []string{"permission", "bypass", "allow all", "ask", "gate", "security"},
-		SubmenuTitle: "Permissions",
-		Submenu: []palette.PaletteCommand{
-			{
-				ID:       "permissions-off",
-				Verb:     chrome.CurrentMarker(bypass) + "off — allow all (no prompts)",
-				Keywords: []string{"bypass", "disable", "off"},
-				Run: func() {
-					if set != nil {
-						set(true)
-					}
-				},
-			},
-			{
-				ID:       "permissions-on",
-				Verb:     chrome.CurrentMarker(!bypass) + "on — ask before gated tools",
-				Keywords: []string{"enable", "ask", "on", "interactive"},
-				Run: func() {
-					if set != nil {
-						set(false)
-					}
-				},
-			},
-		},
 	}
 }
 

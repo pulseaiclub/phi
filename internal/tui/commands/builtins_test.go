@@ -63,7 +63,6 @@ func TestNewBuiltinRegistry_RegistersDomains(t *testing.T) {
 	}
 	assert.True(t, ids["settings-model"])
 	assert.True(t, ids["settings-theme"])
-	assert.True(t, ids["settings-permissions"])
 	assert.True(t, ids["settings-agents"])
 	assert.True(t, ids["extensions"])
 	assert.False(t, ids["skills"], "/skill is a slash command, not a palette entry")

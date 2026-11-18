@@ -32,7 +32,6 @@ exit codes:
 	Flags: []cli.Flag{
 		cli.String("prompt", "p", "prompt to run (required)", ""),
 		cli.Bool("jsonl", "", "emit JSONL events to stdout"),
-		cli.Bool("yolo", "", "skip all permission checks for this run (benchmarks / CI only)"),
 		cli.Var(
 			"timeout",
 			"",
@@ -65,7 +64,6 @@ func runOptionsFromFlags(args []string, f cli.Flags) (runOptions, error) {
 	opts := runOptions{
 		prompt:       f.String("prompt"),
 		jsonl:        f.Bool("jsonl"),
-		yolo:         f.Bool("yolo"),
 		timeout:      f.Duration("timeout"),
 		session:      f.String("session"),
 		continueLast: f.Bool("continue-last"),

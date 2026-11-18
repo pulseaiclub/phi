@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/project"
 )
 
@@ -88,83 +87,4 @@ func TestEnsureSearchToolsAttemptsAllDownloads(t *testing.T) {
 	assert.ElementsMatch(t, []string{"fd", "rg"}, downloaded)
 	assert.ErrorContains(t, err, "fd: download failed")
 	assert.ErrorContains(t, err, "rg: download failed")
-}
-
-func TestHeadlessGateDefaultsToStrict(t *testing.T) {
-	// Empty mode + Ask-default bash must fold to Deny (Ask≡Deny).
-	policy := permission.DefaultPolicy()
-	policy.Mode = "" // unset → headless-strict
-	gate, err := HeadlessGate(policy)
-	require.NoError(t, err)
-
-	dec, reason := gate.Check(t.Context(), permission.Request{
-		Kind:    permission.KindExec,
-		Command: "pip install numpy",
-	})
-	assert.Equal(t, permission.Deny, dec)
-	assert.Contains(t, reason, "headless-strict")
-
-	// Allowlisted simple command still allowed.
-	dec, _ = gate.Check(t.Context(), permission.Request{
-		Kind:    permission.KindExec,
-		Command: "pwd",
-	})
-	assert.Equal(t, permission.Allow, dec)
-}
-
-func TestHeadlessGateAllowAll(t *testing.T) {
-	policy := permission.DefaultPolicy()
-	policy.Mode = permission.ModeAllowAll
-	gate, err := HeadlessGate(policy)
-	require.NoError(t, err)
-
-	dec, _ := gate.Check(t.Context(), permission.Request{
-		Kind:    permission.KindExec,
-		Command: "rm -rf /",
-	})
-	assert.Equal(t, permission.Allow, dec)
-}
-
-// loadRunBootstrap goes through the GetDefaultProject singleton (sync.Once),
-// so the yolo and legacy-key cases share one test and run in order.
-func TestLoadRunBootstrapModes(t *testing.T) {
-	p, pathDir := testProject(t)
-	// Stub search tools on PATH so EnsureSearchTools does not hit the network.
-	for _, name := range []string{"fd", "rg"} {
-		binName := executableName(name)
-		require.NoError(t, os.WriteFile(filepath.Join(pathDir, binName), []byte("x"), 0o755))
-	}
-	cfgPath := p.Global().ConfigFile()
-	require.NoError(t, os.MkdirAll(filepath.Dir(cfgPath), 0o755))
-
-	allowCheck := func(gate permission.Gate) {
-		dec, _ := gate.Check(t.Context(), permission.Request{
-			Kind:    permission.KindExec,
-			Command: "rm -rf /",
-		})
-		assert.Equal(t, permission.Allow, dec)
-	}
-
-	// --yolo overrides the configured mode for this run only.
-	require.NoError(t, os.WriteFile(cfgPath, []byte(`models:
-  - name: m
-    api_key: k
-permissions:
-  mode: headless-strict
-`), 0o644))
-	bs, err := loadRunBootstrap(t.Context(), "", true)
-	require.NoError(t, err)
-	require.NotNil(t, bs.Gate)
-	allowCheck(bs.Gate)
-
-	// The deprecated dangerously_allow_all key folds into mode: allow-all.
-	require.NoError(t, os.WriteFile(cfgPath, []byte(`models:
-  - name: m
-    api_key: k
-permissions:
-  dangerously_allow_all: true
-`), 0o644))
-	bs, err = loadRunBootstrap(t.Context(), "", false)
-	require.NoError(t, err)
-	allowCheck(bs.Gate)
 }

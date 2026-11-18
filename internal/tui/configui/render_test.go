@@ -58,7 +58,7 @@ func TestFocusMarkerFollowsNavigationAndScroll(t *testing.T) {
 	assert.Equal(t, rowModel, e.rows[e.cursor].kind)
 }
 
-func TestFocusMarkerRemainsDuringInlineAndRuleEditing(t *testing.T) {
+func TestFocusMarkerRemainsDuringInlineEditing(t *testing.T) {
 	e := newTestEditor(t, sampleDoc())
 	focus(t, e, modelKey(0, fName))
 	press(e, xui.KeyEnter, 0)
@@ -67,23 +67,6 @@ func TestFocusMarkerRemainsDuringInlineAndRuleEditing(t *testing.T) {
 	require.NotNil(t, out.Cursor)
 	assert.Equal(t, formRowY(t, e, modelKey(0, fName)), out.Cursor.Y)
 	press(e, xui.KeyEscape, 0)
-
-	focus(t, e, keyPermBashAllow)
-	press(e, xui.KeyEnter, 0)
-	require.Equal(t, rowItem, e.rows[e.cursor].kind)
-	assertFocusMarker(t, e, drawForm(t, e))
-	press(e, xui.KeyEnter, 0)
-	out = drawForm(t, e)
-	assertFocusMarker(t, e, out)
-	require.NotNil(t, out.Cursor)
-	assert.Equal(t, formRowY(t, e, e.rows[e.cursor].key), out.Cursor.Y)
-	press(e, xui.KeyEscape, 0)
-
-	focus(t, e, listAddKey(keyPermBashAllow))
-	require.Equal(t, rowAdd, e.rows[e.cursor].kind)
-	assertFocusMarker(t, e, drawForm(t, e))
-	press(e, xui.KeyEnter, 0)
-	assertFocusMarker(t, e, drawForm(t, e))
 }
 
 func TestFocusMarkerSurvivesTerminalColorDowngrade(t *testing.T) {

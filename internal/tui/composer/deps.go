@@ -51,7 +51,7 @@ type BusyChecker interface {
 	SyncBashBorder(text string)
 }
 
-// OverlayComposer is the composer surface permission/continue overlays need.
+// OverlayComposer is the composer surface modal overlays need.
 type OverlayComposer interface {
 	HideCompleters()
 	HidePalette()

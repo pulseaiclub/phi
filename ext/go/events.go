@@ -5,7 +5,7 @@ package ext
 // Full chain (PXB-subprocess shaped):
 //
 //	user_input → before_agent_start → agent_start
-//	  → turn_start → [LLM] → tool_execution_start → tool_call → Gate → Run
+//	  → turn_start → [LLM] → tool_execution_start → tool_call → Run
 //	    → tool_result → tool_execution_end → turn_end → agent_end
 //	session_*: before_switch / start / shutdown / compact
 const (

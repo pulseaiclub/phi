@@ -10,7 +10,6 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
@@ -26,26 +25,13 @@ const (
 // Executor runs model tool_calls against a tool registry and emits ToolData for the UI.
 type Executor struct {
 	registry tooldef.Registry
-	gate     permission.Gate
-	ask      permission.AskFunc
 	ext      *extension.Runner // nil = disabled; methods are nil-safe no-ops
 	cwd      string
-	// askMu serializes approval prompts: a concurrent read-only batch can
-	// otherwise pop multiple dialogs / interleave stdin reads at once.
-	askMu sync.Mutex
 }
 
 // NewExecutor builds an executor. extRunner may be nil.
-func NewExecutor(
-	registry tooldef.Registry,
-	gate permission.Gate,
-	ask permission.AskFunc,
-	extRunner *extension.Runner,
-) *Executor {
-	if gate == nil {
-		gate = permission.AllowAll{}
-	}
-	return &Executor{registry: registry, gate: gate, ask: ask, ext: extRunner}
+func NewExecutor(registry tooldef.Registry, extRunner *extension.Runner) *Executor {
+	return &Executor{registry: registry, ext: extRunner}
 }
 
 // Run executes tool calls and yields ToolData updates via emit.
@@ -181,8 +167,8 @@ func (e *Executor) runOne(
 
 	e.ext.EmitToolExecutionStart(call.Function.Name, call.ID, args)
 
-	// ExtensionPre → Gate → Run → ExtensionPost. Pre runs before permission Ask
-	// so org policy can deny without prompting the user.
+	// ExtensionPre → Run → ExtensionPost. Extensions may rewrite arguments or
+	// block a call before the handler runs.
 	var preContext string
 	newArgs, blocked, reason, ctxText := e.ext.PreTool(ctx, call.Function.Name, call.ID, args)
 	preContext = ctxText
@@ -203,11 +189,6 @@ func (e *Executor) runOne(
 		} else {
 			detail = string(args)
 		}
-	}
-
-	if msg, rejected := e.checkPermission(ctx, call, args, detail, emit); rejected {
-		e.ext.EmitToolExecutionEnd(call.Function.Name, call.ID, true)
-		return msg, false, ""
 	}
 
 	result, err := tool.Run(tooldef.WithToolCallID(ctx, call.ID), args)
@@ -271,57 +252,6 @@ func (e *Executor) runOne(
 	run.Expanded = result.Expanded
 	_ = emit(session.ToolData{Run: run})
 	return e.toolMessage(call.ID, modelContent), postStop, postReason
-}
-
-func (e *Executor) checkPermission(
-	ctx context.Context,
-	call llm.ToolCall,
-	args json.RawMessage,
-	detail string,
-	emit func(session.ToolData) bool,
-) (llm.Message, bool) {
-	req, err := e.registry.PermissionRequest(call.Function.Name, args, e.cwd)
-	if err != nil {
-		reason := fmt.Sprintf("permission check failed: %v", err)
-		return e.rejectResult(call, detail, reason, emit), true
-	}
-
-	dec, reason := e.gate.Check(ctx, req)
-	switch dec {
-	case permission.Allow:
-		return llm.Message{}, false
-	case permission.Deny:
-		if reason == "" {
-			reason = "tool execution denied by permissions"
-		}
-		return e.rejectResult(call, detail, reason, emit), true
-	case permission.Ask:
-		if e.ask == nil {
-			if reason == "" {
-				reason = "tool requires approval but no ask handler is configured"
-			}
-			return e.rejectResult(call, detail, reason, emit), true
-		}
-		res, askErr := func() (permission.AskResult, error) {
-			e.askMu.Lock()
-			defer e.askMu.Unlock()
-			return e.ask(ctx, req, reason)
-		}()
-		if askErr != nil {
-			msg := fmt.Sprintf("approval failed: %v", askErr)
-			return e.rejectResult(call, detail, msg, emit), true
-		}
-		if !res.Approved {
-			msg := "tool execution rejected by user"
-			if res.Feedback != "" {
-				msg = "This tool call was rejected by the user with feedback: " + res.Feedback
-			}
-			return e.rejectResult(call, detail, msg, emit), true
-		}
-		return llm.Message{}, false
-	default:
-		return e.rejectResult(call, detail, "unknown permission decision", emit), true
-	}
 }
 
 func (e *Executor) rejectResult(
