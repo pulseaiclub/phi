@@ -67,6 +67,7 @@ type ShowConfig struct {
 	CommandHint    string // bottom caption in command mode; default chrome.ListHintExtra("run")
 	EmptyCommand   string // no command matches; may contain %q for the typed name
 	PrimaryWidth   int    // maximum name width; 0 = widest name in the list
+	TabNavigates   bool   // Tab/Shift+Tab move the highlight; default Tab accepts
 	Style          Style
 }
 
@@ -488,12 +489,31 @@ func (p *Picker) handleKey(ctx *components.EventContext, e xui.KeyEvent) {
 		p.Hide()
 		p.returnFocus(ctx)
 		ctx.ConsumeAndRedraw()
-	case xui.KeyEnter, xui.KeyTab:
-		// Tab picks the highlighted row, like Enter. There is no composer text to
-		// complete here, and Up / Down / Ctrl+P / Ctrl+N already navigate.
+	case xui.KeyEnter:
 		p.accept()
 		if !p.Open {
 			p.returnFocus(ctx)
+		}
+		ctx.ConsumeAndRedraw()
+	case xui.KeyTab:
+		if !p.cfg.TabNavigates {
+			// Tab picks the highlighted row, like Enter. There is no composer text
+			// to complete here, and Up / Down / Ctrl+P / Ctrl+N already navigate.
+			p.accept()
+			if !p.Open {
+				p.returnFocus(ctx)
+			}
+			ctx.ConsumeAndRedraw()
+			return
+		}
+		// Enter is the action key here; Tab shifts the highlight, so a stray Tab
+		// can never fire the row under the cursor (e.g. an extension unload).
+		if e.Mods.Has(xui.ModShift) {
+			if p.Selected > 0 {
+				p.Selected--
+			}
+		} else if p.Selected < len(p.filtered)-1 {
+			p.Selected++
 		}
 		ctx.ConsumeAndRedraw()
 	case xui.KeyUp:

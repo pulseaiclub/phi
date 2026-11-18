@@ -553,6 +553,34 @@ func TestPickerUsesColorForCurrentChoice(t *testing.T) {
 	assert.NotContains(t, components.SurfaceText(panel), "●")
 }
 
+func TestPickerTabNavigatesOnlyWhenConfigured(t *testing.T) {
+	items := []Item{{ID: "a", Primary: "a"}, {ID: "b", Primary: "b"}}
+	ctx := &components.EventContext{}
+	tab := xui.KeyEvent{Code: xui.KeyTab, Press: true}
+
+	p := &Picker{}
+	var got string
+	p.OnAccept = func(item Item) { got = item.ID }
+	p.Show(items, ShowConfig{})
+	p.Handle(ctx, tab)
+	assert.Equal(t, "a", got, "default Tab accepts the highlighted row")
+	assert.False(t, p.Open)
+
+	got = ""
+	p.Show(items, ShowConfig{TabNavigates: true})
+	p.Handle(ctx, tab)
+	assert.Equal(t, 1, p.Selected, "configured Tab moves the highlight")
+	p.Handle(ctx, tab)
+	assert.Equal(t, 1, p.Selected, "Tab clamps at the last row")
+	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyTab, Mods: xui.ModShift, Press: true})
+	assert.Equal(t, 0, p.Selected, "Shift+Tab moves back up")
+	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyTab, Mods: xui.ModShift, Press: true})
+	assert.Equal(t, 0, p.Selected, "Shift+Tab clamps at the first row")
+	assert.True(t, p.Open, "navigation keys never close the picker")
+	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
+	assert.Equal(t, "a", got, "Enter still fires the highlighted row")
+}
+
 func TestPickerCentersSingleColumnPages(t *testing.T) {
 	p := &Picker{}
 	p.Show([]Item{

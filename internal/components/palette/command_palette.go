@@ -108,6 +108,7 @@ func (p *CommandPalette) show(title string, cmds []PaletteCommand) {
 		ConfirmMessage: "Apply this model and save as global default?",
 		ConfirmHint:    " y/enter save" + chrome.Sep + "n/esc cancel ",
 		ConfirmShort:   " y save" + chrome.Sep + "n cancel ",
+		TabNavigates:   true,
 		Style:          listpicker.StyleCommand,
 	}
 	if p.saveAvailable() {
