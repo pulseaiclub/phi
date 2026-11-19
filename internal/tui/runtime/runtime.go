@@ -33,9 +33,11 @@ type Plugin interface {
 // Runtime is the plugin host. All methods run on the UI goroutine unless
 // noted; plugin state stays single-goroutine like the rest of the shell.
 type Runtime struct {
-	msgs     map[reflect.Type][]func(controller.Msg)
-	overlays []overlayEntry
-	theme    []func(components.Theme)
+	msgs        map[reflect.Type][]func(controller.Msg)
+	overlays    []overlayEntry
+	theme       []func(components.Theme)
+	fullPanes   []FullPane
+	bottomPanes []BottomPane
 }
 
 // New returns an empty Runtime.
