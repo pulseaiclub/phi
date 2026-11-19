@@ -8,6 +8,8 @@ import (
 
 	"github.com/pulseaiclub/xui"
 
+	"github.com/pulseaiclub/phi/internal/tui/commands"
+
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/changelist"
 	"github.com/pulseaiclub/phi/internal/components/listpicker"
@@ -33,6 +35,8 @@ type ListHost interface {
 
 // Deps carries the collaborators the root wires as method values.
 type Deps struct {
+	// Registry receives the /diff slash command.
+	Registry *commands.CommandRegistry
 	// Submit feeds diff-review edits through the normal submit path.
 	Submit func(text string)
 	// Copy adapts xui's error-returning clipboard to the pane's bool contract.
@@ -57,22 +61,46 @@ type Plugin struct {
 	diff      *pane.Diff
 	cwd       string
 	deps      Deps
+	rt        *runtime.Runtime
 	listState listpicker.State
 }
 
-// New builds the diff plugin around its pane.
+// New builds the diff plugin around its pane and registers /diff.
 func New(theme components.Theme, cwd string, deps Deps) *Plugin {
 	p := &Plugin{cwd: cwd, deps: deps}
 	p.diff = pane.NewDiff(theme, cwd, deps.Submit, deps.Copy, p.publish)
+	p.registerCommand()
 	return p
 }
 
 func (p *Plugin) publish(msg string) { p.deps.Publish(msg) }
 
+func (p *Plugin) registerCommand() {
+	if p.deps.Registry == nil {
+		return
+	}
+	p.deps.Registry.Register(commands.Command{
+		Name:        "diff",
+		Description: "Browse changed files — /diff, /diff staged, /diff HEAD, /diff @file",
+		Slash:       true,
+		Insert:      "/diff ",
+		Run: func(_ commands.Context, args []string) {
+			p.Open(args)
+		},
+	})
+}
+
 // Register wires the plugin into the runtime.
 func (p *Plugin) Register(rt *runtime.Runtime) {
+	p.rt = rt
 	rt.AddFullPane(p)
 	rt.OnTheme(p.SetTheme)
+}
+
+func (p *Plugin) closeSiblings() {
+	if p.rt != nil {
+		p.rt.CloseFullPanesExcept(p)
+	}
 }
 
 // SetTheme switches the pane chrome.
@@ -81,6 +109,7 @@ func (p *Plugin) SetTheme(th components.Theme) { p.diff.SetTheme(th) }
 // Open runs the /diff command: bare "/diff" opens the change list, arguments
 // open a specific spec.
 func (p *Plugin) Open(args []string) {
+	p.closeSiblings()
 	if len(args) == 0 {
 		p.diff.Close()
 		p.listState = listpicker.State{}

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	skillsplugin "github.com/pulseaiclub/phi/internal/tui/plugin/skills"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -69,26 +71,13 @@ Do the work.
 	}
 	e.composer.Wire(composer.WireDeps{})
 
-	builtins := commands.NewBuiltinRegistry(
-		bus,
-		nil,
-		e.composer,
-		nil,
-		nil,
-		[]string{filepath.Join(dir, "skills")},
-		nil,
-		nil,
-	)
-	e.commands = builtins.Registry
-	builtins.Bind(
-		nil,
-		nil,
-		nil,
-		nil,
-		e.showSkillList,
-		dir,
-		func() bool { return false },
-	)
+	e.commands = commands.NewCommandRegistry()
+	e.skills = skillsplugin.New(e.commands, skillsplugin.SkillsCommands{
+		Bus:        bus,
+		SkillPaths: []string{filepath.Join(dir, "skills")},
+		Add:        e.composer,
+		ShowList:   e.composer.ShowList,
+	})
 
 	return e
 }

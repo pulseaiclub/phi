@@ -1,4 +1,4 @@
-package commands
+package settings
 
 import (
 	"fmt"
@@ -11,6 +11,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/debuglog"
 	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
@@ -30,35 +31,42 @@ type settingsComposer interface {
 	SetModelLabel(name, thinkLevel string)
 }
 
+// New builds the settings command domain and registers its palette entries.
+func New(r *commands.CommandRegistry, deps SettingsCommands) *SettingsCommands {
+	s := &deps
+	s.Register(r)
+	return s
+}
+
 // Register wires settings palette entries into r.
-func (s *SettingsCommands) Register(r *CommandRegistry) {
-	r.Register(Command{
+func (s *SettingsCommands) Register(r *commands.CommandRegistry) {
+	r.Register(commands.Command{
 		Name: "settings-model",
-		Build: func(_ Context) palette.PaletteCommand {
+		Build: func(_ commands.Context) palette.PaletteCommand {
 			return buildModelPalette(s.setModel, s.saveModel, s.ModelNames, s.modelName())
 		},
 	})
-	r.Register(Command{
+	r.Register(commands.Command{
 		Name: "settings-theme",
-		Build: func(_ Context) palette.PaletteCommand {
+		Build: func(_ commands.Context) palette.PaletteCommand {
 			return buildThemePalette(s.applyTheme, s.currentTheme())
 		},
 	})
-	r.Register(Command{
+	r.Register(commands.Command{
 		Name: "settings-agents",
-		Build: func(_ Context) palette.PaletteCommand {
+		Build: func(_ commands.Context) palette.PaletteCommand {
 			return buildAgentsPalette(s.setAgents, s.setRoleModel, s.ModelNames, s.agentsEnabled(), s.roleModel)
 		},
 	})
-	r.Register(Command{
+	r.Register(commands.Command{
 		Name: "settings-think",
-		Build: func(_ Context) palette.PaletteCommand {
+		Build: func(_ commands.Context) palette.PaletteCommand {
 			return buildThinkPalette(s.Ctrl, s.setThinkLevel)
 		},
 	})
-	r.Register(Command{
+	r.Register(commands.Command{
 		Name: "settings-debug",
-		Build: func(_ Context) palette.PaletteCommand {
+		Build: func(_ commands.Context) palette.PaletteCommand {
 			return buildDebugPalette(s.setDebug)
 		},
 	})
@@ -95,22 +103,27 @@ func (s *SettingsCommands) currentTheme() string {
 
 func (s *SettingsCommands) setModel(name string) {
 	if err := s.applyModel(name); err != nil {
-		publishToast(s.Bus, err.Error(), toast.ToastError, 3*time.Second)
+		commands.PublishToast(s.Bus, err.Error(), toast.ToastError, 3*time.Second)
 		return
 	}
-	publishToast(s.Bus, "Model: "+name, toast.ToastSuccess, 2*time.Second)
+	commands.PublishToast(s.Bus, "Model: "+name, toast.ToastSuccess, 2*time.Second)
 }
 
 func (s *SettingsCommands) saveModel(name string) bool {
 	if err := s.Ctrl.SaveDefaultModel(name); err != nil {
-		publishToast(s.Bus, err.Error(), toast.ToastError, 4*time.Second)
+		commands.PublishToast(s.Bus, err.Error(), toast.ToastError, 4*time.Second)
 		return false
 	}
 	if err := s.applyModel(name); err != nil {
-		publishToast(s.Bus, "Default saved; model switch failed: "+err.Error(), toast.ToastError, 4*time.Second)
+		commands.PublishToast(
+			s.Bus,
+			"Default saved; model switch failed: "+err.Error(),
+			toast.ToastError,
+			4*time.Second,
+		)
 		return false
 	}
-	publishToast(s.Bus, "Default model: "+name, toast.ToastSuccess, 3*time.Second)
+	commands.PublishToast(s.Bus, "Default model: "+name, toast.ToastSuccess, 3*time.Second)
 	return true
 }
 
@@ -131,26 +144,26 @@ func (s *SettingsCommands) applyTheme(name string) {
 
 func (s *SettingsCommands) setAgents(enabled bool) {
 	if err := s.Ctrl.SetAgentsEnabled(enabled); err != nil {
-		publishToast(s.Bus, err.Error(), toast.ToastError, 3*time.Second)
+		commands.PublishToast(s.Bus, err.Error(), toast.ToastError, 3*time.Second)
 		return
 	}
 	msg := "Sub-agents: off"
 	if enabled {
 		msg = "Sub-agents: on"
 	}
-	publishToast(s.Bus, msg, toast.ToastSuccess, 2*time.Second)
+	commands.PublishToast(s.Bus, msg, toast.ToastSuccess, 2*time.Second)
 }
 
 func (s *SettingsCommands) setRoleModel(role, name string) {
 	if err := s.Ctrl.SetRoleModel(role, name); err != nil {
-		publishToast(s.Bus, err.Error(), toast.ToastError, 3*time.Second)
+		commands.PublishToast(s.Bus, err.Error(), toast.ToastError, 3*time.Second)
 		return
 	}
 	msg := fmt.Sprintf("Sub-agent %s: inherit parent", role)
 	if name != "" {
 		msg = fmt.Sprintf("Sub-agent %s: %s", role, name)
 	}
-	publishToast(s.Bus, msg, toast.ToastSuccess, 2*time.Second)
+	commands.PublishToast(s.Bus, msg, toast.ToastSuccess, 2*time.Second)
 }
 
 func (s *SettingsCommands) setDebug(on bool) {
@@ -159,12 +172,12 @@ func (s *SettingsCommands) setDebug(on bool) {
 	if on {
 		msg = "Debug logging: on → " + debuglog.FilePath()
 	}
-	publishToast(s.Bus, msg, toast.ToastSuccess, 3*time.Second)
+	commands.PublishToast(s.Bus, msg, toast.ToastSuccess, 3*time.Second)
 }
 
 func (s *SettingsCommands) setThinkLevel(level llm.ThinkMode) {
 	if err := s.Ctrl.SetThinkLevel(level); err != nil {
-		publishToast(s.Bus, err.Error(), toast.ToastError, 3*time.Second)
+		commands.PublishToast(s.Bus, err.Error(), toast.ToastError, 3*time.Second)
 		return
 	}
 	label := string(level)
@@ -174,7 +187,7 @@ func (s *SettingsCommands) setThinkLevel(level llm.ThinkMode) {
 	if s.Composer != nil {
 		s.Composer.SetModelLabel(s.Ctrl.ModelName(), label)
 	}
-	publishToast(s.Bus, "Thinking: "+label, toast.ToastSuccess, 2*time.Second)
+	commands.PublishToast(s.Bus, "Thinking: "+label, toast.ToastSuccess, 2*time.Second)
 }
 
 func buildThinkPalette(ctrl *controller.EngineController, set func(llm.ThinkMode)) palette.PaletteCommand {

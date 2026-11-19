@@ -1,4 +1,4 @@
-package commands
+package settings
 
 import (
 	"context"

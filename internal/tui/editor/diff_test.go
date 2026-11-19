@@ -96,7 +96,7 @@ func TestDiffPickerEmptyAndGitError(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := diffEditor(t, tc.dir)
-			e.openDiff(nil)
+			e.diffPlugin.Open(nil)
 			assert.False(t, e.diffPlugin.Active())
 			_, open := e.composer.ListOverlay(components.DrawContext{})
 			assert.False(t, open)
@@ -110,7 +110,7 @@ func TestDiffPickerRefreshAndExplicitCommand(t *testing.T) {
 	dir := gitFixtureRepo(t)
 	writeDiffFile(t, dir, "new.txt", "new content\n")
 	e := diffEditor(t, dir)
-	e.openDiff(nil)
+	e.diffPlugin.Open(nil)
 	diffKey(e, xui.KeyEnter, 0)
 	assert.Contains(t, components.SurfaceText(frame(t, e)), "new content")
 	gitFixtureRun(t, dir, "add", ".")
@@ -121,7 +121,7 @@ func TestDiffPickerRefreshAndExplicitCommand(t *testing.T) {
 
 	writeDiffFile(t, dir, "new.txt", "staged content\n")
 	gitFixtureRun(t, dir, "add", ".")
-	e.openDiff([]string{"staged"})
+	e.diffPlugin.Open([]string{"staged"})
 	require.True(t, e.diffPlugin.Active())
 	assert.Contains(t, components.SurfaceText(frame(t, e)), "staged content")
 	diffKey(e, xui.KeyEscape, 0)
@@ -134,7 +134,7 @@ func TestDiffPickerClearsBranchDeleteHandler(t *testing.T) {
 	writeDiffFile(t, dir, "new.txt", "content\n")
 	e := diffEditor(t, dir)
 	require.True(t, e.commands.DispatchSlash("/branch", commands.NewContext(e.bus, nil)))
-	e.openDiff(nil)
+	e.diffPlugin.Open(nil)
 	e.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'x', Mods: xui.ModCtrl})
 	assert.NotContains(t, branchOverlay(t, e), "Delete")
 	assert.Contains(t, branchOverlay(t, e), "new.txt")

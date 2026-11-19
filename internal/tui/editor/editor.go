@@ -10,10 +10,8 @@ import (
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/components/chat"
-	"github.com/pulseaiclub/phi/internal/components/listpicker"
 	"github.com/pulseaiclub/phi/internal/components/status"
 	"github.com/pulseaiclub/phi/internal/components/toast"
-	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/session/shellhist"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
@@ -21,11 +19,15 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/pathutil"
 	activityplugin "github.com/pulseaiclub/phi/internal/tui/plugin/activity"
 	"github.com/pulseaiclub/phi/internal/tui/plugin/bash"
+	branchesplugin "github.com/pulseaiclub/phi/internal/tui/plugin/branches"
 	"github.com/pulseaiclub/phi/internal/tui/plugin/code"
 	"github.com/pulseaiclub/phi/internal/tui/plugin/composer"
 	"github.com/pulseaiclub/phi/internal/tui/plugin/diff"
 	"github.com/pulseaiclub/phi/internal/tui/plugin/overlay"
 	sessionplugin "github.com/pulseaiclub/phi/internal/tui/plugin/session"
+	sessionsplugin "github.com/pulseaiclub/phi/internal/tui/plugin/sessions"
+	settingsplugin "github.com/pulseaiclub/phi/internal/tui/plugin/settings"
+	skillsplugin "github.com/pulseaiclub/phi/internal/tui/plugin/skills"
 	toastplugin "github.com/pulseaiclub/phi/internal/tui/plugin/toast"
 	"github.com/pulseaiclub/phi/internal/tui/runtime"
 	"github.com/pulseaiclub/phi/internal/tui/submit"
@@ -74,9 +76,12 @@ type Editor struct {
 
 	ctrl *controller.EngineController
 
-	commands  *commands.CommandRegistry
-	sessions  *commands.SessionCommands
-	submitter *submit.Submitter
+	commands    *commands.CommandRegistry
+	sessions    *sessionsplugin.SessionCommands
+	branches    *branchesplugin.BranchCommands
+	skills      *skillsplugin.SkillsCommands
+	settingsCmd *settingsplugin.SettingsCommands
+	submitter   *submit.Submitter
 }
 
 // NewEditor builds the TUI panes and wires injected collaborators.
@@ -132,27 +137,6 @@ func NewEditor(
 	})
 	e.rt.Register(e.overlayPlugin)
 	e.transcript.SetCopyHandlers(e.bus, e.copyToClipboard)
-	e.diffPlugin = diff.New(e.theme, cwd, diff.Deps{
-		Submit:      e.publishSubmit,
-		Copy:        e.copyToClipboard,
-		Toast:       e.toastPlugin,
-		Publish:     e.publishToast,
-		Lists:       e.composer,
-		FocusPane:   e.captureOverlayFocus,
-		FocusChat:   e.composer.FocusChat,
-		FocusTarget: e,
-	})
-	e.rt.Register(e.diffPlugin)
-	e.codePlugin = code.New(e.theme, cwd, code.Deps{
-		AddRef:      e.addPendingRef,
-		Toast:       e.toastPlugin,
-		Publish:     e.publishToast,
-		Lists:       e.composer,
-		FocusPane:   e.captureOverlayFocus,
-		FocusChat:   e.composer.FocusChat,
-		FocusTarget: e,
-	})
-	e.rt.Register(e.codePlugin)
 	e.bashPlugin = bash.New(e.transcript, e.composer, e.bus, e.ctrl)
 	e.rt.Register(e.bashPlugin)
 	e.sessionPlugin = sessionplugin.New(sessionplugin.Deps{
@@ -170,19 +154,8 @@ func NewEditor(
 	e.rt.OnBatchEnd(e.activityPlugin.SyncStatusSlot)
 	e.rt.OnBatchEnd(e.sessionPlugin.PostStick)
 
-	builtins := commands.NewBuiltinRegistry(
-		e.bus,
-		e.ctrl,
-		e.composer,
-		e.transcript,
-		modelNames,
-		skillPaths,
-		e.openDiff,
-		e.openCode,
-	)
-	e.commands = builtins.Registry
-	e.sessions = builtins.Sessions
-	e.sessions.ResetActivity = e.resetActivity
+	registry := commands.NewCommandRegistry()
+	e.commands = registry
 
 	cmdCtx := commands.NewContext(e.bus, e.composer.PushPalette)
 	e.commandCtx = cmdCtx
@@ -204,15 +177,60 @@ func NewEditor(
 		e.overlayPlugin.Cancel,
 	)
 	e.rt.Register(e.submitter)
-	builtins.Bind(
-		e.showSessionList,
-		e.composer.RefreshSessionList,
-		e.composer.ShowBranchList,
-		e.composer.RefreshBranchList,
-		e.showSkillList,
-		e.cwd,
-		e.submitter.StreamActive,
-	)
+
+	e.diffPlugin = diff.New(e.theme, cwd, diff.Deps{
+		Registry:    registry,
+		Submit:      e.publishSubmit,
+		Copy:        e.copyToClipboard,
+		Toast:       e.toastPlugin,
+		Publish:     e.publishToast,
+		Lists:       e.composer,
+		FocusPane:   e.captureOverlayFocus,
+		FocusChat:   e.composer.FocusChat,
+		FocusTarget: e,
+	})
+	e.rt.Register(e.diffPlugin)
+	e.codePlugin = code.New(e.theme, cwd, code.Deps{
+		Registry:    registry,
+		AddRef:      e.addPendingRef,
+		Toast:       e.toastPlugin,
+		Publish:     e.publishToast,
+		Lists:       e.composer,
+		FocusPane:   e.captureOverlayFocus,
+		FocusChat:   e.composer.FocusChat,
+		FocusTarget: e,
+	})
+	e.rt.Register(e.codePlugin)
+	// Command domains own their slash commands and pickers; the registry is
+	// the one shared surface (new command = one plugin package + this line).
+	e.sessions = sessionsplugin.New(registry, sessionsplugin.SessionCommands{
+		Ctrl:         e.ctrl,
+		Labels:       e.composer,
+		Store:        e.transcript,
+		Lists:        e.composer,
+		Bus:          e.bus,
+		Activity:     e.activityPlugin,
+		StreamActive: e.submitter.StreamActive,
+	})
+	e.branches = branchesplugin.New(registry, branchesplugin.BranchCommands{
+		Bus:            e.bus,
+		Dir:            e.cwd,
+		OpenOverlay:    e.composer.ShowBranchList,
+		RefreshOverlay: e.composer.RefreshBranchList,
+		StreamActive:   e.submitter.StreamActive,
+	})
+	e.skills = skillsplugin.New(registry, skillsplugin.SkillsCommands{
+		Bus:        e.bus,
+		SkillPaths: skillPaths,
+		Add:        e.composer,
+		ShowList:   e.composer.ShowList,
+	})
+	e.settingsCmd = settingsplugin.New(registry, settingsplugin.SettingsCommands{
+		Ctrl:       e.ctrl,
+		Bus:        e.bus,
+		Composer:   e.composer,
+		ModelNames: modelNames,
+	})
 
 	e.composer.Wire(composer.WireDeps{
 		Transcript:            e.transcript,
@@ -268,10 +286,6 @@ func (e *Editor) syncActivityFromSnap() {
 	e.activityPlugin.SyncFromSnap(e.transcript.Snapshot())
 }
 
-func (e *Editor) resetActivity() {
-	e.activityPlugin.Apply(controller.ActivityIdle)
-}
-
 func (e *Editor) refreshPalette() {
 	e.composer.SetPaletteCommands(e.commands.BuildPalette(e.commandCtx))
 }
@@ -289,20 +303,6 @@ func (e *Editor) blocksComposer() bool { return e.rt.BlocksComposer() }
 // handleOverlayKey routes composer keys to runtime bottom panes (error ask).
 func (e *Editor) handleOverlayKey(ctx *components.EventContext, ke xui.KeyEvent) bool {
 	return e.rt.BottomKey(ctx, ke)
-}
-
-// openDiff and openCode each close the other: two full-screen overlays cannot
-// both own the frame, and the one underneath would come back on the next Esc.
-// The mutual exclusion is the shell's rule; the plugins own the rest.
-func (e *Editor) openDiff(args []string) {
-	e.codePlugin.Close()
-	e.diffPlugin.Open(args)
-}
-
-// openCode shows a file in the viewer (see plugin/code for the path syntax).
-func (e *Editor) openCode(args []string) {
-	e.diffPlugin.Close()
-	e.codePlugin.Open(args)
 }
 
 func (e *Editor) captureOverlayFocus() {
@@ -353,23 +353,6 @@ func (e *Editor) copyToClipboard(text string) bool {
 func (e *Editor) addPendingRef(ref chat.Ref) {
 	e.composer.AddPendingRef(ref)
 	e.composer.FocusChat()
-}
-
-// showSessionList opens the session picker bound to the session commands'
-// accept/delete handlers.
-func (e *Editor) showSessionList(items []session.SessionMeta, currentID string) {
-	e.composer.ShowSessionList(items, currentID, e.sessions.Accept, e.sessions.Delete)
-}
-
-// showSkillList opens the skills picker bound to the skills commands' accept
-// handler. /skill is a slash command, not a Ctrl+K palette entry: attaching a
-// skill belongs to composing a turn.
-func (e *Editor) showSkillList(
-	items []listpicker.Item,
-	cfg listpicker.ShowConfig,
-	onAccept func(listpicker.Item),
-) {
-	e.composer.ShowList(items, cfg, onAccept, nil)
 }
 
 // Draw renders the editor surface for the given draw context.

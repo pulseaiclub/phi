@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	branchesplugin "github.com/pulseaiclub/phi/internal/tui/plugin/branches"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -113,17 +115,14 @@ func branchEditor(t *testing.T) *Editor {
 	}
 	e.composer.Wire(composer.WireDeps{})
 
-	builtins := commands.NewBuiltinRegistry(bus, nil, e.composer, nil, nil, nil, nil, nil)
-	e.commands = builtins.Registry
-	builtins.Bind(
-		nil,
-		nil,
-		e.composer.ShowBranchList,
-		e.composer.RefreshBranchList,
-		nil,
-		dir,
-		func() bool { return false },
-	)
+	e.commands = commands.NewCommandRegistry()
+	e.branches = branchesplugin.New(e.commands, branchesplugin.BranchCommands{
+		Bus:            bus,
+		Dir:            dir,
+		OpenOverlay:    e.composer.ShowBranchList,
+		RefreshOverlay: e.composer.RefreshBranchList,
+		StreamActive:   func() bool { return false },
+	})
 
 	return e
 }

@@ -13,6 +13,7 @@ import (
 type stubFullPane struct{ active bool }
 
 func (p *stubFullPane) Active() bool                             { return p.active }
+func (p *stubFullPane) Close()                                   { p.active = false }
 func (*stubFullPane) Handle(*components.EventContext, xui.Event) {}
 func (*stubFullPane) Draw(components.DrawContext) components.Surface {
 	return components.NewSurface(1, 1, nil)
@@ -47,9 +48,9 @@ func TestActiveFullPaneFirstActiveWins(t *testing.T) {
 	require.True(t, ok)
 	assert.Same(t, second, got, "first pane is inactive, second wins")
 
-	second.active = false
+	rt.CloseFullPanesExcept(first)
 	_, ok = rt.ActiveFullPane()
-	assert.False(t, ok)
+	assert.False(t, ok, "CloseFullPanesExcept hides every other pane")
 }
 
 func TestBottomPaneHeightDrawAndKeys(t *testing.T) {

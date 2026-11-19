@@ -1,4 +1,4 @@
-package commands
+package sessions
 
 import (
 	"testing"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
@@ -23,15 +24,14 @@ func TestSessionCommands_ShowOpensPicker(t *testing.T) {
 	var got []session.SessionMeta
 	var current string
 	bus := controller.NewBus(nil)
-	s := &SessionCommands{
+	s := New(nil, SessionCommands{
 		Bus:        bus,
 		SessionDir: func() string { return dir },
 		SessionID:  func() string { return m.ID() },
-		OpenPicker: func(items []session.SessionMeta, currentID string) {
-			got = items
-			current = currentID
-		},
-	}
+		Lists: &recordingLists{items: func(items []session.SessionMeta, id string) {
+			got, current = items, id
+		}},
+	})
 	s.Show()
 	require.Len(t, got, 1)
 	assert.Equal(t, m.ID(), got[0].ID)
@@ -41,56 +41,56 @@ func TestSessionCommands_ShowOpensPicker(t *testing.T) {
 
 func TestSessionCommands_ShowEmptyToasts(t *testing.T) {
 	bus := controller.NewBus(nil)
-	s := &SessionCommands{
+	s := New(nil, SessionCommands{
 		Bus:        bus,
 		SessionDir: func() string { return t.TempDir() },
-		OpenPicker: func([]session.SessionMeta, string) {
+		Lists: &recordingLists{items: func([]session.SessionMeta, string) {
 			require.Fail(t, "picker should not open")
-		},
-	}
+		}},
+	})
 	s.Show()
 	assert.Contains(t, drainToast(t, bus), "No sessions")
 }
 
 func TestSessionCommands_AcceptBlocksWhenBusy(t *testing.T) {
 	bus := controller.NewBus(nil)
-	s := &SessionCommands{
+	s := New(nil, SessionCommands{
 		Bus:          bus,
 		StreamActive: func() bool { return true },
-	}
+	})
 	s.Accept("abc")
 	assert.Contains(t, drainToast(t, bus), "Cannot resume")
 }
 
 func TestSessionCommands_NewSessionBlocksWhenBusy(t *testing.T) {
 	bus := controller.NewBus(nil)
-	s := &SessionCommands{
+	s := New(nil, SessionCommands{
 		Bus:          bus,
 		StreamActive: func() bool { return true },
-	}
+	})
 	s.NewSession()
 	assert.Contains(t, drainToast(t, bus), "Cannot start a new session")
 }
 
 func TestSessionCommands_ForkBlocksWhenBusy(t *testing.T) {
 	bus := controller.NewBus(nil)
-	s := &SessionCommands{
+	s := New(nil, SessionCommands{
 		Bus:          bus,
 		StreamActive: func() bool { return true },
-	}
+	})
 	s.Fork(nil)
 	assert.Contains(t, drainToast(t, bus), "Cannot fork while a reply or command is running")
 }
 
 func TestSessionCommands_ForkRejectsArguments(t *testing.T) {
 	bus := controller.NewBus(nil)
-	s := &SessionCommands{Bus: bus, StreamActive: func() bool { return false }}
+	s := New(nil, SessionCommands{Bus: bus, StreamActive: func() bool { return false }})
 	s.Fork([]string{"later"})
 	assert.Contains(t, drainToast(t, bus), "Usage: /fork")
 
-	reg := NewCommandRegistry()
+	reg := commands.NewCommandRegistry()
 	s.Register(reg)
-	assert.True(t, reg.DispatchSlash("/fork now", NewContext(bus, nil)))
+	assert.True(t, reg.DispatchSlash("/fork now", commands.NewContext(bus, nil)))
 	assert.Contains(t, drainToast(t, bus), "Usage: /fork", "arguments must not fall through to a prompt")
 }
 
@@ -113,12 +113,12 @@ func TestSessionCommands_DeleteRemovesAndRefreshes(t *testing.T) {
 
 	bus := controller.NewBus(nil)
 	var refreshed []session.SessionMeta
-	s := &SessionCommands{
-		Bus:           bus,
-		SessionDir:    func() string { return dir },
-		SessionID:     func() string { return current.ID() },
-		RefreshPicker: func(items []session.SessionMeta) { refreshed = items },
-	}
+	s := New(nil, SessionCommands{
+		Bus:        bus,
+		SessionDir: func() string { return dir },
+		SessionID:  func() string { return current.ID() },
+		Lists:      &recordingLists{refreshed: func(items []session.SessionMeta) { refreshed = items }},
+	})
 	s.Delete(other.ID())
 
 	assert.Contains(t, drainToast(t, bus), "Deleted")
@@ -132,11 +132,11 @@ func TestSessionCommands_DeleteRemovesAndRefreshes(t *testing.T) {
 
 func TestSessionCommands_DeleteBlocksWhenBusy(t *testing.T) {
 	bus := controller.NewBus(nil)
-	s := &SessionCommands{
+	s := New(nil, SessionCommands{
 		Bus:          bus,
 		SessionDir:   func() string { return t.TempDir() },
 		StreamActive: func() bool { return true },
-	}
+	})
 	s.Delete("abc")
 	assert.Contains(t, drainToast(t, bus), "Cannot delete")
 }
@@ -152,13 +152,43 @@ func TestSessionCommands_DeleteUnknownIdToastsAndKeepsList(t *testing.T) {
 
 	bus := controller.NewBus(nil)
 	var refreshed bool
-	s := &SessionCommands{
-		Bus:           bus,
-		SessionDir:    func() string { return dir },
-		SessionID:     func() string { return m.ID() },
-		RefreshPicker: func([]session.SessionMeta) { refreshed = true },
-	}
+	s := New(nil, SessionCommands{
+		Bus:        bus,
+		SessionDir: func() string { return dir },
+		SessionID:  func() string { return m.ID() },
+		Lists:      &recordingLists{refreshed: func([]session.SessionMeta) { refreshed = true }},
+	})
 	s.Delete("nosuchsession")
 	assert.Contains(t, drainToast(t, bus), "not found")
 	assert.False(t, refreshed, "failed delete must not touch the picker")
+}
+
+// recordingLists captures what the plugin pushes into the composer picker.
+type recordingLists struct {
+	items     func(items []session.SessionMeta, currentID string)
+	refreshed func(items []session.SessionMeta)
+}
+
+func (l *recordingLists) ShowSessionList(items []session.SessionMeta, currentID string, _, _ func(string)) {
+	if l.items != nil {
+		l.items(items, currentID)
+	}
+}
+
+func (l *recordingLists) RefreshSessionList(items []session.SessionMeta) {
+	if l.refreshed != nil {
+		l.refreshed(items)
+	}
+}
+
+// drainToast returns the message of the last queued ToastMsg and empties the bus.
+func drainToast(t *testing.T, bus *controller.Bus) string {
+	t.Helper()
+	var msg string
+	for _, m := range bus.Drain() {
+		if tm, ok := m.(controller.ToastMsg); ok {
+			msg = tm.Message
+		}
+	}
+	return msg
 }

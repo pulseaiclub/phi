@@ -16,6 +16,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/listrows"
 	"github.com/pulseaiclub/phi/internal/components/pane"
 	uistoast "github.com/pulseaiclub/phi/internal/components/toast"
+	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/runtime"
 	"github.com/pulseaiclub/phi/internal/util/filesearch"
 )
@@ -34,6 +35,8 @@ type ListHost interface {
 
 // Deps carries the collaborators the root wires as method values.
 type Deps struct {
+	// Registry receives the /code slash command.
+	Registry *commands.CommandRegistry
 	// AddRef drops a code-viewer reference into the composer (Editor).
 	AddRef func(ref chat.Ref)
 	// Toast shows a toast in the same frame (picker error paths).
@@ -56,21 +59,45 @@ type Plugin struct {
 	code *pane.Code
 	cwd  string
 	deps Deps
+	rt   *runtime.Runtime
 }
 
-// New builds the code plugin around its pane.
+// New builds the code plugin around its pane and registers /code.
 func New(theme components.Theme, cwd string, deps Deps) *Plugin {
 	p := &Plugin{cwd: cwd, deps: deps}
 	p.code = pane.NewCode(theme, cwd, deps.AddRef, p.publish)
+	p.registerCommand()
 	return p
 }
 
 func (p *Plugin) publish(msg string) { p.deps.Publish(msg) }
 
+func (p *Plugin) registerCommand() {
+	if p.deps.Registry == nil {
+		return
+	}
+	p.deps.Registry.Register(commands.Command{
+		Name:        "code",
+		Description: "Pick a file to view — /code [path[:line]]",
+		Slash:       true,
+		Insert:      "/code",
+		Run: func(_ commands.Context, args []string) {
+			p.Open(args)
+		},
+	})
+}
+
 // Register wires the plugin into the runtime.
 func (p *Plugin) Register(rt *runtime.Runtime) {
+	p.rt = rt
 	rt.AddFullPane(p)
 	rt.OnTheme(p.SetTheme)
+}
+
+func (p *Plugin) closeSiblings() {
+	if p.rt != nil {
+		p.rt.CloseFullPanesExcept(p)
+	}
 }
 
 // SetTheme switches the pane chrome.
@@ -80,6 +107,7 @@ func (p *Plugin) SetTheme(th components.Theme) { p.code.SetTheme(th) }
 // prefix expands to "./" so the shell can complete the path. Bare "/code"
 // opens the file list picker.
 func (p *Plugin) Open(args []string) {
+	p.closeSiblings()
 	path := strings.TrimSpace(strings.Join(args, " "))
 	if strings.HasPrefix(path, "@") {
 		path = "./" + path[1:]

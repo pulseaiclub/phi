@@ -1,4 +1,4 @@
-package commands
+package branches
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/components/toast"
+	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 	"github.com/pulseaiclub/phi/internal/tui/pathutil"
 	"github.com/pulseaiclub/phi/internal/util/gitx"
@@ -37,29 +38,48 @@ type BranchCommands struct {
 	Remove    func(ctx context.Context, dir, name string) error
 }
 
-// NewBranchCommands builds the /branch handler over the real git.
-func NewBranchCommands(bus *controller.Bus) *BranchCommands {
-	return &BranchCommands{
-		Bus:           bus,
-		CurrentBranch: pathutil.GitBranch,
-		Branches:      gitx.Branches,
-		Recent:        gitx.Recent,
-		Preflight:     gitx.Preflight,
-		Switch:        gitx.Switch,
-		Create:        gitx.Create,
-		CreateAt:      gitx.CreateAt,
-		Remove:        gitx.Delete,
+// New builds the /branch handler over the real git and registers it.
+func New(r *commands.CommandRegistry, deps BranchCommands) *BranchCommands {
+	b := &deps
+	if b.CurrentBranch == nil {
+		b.CurrentBranch = pathutil.GitBranch
 	}
+	if b.Branches == nil {
+		b.Branches = gitx.Branches
+	}
+	if b.Recent == nil {
+		b.Recent = gitx.Recent
+	}
+	if b.Preflight == nil {
+		b.Preflight = gitx.Preflight
+	}
+	if b.Switch == nil {
+		b.Switch = gitx.Switch
+	}
+	if b.Create == nil {
+		b.Create = gitx.Create
+	}
+	if b.CreateAt == nil {
+		b.CreateAt = gitx.CreateAt
+	}
+	if b.Remove == nil {
+		b.Remove = gitx.Delete
+	}
+	b.Register(r)
+	return b
 }
 
 // Register wires /branch into r.
-func (b *BranchCommands) Register(r *CommandRegistry) {
-	r.Register(Command{
+func (b *BranchCommands) Register(r *commands.CommandRegistry) {
+	if r == nil {
+		return
+	}
+	r.Register(commands.Command{
 		Name:        "branch",
 		Description: "Switch the working branch — /branch [name] [base] creates off base",
 		Slash:       true,
 		Insert:      "/branch ",
-		Run: func(_ Context, args []string) {
+		Run: func(_ commands.Context, args []string) {
 			b.Run(args)
 		},
 	})

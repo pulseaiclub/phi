@@ -1,4 +1,4 @@
-package commands
+package settings
 
 import (
 	"os"
@@ -11,6 +11,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/chrome"
 	"github.com/pulseaiclub/phi/internal/components/palette"
 	"github.com/pulseaiclub/phi/internal/project"
+	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
@@ -92,7 +93,7 @@ func TestSettingsPaletteMarksCurrentValues(t *testing.T) {
 	ctrl := newInjectedTestController(t, bus, proj)
 
 	s := &SettingsCommands{Ctrl: ctrl, Bus: bus, ModelNames: []string{"small-model", "big-model"}}
-	r := NewCommandRegistry()
+	r := commands.NewCommandRegistry()
 	s.Register(r)
 	byID := map[string]palette.PaletteCommand{}
 	for _, c := range r.BuildPalette(nil) {

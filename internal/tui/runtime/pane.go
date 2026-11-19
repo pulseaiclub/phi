@@ -8,9 +8,11 @@ import (
 
 // FullPane owns the whole frame while active (diff review, code viewer).
 // Handle restores the pane's own follow-up (focus return, list refresh) after
-// it closes; the shell does not know about pane-specific exits.
+// it closes; the shell does not know about pane-specific exits. Close hides
+// the pane — the runtime uses it to enforce one-frame exclusivity.
 type FullPane interface {
 	Active() bool
+	Close()
 	Handle(ctx *components.EventContext, ev xui.Event)
 	Draw(ctx components.DrawContext) components.Surface
 }
@@ -44,6 +46,17 @@ func (rt *Runtime) ActiveFullPane() (FullPane, bool) {
 		}
 	}
 	return nil, false
+}
+
+// CloseFullPanesExcept hides every full pane except self: two full-screen
+// overlays cannot both own the frame, and the one underneath would come back
+// on the next Esc.
+func (rt *Runtime) CloseFullPanesExcept(self FullPane) {
+	for _, p := range rt.fullPanes {
+		if p != self {
+			p.Close()
+		}
+	}
 }
 
 // BottomHeight returns the first active bottom pane's height request.

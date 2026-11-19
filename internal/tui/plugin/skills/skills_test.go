@@ -1,4 +1,4 @@
-package commands
+package skills
 
 import (
 	"os"
@@ -12,6 +12,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/listpicker"
 	"github.com/pulseaiclub/phi/internal/components/listrows"
 	"github.com/pulseaiclub/phi/internal/components/toast"
+	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
@@ -93,11 +94,11 @@ func TestSkillsCommand_LoadsSkillsIntoPicker(t *testing.T) {
 			items, cfg, accept = i, c, a
 		},
 	}
-	r := NewCommandRegistry()
+	r := commands.NewCommandRegistry()
 	s.Register(r)
 
 	assert.Equal(t, "/skill", r.LookupInsert("skill"))
-	require.True(t, r.DispatchSlash("/skill", NewContext(bus, nil)))
+	require.True(t, r.DispatchSlash("/skill", commands.NewContext(bus, nil)))
 
 	require.Len(t, items, 1)
 	assert.Equal(t, listpicker.Item{

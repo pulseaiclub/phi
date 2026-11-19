@@ -130,7 +130,7 @@ func TestCodePickerEmptyAndCancel(t *testing.T) {
 	}
 	e := diffEditor(t, t.TempDir())
 	e.diffPlugin.OpenText("", nil)
-	e.openCode(nil)
+	e.codePlugin.Open(nil)
 	assert.False(t, e.diffPlugin.Active())
 	assert.Contains(t, branchOverlay(t, e), "No files found")
 	diffKey(e, xui.KeyEscape, 0)
@@ -146,7 +146,7 @@ func TestCodePickerOpensLiteralPath(t *testing.T) {
 	dir := t.TempDir()
 	writeDiffFile(t, dir, "@file with spaces.go", "literal path\n")
 	e := diffEditor(t, dir)
-	e.openCode(nil)
+	e.codePlugin.Open(nil)
 	diffKey(e, xui.KeyEnter, 0)
 	require.True(t, e.codePlugin.Active())
 	assert.Contains(t, components.SurfaceText(frame(t, e)), "literal path")
@@ -157,7 +157,7 @@ func TestCodePickerSearchError(t *testing.T) {
 		t.Skip(err)
 	}
 	e := diffEditor(t, filepath.Join(t.TempDir(), "missing"))
-	e.openCode(nil)
+	e.codePlugin.Open(nil)
 	assert.Contains(t, e.toastPlugin.Current().Message, "List files:")
 	_, open := e.composer.ListOverlay(components.DrawContext{})
 	assert.False(t, open)
@@ -166,7 +166,7 @@ func TestCodePickerSearchError(t *testing.T) {
 
 func TestCodePaneTakesKeysAndReturnsFocus(t *testing.T) {
 	e := newTestEditor(t)
-	e.openCode([]string{"a.go"})
+	e.codePlugin.Open([]string{"a.go"})
 	require.True(t, e.codePlugin.Active())
 
 	ctx := &components.EventContext{}
@@ -180,7 +180,7 @@ func TestCodePaneTakesKeysAndReturnsFocus(t *testing.T) {
 
 func TestClosingCodePaneReleasesFocus(t *testing.T) {
 	e := newTestEditor(t)
-	e.openCode([]string{"a.go"})
+	e.codePlugin.Open([]string{"a.go"})
 
 	ctx := &components.EventContext{}
 	e.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'q'})
@@ -196,7 +196,7 @@ func TestOpeningCodeClosesDiff(t *testing.T) {
 	e.diffPlugin.OpenText("", nil)
 	require.True(t, e.diffPlugin.Active())
 
-	e.openCode([]string{"a.go"})
+	e.codePlugin.Open([]string{"a.go"})
 	assert.False(t, e.diffPlugin.Active())
 	assert.True(t, e.codePlugin.Active())
 }

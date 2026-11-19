@@ -1,4 +1,4 @@
-package commands
+package branches
 
 import (
 	"context"
@@ -10,18 +10,19 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 	"github.com/pulseaiclub/phi/internal/util/gitx"
 )
 
 func TestBranchCommandRegistersSlash(t *testing.T) {
-	r := NewCommandRegistry()
-	b := NewBranchCommands(controller.NewBus(nil))
+	r := commands.NewCommandRegistry()
+	b := New(nil, BranchCommands{Bus: controller.NewBus(nil)})
 	b.OpenOverlay = func([]gitx.Branch, []string, func(string), func(string)) {}
 	b.Register(r)
 
 	assert.Equal(t, "/branch ", r.LookupInsert("branch"))
-	assert.True(t, r.DispatchSlash("/branch", NewContext(controller.NewBus(nil), nil)))
+	assert.True(t, r.DispatchSlash("/branch", commands.NewContext(controller.NewBus(nil), nil)))
 }
 
 func TestBranchShowOpensOverlayWithRows(t *testing.T) {
@@ -449,7 +450,7 @@ func TestDeleteRefusedWhileStreaming(t *testing.T) {
 }
 
 func stubBranchCommands(branches []gitx.Branch) *BranchCommands {
-	b := NewBranchCommands(nil)
+	b := New(nil, BranchCommands{})
 	b.Dir = "/repo"
 	b.CurrentBranch = func(context.Context, string) string { return "" }
 	b.Branches = func(context.Context, string) ([]gitx.Branch, error) { return branches, nil }
@@ -476,4 +477,16 @@ func waitFor(t *testing.T, bus *controller.Bus, want string) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	require.FailNow(t, "no toast containing", want)
+}
+
+// drainToast returns the message of the last queued ToastMsg and empties the bus.
+func drainToast(t *testing.T, bus *controller.Bus) string {
+	t.Helper()
+	var msg string
+	for _, m := range bus.Drain() {
+		if tm, ok := m.(controller.ToastMsg); ok {
+			msg = tm.Message
+		}
+	}
+	return msg
 }

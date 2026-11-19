@@ -1,4 +1,4 @@
-package commands
+package settings
 
 import (
 	"strings"
@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/components/chrome"
-	"github.com/pulseaiclub/phi/internal/components/palette"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
@@ -112,128 +111,6 @@ func TestAgentsCommand_RoleModels(t *testing.T) {
 	assert.Equal(t, "cheap", gotName)
 }
 
-func TestFilterSlashCommands(t *testing.T) {
-	r := NewCommandRegistry()
-	(&SessionCommands{}).Register(r)
-	(&DiffCommands{}).Register(r)
-
-	all := r.FilterSlash("")
-	require.Len(t, all, 4) // sessions, new, fork, diff
-
-	nw := r.FilterSlash("ne")
-	require.Len(t, nw, 1)
-	assert.Equal(t, "new", nw[0].Path)
-
-	none := r.FilterSlash("zzz")
-	assert.Empty(t, none)
-
-	assert.Equal(t, "/sessions", r.LookupInsert("sessions"))
-	assert.Equal(t, "/new", r.LookupInsert("new"))
-	assert.Equal(t, "/fork", r.LookupInsert("fork"))
-	assert.Equal(t, "/diff ", r.LookupInsert("diff"))
-}
-
-func TestCommandRegistry_DispatchSlash(t *testing.T) {
-	r := NewCommandRegistry()
-	var sessions, started int
-	bus := controller.NewBus(nil)
-	ctx := NewContext(bus, nil)
-
-	r.Register(Command{
-		Name:  "sessions",
-		Slash: true,
-		Run: func(Context, []string) {
-			sessions++
-		},
-	})
-	r.Register(Command{
-		Name:  "new",
-		Slash: true,
-		Run: func(Context, []string) {
-			started++
-		},
-	})
-
-	assert.True(t, r.DispatchSlash("/sessions", ctx))
-	assert.Equal(t, 1, sessions)
-
-	assert.True(t, r.DispatchSlash("/new", ctx))
-	assert.Equal(t, 1, started)
-
-	var spec []string
-	(&DiffCommands{
-		Open: func(args []string) { spec = append([]string(nil), args...) },
-	}).Register(r)
-	assert.True(t, r.DispatchSlash("/diff staged", ctx))
-	assert.Equal(t, []string{"staged"}, spec)
-
-	_, incomplete := r.IncompleteSlash("/diff")
-	assert.False(t, incomplete, "diff args are optional; bare /diff should run")
-	assert.True(t, r.DispatchSlash("/diff", ctx))
-	assert.Empty(t, spec)
-
-	assert.False(t, r.DispatchSlash("/unknown", ctx))
-	assert.False(t, r.DispatchSlash("not-slash", ctx))
-}
-
-func TestCommandRegistry_BuildPalette(t *testing.T) {
-	r := NewCommandRegistry()
-	var model string
-	bus := controller.NewBus(nil)
-	ctx := NewContext(bus, nil)
-
-	r.Register(Command{
-		Name: "settings-model",
-		Build: func(Context) palette.PaletteCommand {
-			return buildModelPalette(func(name string) { model = name }, nil, []string{"gpt"}, "gpt")
-		},
-	})
-	// /skill is a slash command, not a palette entry; registering it must not
-	// add anything to BuildPalette.
-	(&SkillsCommands{Bus: bus, SkillPaths: []string{t.TempDir()}}).Register(r)
-
-	cmds := r.BuildPalette(ctx)
-	require.Len(t, cmds, 1, "only Build-registered commands reach the palette")
-
-	require.NotEmpty(t, cmds[0].Submenu)
-	cmds[0].Submenu[0].Run()
-	assert.Equal(t, "gpt", model)
-}
-
-func TestCommandRegistry_RegisterReplace(t *testing.T) {
-	r := NewCommandRegistry()
-	r.Register(Command{
-		Name:  "foo",
-		Slash: true,
-		Run:   func(Context, []string) {},
-	})
-	r.Register(Command{
-		Name:        "foo",
-		Description: "replaced",
-		Slash:       true,
-		Insert:      "/foo ",
-		Run:         func(Context, []string) {},
-	})
-	assert.Equal(t, "/foo ", r.LookupInsert("foo"))
-	assert.Equal(t, "replaced", r.SlashCommands()[0].Description)
-}
-
-func TestCommandRegistry_NeedsArgs(t *testing.T) {
-	r := NewCommandRegistry()
-	r.Register(Command{
-		Name:      "plan",
-		Slash:     true,
-		NeedsArgs: true,
-		Run:       func(Context, []string) {},
-	})
-	assert.Equal(t, "/plan ", r.LookupInsert("plan"))
-	insert, ok := r.IncompleteSlash("/plan")
-	assert.True(t, ok)
-	assert.Equal(t, "/plan ", insert)
-	_, ok = r.IncompleteSlash("/plan on")
-	assert.False(t, ok)
-}
-
 // drainToast returns the message of the last queued ToastMsg and empties the bus.
 func drainToast(t *testing.T, bus *controller.Bus) string {
 	t.Helper()
@@ -244,24 +121,4 @@ func drainToast(t *testing.T, bus *controller.Bus) string {
 		}
 	}
 	return msg
-}
-
-func TestCodeCommandPickerAndExplicitPath(t *testing.T) {
-	r := NewCommandRegistry()
-	var opened [][]string
-	(&CodeCommands{
-		Open: func(args []string) { opened = append(opened, append([]string(nil), args...)) },
-	}).Register(r)
-
-	assert.Equal(t, "/code", r.LookupInsert("code"))
-
-	_, incomplete := r.IncompleteSlash("/code")
-	assert.False(t, incomplete, "a bare /code opens the file picker")
-
-	ctx := NewContext(controller.NewBus(nil), nil)
-	assert.True(t, r.DispatchSlash("/code", ctx))
-	assert.True(t, r.DispatchSlash("/code internal/tui/editor/editor.go:42", ctx))
-	require.Len(t, opened, 2)
-	assert.Empty(t, opened[0])
-	assert.Equal(t, []string{"internal/tui/editor/editor.go:42"}, opened[1])
 }
