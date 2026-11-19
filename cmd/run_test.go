@@ -17,11 +17,13 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/agent"
 	"github.com/pulseaiclub/phi/internal/llm"
+	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
 	"github.com/pulseaiclub/phi/internal/project"
+	"github.com/pulseaiclub/phi/internal/project/model"
 	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/pulseaiclub/phi/internal/session/compaction"
 	"github.com/pulseaiclub/phi/internal/tools"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
-	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
 func TestRunOptionsFromFlags(t *testing.T) {
@@ -193,14 +195,10 @@ func TestRunLoopTimeoutCancelsLLMRequest(t *testing.T) {
 
 	sess, err := agent.NewSession(agent.WithCwd(t.TempDir()))
 	require.NoError(t, err)
-	engine, err := controller.NewParentEngine(
-		llm.ModelConfig{
-			Name:    "fake",
-			BaseURL: server.URL,
-			APIKey:  "test",
-		},
-		sess, nil, nil, nil,
-	)
+	cfg := llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "test"}
+	client := llmclient.NewClient(cfg, model.HooksForConfig(cfg), nil, "")
+	executor := agent.NewExecutor(tooldef.NewRegistry(nil), sess.Cwd())
+	engine, err := agent.NewEngine(compaction.LimitsForModel(cfg), sess, client, executor)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)

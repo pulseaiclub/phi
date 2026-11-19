@@ -10,6 +10,7 @@ Lean, high-performance Go terminal coding-agent harness. Layout: [doc/project-la
 
 ## Constraints
 
+- **No two-phase initialization.** Never create an object and then call mutating methods on it to finish initialization. Pass initial state to the constructor of the object that owns it, via arguments or options. A constructor must not configure an injected dependency through setters. Reserve setters for runtime changes.
 - **The legacy extension runner is disconnected.** The CLI, TUI, and sub-agents do not load extensions or dispatch hooks during the plugin refactor. Don't put MCP server tool schemas on the model — MCP rides `ls` / `read` / `write` via `mcp://` URLs.
 - **Extensions are PXB subprocesses** (`phi.yaml` + native binary under `~/.phi/extensions` / `.phi/extensions`). Wire: `ext/go/pxb`. Author SDK: Go `ext/go/phi` (module `github.com/pulseaiclub/phi/ext/go`). Host: `internal/extension`. See [doc/extensions.md](doc/extensions.md).
 - **PXB message payloads are generated.** Fields are declared once in `ext/go/pxb/schema.go` (`pxb:"<tag>[,opt]"`); `make generate` writes `msg_gen.go`. Never hand-edit `msg_gen.go` or add encode/decode switches — `make check` runs `generate-check` and fails on drift. The Rust side (`ext/rust/src/pxb/msg.rs`) mirrors the same tags by hand.

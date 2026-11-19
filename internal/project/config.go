@@ -44,16 +44,22 @@ type AgentsRoleModels struct {
 	Worker  string `yaml:"worker,omitempty"`
 }
 
-// ForRole returns the configured model name for a sub-agent role.
-func (m AgentsRoleModels) ForRole(role job.Role) string {
-	switch job.NormalizeRole(string(role)) {
-	case job.RoleReview:
-		return m.Review
-	case job.RoleWorker:
-		return m.Worker
-	default:
-		return m.Explore
+// ResolveRoleModels snapshots the effective model for each role. An absent or
+// unknown override inherits the current parent, including its thinking level.
+func (c *Config) ResolveRoleModels(parent llm.ModelConfig, overrides map[job.Role]string) map[job.Role]llm.ModelConfig {
+	models := map[job.Role]llm.ModelConfig{
+		job.RoleExplore: parent,
+		job.RoleWorker:  parent,
+		job.RoleReview:  parent,
 	}
+	for role := range models {
+		if name := overrides[role]; name != "" {
+			if cfg, ok := c.FindModel(name); ok {
+				models[role] = cfg
+			}
+		}
+	}
+	return models
 }
 
 // RoleOverrides returns configured non-empty model names keyed by sub-agent role.

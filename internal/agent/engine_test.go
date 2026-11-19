@@ -15,8 +15,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/job"
+	"github.com/pulseaiclub/phi/internal/llm"
 	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/session/compaction"
@@ -787,6 +787,7 @@ func TestLoopCompactsMidTurnBeforeNextRequest(t *testing.T) {
 	require.Contains(t, second, strings.Repeat("c", 32))
 	require.Contains(t, second, strings.Repeat("d", 32))
 }
+
 func TestLoopStopsDuringCompaction(t *testing.T) {
 	for _, stopAtStart := range []bool{true, false} {
 		name := "failed completion"

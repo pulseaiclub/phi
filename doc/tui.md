@@ -67,14 +67,15 @@ Dumb rendering widgets stay in `internal/components/` (chat, input, palette, men
 
 ## Assembly (`cmd/main.go`)
 
-`cmd` owns project/config loading and constructs collaborators **before** the TUI root:
+`cmd` owns project/config loading and constructs the session, job manager, MCP pool,
+engine, and controller **before** the TUI root:
 
 ```text
 proj.LoadConfig()
 vx, theme, cwd
 redraw := controller.NewRedrawRelay()
 bus    := controller.NewBus(redraw.Fire)
-ctrl   := controller.NewController(bus, proj)
+ctrl   := controller.NewController(bus, proj, sess, jobs, mcpPool, engine)
 ui     := editor.NewEditor(app, bus, ctrl, vx, theme, cwd, model, skillPaths, contextWindow, modelNames)
 redraw.Bind(ui.RequestRedraw)
 ui.StartUpdateCheck(...)

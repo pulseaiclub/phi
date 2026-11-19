@@ -40,22 +40,19 @@ func forkEditor(t *testing.T) *Editor {
 	proj, err := project.Discover(dir)
 	require.NoError(t, err)
 	bus := controller.NewBus(nil)
-	ctrl, err := controller.NewController(bus, proj)
-	require.NoError(t, err)
-	t.Cleanup(ctrl.Close)
+	ctrl := newInjectedTestController(t, bus, proj)
 
 	return NewEditor(app.NewApp(nil), bus, ctrl, nil, components.DefaultTheme(), dir, "primary", nil, nil)
 }
 
 func TestForkSlashSwitchesToANewSession(t *testing.T) {
 	e := forkEditor(t)
-	srcID, srcFile := e.ctrl.SessionID(), e.ctrl.SessionFile()
+	srcID := e.ctrl.SessionID()
 
 	require.True(t, e.commands.DispatchSlash("/fork", commands.NewContext(e.bus, nil)))
 	e.drainBus()
 
 	assert.NotEqual(t, srcID, e.ctrl.SessionID(), "/fork must open the session it created")
-	assert.NotEqual(t, srcFile, e.ctrl.SessionFile())
 	assert.Empty(t, e.transcript.Snapshot().Messages, "a fresh session forks empty")
 }
 

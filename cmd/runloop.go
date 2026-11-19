@@ -8,21 +8,24 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/agent"
-	"github.com/pulseaiclub/phi/internal/job"
+	"github.com/pulseaiclub/phi/internal/agent/prompt"
 	"github.com/pulseaiclub/phi/internal/llm"
+	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
 	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/project"
+	"github.com/pulseaiclub/phi/internal/project/model"
 	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/pulseaiclub/phi/internal/session/compaction"
 	"github.com/pulseaiclub/phi/internal/tools"
 	"github.com/pulseaiclub/phi/internal/tools/agenttool"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
-	"github.com/pulseaiclub/phi/internal/tui/controller"
 	"github.com/pulseaiclub/phi/internal/util"
 )
 
@@ -131,22 +134,29 @@ func runHeadless(opts runOptions) error {
 
 	var binding *agenttool.Binding
 	if bs.Config.Agents.Enabled {
-		parent := primary
-		jobs, jobErr := agent.NewJobManager(bs.Proj.JobsDir(), parent, func(role job.Role) llm.ModelConfig {
-			if cfg, ok := bs.Config.FindModel(bs.Config.Agents.Models.ForRole(role)); ok {
-				return cfg
-			}
-			return parent
-		})
+		jobs, jobErr := newJobs(bs.Proj, primary, sess)
 		if jobErr != nil {
 			fmt.Fprintln(os.Stderr, "phi run:", jobErr)
 			return exitCode(ExitUsage)
 		}
 		defer func() { _ = jobs.Close(context.Background()) }()
-		binding = agenttool.Bind(jobs, sess.ID(), sess.Cwd())
+		binding = agenttool.BindForSession(jobs, sess.Cwd())
 	}
 
-	engine, err := controller.NewParentEngine(primary, sess, selected, mcpPool, binding)
+	toolList := selected
+	if binding != nil {
+		toolList = slices.Concat(toolList, binding.Tools())
+	}
+	system := prompt.Build(
+		sess.Cwd(),
+		primary.SkillPaths,
+		binding != nil,
+		binding.MaxConcurrent(),
+		mcpPool.ServerNames(),
+	)
+	client := llmclient.NewClient(primary, model.HooksForConfig(primary), tooldef.Definitions(toolList), system)
+	executor := agent.NewExecutor(tooldef.NewRegistry(toolList), sess.Cwd())
+	engine, err := agent.NewEngine(compaction.LimitsForModel(primary), sess, client, executor)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "phi run:", err)
 		return exitCode(ExitUsage)

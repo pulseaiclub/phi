@@ -11,8 +11,8 @@ import (
 )
 
 func TestShellCompletionWithoutHistory(t *testing.T) {
+	t.Setenv("PHI_PROMPT_HISTORY", "")
 	e := newTestEditor(t)
-	require.Empty(t, e.ctrl.SessionDir())
 	e.composer.Chat.Value = "!git ch"
 	e.composer.Chat.Cursor = len(e.composer.Chat.Value)
 	e.composer.Chat.OnBashChange(true, "git ch")

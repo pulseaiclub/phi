@@ -11,17 +11,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/composer"
-	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
 func diffEditor(t *testing.T, dir string) *Editor {
 	t.Helper()
-	e := NewEditor(app.NewApp(nil), controller.NewBus(nil), &controller.EngineController{}, nil,
-		components.DefaultTheme(), dir, "", nil, nil)
+	e := newShellTestEditor(t, dir)
 	// Keep the real focus/blocking wiring without a terminal redraw callback.
 	e.composer.Wire(composer.WireDeps{
 		Transcript:            e.transcript,

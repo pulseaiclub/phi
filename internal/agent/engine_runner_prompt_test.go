@@ -15,9 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/agent"
 	"github.com/pulseaiclub/phi/internal/job"
-	"github.com/pulseaiclub/phi/internal/llm"
 )
 
 // childRequest is the slice of a chat-completion body this test inspects.
@@ -59,14 +57,7 @@ func TestEngineRunnerChildUsesItsOwnWorkdir(t *testing.T) {
 	require.NoError(t,
 		os.WriteFile(filepath.Join(workdir, "AGENTS.md"), []byte("child-workdir-rule"), 0o644))
 
-	mgr, err := job.New(job.Options{
-		Root: t.TempDir(),
-		Runner: agent.EngineRunner{
-			Model: llm.ModelConfig{Name: "fake", BaseURL: srv.URL, APIKey: "x"},
-		},
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
+	mgr := newExploreManager(t, srv.URL)
 
 	info, err := mgr.Spawn(t.Context(), job.SpawnRequest{Prompt: "recon", WorkDir: workdir})
 	require.NoError(t, err)

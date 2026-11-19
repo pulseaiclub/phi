@@ -47,9 +47,7 @@ func TestSetModelUpdatesFooterContextWindow(t *testing.T) {
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
 	bus := controller.NewBus(nil)
-	ctrl, err := controller.NewController(bus, proj)
-	require.NoError(t, err)
-	t.Cleanup(ctrl.Close)
+	ctrl := newInjectedTestController(t, bus, proj)
 	require.Equal(t, 192000, ctrl.ContextWindow())
 
 	comp := &stubSettingsComposer{}
@@ -91,9 +89,7 @@ func TestSettingsPaletteMarksCurrentValues(t *testing.T) {
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
 	bus := controller.NewBus(nil)
-	ctrl, err := controller.NewController(bus, proj)
-	require.NoError(t, err)
-	t.Cleanup(ctrl.Close)
+	ctrl := newInjectedTestController(t, bus, proj)
 
 	s := &SettingsCommands{Ctrl: ctrl, Bus: bus, ModelNames: []string{"small-model", "big-model"}}
 	r := NewCommandRegistry()

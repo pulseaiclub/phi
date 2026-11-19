@@ -34,8 +34,7 @@ type EngineController struct {
 	session *agent.Session
 	proj    *project.Project
 
-	// Background jobs and bash completions read the active model and session.
-	// Publish them together with the engine on every session switch.
+	// Publish the active session, engine, and role models together.
 	sessionMu sync.RWMutex
 
 	streamMu       sync.Mutex
@@ -47,66 +46,50 @@ type EngineController struct {
 
 	bus *Bus
 
-	sessionDir string
-	cwd        string
-	modelCfg   llm.ModelConfig
+	modelCfg llm.ModelConfig
 	// roleModels maps sub-agent role → model name. Empty → inherit modelCfg.
 	roleModels map[job.Role]string
 	jobs       *job.Manager
-	unsubJobs  func()
 
 	agentsEnabled atomic.Bool
 	mcpPool       *mcp.Pool
 
-	lastJobProgress sync.Map // progressSlot → progressSig
+	closeOnce sync.Once
 }
 
-// NewController returns a live EngineController. proj must be non-nil.
-// Failure returns (nil, err), never a half-initialized value.
-func NewController(bus *Bus, proj *project.Project) (*EngineController, error) {
-	if err := proj.LoadConfig(); err != nil {
-		return nil, err
-	}
+// NewController returns a live EngineController with the supplied runtime dependencies.
+// All dependencies are required. The engine and jobs must be configured for sess and proj's loaded config.
+func NewController(
+	bus *Bus,
+	proj *project.Project,
+	sess *agent.Session,
+	jobs *job.Manager,
+	mcpPool *mcp.Pool,
+	engine *agent.Engine,
+) *EngineController {
 	config := proj.Config()
-
 	c := &EngineController{
 		bus:        bus,
 		proj:       proj,
-		cwd:        proj.Root(),
-		sessionDir: proj.SessionDir(),
 		modelCfg:   config.Model(),
 		roleModels: config.Agents.Models.RoleOverrides(),
+		jobs:       jobs,
+		mcpPool:    mcpPool,
+		engine:     engine,
+		session:    sess,
 	}
 	c.agentsEnabled.Store(config.Agents.Enabled)
-
-	jobs, err := agent.NewJobManager(proj.JobsDir(), c.modelCfg, c.modelForRole)
-	if err != nil {
-		return nil, err
-	}
-	c.jobs = jobs
-
-	if pool, err := mcp.LoadPool(proj.MCPConfigFile()); err != nil {
-		debuglog.Logf("mcp: load: %v", err)
-	} else {
-		c.mcpPool = pool
-	}
-
-	eng, sess, _, err := c.openEngine(c.modelCfg, "")
-	if err != nil {
-		return nil, err
-	}
-	c.engine = eng
-	c.session = sess
 	c.startJobProgress()
-	return c, nil
+	return c
 }
 
 func (c *EngineController) startJobProgress() {
-	ch, cancel := c.jobs.Subscribe()
-	c.unsubJobs = cancel
+	// Manager.Close owns the subscription's lifetime.
+	ch, _ := c.jobs.Subscribe()
 	go func() {
+		last := make(map[progressSlot]progressSig)
 		for p := range ch {
-			if c.shouldPublishJobProgress(p) {
+			if shouldPublishJobProgress(last, p) {
 				c.publish(JobProgressMsg{Progress: p})
 			}
 		}
@@ -132,17 +115,17 @@ type progressSig struct {
 	detail string
 }
 
-func (c *EngineController) shouldPublishJobProgress(p job.Progress) bool {
+func shouldPublishJobProgress(last map[progressSlot]progressSig, p job.Progress) bool {
 	slot := progressSlot{job: p.JobID, tool: p.ToolUseID}
 	if p.ToolUseID == "" {
 		slot.name = p.Name
 		slot.detail = p.Detail
 	}
 	sig := progressSig{status: p.Status, name: p.Name, detail: p.Detail}
-	if prev, ok := c.lastJobProgress.Load(slot); ok && prev.(progressSig) == sig {
+	if prev, ok := last[slot]; ok && prev == sig {
 		return false
 	}
-	c.lastJobProgress.Store(slot, sig)
+	last[slot] = sig
 	return true
 }
 
@@ -161,45 +144,41 @@ func (c *EngineController) SetAgentsEnabled(v bool) error {
 // AgentsEnabled reports whether sub-agent (agent_*) tools are registered.
 func (c *EngineController) AgentsEnabled() bool { return c.agentsEnabled.Load() }
 
-func (c *EngineController) modelForRole(role job.Role) llm.ModelConfig {
-	role = job.NormalizeRole(string(role))
-	name := c.roleModels[role]
-	if name == "" {
-		return c.modelSnapshot()
-	}
-	if m, ok := c.proj.Config().FindModel(name); ok {
-		return m
-	}
-	debuglog.Logf("agents: unknown role model %q for %s; using parent", name, role)
-	return c.modelSnapshot()
+func (c *EngineController) publishRoleModelsLocked() {
+	c.jobs.SetRoleModels(c.proj.Config().ResolveRoleModels(c.modelCfg, c.roleModels))
 }
 
-// RoleModel returns the session-only model name for a sub-agent role.
+// RoleModel returns the runtime model override for a sub-agent role.
 // Empty means the role inherits the parent model.
 func (c *EngineController) RoleModel(role string) string {
 	r, err := job.ParseRole(role)
 	if err != nil {
 		return ""
 	}
+	c.sessionMu.RLock()
+	defer c.sessionMu.RUnlock()
 	return c.roleModels[r]
 }
 
-// SetRoleModel sets the session-only model name for a sub-agent role.
+// SetRoleModel sets a runtime override that survives session switches.
 // Empty name clears the override (inherit parent). Name must exist in config.
 func (c *EngineController) SetRoleModel(role, name string) error {
 	r, err := job.ParseRole(role)
 	if err != nil {
 		return err
 	}
+	c.sessionMu.Lock()
+	defer c.sessionMu.Unlock()
 	name = strings.TrimSpace(name)
 	if name == "" {
 		delete(c.roleModels, r)
-		return nil
+	} else {
+		if _, ok := c.proj.Config().FindModel(name); !ok {
+			return fmt.Errorf("unknown model %q", name)
+		}
+		c.roleModels[r] = name
 	}
-	if _, ok := c.proj.Config().FindModel(name); !ok {
-		return fmt.Errorf("unknown model %q", name)
-	}
-	c.roleModels[r] = name
+	c.publishRoleModelsLocked()
 	return nil
 }
 
@@ -213,10 +192,11 @@ func (c *EngineController) SetModel(name string) error {
 	if name == "" {
 		return errors.New("empty model name")
 	}
-	if err := c.proj.LoadConfig(); err != nil {
+	config, err := c.reloadConfig()
+	if err != nil {
 		return err
 	}
-	cfg := resolveModelConfig(c.proj.Config(), name)
+	cfg := resolveModelConfig(config, name)
 	c.Cancel()
 	c.sessionMu.Lock()
 	defer c.sessionMu.Unlock()
@@ -229,6 +209,7 @@ func (c *EngineController) SetModel(name string) error {
 	}
 	c.engine = eng
 	c.modelCfg = cfg
+	c.publishRoleModelsLocked()
 	return nil
 }
 
@@ -247,6 +228,7 @@ func (c *EngineController) SetThinkLevel(mode llm.ThinkMode) error {
 	}
 	c.engine = eng
 	c.modelCfg = cfg
+	c.publishRoleModelsLocked()
 	return nil
 }
 
@@ -301,13 +283,7 @@ func (c *EngineController) AppendUserBash(sessionID, command, output string, exi
 }
 
 func (c *EngineController) SessionDir() string {
-	return c.sessionDir
-}
-
-func (c *EngineController) SessionFile() string {
-	c.sessionMu.RLock()
-	defer c.sessionMu.RUnlock()
-	return c.session.File()
+	return c.proj.SessionDir()
 }
 
 func (c *EngineController) Resume(id string) (cwdWarning string, err error) {
@@ -315,21 +291,14 @@ func (c *EngineController) Resume(id string) (cwdWarning string, err error) {
 	if id == "" {
 		return "", errors.New("empty session id")
 	}
-	if err := c.checkSessionDir(); err != nil {
-		return "", err
-	}
-	cfg, err := c.resolveModel()
-	if err != nil {
-		return "", err
-	}
-
+	cfg := c.modelSnapshot()
 	c.Cancel()
 	eng, sess, cfg, err := c.openEngine(cfg, id)
 	if err != nil {
 		return "", err
 	}
-	if sessCwd := sess.Cwd(); sessCwd != "" && c.cwd != "" && sessCwd != c.cwd {
-		cwdWarning = fmt.Sprintf("cwd %s ≠ %s", filepath.Base(sessCwd), filepath.Base(c.cwd))
+	if sessCwd, cwd := sess.Cwd(), c.proj.Root(); sessCwd != "" && sessCwd != cwd {
+		cwdWarning = fmt.Sprintf("cwd %s ≠ %s", filepath.Base(sessCwd), filepath.Base(cwd))
 	}
 	c.activateSession(eng, sess, cfg)
 	return cwdWarning, nil
@@ -338,13 +307,7 @@ func (c *EngineController) Resume(id string) (cwdWarning string, err error) {
 // NewSession starts a brand-new persisted session. Caller must ensure no agent
 // stream / local bash is in flight.
 func (c *EngineController) NewSession() error {
-	if err := c.checkSessionDir(); err != nil {
-		return err
-	}
-	cfg, err := c.resolveModel()
-	if err != nil {
-		return err
-	}
+	cfg := c.modelSnapshot()
 	c.Cancel()
 	engine, sess, cfg, err := c.openEngine(cfg, "")
 	if err != nil {
@@ -357,20 +320,13 @@ func (c *EngineController) NewSession() error {
 // ForkSession copies the active session's current branch into a new persisted
 // session. The source stays active until the fork's engine is ready.
 func (c *EngineController) ForkSession() (string, error) {
-	if err := c.checkSessionDir(); err != nil {
-		return "", err
-	}
 	c.sessionMu.RLock()
 	forked, err := c.session.Fork()
 	c.sessionMu.RUnlock()
 	if err != nil {
 		return "", err
 	}
-	cfg, err := c.resolveModel()
-	if err != nil {
-		c.discardFork(forked.ID())
-		return "", err
-	}
+	cfg := c.modelSnapshot()
 	eng, err := c.newEngine(cfg, forked, c.agentsEnabled.Load())
 	if err != nil {
 		c.discardFork(forked.ID())
@@ -386,32 +342,26 @@ func (c *EngineController) activateSession(eng *agent.Engine, sess *agent.Sessio
 	c.engine = eng
 	c.session = sess
 	c.modelCfg = cfg
+	c.jobs.SetParent(sess.ID(), sess.Cwd(), 0)
+	c.publishRoleModelsLocked()
 	c.sessionMu.Unlock()
 }
 
 // discardFork drops a fork the controller never switched to, so a failed switch
 // does not leave an unreachable session in the session list.
 func (c *EngineController) discardFork(id string) {
-	if _, err := session.DeleteSession(c.sessionDir, id); err != nil {
+	if _, err := session.DeleteSession(c.SessionDir(), id); err != nil {
 		debuglog.Logf("session: drop unused fork %s: %v", id, err)
 	}
 }
 
-func (c *EngineController) checkSessionDir() error {
-	if c.sessionDir == "" {
-		return errors.New("session directory not configured")
-	}
-	return nil
-}
-
-func (c *EngineController) resolveModel() (llm.ModelConfig, error) {
-	if cfg := c.modelSnapshot(); cfg.Name != "" {
-		return cfg, nil
-	}
+func (c *EngineController) reloadConfig() (*project.Config, error) {
+	c.sessionMu.Lock()
+	defer c.sessionMu.Unlock()
 	if err := c.proj.LoadConfig(); err != nil {
-		return llm.ModelConfig{}, err
+		return nil, err
 	}
-	return c.proj.Config().Model(), nil
+	return c.proj.Config(), nil
 }
 
 func resolveModelConfig(cfg *project.Config, name string) llm.ModelConfig {
@@ -428,8 +378,8 @@ func (c *EngineController) openEngine(
 	resumeID string,
 ) (*agent.Engine, *agent.Session, llm.ModelConfig, error) {
 	opts := []agent.SessionOption{
-		agent.WithCwd(c.cwd),
-		agent.WithSessionDir(c.sessionDir),
+		agent.WithCwd(c.proj.Root()),
+		agent.WithSessionDir(c.SessionDir()),
 		agent.WithPersist(true),
 		agent.WithModel(cfg.Name),
 	}
@@ -441,7 +391,9 @@ func (c *EngineController) openEngine(
 		return nil, nil, llm.ModelConfig{}, err
 	}
 	if name := sess.ModelName(); resumeID != "" && name != "" {
+		c.sessionMu.RLock()
 		cfg = resolveModelConfig(c.proj.Config(), name)
+		c.sessionMu.RUnlock()
 	}
 	eng, err := c.newEngine(cfg, sess, c.agentsEnabled.Load())
 	if err != nil {
@@ -453,28 +405,15 @@ func (c *EngineController) openEngine(
 func (c *EngineController) newEngine(cfg llm.ModelConfig, sess *agent.Session, enableJobs bool) (*agent.Engine, error) {
 	var jobs *agenttool.Binding
 	if enableJobs {
-		jobs = agenttool.Bind(c.jobs, sess.ID(), sess.Cwd())
+		jobs = agenttool.BindForSession(c.jobs, sess.Cwd())
 	}
-	return NewParentEngine(cfg, sess, tools.DefaultTools(c.mcpPool), c.mcpPool, jobs)
-}
-
-// NewParentEngine uses the same tools for the model schema and for execution
-// in both the TUI and headless runs. MCP contributes server names, not schemas.
-func NewParentEngine(
-	cfg llm.ModelConfig,
-	sess *agent.Session,
-	base []tooldef.Tool,
-	pool *mcp.Pool,
-	jobs *agenttool.Binding,
-) (*agent.Engine, error) {
-	list := base
+	toolList := tools.DefaultTools(c.mcpPool)
 	if jobs != nil {
-		list = slices.Concat(base, jobs.Tools())
+		toolList = slices.Concat(toolList, jobs.Tools())
 	}
-	cwd := sess.Cwd()
-	system := prompt.Build(cwd, cfg.SkillPaths, jobs != nil, jobs.MaxConcurrent(), pool.ServerNames())
-	client := llmclient.NewClient(cfg, model.HooksForConfig(cfg), tooldef.Definitions(list), system)
-	executor := agent.NewExecutor(tooldef.NewRegistry(list), cwd)
+	system := prompt.Build(sess.Cwd(), cfg.SkillPaths, jobs != nil, jobs.MaxConcurrent(), c.mcpPool.ServerNames())
+	client := llmclient.NewClient(cfg, model.HooksForConfig(cfg), tooldef.Definitions(toolList), system)
+	executor := agent.NewExecutor(tooldef.NewRegistry(toolList), sess.Cwd())
 	return agent.NewEngine(compaction.LimitsForModel(cfg), sess, client, executor)
 }
 
@@ -541,13 +480,16 @@ func (c *EngineController) CurrentLoop(gen int) bool {
 }
 
 func (c *EngineController) Close() {
-	c.Cancel()
-	c.unsubJobs()
-	_ = c.jobs.Close(context.Background())
-	if c.mcpPool != nil {
-		_ = c.mcpPool.Close()
-		c.mcpPool = nil
-	}
+	c.closeOnce.Do(func() {
+		c.Cancel()
+		if c.jobs != nil {
+			_ = c.jobs.Close(context.Background())
+		}
+		if c.mcpPool != nil {
+			_ = c.mcpPool.Close()
+			c.mcpPool = nil
+		}
+	})
 }
 
 func (c *EngineController) waitOrDone(ctx context.Context, gen int, d time.Duration) bool {

@@ -13,23 +13,37 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/app"
+	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 	"github.com/pulseaiclub/phi/internal/util/filesearch"
 )
 
-// newTestEditor builds the shell the way cmd does:
-// headless App, live bus, zero-value controller, and an empty session directory.
-// No vx: only fine because these paths never refresh the terminal.
 func newTestEditor(t *testing.T) *Editor {
 	t.Helper()
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.go"), []byte("package main\n\nfunc main() {}\n"), 0o600))
+	return newShellTestEditor(t, dir)
+}
 
+// No vx: only fine because these paths never refresh the terminal.
+func newShellTestEditor(t *testing.T, dir string) *Editor {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("PHI_MODEL", "test-model")
+	t.Setenv("PHI_API_KEY", "test-key")
+	t.Setenv("PHI_BASE_URL", "http://127.0.0.1:9")
+	t.Setenv("PHI_THINK_LEVEL", "")
+	proj, err := project.Discover(dir)
+	require.NoError(t, err)
+	bus := controller.NewBus(nil)
+	ctrl := newInjectedTestController(t, bus, proj)
 	e := NewEditor(
 		app.NewApp(nil),
-		controller.NewBus(nil),
-		&controller.EngineController{},
+		bus,
+		ctrl,
 		nil,
 		components.DefaultTheme(),
 		dir,

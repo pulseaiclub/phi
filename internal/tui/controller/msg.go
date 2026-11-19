@@ -149,12 +149,3 @@ type BranchLabelMsg struct {
 }
 
 func (BranchLabelMsg) isMsg() {}
-
-// ModelChangeMsg carries a model-related update. Kind distinguishes the target:
-// "model" → model name change, "think_level" → thinking level change.
-type ModelChangeMsg struct {
-	Kind  string
-	Value string
-}
-
-func (ModelChangeMsg) isMsg() {}

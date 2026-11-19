@@ -19,11 +19,11 @@ import (
 
 func newAgentTestRegistry(t *testing.T, runner job.RunnerFunc) (*job.Manager, tooldef.Registry) {
 	t.Helper()
-	mgr, err := job.New(job.Options{Root: t.TempDir(), Runner: runner})
+	workdir := t.TempDir()
+	mgr, err := job.New(t.TempDir(), runner, job.WithParent("parent-1", workdir, 0))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
-	workdir := t.TempDir()
-	reg := tooldef.NewRegistry(agenttool.Bind(mgr, "parent-1", workdir).Tools())
+	reg := tooldef.NewRegistry(agenttool.BindForSession(mgr, workdir).Tools())
 	return mgr, reg
 }
 
@@ -59,6 +59,33 @@ func TestAgentToolsSpawnWaitForcesDepthAndParent(t *testing.T) {
 	assert.Contains(t, waitRes.Content, "summary-ok")
 	assert.Contains(t, waitRes.Content, `"status": "completed"`)
 	assert.Equal(t, "explore: d", waitRes.Detail)
+}
+
+func TestAgentSpawnResolvesDefaultAndAbsoluteWorkDir(t *testing.T) {
+	workDir := t.TempDir()
+	override := t.TempDir()
+	seen := make(chan string, 2)
+	mgr, err := job.New(t.TempDir(), job.RunnerFunc(func(_ context.Context, env job.RunEnv) (string, error) {
+		seen <- env.Job.WorkDir
+		return "done", nil
+	}), job.WithParent("parent", workDir, 0))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
+	reg := tooldef.NewRegistry(agenttool.BindForSession(mgr, workDir).Tools())
+
+	spawn := func(raw string) {
+		t.Helper()
+		res, err := reg["agent_spawn"].Run(t.Context(), json.RawMessage(raw))
+		require.NoError(t, err)
+		jobID := agenttool.ParseAgentResult(res.Content).JobID
+		_, err = mgr.Wait(t.Context(), jobID)
+		require.NoError(t, err)
+	}
+	spawn(`{"prompt":"default"}`)
+	spawn(`{"prompt":"override","workdir":"` + override + `"}`)
+
+	assert.Equal(t, workDir, <-seen)
+	assert.Equal(t, override, <-seen)
 }
 
 func TestAgentWaitPreservesFullSummary(t *testing.T) {
@@ -122,8 +149,8 @@ func TestAgentToolsSpawnRoleWorker(t *testing.T) {
 	assert.Equal(t, "worker: implement x", waitRes.Detail)
 }
 
-func TestBindNilManagerDisablesTools(t *testing.T) {
-	assert.Nil(t, agenttool.Bind(nil, "parent", t.TempDir()))
+func TestBindForSessionNilManagerDisablesTools(t *testing.T) {
+	assert.Nil(t, agenttool.BindForSession(nil, t.TempDir()))
 	assert.Nil(t, (*agenttool.Binding)(nil).Tools())
 	assert.Zero(t, (*agenttool.Binding)(nil).MaxConcurrent())
 }

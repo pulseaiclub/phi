@@ -17,21 +17,32 @@ const (
 	resultFile = "result.md"
 )
 
-type store struct {
+type store interface {
+	create(meta Meta) (Meta, error)
+	listIDs() ([]string, error)
+	readMeta(id string) (Meta, error)
+	writeMeta(meta Meta) error
+	appendEvent(meta Meta, msg string) error
+	readEvents(meta Meta, limit int) ([]Event, error)
+	writeResult(meta Meta, summary string) error
+	readResult(meta Meta) (string, error)
+}
+
+type diskStore struct {
 	root string
 }
 
-func newStore(root string) (*store, error) {
+func newDiskStore(root string) (*diskStore, error) {
 	if root == "" {
 		return nil, fmt.Errorf("%w: root directory is required", ErrInvalid)
 	}
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, err
 	}
-	return &store{root: root}, nil
+	return &diskStore{root: root}, nil
 }
 
-func (s *store) create(meta Meta) (Meta, error) {
+func (s *diskStore) create(meta Meta) (Meta, error) {
 	dir := filepath.Join(s.root, meta.ID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return Meta{}, err
@@ -50,7 +61,7 @@ func (s *store) create(meta Meta) (Meta, error) {
 	return meta, nil
 }
 
-func (*store) writeMeta(meta Meta) error {
+func (*diskStore) writeMeta(meta Meta) error {
 	path := filepath.Join(meta.Dir, metaFile)
 	data, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {
@@ -63,7 +74,7 @@ func (*store) writeMeta(meta Meta) error {
 	return os.Rename(tmp, path)
 }
 
-func (s *store) readMeta(id string) (Meta, error) {
+func (s *diskStore) readMeta(id string) (Meta, error) {
 	path := filepath.Join(s.root, id, metaFile)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -79,7 +90,7 @@ func (s *store) readMeta(id string) (Meta, error) {
 	return meta, nil
 }
 
-func (*store) appendEvent(meta Meta, msg string) error {
+func (*diskStore) appendEvent(meta Meta, msg string) error {
 	ev := Event{Time: time.Now().UTC(), Message: msg}
 	line, err := json.Marshal(ev)
 	if err != nil {
@@ -94,7 +105,7 @@ func (*store) appendEvent(meta Meta, msg string) error {
 	return err
 }
 
-func (*store) readEvents(meta Meta, limit int) ([]Event, error) {
+func (*diskStore) readEvents(meta Meta, limit int) ([]Event, error) {
 	data, err := os.ReadFile(meta.EventsPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -120,12 +131,12 @@ func (*store) readEvents(meta Meta, limit int) ([]Event, error) {
 	return out, nil
 }
 
-func (*store) writeResult(meta Meta, summary string) error {
+func (*diskStore) writeResult(meta Meta, summary string) error {
 	//nolint:gosec // G306: job results are local tooling state
 	return os.WriteFile(meta.ResultPath, []byte(summary), 0o644)
 }
 
-func (*store) readResult(meta Meta) (string, error) {
+func (*diskStore) readResult(meta Meta) (string, error) {
 	data, err := os.ReadFile(meta.ResultPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -136,7 +147,7 @@ func (*store) readResult(meta Meta) (string, error) {
 	return string(data), nil
 }
 
-func (s *store) listIDs() ([]string, error) {
+func (s *diskStore) listIDs() ([]string, error) {
 	entries, err := os.ReadDir(s.root)
 	if err != nil {
 		return nil, err

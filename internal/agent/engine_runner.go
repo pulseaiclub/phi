@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"strings"
 
@@ -21,12 +22,15 @@ import (
 //
 // Each Run creates a fresh Engine with a persisted session under <job.Dir>/session/.
 // Child engines do not receive Jobs, so they have no agent_* tools.
-// Role (explore|worker|review) selects tools when Tools is nil. ModelFn
-// selects the model per role when set; otherwise Model is used as a snapshot.
 type EngineRunner struct {
-	Model   llm.ModelConfig
-	ModelFn func(role job.Role) llm.ModelConfig // if set, preferred over Model
-	Tools   []tooldef.Tool                      // nil → SpecForRole(job.Role).Tools
+	specs map[job.Role]ChildSpec
+}
+
+// NewEngineRunner returns a runner with owned child specifications.
+func NewEngineRunner(specs map[job.Role]ChildSpec) EngineRunner {
+	owned := make(map[job.Role]ChildSpec, len(specs))
+	maps.Copy(owned, specs)
+	return EngineRunner{specs: owned}
 }
 
 // Run implements [job.Runner].
@@ -35,12 +39,16 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 		return "", errors.New("agent: EngineRunner requires job Dir")
 	}
 
-	spec := SpecForRole(env.Job.Role)
+	role := job.NormalizeRole(string(env.Job.Role))
+	spec, ok := r.specs[role]
+	if !ok {
+		return "", fmt.Errorf("agent: no child spec for role %q", role)
+	}
 	sess, err := newJobSession(env.Job)
 	if err != nil {
 		return "", err
 	}
-	engine, err := r.newEngine(env.Job, spec, sess)
+	engine, err := newEngine(env.Model, spec, sess)
 	if err != nil {
 		return "", err
 	}
@@ -119,24 +127,14 @@ func newJobSession(meta job.Meta) (*Session, error) {
 	)
 }
 
-func (r EngineRunner) newEngine(meta job.Meta, spec ChildSpec, sess *Session) (*Engine, error) {
-	toolList := r.Tools
-	if toolList == nil {
-		toolList = spec.Tools
-	}
-
-	cfg := r.Model
-	if r.ModelFn != nil {
-		cfg = r.ModelFn(meta.Role)
-	}
-
+func newEngine(cfg llm.ModelConfig, spec ChildSpec, sess *Session) (*Engine, error) {
 	hooks := model.HooksForConfig(cfg)
 	client := llmclient.NewClient(
 		cfg,
 		hooks,
-		tooldef.Definitions(toolList),
+		tooldef.Definitions(spec.Tools),
 		prompt.Build(sess.Cwd(), cfg.SkillPaths, false, 0, nil),
 	)
-	executor := NewExecutor(tooldef.NewRegistry(toolList), sess.Cwd())
+	executor := NewExecutor(tooldef.NewRegistry(spec.Tools), sess.Cwd())
 	return NewEngine(compaction.LimitsForModel(cfg), sess, client, executor)
 }

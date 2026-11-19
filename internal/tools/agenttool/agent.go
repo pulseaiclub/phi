@@ -33,20 +33,19 @@ How to use:
 4. Sub-agents cannot spawn further agents. Do not put secrets in the prompt.
 5. Verify before relying on a worker's edits in follow-up work.`
 
-// Binding is the immutable job context used by the agent tools.
+// Binding is the job context used by the agent tools.
 type Binding struct {
-	manager  *job.Manager
-	parentID string
-	workDir  string
+	manager *job.Manager
+	workDir string
 }
 
-// Bind associates a job manager with the parent session and working directory.
+// BindForSession binds tools to a working directory without changing the manager's active parent.
 // A nil manager disables sub-agent tools.
-func Bind(manager *job.Manager, parentID, workDir string) *Binding {
+func BindForSession(manager *job.Manager, workDir string) *Binding {
 	if manager == nil {
 		return nil
 	}
-	return &Binding{manager: manager, parentID: parentID, workDir: workDir}
+	return &Binding{manager: manager, workDir: workDir}
 }
 
 // Tools returns agent_spawn and agent_wait for this binding.
@@ -111,16 +110,17 @@ Concurrency cap: at most %d sub-agents run concurrently; spawning more fails (jo
 			if err != nil {
 				return tooldef.Result{}, err
 			}
-			wd, err := absCleanAt(strings.TrimSpace(in.WorkDir), binding.workDir)
-			if err != nil {
-				return tooldef.Result{}, fmt.Errorf("agent_spawn workdir: %w", err)
+			var wd string
+			if strings.TrimSpace(in.WorkDir) != "" {
+				wd, err = absCleanAt(in.WorkDir, binding.workDir)
+				if err != nil {
+					return tooldef.Result{}, fmt.Errorf("agent_spawn workdir: %w", err)
+				}
 			}
 			req := job.SpawnRequest{
 				Prompt:          in.Prompt,
 				Description:     in.Description,
-				ParentID:        binding.parentID,
 				ParentToolUseID: tooldef.ToolCallID(ctx),
-				Depth:           0,
 				Role:            role,
 				WorkDir:         wd,
 			}

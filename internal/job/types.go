@@ -59,12 +59,9 @@ type Info struct {
 type SpawnRequest struct {
 	Prompt          string
 	Description     string
-	ParentID        string        // parent session or parent job id (opaque to this package)
 	ParentToolUseID string        // parent agent tool_use id for TUI nesting (not persisted)
-	ParentContext   ParentContext // trusted spawn-time snapshot; never persisted in job metadata
-	Depth           int           // 0 = top-level; tool layer should force Depth for children
 	Role            Role          // explore | worker | review; empty → explore
-	WorkDir         string
+	WorkDir         string        // optional absolute override; empty uses manager parent context
 	Timeout         time.Duration // 0 = no run timeout; Cancel still works
 }
 
@@ -72,10 +69,8 @@ func (r SpawnRequest) validate() error {
 	if r.Prompt == "" {
 		return fmt.Errorf("%w: prompt is required", ErrInvalid)
 	}
-	if _, err := ParseRole(string(r.Role)); err != nil {
-		return err
-	}
-	return r.ParentContext.Validate()
+	_, err := ParseRole(string(r.Role))
+	return err
 }
 
 // Event is one JSONL log line.

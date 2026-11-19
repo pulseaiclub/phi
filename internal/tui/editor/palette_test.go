@@ -46,9 +46,7 @@ func TestPaletteReopenReflectsThinkingSelectionAndModelSwitch(t *testing.T) {
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
 	bus := controller.NewBus(nil)
-	ctrl, err := controller.NewController(bus, proj)
-	require.NoError(t, err)
-	t.Cleanup(ctrl.Close)
+	ctrl := newInjectedTestController(t, bus, proj)
 	e := NewEditor(
 		app.NewApp(nil),
 		bus,
@@ -187,9 +185,7 @@ func TestModelPaletteSavesDefaultAndRestoresSession(t *testing.T) {
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
 	bus := controller.NewBus(nil)
-	ctrl, err := controller.NewController(bus, proj)
-	require.NoError(t, err)
-	t.Cleanup(ctrl.Close)
+	ctrl := newInjectedTestController(t, bus, proj)
 	e := NewEditor(app.NewApp(nil), bus, ctrl, nil, components.DefaultTheme(), cwd,
 		"primary", nil, []string{"primary", "secondary"})
 	key := func(code xui.KeyCode, r rune, mods xui.Modifiers) {
@@ -260,9 +256,7 @@ func TestModelPaletteSavesDefaultAndRestoresSession(t *testing.T) {
 	assert.Equal(t, "secondary", ctrl.ModelName())
 
 	ctrl.Close()
-	restarted, err := controller.NewController(controller.NewBus(nil), proj)
-	require.NoError(t, err)
-	t.Cleanup(restarted.Close)
+	restarted := newInjectedTestController(t, controller.NewBus(nil), proj)
 	assert.Equal(t, "secondary", restarted.ModelName(), "saved default must survive restart")
 	_, err = restarted.Resume(firstID)
 	require.NoError(t, err)

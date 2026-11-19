@@ -319,13 +319,8 @@ agents:
 	assert.False(t, ok)
 }
 
-func TestAgentsRoleModelsForRole(t *testing.T) {
+func TestAgentsRoleOverrides(t *testing.T) {
 	models := AgentsRoleModels{Explore: "cheap", Review: "strong", Worker: "coding"}
-
-	assert.Equal(t, "cheap", models.ForRole("explore"))
-	assert.Equal(t, "strong", models.ForRole("review"))
-	assert.Equal(t, "coding", models.ForRole("worker"))
-	assert.Equal(t, "cheap", models.ForRole("unknown"))
 
 	assert.Equal(t, map[job.Role]string{
 		job.RoleExplore: "cheap",

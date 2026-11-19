@@ -188,7 +188,8 @@ func TestChildToolReadsRelativeToJobWorkDir(t *testing.T) {
 	meta := job.Meta{Dir: t.TempDir(), WorkDir: workDir}
 	sess, err := newJobSession(meta)
 	require.NoError(t, err)
-	child, err := (EngineRunner{}).newEngine(meta, SpecForRole(job.RoleExplore), sess)
+	spec := SpecForRole(job.RoleExplore)
+	child, err := newEngine(llm.ModelConfig{}, spec, sess)
 	require.NoError(t, err)
 	msgs := child.executor.Run(t.Context(), []llm.ToolCall{{
 		ID: "child-read", Function: llm.Function{Name: "read", Arguments: `{"path":"child.txt"}`},
