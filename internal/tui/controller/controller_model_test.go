@@ -14,7 +14,7 @@ import (
 )
 
 func TestModelLifecycle(t *testing.T) {
-	ctrl := newTestController(t, "http://127.0.0.1:9")
+	ctrl := newTestController(t)
 	cwd := ctrl.cwd
 	flush := func() {
 		require.NoError(t, ctrl.session.Append(llm.Message{Role: llm.RoleUser, Content: "hello"}))
@@ -51,7 +51,7 @@ func TestModelLifecycle(t *testing.T) {
 }
 
 func TestAppendUserBashAttributesOutputToActiveSession(t *testing.T) {
-	ctrl := newTestController(t, "http://127.0.0.1:9")
+	ctrl := newTestController(t)
 	oldID := ctrl.SessionID()
 
 	require.NoError(t, ctrl.NewSession())
@@ -69,7 +69,7 @@ func TestAppendUserBashAttributesOutputToActiveSession(t *testing.T) {
 
 func TestUnlistedModelUsesPrimaryConnection(t *testing.T) {
 	const baseURL = "http://127.0.0.1:9"
-	ctrl := newTestController(t, baseURL)
+	ctrl := newTestController(t)
 	require.NoError(t, ctrl.SetModel("unlisted"))
 	cfg := ctrl.modelSnapshot()
 	assert.Equal(t, "unlisted", cfg.Name)
@@ -77,8 +77,9 @@ func TestUnlistedModelUsesPrimaryConnection(t *testing.T) {
 	assert.Equal(t, "test-key", cfg.APIKey)
 }
 
-func newTestController(t *testing.T, baseURL string) *EngineController {
+func newTestController(t *testing.T) *EngineController {
 	t.Helper()
+	const baseURL = "http://127.0.0.1:9"
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)

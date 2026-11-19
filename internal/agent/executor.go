@@ -22,8 +22,8 @@ type Executor struct {
 }
 
 // NewExecutor builds an executor.
-func NewExecutor(registry tooldef.Registry) *Executor {
-	return &Executor{registry: registry}
+func NewExecutor(registry tooldef.Registry, cwd string) *Executor {
+	return &Executor{registry: registry, cwd: cwd}
 }
 
 // Run executes tool calls and yields ToolData updates via emit.

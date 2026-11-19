@@ -18,11 +18,11 @@ import (
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/project"
-	"github.com/pulseaiclub/phi/internal/project/model"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools"
 	"github.com/pulseaiclub/phi/internal/tools/agenttool"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
+	"github.com/pulseaiclub/phi/internal/tui/controller"
 	"github.com/pulseaiclub/phi/internal/util"
 )
 
@@ -98,23 +98,20 @@ func runHeadless(opts runOptions) error {
 		mcpPool = pool
 		defer func() { _ = pool.Close() }()
 	}
-	var engineOpts []agent.EngineConfigOption
+	var selected []tooldef.Tool
 	if opts.builtinTools != "" {
-		selected, err := selectBuiltinTools(opts.builtinTools, mcpPool)
+		selected, err = selectBuiltinTools(opts.builtinTools, mcpPool)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "phi run:", err)
 			return exitCode(ExitUsage)
 		}
-		engineOpts = append(engineOpts, agent.WithTools(selected))
+	} else {
+		selected = tools.DefaultTools(mcpPool)
 	}
 	primary, err := resolveRunModel(bs.Config, opts.model)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "phi run:", err)
 		return exitCode(ExitUsage)
-	}
-	engineOpts = append(engineOpts, agent.WithHooks(model.HooksForConfig(primary)))
-	if mcpPool != nil {
-		engineOpts = append(engineOpts, agent.WithMCP(mcpPool))
 	}
 	sessionOpts := []agent.SessionOption{
 		agent.WithCwd(bs.Cwd),
@@ -132,6 +129,7 @@ func runHeadless(opts runOptions) error {
 		return exitCode(ExitUsage)
 	}
 
+	var binding *agenttool.Binding
 	if bs.Config.Agents.Enabled {
 		parent := primary
 		jobs, jobErr := agent.NewJobManager(bs.Proj.JobsDir(), parent, func(role job.Role) llm.ModelConfig {
@@ -145,10 +143,10 @@ func runHeadless(opts runOptions) error {
 			return exitCode(ExitUsage)
 		}
 		defer func() { _ = jobs.Close(context.Background()) }()
-		engineOpts = append(engineOpts, agent.WithJobs(agenttool.Bind(jobs, sess.ID(), sess.Cwd())))
+		binding = agenttool.Bind(jobs, sess.ID(), sess.Cwd())
 	}
 
-	engine, err := agent.NewEngine(primary, sess, engineOpts...)
+	engine, err := controller.NewParentEngine(primary, sess, selected, mcpPool, binding)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "phi run:", err)
 		return exitCode(ExitUsage)

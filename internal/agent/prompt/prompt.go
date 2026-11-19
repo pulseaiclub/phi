@@ -80,6 +80,29 @@ func execTmpl(t *template.Template, data any) string {
 	return strings.TrimSpace(buf.String())
 }
 
+// WithSkills prepends read instructions for the skills selected for this turn.
+func WithSkills(text string, skillPaths, names []string) string {
+	if len(names) == 0 {
+		return text
+	}
+	list := skills.LoadAll(skillPaths)
+	targets := make([]string, 0, len(names))
+	for _, name := range names {
+		if s := skills.Find(list, name); s != nil && s.SkillFilePath != "" {
+			name = s.SkillFilePath
+		}
+		targets = append(targets, name)
+	}
+	instruction := fmt.Sprintf(
+		"You MUST read these skill files first with the read tool and follow them: %s. Do this immediately before responding.",
+		strings.Join(targets, ", "),
+	)
+	if text == "" {
+		return instruction
+	}
+	return instruction + "\n\n" + text
+}
+
 func skillsBlock(skillPaths []string) string {
 	list := skills.LoadAll(skillPaths)
 	if len(list) == 0 {

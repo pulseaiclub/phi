@@ -7,10 +7,13 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/pulseaiclub/phi/internal/agent/prompt"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
+	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
 	"github.com/pulseaiclub/phi/internal/project/model"
 	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/pulseaiclub/phi/internal/session/compaction"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
@@ -127,8 +130,13 @@ func (r EngineRunner) newEngine(meta job.Meta, spec ChildSpec, sess *Session) (*
 		cfg = r.ModelFn(meta.Role)
 	}
 
-	return NewEngine(cfg, sess,
-		WithTools(toolList),
-		WithHooks(model.HooksForConfig(cfg)),
+	hooks := model.HooksForConfig(cfg)
+	client := llmclient.NewClient(
+		cfg,
+		hooks,
+		tooldef.Definitions(toolList),
+		prompt.Build(sess.Cwd(), cfg.SkillPaths, false, 0, nil),
 	)
+	executor := NewExecutor(tooldef.NewRegistry(toolList), sess.Cwd())
+	return NewEngine(compaction.LimitsForModel(cfg), sess, client, executor)
 }

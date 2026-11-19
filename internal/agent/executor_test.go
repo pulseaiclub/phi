@@ -26,7 +26,7 @@ func TestExecutorEmitsToolName(t *testing.T) {
 			},
 		},
 	}
-	ex := NewExecutor(reg)
+	ex := NewExecutor(reg, "")
 	var names []string
 	ex.Run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
@@ -52,7 +52,7 @@ func TestExecutorToolErrorKeepsOutputEmptyForUI(t *testing.T) {
 		},
 	}
 
-	ex := NewExecutor(reg)
+	ex := NewExecutor(reg, "")
 	var last session.ToolRun
 	msgs := ex.Run(t.Context(), []llm.ToolCall{{
 		ID: "c1",
@@ -99,7 +99,7 @@ func TestExecutorRunsReadableBatchConcurrently(t *testing.T) {
 			},
 		},
 	}
-	ex := NewExecutor(reg)
+	ex := NewExecutor(reg, "")
 	done := make(chan struct{})
 	var msgs []llm.Message
 	go func() {
@@ -146,7 +146,7 @@ func TestExecutorMixedBatchStaysSequential(t *testing.T) {
 			},
 		},
 	}
-	ex := NewExecutor(reg)
+	ex := NewExecutor(reg, "")
 	done := make(chan struct{})
 	var msgs []llm.Message
 	go func() {

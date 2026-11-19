@@ -103,12 +103,15 @@ func TestRetryLastPromptResumesWithoutDuplicateUserMessage(t *testing.T) {
 	_ = ctrl.bus.Drain()
 	requests = make(chan struct{}, 4)
 
-	ctrl.StartPrompt("keep this once", nil, nil)
+	ctrl.StartPrompt("keep this once", []string{"review-skill"}, nil)
 	first := waitLoopFinished(t, ctrl.bus, 1)
 	require.NotEmpty(t, first.ErrorText)
 	assert.False(t, first.Cancelled)
 	assert.True(t, retryReady(ctrl))
-	assert.Len(t, userMessages(ctrl), 1)
+	users := userMessages(ctrl)
+	require.Len(t, users, 1)
+	assert.Contains(t, users[0].Content, "follow them: review-skill.")
+	assert.Contains(t, users[0].Content, "\n\nkeep this once")
 
 	require.True(t, ctrl.RetryLastPrompt())
 	assert.False(t, retryReady(ctrl), "starting a retry must consume retryReady")

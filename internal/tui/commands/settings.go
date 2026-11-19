@@ -130,7 +130,10 @@ func (s *SettingsCommands) applyTheme(name string) {
 }
 
 func (s *SettingsCommands) setAgents(enabled bool) {
-	s.Ctrl.SetAgentsEnabled(enabled)
+	if err := s.Ctrl.SetAgentsEnabled(enabled); err != nil {
+		publishToast(s.Bus, err.Error(), toast.ToastError, 3*time.Second)
+		return
+	}
 	msg := "Sub-agents: off"
 	if enabled {
 		msg = "Sub-agents: on"

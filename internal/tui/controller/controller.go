@@ -5,20 +5,26 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/agent"
+	"github.com/pulseaiclub/phi/internal/agent/prompt"
 	"github.com/pulseaiclub/phi/internal/debuglog"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
+	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
 	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/project/model"
 	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/pulseaiclub/phi/internal/session/compaction"
+	"github.com/pulseaiclub/phi/internal/tools"
 	"github.com/pulseaiclub/phi/internal/tools/agenttool"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
 // EngineController owns the active session and its agent.Engine lifecycle.
@@ -140,11 +146,16 @@ func (c *EngineController) shouldPublishJobProgress(p job.Progress) bool {
 	return true
 }
 
-func (c *EngineController) SetAgentsEnabled(v bool) {
+func (c *EngineController) SetAgentsEnabled(v bool) error {
 	c.sessionMu.Lock()
 	defer c.sessionMu.Unlock()
+	eng, err := c.newEngine(c.modelCfg, c.session, v)
+	if err != nil {
+		return err
+	}
+	c.engine = eng
 	c.agentsEnabled.Store(v)
-	c.engine.SetJobs(c.engineJobs(c.session))
+	return nil
 }
 
 // AgentsEnabled reports whether sub-agent (agent_*) tools are registered.
@@ -192,13 +203,6 @@ func (c *EngineController) SetRoleModel(role, name string) error {
 	return nil
 }
 
-func (c *EngineController) engineJobs(sess *agent.Session) *agenttool.Binding {
-	if !c.agentsEnabled.Load() {
-		return nil
-	}
-	return agenttool.Bind(c.jobs, sess.ID(), sess.Cwd())
-}
-
 // SaveDefaultModel changes the global default without rewriting any session.
 func (c *EngineController) SaveDefaultModel(name string) error {
 	return project.SetDefaultModel(c.proj.Global(), name)
@@ -216,10 +220,14 @@ func (c *EngineController) SetModel(name string) error {
 	c.Cancel()
 	c.sessionMu.Lock()
 	defer c.sessionMu.Unlock()
+	eng, err := c.newEngine(cfg, c.session, c.agentsEnabled.Load())
+	if err != nil {
+		return err
+	}
 	if err := c.session.SetModel(name); err != nil {
 		return err
 	}
-	c.engine.SetModelWithHooks(cfg, model.HooksForConfig(cfg))
+	c.engine = eng
 	c.modelCfg = cfg
 	return nil
 }
@@ -233,7 +241,11 @@ func (c *EngineController) SetThinkLevel(mode llm.ThinkMode) error {
 	if err := model.ValidateThinking(cfg); err != nil {
 		return err
 	}
-	c.engine.SetModel(cfg)
+	eng, err := c.newEngine(cfg, c.session, c.agentsEnabled.Load())
+	if err != nil {
+		return err
+	}
+	c.engine = eng
 	c.modelCfg = cfg
 	return nil
 }
@@ -359,7 +371,7 @@ func (c *EngineController) ForkSession() (string, error) {
 		c.discardFork(forked.ID())
 		return "", err
 	}
-	eng, err := c.newEngine(cfg, forked)
+	eng, err := c.newEngine(cfg, forked, c.agentsEnabled.Load())
 	if err != nil {
 		c.discardFork(forked.ID())
 		return "", err
@@ -431,22 +443,39 @@ func (c *EngineController) openEngine(
 	if name := sess.ModelName(); resumeID != "" && name != "" {
 		cfg = resolveModelConfig(c.proj.Config(), name)
 	}
-	eng, err := c.newEngine(cfg, sess)
+	eng, err := c.newEngine(cfg, sess, c.agentsEnabled.Load())
 	if err != nil {
 		return nil, nil, llm.ModelConfig{}, err
 	}
 	return eng, sess, cfg, nil
 }
 
-// newEngine binds a session to a fresh engine on the controller-wide gate,
-// jobs, MCP pool and hooks. Every session switch funnels through here, so a
-// forked session runs on exactly the wiring of a resumed one.
-func (c *EngineController) newEngine(cfg llm.ModelConfig, sess *agent.Session) (*agent.Engine, error) {
-	return agent.NewEngine(cfg, sess,
-		agent.WithJobs(c.engineJobs(sess)),
-		agent.WithMCP(c.mcpPool),
-		agent.WithHooks(model.HooksForConfig(cfg)),
-	)
+func (c *EngineController) newEngine(cfg llm.ModelConfig, sess *agent.Session, enableJobs bool) (*agent.Engine, error) {
+	var jobs *agenttool.Binding
+	if enableJobs {
+		jobs = agenttool.Bind(c.jobs, sess.ID(), sess.Cwd())
+	}
+	return NewParentEngine(cfg, sess, tools.DefaultTools(c.mcpPool), c.mcpPool, jobs)
+}
+
+// NewParentEngine uses the same tools for the model schema and for execution
+// in both the TUI and headless runs. MCP contributes server names, not schemas.
+func NewParentEngine(
+	cfg llm.ModelConfig,
+	sess *agent.Session,
+	base []tooldef.Tool,
+	pool *mcp.Pool,
+	jobs *agenttool.Binding,
+) (*agent.Engine, error) {
+	list := base
+	if jobs != nil {
+		list = slices.Concat(base, jobs.Tools())
+	}
+	cwd := sess.Cwd()
+	system := prompt.Build(cwd, cfg.SkillPaths, jobs != nil, jobs.MaxConcurrent(), pool.ServerNames())
+	client := llmclient.NewClient(cfg, model.HooksForConfig(cfg), tooldef.Definitions(list), system)
+	executor := agent.NewExecutor(tooldef.NewRegistry(list), cwd)
+	return agent.NewEngine(compaction.LimitsForModel(cfg), sess, client, executor)
 }
 
 func (c *EngineController) ReplaySnapshot() session.Snapshot {
@@ -477,9 +506,9 @@ func (c *EngineController) startPromptLocked() {
 	c.retryReady = false
 	c.publish(LoopStartedMsg{Gen: c.streamGen})
 	c.sessionMu.RLock()
-	engine := c.engine
+	engine, skillPaths := c.engine, c.modelCfg.SkillPaths
 	c.sessionMu.RUnlock()
-	go c.runLoop(ctx, c.streamGen, engine, c.lastPrompt, c.promptAppended)
+	go c.runLoop(ctx, c.streamGen, engine, c.lastPrompt, skillPaths, c.promptAppended)
 }
 
 // RetryLastPrompt resumes a failed turn without appending its user message again.
@@ -553,17 +582,27 @@ func (c *EngineController) finishLoop(ctx context.Context, gen int, err error) {
 	c.publish(LoopFinishedMsg{Gen: gen, ErrorText: errText, Cancelled: cancelled})
 }
 
-func (c *EngineController) runLoop(ctx context.Context, gen int, engine *agent.Engine, prompt LastPrompt, resume bool) {
+func (c *EngineController) runLoop(
+	ctx context.Context,
+	gen int,
+	engine *agent.Engine,
+	submission LastPrompt,
+	skillPaths []string,
+	resume bool,
+) {
 	if !c.waitOrDone(ctx, gen, 120*time.Millisecond) {
 		return
 	}
 	var loopErr error
 	// Retry must not start while the failed turn's iterator is still unwinding.
 	defer func() { c.finishLoop(ctx, gen, loopErr) }()
-	for ev, err := range engine.Loop(ctx, prompt.Text, agent.LoopOpts{
-		PendingSkills: prompt.Skills,
-		Images:        prompt.Images,
-		Resume:        resume,
+	text := submission.Text
+	if !resume {
+		text = prompt.WithSkills(text, skillPaths, submission.Skills)
+	}
+	for ev, err := range engine.Loop(ctx, text, agent.LoopOpts{
+		Images: submission.Images,
+		Resume: resume,
 		OnPromptAppended: func() {
 			c.streamMu.Lock()
 			defer c.streamMu.Unlock()

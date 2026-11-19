@@ -6,129 +6,44 @@ import (
 	"errors"
 	"fmt"
 	"iter"
-	"slices"
-	"strings"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/agent/prompt"
 	"github.com/pulseaiclub/phi/internal/llm"
-	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
-	"github.com/pulseaiclub/phi/internal/llm/skills"
-	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/session/compaction"
-	"github.com/pulseaiclub/phi/internal/tools"
-	"github.com/pulseaiclub/phi/internal/tools/agenttool"
-	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
 // Engine drives the agent loop: stream → tools → stream…
 // and yields session.Event for the TUI reducer. Context compaction is owned
 // here so Session stays a thin message store.
 type Engine struct {
-	client    llm.ChatClient
-	executor  *Executor
-	modelCfg  llm.ModelConfig
-	hooks     llmclient.Hooks
-	jobs      *agenttool.Binding
-	baseTools []tooldef.Tool // nil = DefaultTools; preserved across rebind
-	mcp       *mcp.Pool
-
-	session *Session
+	client   llm.ChatClient
+	executor *Executor
+	limits   compaction.OutputLimits
+	session  *Session
 }
 
-// NewEngine wires an LLM client, tool executor, and an externally created session.
-func NewEngine(model llm.ModelConfig, sess *Session, opts ...EngineConfigOption) (*Engine, error) {
+// NewEngine runs the supplied client and executor against a session.
+func NewEngine(
+	limits compaction.OutputLimits,
+	sess *Session,
+	client llm.ChatClient,
+	executor *Executor,
+) (*Engine, error) {
 	if sess == nil {
 		return nil, errors.New("agent: session is required")
 	}
-	var cfg EngineConfig
-	for _, opt := range opts {
-		cfg = opt.Apply(cfg)
+	if client == nil {
+		return nil, errors.New("agent: chat client is required")
 	}
-	engine := &Engine{
-		modelCfg: model,
-		hooks:    cfg.hooks,
-		session:  sess,
-		jobs:     cfg.jobs,
-		mcp:      cfg.mcp,
+	if executor == nil {
+		return nil, errors.New("agent: tool executor is required")
 	}
-	engine.baseTools = cfg.tools
-	engine.rebindTools()
-	return engine, nil
-}
-
-// SetModel replaces the LLM client and model-related settings without
-// discarding the session tree. Agent tools remain registered when Jobs is set.
-func (engine *Engine) SetModel(cfg llm.ModelConfig) {
-	engine.modelCfg = cfg
-	engine.rebindTools()
-}
-
-// SetModelWithHooks replaces the model config and request hooks together.
-func (engine *Engine) SetModelWithHooks(cfg llm.ModelConfig, hooks llmclient.Hooks) {
-	engine.modelCfg = cfg
-	engine.hooks = hooks
-	engine.rebindTools()
-}
-
-// SetJobs attaches or detaches the bound job tools and rebuilds the tool list.
-// Pass nil to unregister agent_* tools (sub-agents disabled).
-func (engine *Engine) SetJobs(binding *agenttool.Binding) {
-	engine.jobs = binding
-	engine.rebindTools()
-}
-
-func (engine *Engine) rebindTools() {
-	toolList := engine.baseTools
-	if toolList == nil {
-		// MCP needs no extra tools: the pool rides the default ls/read/write tools.
-		toolList = tools.DefaultTools(engine.mcp)
-	}
-	if engine.jobs != nil {
-		toolList = slices.Concat(toolList, engine.jobs.Tools())
-	}
-	engine.client = llmclient.NewClient(
-		engine.modelCfg,
-		engine.hooks,
-		tooldef.Definitions(toolList),
-		engine.systemPrompt(),
-	)
-	engine.executor = NewExecutor(tooldef.NewRegistry(toolList))
-	engine.executor.cwd = engine.session.Cwd()
-}
-
-func (engine *Engine) systemPrompt() string {
-	var mcpServers []string
-	if engine.mcp != nil {
-		mcpServers = engine.mcp.ServerNames()
-	}
-	maxConcurrent := 0
-	if engine.jobs != nil {
-		maxConcurrent = engine.jobs.MaxConcurrent()
-	}
-	// Build from the session cwd, not the process cwd: a sub-agent spawned with
-	// its own workdir must load that workspace's instructions.
-	return prompt.Build(
-		engine.session.Cwd(),
-		engine.modelCfg.SkillPaths,
-		engine.jobs != nil,
-		maxConcurrent,
-		mcpServers,
-	)
-}
-
-// HasTool reports whether a tool is currently registered on the executor.
-func (engine *Engine) HasTool(name string) bool {
-	_, ok := engine.executor.registry[name]
-	return ok
+	return &Engine{limits: limits, session: sess, client: client, executor: executor}, nil
 }
 
 // LoopOpts configures a single agent loop turn.
 type LoopOpts struct {
-	// PendingSkills are skill names the user selected in the composer.
-	// When set, the model is instructed to read those SKILL.md files first.
-	PendingSkills []string
 	// Images are base64 attachments from the composer pending queue.
 	Images []llm.Image
 	// Resume continues inference from the current session without appending a new user message.
@@ -174,17 +89,9 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 		}
 
 		if !opts.Resume {
-			content := prompt
-			if instr := pendingSkillsInstruction(engine.modelCfg.SkillPaths, opts.PendingSkills); instr != "" {
-				if content == "" {
-					content = instr
-				} else {
-					content = instr + "\n\n" + content
-				}
-			}
 			if err := engine.session.Append(llm.Message{
 				Role:    llm.RoleUser,
-				Content: content,
+				Content: prompt,
 				Images:  append([]llm.Image(nil), opts.Images...),
 			}); err != nil {
 				yield(nil, err)
@@ -291,10 +198,7 @@ func (engine *Engine) runCompact(
 	force bool,
 ) (did bool, err error) {
 	settings := compaction.DefaultSettings()
-	if engine.client == nil {
-		return false, nil
-	}
-	if !force && !compaction.ShouldCompact(usage, engine.modelCfg.ContextWindow, settings) {
+	if !force && !compaction.ShouldCompact(usage, engine.limits.ContextWindow, settings) {
 		return false, nil
 	}
 	prep, err := compaction.PrepareCompact(engine.session.PathEntries(), settings)
@@ -304,10 +208,7 @@ func (engine *Engine) runCompact(
 	if prep.FirstKeptEntryId == "" {
 		return false, nil
 	}
-	prep.Limits = compaction.OutputLimits{
-		MaxTokens:     engine.modelCfg.MaxTokens,
-		ContextWindow: engine.modelCfg.ContextWindow,
-	}
+	prep.Limits = engine.limits
 	if force && len(prep.MessagesToSummarize) == 0 && len(prep.TurnPrefixMessages) == 0 {
 		return false, nil
 	}
@@ -473,25 +374,4 @@ func emitMessage(
 		Text:       text,
 		Usage:      session.TokenUsageFrom(usage),
 	}}
-}
-
-// pendingSkillsInstruction tells the model to read SKILL.md files for the
-// selected skills (reuse the read tool, no dedicated skill tool).
-func pendingSkillsInstruction(skillPaths, names []string) string {
-	if len(names) == 0 {
-		return ""
-	}
-	list := skills.LoadAll(skillPaths)
-	targets := make([]string, 0, len(names))
-	for _, name := range names {
-		if s := skills.Find(list, name); s != nil && s.SkillFilePath != "" {
-			targets = append(targets, s.SkillFilePath)
-			continue
-		}
-		targets = append(targets, name)
-	}
-	return fmt.Sprintf(
-		"You MUST read these skill files first with the read tool and follow them: %s. Do this immediately before responding.",
-		strings.Join(targets, ", "),
-	)
 }
