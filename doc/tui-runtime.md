@@ -50,6 +50,25 @@ Two timing rules preserved from the shell:
 `components/toast.Toast` takes an optional `Now func() time.Time` clock so
 tests and golden frames can freeze the toast lifecycle.
 
+## Transport rules
+
+How data crosses the UI/domain boundary — one rule per direction:
+
+1. **UI goroutine → domain: direct calls.** Wiring sites pass method values
+   (`e.ctrl.ImageEnabled`, `e.overlayPlugin.Cancel`), never anonymous
+   forwarding closures. When a callback needs two calls or a signature
+   adapter, it becomes a named `Editor` method (`publishToast`,
+   `copyToClipboard`) so the wiring reads as a table of collaborators.
+2. **Any goroutine → UI: `bus.Publish`.** Engine events, job progress,
+   background checks publish `Msg`s; the UI goroutine applies them in
+   `DispatchBatch`/`Dispatch`.
+3. **Widgets stay dumb.** `internal/components` take narrow func fields /
+   interfaces; they never import domain packages. The binding happens once,
+   in `NewEditor`, as method values.
+4. **Immutable collaborators go by value.** Single-creation handles
+   (`commands.Context`, working directory) are constructor parameters, not
+   accessor funcs — a `func() X` implies it can change or is computed.
+
 ## Migration status: complete
 
 Runtime-registered plugins (implement `runtime.Plugin`): `toast`, `overlay`,

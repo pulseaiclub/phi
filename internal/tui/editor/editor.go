@@ -42,11 +42,11 @@ import (
 //
 // Transport rules: UI→domain is direct calls (NewEditor wires method values,
 // never anonymous forwarding closures; signature adapters are named Editor
-// methods). Any-goroutine→UI is bus.Publish. See doc/tui.md "Transport rules".
+// methods). Any-goroutine→UI is bus.Publish. See doc/tui-runtime.md "Transport rules".
 //
-// cmd constructs Bus/Controller/App and passes them into NewEditor, which builds
-// builtins via commands.NewBuiltinRegistry. Editor does not create
-// controller.EngineController or fetch the project singleton.
+// cmd constructs Bus/Controller/App and passes them into NewEditor, which
+// builds the command registry and registers every plugin. Editor does not
+// create controller.EngineController or fetch the project singleton.
 type Editor struct {
 	vx    *xui.XUI
 	App   *app.App

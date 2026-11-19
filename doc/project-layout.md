@@ -39,5 +39,5 @@
 | [`extensions.md`](extensions.md) | Extensions: discover, API, events, migration from hooks |
 | [`mcp.md`](mcp.md) | MCP: zero schema pollution, mcp:// URLs, config, CLI |
 | [`models.md`](models.md) | Supported models, presets, explicit `api`, thinking config |
-| [`tui.md`](tui.md) | TUI: package layout, aggregation, interaction flows |
+| [`tui-runtime.md`](tui-runtime.md) | TUI: runtime + plugin architecture, extension points, transport rules |
 | [`session-context-building.md`](session-context-building.md) | Sessions: tree model, compaction, context building |
