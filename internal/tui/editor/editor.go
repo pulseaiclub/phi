@@ -20,6 +20,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 	"github.com/pulseaiclub/phi/internal/tui/footer"
 	"github.com/pulseaiclub/phi/internal/tui/pathutil"
+	"github.com/pulseaiclub/phi/internal/tui/plugin/bash"
 	"github.com/pulseaiclub/phi/internal/tui/plugin/code"
 	"github.com/pulseaiclub/phi/internal/tui/plugin/diff"
 	"github.com/pulseaiclub/phi/internal/tui/plugin/overlay"
@@ -59,6 +60,7 @@ type Editor struct {
 	toastPlugin   *toastplugin.Plugin
 	diffPlugin    *diff.Plugin
 	codePlugin    *code.Plugin
+	bashPlugin    *bash.Plugin
 
 	// The TUI redraws at 60fps; the flowing status highlight moves every fourth
 	// frame, matching the ~80ms cadence status.Spinner used to declare.
@@ -146,6 +148,8 @@ func NewEditor(
 		FocusTarget: e,
 	})
 	e.rt.Register(e.codePlugin)
+	e.bashPlugin = bash.New(e.transcript, e.composer, e.bus, e.ctrl)
+	e.rt.Register(e.bashPlugin)
 
 	builtins := commands.NewBuiltinRegistry(
 		e.bus,
@@ -172,6 +176,11 @@ func NewEditor(
 		e.composer,
 		e.bus,
 		cmdCtx,
+		submit.ShellHooks{
+			Running:    e.bashPlugin.Running,
+			Cancel:     e.bashPlugin.Cancel,
+			SyncBorder: e.bashPlugin.SyncBorder,
+		},
 		e.overlayPlugin.BlocksSessionSwitch,
 		e.overlayPlugin.Cancel,
 	)
@@ -221,7 +230,11 @@ func (e *Editor) Update(m controller.Msg) {
 	}
 	switch msg := m.(type) {
 	case controller.SubmitMsg:
-		e.submitter.Submit(msg.Text)
+		// Plugins claim their inputs first ("!cmd" shell lines); the rest
+		// follows the shell submit path.
+		if !e.rt.FilterSubmit(msg.Text) {
+			e.submitter.Submit(msg.Text)
+		}
 	case controller.CancelStreamMsg:
 		e.submitter.Cancel()
 	case controller.MentionResultsMsg:

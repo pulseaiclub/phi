@@ -14,14 +14,22 @@ import (
 	imgutil "github.com/pulseaiclub/phi/internal/util/image"
 )
 
-// Submitter owns submit / cancel / slash dispatch and coordinates bash runs.
+// ShellHooks routes "!cmd" shell mode to the bash plugin: the runner moved
+// out of the Submitter, so these are method values the root wires.
+type ShellHooks struct {
+	Running    func() bool
+	Cancel     func() bool
+	SyncBorder func(text string)
+}
+
+// Submitter owns submit / cancel / slash dispatch for the shell path.
 type Submitter struct {
 	ctrl       *controller.EngineController
 	commands   *commands.CommandRegistry
 	transcript *transcript.TranscriptPane
 	activity   *controller.ActivityHandler
 	composer   composer.Input
-	bash       *BashRunner
+	hooks      ShellHooks
 
 	commandContext commands.Context
 
@@ -32,7 +40,6 @@ type Submitter struct {
 }
 
 // NewSubmitter builds a Submitter from explicit collaborators (no *Editor back-pointer).
-// BashRunner is composed internally from transcript/composer/bus.
 func NewSubmitter(
 	ctrl *controller.EngineController,
 	commands *commands.CommandRegistry,
@@ -41,6 +48,7 @@ func NewSubmitter(
 	composer composer.Input,
 	bus *controller.Bus,
 	commandContext commands.Context,
+	hooks ShellHooks,
 	overlayBlocksSessionSwitch func() bool,
 	cancelOverlays func(),
 ) *Submitter {
@@ -50,7 +58,7 @@ func NewSubmitter(
 		transcript:                 transcript,
 		activity:                   activity,
 		composer:                   composer,
-		bash:                       newBashRunner(transcript, composer, bus, ctrl),
+		hooks:                      hooks,
 		commandContext:             commandContext,
 		bus:                        bus,
 		overlayBlocksSessionSwitch: overlayBlocksSessionSwitch,
@@ -60,17 +68,15 @@ func NewSubmitter(
 
 // SyncBashBorder updates composer chrome for "!cmd" prefix.
 func (s *Submitter) SyncBashBorder(text string) {
-	s.bash.SyncBorder(text)
+	if s.hooks.SyncBorder != nil {
+		s.hooks.SyncBorder(text)
+	}
 }
 
-// Submit handles a user prompt from the composer (agent, slash, or bash).
+// Submit handles a user prompt from the composer (agent or slash); "!" shell
+// input is claimed earlier by the bash plugin's submit filter.
 func (s *Submitter) Submit(text string) {
 	text = strings.TrimSpace(text)
-	if strings.HasPrefix(text, "!") {
-		if s.bash.HandleSubmit(text) {
-			return
-		}
-	}
 	if strings.HasPrefix(text, "/") && s.commands != nil {
 		if insert, ok := s.commands.IncompleteSlash(text); ok {
 			s.composer.HideCompleters()
@@ -170,7 +176,7 @@ func (s *Submitter) Cancel() {
 	if s.cancelOverlays != nil {
 		s.cancelOverlays()
 	}
-	if s.bash.Cancel() {
+	if s.hooks.Cancel != nil && s.hooks.Cancel() {
 		return
 	}
 	s.ctrl.Cancel()
@@ -184,13 +190,13 @@ func (s *Submitter) Cancel() {
 
 // RunningBash reports whether a local "!cmd" is in flight.
 func (s *Submitter) RunningBash() bool {
-	return s.bash.Running()
+	return s.hooks.Running != nil && s.hooks.Running()
 }
 
 // IsBusy reports agent stream, the pre-token window of a request in flight, or
 // local bash activity.
 func (s *Submitter) IsBusy() bool {
-	return s.transcript.IsStreaming() || s.bash.Running() || s.activity.TurnPending()
+	return s.transcript.IsStreaming() || s.RunningBash() || s.activity.TurnPending()
 }
 
 // StreamActive reports whether user input should be blocked for stream/overlays.

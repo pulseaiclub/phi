@@ -1,4 +1,4 @@
-package submit
+package bash
 
 import (
 	"context"
@@ -18,13 +18,13 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/transcript"
 )
 
-func shellRunner(t *testing.T) *BashRunner {
+func shellRunner(t *testing.T) *Plugin {
 	t.Helper()
 	dir := t.TempDir()
 	t.Chdir(dir)
 	th := components.DefaultTheme()
 	pane := transcript.NewTranscriptPane(th, status.NewSpinner(th.ToolName), "Phi test")
-	b := newBashRunner(pane, &stubComposer{}, controller.NewBus(nil), nil)
+	b := New(pane, &stubComposer{}, controller.NewBus(nil), nil)
 	t.Cleanup(func() {
 		b.Cancel()
 		require.Eventually(t, func() bool { return !b.Running() }, 5*time.Second, time.Millisecond)
@@ -37,7 +37,7 @@ func shellRunner(t *testing.T) *BashRunner {
 	return b
 }
 
-func waitForShell(t *testing.T, b *BashRunner) session.ToolRun {
+func waitForShell(t *testing.T, b *Plugin) session.ToolRun {
 	t.Helper()
 	require.Eventually(t, func() bool { return !b.Running() }, 5*time.Second, time.Millisecond)
 	var results []session.ToolRun
@@ -80,16 +80,21 @@ func TestBashCompletedCommands(t *testing.T) {
 	}
 }
 
-type acceptingComposer struct {
-	stubComposer
-	onAccept func()
+type stubComposer struct{ onAccept func() }
+
+func (c *stubComposer) HideCompleters() {
+	if c.onAccept != nil {
+		c.onAccept()
+	}
 }
 
-func (c *acceptingComposer) HideCompleters() { c.onAccept() }
+func (*stubComposer) ClearInput()              {}
+func (*stubComposer) SyncBashBorder(string)    {}
+func (*stubComposer) SetBashBorderActive(bool) {}
 
 func TestBashImmediateCancelAndBusyRefusal(t *testing.T) {
 	b := shellRunner(t)
-	b.composer = &acceptingComposer{onAccept: func() {
+	b.composer = &stubComposer{onAccept: func() {
 		// This executes before the run goroutine starts.
 		assert.True(t, b.Running())
 		assert.True(t, b.HandleSubmit("!printf refused"))
@@ -151,7 +156,7 @@ func TestBashUsesSubmissionCwd(t *testing.T) {
 	require.NoError(t, os.WriteFile(probe, []byte("submission directory"), 0o600))
 	t.Cleanup(func() { require.NoError(t, os.Remove(probe)) })
 	require.NoError(t, os.WriteFile(filepath.Join(other, name), []byte("later directory"), 0o600))
-	b.composer = &acceptingComposer{onAccept: func() {
+	b.composer = &stubComposer{onAccept: func() {
 		// Change cwd after submission captures it, before execution starts.
 		t.Chdir(other)
 	}}

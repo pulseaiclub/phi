@@ -1,4 +1,4 @@
-package submit
+package bash
 
 import (
 	"testing"
