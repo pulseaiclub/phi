@@ -1,0 +1,979 @@
+package pane
+
+import (
+	"context"
+	"fmt"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/pulseaiclub/xui"
+
+	"github.com/pulseaiclub/phi/internal/components"
+	"github.com/pulseaiclub/phi/internal/components/chrome"
+	"github.com/pulseaiclub/phi/internal/components/diffview"
+	"github.com/pulseaiclub/phi/internal/components/listpicker"
+	"github.com/pulseaiclub/phi/internal/util/diffreview"
+	"github.com/pulseaiclub/phi/internal/util/gitx"
+)
+
+// Diff is a full-screen git diff review overlay.
+type Diff struct {
+	theme components.Theme
+	cwd   string
+
+	active bool
+	spec   []string
+	label  string
+	err    string
+	empty  string
+
+	change       *gitx.Change
+	changeNotes  map[fileKey][]diffreview.CommentDraft
+	returnToList bool
+
+	rows        []diffreview.Row
+	drafts      []diffreview.CommentDraft
+	highlighted map[int][]components.Span
+
+	cursor     int
+	scroll     int
+	xScroll    int
+	sideBySide bool
+	viewH      int
+
+	pendingG       bool
+	pendingBracket rune
+
+	searchMode    bool
+	searchQuery   string
+	searchMatches []int
+	searchIndex   int
+
+	commentEdit   bool
+	commentBody   string
+	commentCur    int
+	commentTarget diffreview.CommentDraft
+
+	help   bool
+	status string
+
+	picker listpicker.Picker
+
+	onSubmit func(text string)
+	onCopy   func(text string) bool
+	onToast  func(msg string)
+}
+
+// NewDiff builds an inactive review pane.
+func NewDiff(
+	theme components.Theme,
+	cwd string,
+	onSubmit func(string),
+	onCopy func(string) bool,
+	onToast func(string),
+) *Diff {
+	p := &Diff{
+		theme:    theme,
+		cwd:      cwd,
+		onSubmit: onSubmit,
+		onCopy:   onCopy,
+		onToast:  onToast,
+		picker:   listpicker.Picker{Theme: theme},
+	}
+	p.picker.OnAccept = p.acceptPicker
+	return p
+}
+
+// Active reports whether the overlay is showing.
+func (p *Diff) Active() bool { return p.active }
+
+// ReturnToList distinguishes back navigation from sending notes to the agent.
+func (p *Diff) ReturnToList() bool { return p.returnToList }
+
+// SetTheme updates chrome and syntax colors.
+func (p *Diff) SetTheme(th components.Theme) {
+	p.theme = th
+	p.picker.Theme = th
+	p.highlighted = diffview.HighlightRows(p.rows, th)
+}
+
+// OpenGit loads a git diff in cwd and shows the overlay.
+func (p *Diff) OpenGit(cwd string, spec []string) {
+	wasChange := p.change != nil
+	p.saveChangeNotes()
+	p.change = nil
+	p.returnToList = false
+	if cwd != "" {
+		p.cwd = cwd
+	}
+	keepNotes := !wasChange && slices.Equal(p.spec, spec)
+	p.spec = append([]string(nil), spec...)
+	p.label = diffreview.LabelForSpec(spec)
+	text, err := diffreview.LoadGit(context.Background(), p.cwd, spec)
+	if err != nil {
+		p.openParsed("", err.Error(), keepNotes)
+		return
+	}
+	p.openParsed(text, "", keepNotes)
+}
+
+// OpenText shows a preloaded unified diff (tests / paste).
+func (p *Diff) OpenText(input string, spec []string) {
+	wasChange := p.change != nil
+	p.saveChangeNotes()
+	p.change = nil
+	p.returnToList = false
+	keepNotes := !wasChange && slices.Equal(p.spec, spec)
+	p.spec = append([]string(nil), spec...)
+	p.label = diffreview.LabelForSpec(spec)
+	p.openParsed(input, "", keepNotes)
+}
+
+// OpenChange reviews a changed file without treating its path as a revision.
+func (p *Diff) OpenChange(root string, change gitx.Change) {
+	p.saveChangeNotes()
+	p.cwd = root
+	p.change = &change
+	p.returnToList = false
+	p.spec = nil
+	p.drafts = slices.Clone(p.changeNotes[p.changeKey()])
+	path := change.Path
+	if strings.ContainsFunc(path, unicode.IsControl) {
+		path = strconv.Quote(path)
+	}
+	p.label = path
+	text, err := diffreview.LoadChange(context.Background(), root, change)
+	if err != nil {
+		p.openParsed("", err.Error(), true)
+		return
+	}
+	p.openParsed(text, "", true)
+}
+
+// fileKey identifies a changed file by repo and path.
+type fileKey struct {
+	cwd  string
+	path string
+}
+
+// changeKey scopes saved notes to one file in one repo, so switching projects
+// with the same relative path does not leak notes across roots.
+func (p *Diff) changeKey() fileKey { return fileKey{cwd: p.cwd, path: p.change.Path} }
+
+// saveChangeNotes stashes the drafts of the file being left; an empty draft set
+// deletes the entry instead of storing an empty slice.
+func (p *Diff) saveChangeNotes() {
+	if p.change == nil {
+		return
+	}
+	if len(p.drafts) == 0 {
+		delete(p.changeNotes, p.changeKey())
+		return
+	}
+	if p.changeNotes == nil {
+		p.changeNotes = make(map[fileKey][]diffreview.CommentDraft)
+	}
+	p.changeNotes[p.changeKey()] = slices.Clone(p.drafts)
+}
+
+// openParsed rebuilds rows for input. Notes are dropped unless keepNotes is set,
+// so a note never outlives the diff it was written against.
+func (p *Diff) openParsed(input, loadErr string, keepNotes bool) {
+	p.active = true
+	p.err = loadErr
+	p.help = false
+	p.searchMode = false
+	p.commentEdit = false
+	p.picker.Hide()
+	p.pendingG = false
+	p.pendingBracket = 0
+	if !keepNotes {
+		p.drafts = nil
+	}
+
+	p.empty = ""
+	if loadErr != "" {
+		p.rows = nil
+		p.highlighted = nil
+		p.cursor = 0
+		p.scroll = 0
+		p.status = loadErr
+		return
+	}
+
+	doc, err := diffreview.Parse(input)
+	if err != nil {
+		p.rows = nil
+		p.status = err.Error()
+		return
+	}
+	options := diffreview.DefaultRenderOptions()
+	if p.change != nil {
+		for _, file := range doc.Files {
+			if len(file.Hunks) == 0 {
+				options.ShowFileMetadata = true
+			}
+		}
+	}
+	p.rows = doc.RowsWithOptions(options)
+	if p.change != nil {
+		// Git quotes unusual paths and no-index adds ./; status already gave us
+		// the exact path, which review comments must retain verbatim.
+		for i := range p.rows {
+			p.rows[i].FileName = p.change.Path
+			if diffreview.AnchorValid(p.rows[i].Review) {
+				p.rows[i].Review.Path = p.change.Path
+			}
+		}
+	}
+	p.highlighted = diffview.HighlightRows(p.rows, p.theme)
+	p.cursor = 0
+	p.scroll = 0
+	p.xScroll = 0
+	p.clampCursor()
+	if len(p.rows) == 0 {
+		p.status = "empty diff"
+		// Once per open: the untracked hint shells out to git and Draw runs on
+		// every frame.
+		if p.change != nil {
+			p.empty = "No net changes to display. Press Esc to return to the file list."
+		} else {
+			p.empty = diffreview.EmptyNote(p.cwd, p.spec)
+		}
+	} else {
+		p.status = fmt.Sprintf("%d files", countFiles(p.rows))
+	}
+}
+
+// Close hides the overlay.
+func (p *Diff) Close() {
+	p.saveChangeNotes()
+	p.returnToList = false
+	p.active = false
+	p.help = false
+	p.searchMode = false
+	p.commentEdit = false
+	p.picker.Hide()
+}
+
+// Handle routes input while the overlay is active.
+func (p *Diff) Handle(ctx *components.EventContext, ev xui.Event) {
+	if !p.active {
+		return
+	}
+	switch e := ev.(type) {
+	case xui.KeyEvent:
+		if !e.Press {
+			return
+		}
+		p.handleKey(ctx, e)
+	case xui.PasteEvent:
+		if p.commentEdit {
+			p.insertComment(e.Text)
+			ctx.ConsumeAndRedraw()
+			return
+		}
+		ctx.Consume = true
+	default:
+		ctx.Consume = true
+	}
+}
+
+func (p *Diff) handleKey(ctx *components.EventContext, e xui.KeyEvent) {
+	if p.picker.Open {
+		p.picker.Handle(ctx, e)
+		return
+	}
+	if p.commentEdit {
+		p.handleCommentKey(ctx, e)
+		return
+	}
+	if p.searchMode {
+		p.handleSearchKey(ctx, e)
+		return
+	}
+	if p.help {
+		p.help = false
+		ctx.ConsumeAndRedraw()
+		if e.Code == xui.KeyEscape || (e.Code == xui.KeyRune && e.Rune == '?') {
+			return
+		}
+	}
+
+	if e.Code == xui.KeyEscape ||
+		(e.Code == xui.KeyRune && (e.Rune == 'q' || e.Rune == 'Q') && !e.Mods.Has(xui.ModCtrl)) {
+		p.Close()
+		p.returnToList = p.change != nil
+		ctx.ConsumeAndRedraw()
+		return
+	}
+
+	if p.handlePending(ctx, e) {
+		return
+	}
+
+	switch e.Code {
+	case xui.KeyUp:
+		p.moveCursor(-1)
+	case xui.KeyDown:
+		p.moveCursor(1)
+	case xui.KeyLeft:
+		p.xScroll = max(0, p.xScroll-4)
+	case xui.KeyRight:
+		p.xScroll += 4
+	case xui.KeyPageUp:
+		p.moveCursor(-p.page())
+	case xui.KeyPageDown:
+		p.moveCursor(p.page())
+	case xui.KeyHome:
+		p.setCursor(0)
+	case xui.KeyEnd:
+		p.setCursor(len(p.rows) - 1)
+	case xui.KeyRune:
+		if e.Mods.Has(xui.ModCtrl) {
+			switch e.Rune {
+			case 'd', 'D':
+				p.moveCursor(p.page())
+			case 'u', 'U':
+				p.moveCursor(-p.page())
+			}
+			ctx.ConsumeAndRedraw()
+			return
+		}
+		p.handleRune(ctx, e.Rune)
+		return
+	default:
+		ctx.Consume = true
+		return
+	}
+	ctx.ConsumeAndRedraw()
+}
+
+func (p *Diff) handlePending(ctx *components.EventContext, e xui.KeyEvent) bool {
+	if p.pendingG {
+		p.pendingG = false
+		if e.Code == xui.KeyRune && e.Rune == 'g' {
+			p.setCursor(0)
+			ctx.ConsumeAndRedraw()
+			return true
+		}
+	}
+	if p.pendingBracket != 0 {
+		br := p.pendingBracket
+		p.pendingBracket = 0
+		if e.Code == xui.KeyRune {
+			dir := 1
+			if br == '[' {
+				dir = -1
+			}
+			switch e.Rune {
+			case 'c', 'C':
+				p.jumpChange(dir)
+			case 'n', 'N':
+				p.jumpNote(dir)
+			}
+			ctx.ConsumeAndRedraw()
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Diff) handleRune(ctx *components.EventContext, r rune) {
+	switch r {
+	case 'j':
+		p.moveCursor(1)
+	case 'k':
+		p.moveCursor(-1)
+	case 'h':
+		p.xScroll = max(0, p.xScroll-4)
+	case 'l':
+		p.xScroll += 4
+	case 'g':
+		p.pendingG = true
+		ctx.ConsumeAndRedraw()
+		return
+	case 'G':
+		p.setCursor(len(p.rows) - 1)
+	case 'J':
+		p.jumpFile(1)
+	case 'K':
+		p.jumpFile(-1)
+	case ']':
+		p.pendingBracket = ']'
+		ctx.ConsumeAndRedraw()
+		return
+	case '[':
+		p.pendingBracket = '['
+		ctx.ConsumeAndRedraw()
+		return
+	case 's':
+		p.sideBySide = !p.sideBySide
+		p.revealCursor()
+	case '/':
+		p.searchMode = true
+		p.searchQuery = ""
+		p.searchMatches = nil
+	case 'n':
+		p.moveSearch(1)
+	case 'N':
+		p.moveSearch(-1)
+	case 'i', 'I':
+		p.openCommentEditor()
+	case 'x':
+		p.deleteNote()
+	case 'a':
+		p.sendToAgent()
+	case 'y':
+		p.copyLine()
+	case 'f':
+		p.openFilePicker()
+	case 'r':
+		if p.change != nil {
+			p.OpenChange(p.cwd, *p.change)
+		} else {
+			p.OpenGit(p.cwd, p.spec)
+		}
+	case '?':
+		p.help = true
+	default:
+		ctx.Consume = true
+		return
+	}
+	ctx.ConsumeAndRedraw()
+}
+
+func (p *Diff) handleSearchKey(ctx *components.EventContext, e xui.KeyEvent) {
+	switch e.Code {
+	case xui.KeyEscape:
+		p.searchMode = false
+		p.searchQuery = ""
+		p.searchMatches = nil
+	case xui.KeyEnter:
+		p.searchMode = false
+	case xui.KeyBackspace:
+		if p.searchQuery != "" {
+			runes := []rune(p.searchQuery)
+			p.searchQuery = string(runes[:len(runes)-1])
+			p.updateSearch()
+		}
+	case xui.KeyRune:
+		if e.Mods.Has(xui.ModCtrl) || e.Mods.Has(xui.ModAlt) {
+			break
+		}
+		if e.Rune >= 0x20 {
+			p.searchQuery += string(e.Rune)
+			p.updateSearch()
+		}
+	}
+	ctx.ConsumeAndRedraw()
+}
+
+func (p *Diff) handleCommentKey(ctx *components.EventContext, e xui.KeyEvent) {
+	switch e.Code {
+	case xui.KeyEscape:
+		p.commentEdit = false
+	case xui.KeyEnter:
+		if e.Mods.Has(xui.ModShift) {
+			p.insertComment("\n")
+			break
+		}
+		p.submitComment()
+	case xui.KeyBackspace:
+		if p.commentCur > 0 {
+			_, size := utf8.DecodeLastRuneInString(p.commentBody[:p.commentCur])
+			p.commentBody = p.commentBody[:p.commentCur-size] + p.commentBody[p.commentCur:]
+			p.commentCur -= size
+		}
+	case xui.KeyLeft:
+		if p.commentCur > 0 {
+			_, size := utf8.DecodeLastRuneInString(p.commentBody[:p.commentCur])
+			p.commentCur -= size
+		}
+	case xui.KeyRight:
+		if p.commentCur < len(p.commentBody) {
+			_, size := utf8.DecodeRuneInString(p.commentBody[p.commentCur:])
+			p.commentCur += size
+		}
+	case xui.KeyRune:
+		if e.Mods.Has(xui.ModCtrl) || e.Mods.Has(xui.ModAlt) {
+			break
+		}
+		if e.Rune >= 0x20 {
+			p.insertComment(string(e.Rune))
+		}
+	}
+	ctx.ConsumeAndRedraw()
+}
+
+func (p *Diff) insertComment(s string) {
+	p.commentBody = p.commentBody[:p.commentCur] + s + p.commentBody[p.commentCur:]
+	p.commentCur += len(s)
+}
+
+func (p *Diff) openCommentEditor() {
+	if p.cursor < 0 || p.cursor >= len(p.rows) {
+		p.toast("no line to comment")
+		return
+	}
+	row := p.rows[p.cursor]
+	idx := diffreview.BuildCommentIndex(p.rows, p.drafts)
+	if existing := idx.DraftsForRow(p.cursor); len(existing) > 0 {
+		p.commentTarget = existing[0]
+		p.commentBody = existing[0].Body
+		p.commentCur = len(p.commentBody)
+		p.commentEdit = true
+		return
+	}
+	if !diffreview.AnchorValid(row.Review) {
+		p.toast("cannot comment on this line")
+		return
+	}
+	p.commentTarget = diffreview.DraftFromAnchor(row.Review)
+	p.commentBody = ""
+	p.commentCur = 0
+	p.commentEdit = true
+}
+
+func (p *Diff) submitComment() {
+	body := strings.TrimSpace(p.commentBody)
+	p.commentEdit = false
+	if body == "" {
+		p.removeDraft(p.commentTarget)
+		p.status = "note removed"
+		return
+	}
+	for i, d := range p.drafts {
+		if diffreview.SameTarget(d, p.commentTarget) || (d.ID != "" && d.ID == p.commentTarget.ID) {
+			p.drafts[i].Body = body
+			p.status = "note updated"
+			return
+		}
+	}
+	d := p.commentTarget
+	d.Body = body
+	if d.ID == "" {
+		d.ID = strconv.FormatInt(time.Now().UnixNano(), 36)
+	}
+	p.drafts = append(p.drafts, d)
+	p.status = "note added"
+}
+
+func (p *Diff) deleteNote() {
+	idx := diffreview.BuildCommentIndex(p.rows, p.drafts)
+	drafts := idx.DraftsForRow(p.cursor)
+	if len(drafts) == 0 {
+		p.toast("no note on this line")
+		return
+	}
+	p.removeDraft(drafts[0])
+	p.status = "note deleted"
+}
+
+func (p *Diff) removeDraft(target diffreview.CommentDraft) {
+	out := p.drafts[:0]
+	for _, d := range p.drafts {
+		if diffreview.SameTarget(d, target) || (target.ID != "" && d.ID == target.ID) {
+			continue
+		}
+		out = append(out, d)
+	}
+	p.drafts = out
+}
+
+func (p *Diff) sendToAgent() {
+	prompt := strings.TrimSpace(diffreview.FormatPrompt(p.drafts))
+	if prompt == "" {
+		p.toast("no notes to send")
+		return
+	}
+	p.Close()
+	if p.onSubmit != nil {
+		p.onSubmit(prompt)
+	}
+}
+
+func (p *Diff) copyLine() {
+	if p.cursor < 0 || p.cursor >= len(p.rows) {
+		return
+	}
+	text := p.rows[p.cursor].Code
+	if text == "" {
+		text = p.rows[p.cursor].Text
+	}
+	if p.onCopy != nil && p.onCopy(text) {
+		p.toast("copied")
+	}
+}
+
+func (p *Diff) openFilePicker() {
+	items := make([]listpicker.Item, 0)
+	seen := map[string]bool{}
+	for i, row := range p.rows {
+		if row.Kind != diffreview.RowFile {
+			continue
+		}
+		id := row.Text
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		items = append(items, listpicker.Item{
+			ID:      strconv.Itoa(i),
+			Primary: row.Text,
+			Detail:  row.FileName,
+		})
+	}
+	if len(items) == 0 {
+		p.toast("no files in diff")
+		return
+	}
+	p.picker.Show(items, listpicker.ShowConfig{
+		Title:      "Files",
+		FilterHint: "filter files",
+		Empty:      "no files",
+	})
+}
+
+func (p *Diff) acceptPicker(item listpicker.Item) {
+	row, _ := strconv.Atoi(item.ID)
+	p.setCursor(row)
+}
+
+func (p *Diff) updateSearch() {
+	q := strings.ToLower(p.searchQuery)
+	p.searchMatches = p.searchMatches[:0]
+	if q == "" {
+		return
+	}
+	for i, row := range p.rows {
+		hay := strings.ToLower(row.Code + " " + row.Text + " " + row.FileName)
+		if strings.Contains(hay, q) {
+			p.searchMatches = append(p.searchMatches, i)
+		}
+	}
+	if len(p.searchMatches) > 0 {
+		p.searchIndex = 0
+		p.setCursor(p.searchMatches[0])
+	}
+}
+
+func (p *Diff) moveSearch(dir int) {
+	if len(p.searchMatches) == 0 {
+		if p.searchQuery != "" {
+			p.updateSearch()
+		}
+		if len(p.searchMatches) == 0 {
+			p.toast("no matches")
+			return
+		}
+	}
+	p.searchIndex = (p.searchIndex + dir) % len(p.searchMatches)
+	if p.searchIndex < 0 {
+		p.searchIndex = len(p.searchMatches) - 1
+	}
+	p.setCursor(p.searchMatches[p.searchIndex])
+}
+
+func (p *Diff) jumpFile(dir int) {
+	p.jumpKind(dir, diffreview.RowFile)
+}
+
+func (p *Diff) jumpChange(dir int) {
+	start := p.cursor
+	n := len(p.rows)
+	if n == 0 {
+		return
+	}
+	for step := 1; step <= n; step++ {
+		i := start + dir*step
+		if i < 0 {
+			i += n
+		}
+		if i >= n {
+			i -= n
+		}
+		kind := p.rows[i].Kind
+		if kind != diffreview.RowAdd && kind != diffreview.RowDelete {
+			continue
+		}
+		prev := diffreview.RowBlank
+		if i > 0 {
+			prev = p.rows[i-1].Kind
+		}
+		if prev != diffreview.RowAdd && prev != diffreview.RowDelete {
+			p.setCursor(i)
+			return
+		}
+	}
+}
+
+func (p *Diff) jumpNote(dir int) {
+	targets := diffreview.BuildCommentIndex(p.rows, p.drafts).TargetRows()
+	if len(targets) == 0 {
+		p.toast("no notes")
+		return
+	}
+	next := targets[len(targets)-1]
+	if dir > 0 {
+		next = targets[0]
+		for _, t := range targets {
+			if t > p.cursor {
+				next = t
+				break
+			}
+		}
+		if next <= p.cursor {
+			next = targets[0]
+		}
+	} else {
+		for i := range slices.Backward(targets) {
+			if targets[i] < p.cursor {
+				next = targets[i]
+				break
+			}
+		}
+		if next >= p.cursor {
+			next = targets[len(targets)-1]
+		}
+	}
+	p.setCursor(next)
+}
+
+func (p *Diff) jumpKind(dir int, kind diffreview.RowKind) {
+	start := p.cursor
+	n := len(p.rows)
+	if n == 0 {
+		return
+	}
+	for step := 1; step <= n; step++ {
+		i := start + dir*step
+		if i < 0 {
+			i += n
+		}
+		if i >= n {
+			i -= n
+		}
+		if p.rows[i].Kind == kind {
+			p.setCursor(i)
+			return
+		}
+	}
+}
+
+func (p *Diff) page() int {
+	h := p.viewH / 2
+	if h < 1 {
+		h = 8
+	}
+	return h
+}
+
+func (p *Diff) moveCursor(delta int) {
+	p.setCursor(p.cursor + delta)
+}
+
+func (p *Diff) setCursor(i int) {
+	p.cursor = i
+	p.clampCursor()
+	p.revealCursor()
+}
+
+func (p *Diff) clampCursor() {
+	if len(p.rows) == 0 {
+		p.cursor = 0
+		return
+	}
+	if p.cursor < 0 {
+		p.cursor = 0
+	}
+	if p.cursor >= len(p.rows) {
+		p.cursor = len(p.rows) - 1
+	}
+}
+
+func (p *Diff) revealCursor() {
+	vis := p.visList()
+	idx := 0
+	for i, v := range vis {
+		if v.Kind == diffview.VisRow && v.Doc == p.cursor {
+			idx = i
+			break
+		}
+	}
+	if idx < p.scroll {
+		p.scroll = idx
+	}
+	bottom := p.scroll + p.viewH - 1
+	if p.viewH < 1 {
+		bottom = p.scroll + 16
+	}
+	if idx > bottom {
+		p.scroll = idx - max(p.viewH-1, 1)
+	}
+	if p.scroll < 0 {
+		p.scroll = 0
+	}
+}
+
+func (p *Diff) visList() []diffview.Vis {
+	idx := diffreview.BuildCommentIndex(p.rows, p.drafts)
+	if p.sideBySide {
+		return p.visSide(idx)
+	}
+	out := make([]diffview.Vis, 0, len(p.rows)+len(p.drafts))
+	for i := range p.rows {
+		out = append(out, diffview.Vis{Kind: diffview.VisRow, Doc: i, Active: i == p.cursor})
+		for _, d := range idx.DraftsForRow(i) {
+			out = append(
+				out,
+				diffview.Vis{Kind: diffview.VisNote, Doc: i, Active: i == p.cursor, Note: oneLine(d.Body)},
+			)
+		}
+	}
+	return out
+}
+
+func (p *Diff) visSide(idx diffreview.CommentIndex) []diffview.Vis {
+	sides := diffreview.SideBySideRows(p.rows)
+	out := make([]diffview.Vis, 0, len(sides)+len(p.drafts))
+	for _, side := range sides {
+		doc := side.FirstDoc()
+		active := side.ContainsDoc(p.cursor)
+		if active {
+			doc = p.cursor
+		}
+		s := side
+		out = append(out, diffview.Vis{Kind: diffview.VisRow, Doc: doc, Side: &s, Active: active})
+		seen := map[string]bool{}
+		for _, docRow := range []int{side.Full, side.Left, side.Right} {
+			for _, d := range idx.DraftsForRow(docRow) {
+				key := d.Path + strconv.Itoa(d.Line) + string(d.Side) + d.Body
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				out = append(
+					out,
+					diffview.Vis{Kind: diffview.VisNote, Doc: docRow, Active: active, Note: oneLine(d.Body)},
+				)
+			}
+		}
+	}
+	return out
+}
+
+// Draw paints the overlay.
+func (p *Diff) Draw(ctx components.DrawContext) components.Surface {
+	p.viewH = max(ctx.Max.Height-2, 1)
+	p.revealCursor()
+
+	prompt, kind := "", ""
+	cur := 0
+	if p.commentEdit {
+		kind, prompt, cur = "note", p.commentBody, p.commentCur
+	} else if p.searchMode {
+		kind, prompt = "/", p.searchQuery
+	}
+
+	status := p.status
+	if p.err != "" {
+		status = p.err
+	} else if loc := p.location(); loc != "" {
+		status = loc
+	}
+
+	hint := ""
+	if p.change != nil {
+		hint = "j/k move" + chrome.Sep + "i note" + chrome.Sep + "a send" + chrome.Sep + "? help" + chrome.Sep + "esc/q files"
+	}
+	surf := diffview.Paint(ctx, diffview.Model{
+		Theme:       p.theme,
+		Title:       "diff · " + p.label,
+		Status:      status,
+		Hint:        hint,
+		Rows:        p.rows,
+		Vis:         p.visList(),
+		Scroll:      p.scroll,
+		XScroll:     p.xScroll,
+		SideBySide:  p.sideBySide,
+		Help:        p.help,
+		Prompt:      prompt,
+		PromptKind:  kind,
+		CursorByte:  cur,
+		Highlighted: p.highlighted,
+		Empty:       p.emptyText(),
+	})
+	if p.picker.Open {
+		if overlay, ok := p.pickerOverlay(ctx); ok {
+			surf.Children = append(surf.Children, overlay)
+		}
+	}
+	return surf
+}
+
+func (p *Diff) pickerOverlay(ctx components.DrawContext) (components.SubSurface, bool) {
+	return components.SubSurface{
+		Origin:  components.Point{X: 0, Y: 0},
+		Z:       20,
+		Surface: p.picker.Draw(ctx),
+	}, true
+}
+
+func (p *Diff) location() string {
+	if p.cursor < 0 || p.cursor >= len(p.rows) {
+		return ""
+	}
+	row := p.rows[p.cursor]
+	file := row.FileName
+	if file == "" {
+		file = row.Text
+	}
+	n := row.Review.Line
+	notes := len(diffreview.BuildCommentIndex(p.rows, p.drafts).TargetRows())
+	loc := file
+	if n > 0 {
+		loc = fmt.Sprintf("%s:%d", file, n)
+	}
+	if notes > 0 {
+		loc = fmt.Sprintf("%s · %d notes", loc, notes)
+	}
+	if p.sideBySide {
+		loc += " · split"
+	}
+	return loc
+}
+
+func (p *Diff) toast(msg string) {
+	p.status = msg
+	if p.onToast != nil {
+		p.onToast(msg)
+	}
+}
+
+func countFiles(rows []diffreview.Row) int {
+	n := 0
+	for _, r := range rows {
+		if r.Kind == diffreview.RowFile {
+			n++
+		}
+	}
+	return n
+}
+
+func oneLine(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.ReplaceAll(s, "\n", " ")
+	return s
+}
+
+func (p *Diff) emptyText() string {
+	if p.err != "" {
+		return p.err
+	}
+	return p.empty
+}

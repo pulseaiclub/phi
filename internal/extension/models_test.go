@@ -12,6 +12,7 @@ import (
 
 	"github.com/pulseaiclub/phi/ext/go/pxb"
 	"github.com/pulseaiclub/phi/internal/extension"
+	"github.com/pulseaiclub/phi/internal/extension/core"
 	"github.com/pulseaiclub/phi/internal/extension/create"
 )
 
@@ -73,7 +74,7 @@ func main() {
 }
 `
 
-func loadModelExtension(t *testing.T) *extension.Runner {
+func loadModelExtension(t *testing.T) *core.Runner {
 	t.Helper()
 	root := t.TempDir()
 	require.NoError(t, create.Materialize(t.Context(), root+"/models", "models", "0.0.1", modelExtSrc))

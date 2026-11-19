@@ -27,8 +27,6 @@ type Command struct {
 
 	// Build builds a Ctrl+K palette entry. Nil for slash-only commands.
 	Build func(ctx Context) palette.PaletteCommand
-
-	fromExt bool // dropped on extensions reload; cannot replace builtins
 }
 
 // CommandRegistry is the single catalog for composer `/` and Ctrl+K palette.
@@ -74,47 +72,6 @@ func (r *CommandRegistry) Register(cmd Command) {
 	}
 	r.by[name] = len(r.cmds)
 	r.cmds = append(r.cmds, cmd)
-}
-
-// registerExt adds a slash command from an extension.
-// Returns false if name is empty or already taken by a builtin.
-func (r *CommandRegistry) registerExt(cmd Command) bool {
-	name := strings.ToLower(strings.TrimSpace(cmd.Name))
-	if name == "" {
-		return false
-	}
-	cmd.Name = strings.TrimSpace(cmd.Name)
-	cmd.fromExt = true
-	finalizeSlashInsert(&cmd)
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if i, ok := r.by[name]; ok {
-		if !r.cmds[i].fromExt {
-			return false
-		}
-		r.cmds[i] = cmd
-		return true
-	}
-	r.by[name] = len(r.cmds)
-	r.cmds = append(r.cmds, cmd)
-	return true
-}
-
-// clearExtCommands removes every command registered via registerExt.
-func (r *CommandRegistry) clearExtCommands() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	kept := make([]Command, 0, len(r.cmds))
-	r.by = make(map[string]int, len(r.cmds))
-	for _, c := range r.cmds {
-		if c.fromExt {
-			continue
-		}
-		r.by[strings.ToLower(c.Name)] = len(kept)
-		kept = append(kept, c)
-	}
-	r.cmds = kept
 }
 
 // DispatchSlash runs a `/name …` line. Returns false if not a known slash command.

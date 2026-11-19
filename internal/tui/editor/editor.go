@@ -2,29 +2,33 @@
 package editor
 
 import (
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/pulseaiclub/sev/commitmsg"
 	"github.com/pulseaiclub/xui"
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/components/chat"
-	"github.com/pulseaiclub/phi/internal/components/listpicker"
 	"github.com/pulseaiclub/phi/internal/components/status"
 	"github.com/pulseaiclub/phi/internal/components/toast"
-	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/session/shellhist"
-	"github.com/pulseaiclub/phi/internal/tui/codepane"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
-	"github.com/pulseaiclub/phi/internal/tui/composer"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
-	"github.com/pulseaiclub/phi/internal/tui/diffpane"
 	"github.com/pulseaiclub/phi/internal/tui/footer"
-	"github.com/pulseaiclub/phi/internal/tui/overlays"
-	"github.com/pulseaiclub/phi/internal/tui/pathutil"
+	activityplugin "github.com/pulseaiclub/phi/internal/tui/plugin/activity"
+	"github.com/pulseaiclub/phi/internal/tui/plugin/bash"
+	branchesplugin "github.com/pulseaiclub/phi/internal/tui/plugin/branches"
+	"github.com/pulseaiclub/phi/internal/tui/plugin/code"
+	"github.com/pulseaiclub/phi/internal/tui/plugin/composer"
+	"github.com/pulseaiclub/phi/internal/tui/plugin/diff"
+	"github.com/pulseaiclub/phi/internal/tui/plugin/overlay"
+	sessionplugin "github.com/pulseaiclub/phi/internal/tui/plugin/session"
+	sessionsplugin "github.com/pulseaiclub/phi/internal/tui/plugin/sessions"
+	settingsplugin "github.com/pulseaiclub/phi/internal/tui/plugin/settings"
+	skillsplugin "github.com/pulseaiclub/phi/internal/tui/plugin/skills"
+	toastplugin "github.com/pulseaiclub/phi/internal/tui/plugin/toast"
+	"github.com/pulseaiclub/phi/internal/tui/runtime"
 	"github.com/pulseaiclub/phi/internal/tui/submit"
 	"github.com/pulseaiclub/phi/internal/tui/transcript"
 	"github.com/pulseaiclub/phi/internal/util/update"
@@ -38,11 +42,11 @@ import (
 //
 // Transport rules: UI→domain is direct calls (NewEditor wires method values,
 // never anonymous forwarding closures; signature adapters are named Editor
-// methods). Any-goroutine→UI is bus.Publish. See doc/tui.md "Transport rules".
+// methods). Any-goroutine→UI is bus.Publish. See doc/tui-runtime.md "Transport rules".
 //
-// cmd constructs Bus/Controller/App and passes them into NewEditor, which builds
-// builtins via commands.NewBuiltinRegistry. Editor does not create
-// controller.EngineController or fetch the project singleton.
+// cmd constructs Bus/Controller/App and passes them into NewEditor, which
+// builds the command registry and registers every plugin. Editor does not
+// create controller.EngineController or fetch the project singleton.
 type Editor struct {
 	vx    *xui.XUI
 	App   *app.App
@@ -50,34 +54,34 @@ type Editor struct {
 	bus   *controller.Bus
 	cwd   string
 
-	transcript *transcript.TranscriptPane
-	composer   *composer.ComposerPane
-	footer     *footer.FooterChrome
-	overlays   *overlays.Overlays
-	toast      toast.Toast
-	diff       *diffpane.Pane
-	code       *codepane.Pane
-	diffList   listpicker.State
+	rt *runtime.Runtime
+
+	transcript    *transcript.TranscriptPane
+	composer      *composer.ComposerPane
+	footer        *footer.FooterChrome
+	overlayPlugin *overlay.Plugin
+	toastPlugin   *toastplugin.Plugin
+	diffPlugin    *diff.Plugin
+	codePlugin    *code.Plugin
+	bashPlugin    *bash.Plugin
+	sessionPlugin *sessionplugin.Plugin
 
 	// The TUI redraws at 60fps; the flowing status highlight moves every fourth
 	// frame, matching the ~80ms cadence status.Spinner used to declare.
-	spin       *status.Spinner
-	spinTick   int
-	activity   *controller.ActivityHandler
-	extStatus  string
-	updateHint string
+	spin           *status.Spinner
+	activityPlugin *activityplugin.Plugin
+	updateHint     string
+	commandCtx     commands.Context
 
 	ctrl *controller.EngineController
 
-	commands  *commands.CommandRegistry
-	sessions  *commands.SessionCommands
-	extCmds   *commands.ExtCommands
-	submitter *submit.Submitter
+	commands    *commands.CommandRegistry
+	sessions    *sessionsplugin.SessionCommands
+	branches    *branchesplugin.BranchCommands
+	skills      *skillsplugin.SkillsCommands
+	settingsCmd *settingsplugin.SettingsCommands
+	submitter   *submit.Submitter
 }
-
-// spinnerFrameDivisor throttles the 60fps app redraw to the status slot's
-// ~15Hz spinner cadence.
-const spinnerFrameDivisor = 4
 
 // NewEditor builds the TUI panes and wires injected collaborators.
 // application, bus, and ctrl must be non-nil.
@@ -92,110 +96,196 @@ func NewEditor(
 	modelNames []string,
 ) *Editor {
 	e := &Editor{
-		vx:       vx,
-		App:      application,
-		theme:    theme,
-		cwd:      cwd,
-		bus:      bus,
-		ctrl:     ctrl,
-		toast:    toast.Toast{Theme: theme},
-		composer: composer.NewComposerPane(theme, modelLabel, cwd),
-		footer:   footer.NewFooterChrome(theme),
-		spin:     status.NewSpinner(theme.ToolName),
-		activity: controller.NewActivityHandler(),
+		vx:    vx,
+		App:   application,
+		theme: theme,
+		cwd:   cwd,
+		bus:   bus,
+		ctrl:  ctrl,
+		rt:    runtime.New(),
+		spin:  status.NewSpinner(theme.ToolName),
 	}
-	e.activity.SetOnChange(e.onActivityChange)
-	commitMessages := commitmsg.New(ctrl.GenerateCommitMessage)
-	e.composer.SetBashPredictor(composer.NewBashPredictor(cwd, commitMessages.Complete))
+
+	// Transcript first: the composer takes it for copy keys, and the activity
+	// plugin reads its snapshot. Every pane below is constructed complete —
+	// no post-construction setter runs to finish initialization.
+	e.transcript = transcript.NewTranscriptPane(
+		theme, e.spin, "Phi "+version.Version,
+		transcript.WithCopyHandlers(e.bus, e.copyToClipboard),
+	)
+
+	registry := commands.NewCommandRegistry()
+	e.commands = registry
+
+	composerOpts := []composer.Option{
+		composer.WithDeps(composer.Deps{
+			Transcript:            e.transcript,
+			Commands:              registry,
+			Bus:                   e.bus,
+			DrainBus:              e.drainBus,
+			OnRedraw:              e.queueRefresh,
+			ImageEnabled:          e.ctrl.ImageEnabled,
+			OverlayBlocksComposer: e.blocksComposer,
+			HandleOverlayKey:      e.handleOverlayKey,
+			HandleCopyKey:         e.handleCopyKey,
+			RequestFocusEditor:    e.focusSelf,
+			RequestFocus:          e.App.RequestFocus,
+			CtrlClose:             e.ctrl.Close,
+			Busy:                  e.sessionBusy,
+			RunningBash:           e.bashRunning,
+			SyncBorder:            e.syncBashBorder,
+			OnPaletteOpen:         e.refreshPalette,
+		}),
+		composer.WithBashPredictor(composer.NewBashPredictor(cwd)),
+	}
 	// Prompt recall is opt-in: it persists what the user typed under the home
 	// directory, so it stays off until PHI_PROMPT_HISTORY turns it on.
-	if dir := ctrl.SessionDir(); dir != "" && shellhist.PromptsEnabled() {
-		e.composer.SetPromptHistory(shellhist.NewPromptHistory(dir))
+	if dir := e.ctrl.SessionDir(); dir != "" && shellhist.PromptsEnabled() {
+		composerOpts = append(composerOpts, composer.WithPromptHistory(shellhist.NewPromptHistory(dir)))
 	}
-	e.transcript = transcript.NewTranscriptPane(theme, e.spin, "Phi "+version.Version)
-	e.syncStatusSlot()
-	e.overlays = overlays.NewOverlays(
-		theme,
-		e.activity,
-		e.composer,
-		e.focusSelf,
-		e.composer.FocusChat,
-		e.handleErrorReply,
-	)
-	e.transcript.SetCopyHandlers(e.bus, e.copyToClipboard)
-	e.diff = diffpane.New(e.theme, cwd,
-		e.publishSubmit,
-		e.copyToClipboard,
-		e.publishToast,
-	)
-
-	e.code = codepane.New(e.theme, cwd,
-		e.addPendingRef,
-		e.publishToast,
-	)
-
-	builtins := commands.NewBuiltinRegistry(
-		e.bus,
-		e.ctrl,
-		e.composer,
-		e.transcript,
-		modelNames,
-		skillPaths,
-		e.openDiff,
-		e.openCode,
-	)
-	e.commands = builtins.Registry
-	e.sessions = builtins.Sessions
-	e.sessions.ResetActivity = e.resetActivity
-	e.extCmds = builtins.Ext
-	e.extCmds.SetStatus = e.setExtensionStatus
-	e.composer.OnPaletteOpen = builtins.Ext.RefreshPalette
+	e.composer = composer.NewComposerPane(theme, modelLabel, cwd, composerOpts...)
+	e.toastPlugin = toastplugin.New(theme)
+	e.footer = footer.NewFooterChrome(theme)
+	e.rt.Register(e.composer)
+	e.rt.Register(e.toastPlugin)
+	e.activityPlugin = activityplugin.New(theme, e.spin, activityplugin.Deps{
+		Snapshot:      e.transcript.Snapshot,
+		ContextWindow: e.ctrl.ContextWindow,
+		Labels:        e.composer,
+	})
+	e.rt.Register(e.activityPlugin)
+	e.overlayPlugin = overlay.New(overlay.Deps{
+		Theme:       theme,
+		Activity:    e.activityPlugin,
+		Composer:    e.composer,
+		FocusEditor: e.focusSelf,
+		FocusChat:   e.composer.FocusChat,
+		Retry:       e.ctrl.RetryLastPrompt,
+		Copy:        e.copyToClipboard,
+		Toast:       e.toastPlugin,
+	})
+	e.rt.Register(e.overlayPlugin)
+	e.bashPlugin = bash.New(e.transcript, e.composer, e.bus, e.ctrl)
+	e.rt.Register(e.bashPlugin)
+	e.sessionPlugin = sessionplugin.New(sessionplugin.Deps{
+		Store:    e.transcript,
+		Loop:     e.ctrl,
+		Activity: e.activityPlugin,
+		Errors:   e.overlayPlugin,
+		Bus:      e.bus,
+	})
+	e.rt.Register(e.sessionPlugin)
+	// Drain-batch postludes, in the shell's historical order: project widgets,
+	// derive activity, refresh the status slot, then restore bottom pinning.
+	e.rt.Msgs.OnBatchStart(e.sessionPlugin.CaptureBatch)
+	e.rt.Msgs.OnBatchEnd(e.sessionPlugin.PostSync)
+	e.rt.Msgs.OnBatchEnd(e.syncActivityFromSnap)
+	e.rt.Msgs.OnBatchEnd(e.activityPlugin.SyncStatusSlot)
+	e.rt.Msgs.OnBatchEnd(e.sessionPlugin.PostStick)
 
 	cmdCtx := commands.NewContext(e.bus, e.composer.PushPalette)
+	e.commandCtx = cmdCtx
 	e.submitter = submit.NewSubmitter(
 		e.ctrl,
 		e.commands,
 		e.transcript,
-		e.activity,
+		e.activityPlugin,
 		e.composer,
 		e.bus,
 		cmdCtx,
-		e.overlays.BlocksSessionSwitch,
-		e.overlays.Cancel,
+		submit.ShellHooks{
+			Running:    e.bashPlugin.Running,
+			Cancel:     e.bashPlugin.Cancel,
+			SyncBorder: e.bashPlugin.SyncBorder,
+		},
+		e.overlayPlugin.BlocksSessionSwitch,
+		e.overlayPlugin.Cancel,
 	)
-	builtins.Bind(
-		e.submitter,
-		cmdCtx,
-		e.showSessionList,
-		e.composer.RefreshSessionList,
-		e.composer.ShowBranchList,
-		e.composer.RefreshBranchList,
-		e.showSkillList,
-		e.cwd,
-		e.submitter.StreamActive,
-	)
+	e.rt.Register(e.submitter)
 
-	e.composer.Wire(composer.WireDeps{
-		Transcript:            e.transcript,
-		Submitter:             e.submitter,
-		Commands:              e.commands,
-		Bus:                   e.bus,
-		DrainBus:              e.drainBus,
-		OnRedraw:              e.vx.QueueRefresh,
-		ImageEnabled:          e.ctrl.ImageEnabled,
-		OverlayBlocksComposer: e.blocksComposer,
-		HandleOverlayKey:      e.overlays.HandleKey,
-		HandleCopyKey:         e.handleCopyKey,
-		RequestFocusEditor:    e.focusSelf,
-		RequestFocus:          e.App.RequestFocus,
-		CtrlClose:             e.ctrl.Close,
+	e.diffPlugin = diff.New(e.theme, cwd, diff.Deps{
+		Registry:    registry,
+		Submit:      e.publishSubmit,
+		Copy:        e.copyToClipboard,
+		Toast:       e.toastPlugin,
+		Publish:     e.publishToast,
+		Lists:       e.composer,
+		FocusPane:   e.captureOverlayFocus,
+		FocusChat:   e.composer.FocusChat,
+		FocusTarget: e,
 	})
+	e.rt.Register(e.diffPlugin)
+	e.codePlugin = code.New(e.theme, cwd, code.Deps{
+		Registry:    registry,
+		AddRef:      e.addPendingRef,
+		Toast:       e.toastPlugin,
+		Publish:     e.publishToast,
+		Lists:       e.composer,
+		FocusPane:   e.captureOverlayFocus,
+		FocusChat:   e.composer.FocusChat,
+		FocusTarget: e,
+	})
+	e.rt.Register(e.codePlugin)
+	// Command domains own their slash commands and pickers; the registry is
+	// the one shared surface (new command = one plugin package + this line).
+	e.sessions = sessionsplugin.New(registry, sessionsplugin.SessionCommands{
+		Ctrl:         e.ctrl,
+		Labels:       e.composer,
+		Store:        e.transcript,
+		Lists:        e.composer,
+		Bus:          e.bus,
+		Activity:     e.activityPlugin,
+		StreamActive: e.submitter.StreamActive,
+	})
+	e.branches = branchesplugin.New(registry, branchesplugin.BranchCommands{
+		Bus:            e.bus,
+		Dir:            e.cwd,
+		OpenOverlay:    e.composer.ShowBranchList,
+		RefreshOverlay: e.composer.RefreshBranchList,
+		StreamActive:   e.submitter.StreamActive,
+	})
+	e.skills = skillsplugin.New(registry, skillsplugin.SkillsCommands{
+		Bus:        e.bus,
+		SkillPaths: skillPaths,
+		Add:        e.composer,
+		ShowList:   e.composer.ShowList,
+	})
+	e.settingsCmd = settingsplugin.New(registry, settingsplugin.SettingsCommands{
+		Ctrl:       e.ctrl,
+		Bus:        e.bus,
+		Composer:   e.composer,
+		ModelNames: modelNames,
+	})
+
 	// The palette draws inside the transcript area, so the draft below stays
 	// clickable; keep it from taking the keyboard while the palette is open.
 	e.App.ModalInput = e.composer.PaletteOpen
 
-	e.extCmds.Sync()
+	e.refreshPalette()
 	return e
+}
+
+// queueRefresh asks the terminal to redraw; nil vx (headless tests) drops it.
+func (e *Editor) queueRefresh() {
+	if e.vx != nil {
+		e.vx.QueueRefresh()
+	}
+}
+
+// sessionBusy reports whether a stream, "!" job, or pending turn owns the
+// session. The composer is built before the submitter, so the port resolves
+// through the Editor at call time; the nil guard covers assembly only.
+func (e *Editor) sessionBusy() bool { return e.submitter != nil && e.submitter.IsBusy() }
+
+// bashRunning reports a live "!" job for the composer's cancel path.
+func (e *Editor) bashRunning() bool { return e.bashPlugin != nil && e.bashPlugin.Running() }
+
+// syncBashBorder mirrors "!cmd" chrome into the composer; same assembly
+// window as sessionBusy.
+func (e *Editor) syncBashBorder(text string) {
+	if e.bashPlugin != nil {
+		e.bashPlugin.SyncBorder(text)
+	}
 }
 
 // Publish sends a message onto the bus from any goroutine / widget callback.
@@ -203,199 +293,49 @@ func (e *Editor) Publish(m controller.Msg) {
 	e.bus.Publish(m)
 }
 
-// Update applies one message on the UI goroutine.
+// Update applies one message on the UI goroutine. Runtime plugins get the
+// types they subscribed to first; the switch below keeps the remaining shell
+// msgs. A msg type may have both: the plugin handles its slice (activity
+// FooterMsg kinds), the shell keeps the rest (update hint).
 func (e *Editor) Update(m controller.Msg) {
+	e.rt.Msgs.Dispatch(m)
 	switch msg := m.(type) {
-	case controller.SubmitMsg:
-		e.submitter.Submit(msg.Text)
-	case controller.CancelStreamMsg:
-		e.submitter.Cancel()
-	case controller.MentionResultsMsg:
-		e.composer.ApplyMentionResults(msg)
-	case controller.BashSuggestionsMsg:
-		e.composer.ApplyBashSuggestions(msg)
-	case controller.OverlayMsg:
-		e.overlays.Apply(msg)
-	case controller.LoopStartedMsg:
-		if e.ctrl.CurrentLoop(msg.Gen) {
-			e.overlays.ResolveError(controller.ErrorReply{})
-			e.activity.Apply(controller.ActivityWaiting)
-		}
-	case controller.LoopFinishedMsg:
-		if !e.ctrl.CurrentLoop(msg.Gen) {
-			return
-		}
-		e.transcript.ApplySession(session.CancelStreaming{})
-		e.transcript.Sync()
-		e.activity.Apply(controller.ActivityIdle)
-		if msg.Cancelled {
-			e.activity.Apply(controller.ActivityCancelled)
-		}
-		if msg.ErrorText != "" {
-			e.overlays.Apply(controller.OverlayMsg{Kind: controller.OverlayErrorAsk, ErrorText: msg.ErrorText})
-		}
 	case controller.FooterMsg:
 		e.applyFooterMessage(msg)
-	case controller.ToastMsg:
-		e.toast.Show(msg.Message, msg.Kind, msg.Duration)
 	case controller.ThemeMsg:
 		e.applyTheme(msg.Name)
-	case controller.ModelChangeMsg:
-		switch msg.Kind {
-		case "model":
-			e.composer.SetModelLabel(msg.Value, string(e.ctrl.ThinkLevel()))
-		case "think_level":
-			e.composer.SetModelLabel(e.ctrl.ModelName(), msg.Value)
-		}
-	case controller.ExtSessionEffectsMsg:
-		if msg.StatusSet {
-			e.extStatus = msg.Status
-		}
-		if msg.Toast != "" {
-			e.toast.Show(msg.Toast, toast.ToastSuccess, 3*time.Second)
-		}
-	case controller.BranchLabelMsg:
-		e.composer.SetBranchLabel(msg.Text)
-		e.vx.QueueRefresh()
-	case controller.ExtCommandResultMsg:
-		e.extCmds.Apply(msg)
-	case controller.ExtTopologyChangedMsg:
-		// Extensions changed underneath us (a reload): the agent still holds the old
-		// tool schemas and the palette the commands of the process that died.
-		e.ctrl.SyncExtensionTools()
-		e.extCmds.Sync()
-	case controller.JobProgressMsg:
-		// Applied in drainBus so we can skip Sync when the tree is unchanged.
 	}
 }
 
+// drainBus applies the pending batch through the runtime: plugins handle
+// their subscribed types, session postludes keep the single-Sync semantics.
 func (e *Editor) drainBus() {
-	batch := e.bus.Drain()
-	if len(batch) == 0 {
-		return
-	}
-	atBottom := e.transcript.AtBottom()
-	agentEvent := false
-	for _, m := range batch {
-		switch msg := m.(type) {
-		case controller.SessionEventMsg:
-			if msg.Gen != 0 && !e.ctrl.CurrentLoop(msg.Gen) {
-				continue
-			}
-			agentEvent = true
-			e.transcript.ApplySession(msg.Event)
-		case controller.JobProgressMsg:
-			if e.transcript.ApplyJobProgress(msg.Progress) {
-				agentEvent = true
-			}
-		default:
-			e.Update(m)
-		}
-	}
-	if agentEvent {
-		e.transcript.Sync()
-		e.activity.SyncFromSnap(e.transcript.Snapshot())
-		e.syncStatusSlot()
-		if atBottom {
-			e.transcript.StickToBottom()
-		}
-	}
+	e.rt.Msgs.DispatchBatch(e.bus.Drain())
 }
 
-func (e *Editor) onActivityChange() {
-	e.spin.Frame = 0
-	e.spinTick = 0
-	e.syncStatusSlot()
+// syncActivityFromSnap derives activity from the post-batch snapshot; a named
+// method so the root registers method values, not closures.
+func (e *Editor) syncActivityFromSnap() {
+	e.activityPlugin.SyncFromSnap(e.transcript.Snapshot())
 }
 
-func (e *Editor) advanceSpinner() {
-	e.spinTick++
-	if e.activity.ShowSpinner() && e.spinTick%spinnerFrameDivisor == 0 {
-		e.spin.Tick()
-		e.syncStatusSlot()
-	}
+func (e *Editor) refreshPalette() {
+	e.composer.SetPaletteCommands(e.commands.BuildPalette(e.commandCtx))
 }
 
-func (e *Editor) syncStatusSlot() {
-	label := footer.StatusLabel(e.theme, footer.StatusInput{
-		Activity:      e.activity.Label(e.transcript.Snapshot()),
-		ShowSpinner:   e.activity.ShowSpinner(),
-		Spinner:       e.spin,
-		Usage:         e.transcript.Snapshot().LastUsage(),
-		ContextWindow: e.ctrl.ContextWindow(),
-	})
-	if !label.Visible() {
-		e.composer.ClearBottomLeftLabel()
-		return
-	}
-	e.composer.SetBottomLeftLabel(label)
-}
-
-func (e *Editor) resetActivity() {
-	e.activity.Apply(controller.ActivityIdle)
-}
-
-func (e *Editor) setExtensionStatus(status string) {
-	e.extStatus = status
-}
-
+// applyFooterMessage keeps the shell-owned footer slice (update hint); the
+// activity plugin consumes the Set/ClearIf kinds via its own subscription.
 func (e *Editor) applyFooterMessage(msg controller.FooterMsg) {
-	switch msg.Kind {
-	case controller.FooterClearIfActivity:
-		e.overlays.ClearActivityIf(msg.If)
-	case controller.FooterSetActivity:
-		e.activity.Apply(msg.Activity)
-	case controller.FooterUpdateAvailable:
+	if msg.Kind == controller.FooterUpdateAvailable {
 		e.updateHint = strings.TrimPrefix(msg.Latest, "v") + " available · phi update"
 	}
 }
 
-func (e *Editor) blocksComposer() bool {
-	if e.overlays.BlocksComposer() {
-		return true
-	}
-	if e.diff.Active() {
-		return true
-	}
-	return e.code.Active()
-}
+func (e *Editor) blocksComposer() bool { return e.rt.Panes.BlocksComposer() }
 
-// openDiff and openCode each close the other: two full-screen overlays cannot
-// both own the frame, and the one underneath would come back on the next Esc.
-func (e *Editor) openDiff(args []string) {
-	e.code.Close()
-	if len(args) == 0 {
-		e.diff.Close()
-		e.diffList = listpicker.State{}
-		e.showChanges(false)
-		return
-	}
-	e.diff.OpenGit(e.cwd, args)
-	e.captureOverlayFocus()
-}
-
-// openCode shows a file in the viewer. A ":line" suffix puts the cursor there.
-// An "@" prefix is expanded to "./" so the shell can complete the path.
-func (e *Editor) openCode(args []string) {
-	path := strings.TrimSpace(strings.Join(args, " "))
-	if strings.HasPrefix(path, "@") {
-		path = "./" + path[1:]
-	}
-	if path == "" {
-		e.diff.Close()
-		e.code.Close()
-		e.showCodeFiles()
-		return
-	}
-	line := 0
-	if base, tail, ok := strings.Cut(path, ":"); ok {
-		if n, err := strconv.Atoi(tail); err == nil && n > 0 {
-			path, line = base, n
-		}
-	}
-	e.diff.Close()
-	e.code.OpenAt(path, line)
-	e.captureOverlayFocus()
+// handleOverlayKey routes composer keys to runtime bottom panes (error ask).
+func (e *Editor) handleOverlayKey(ctx *components.EventContext, ke xui.KeyEvent) bool {
+	return e.rt.Panes.Key(ctx, ke)
 }
 
 func (e *Editor) captureOverlayFocus() {
@@ -409,24 +349,8 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 		e.composer.Handle(ctx, ev)
 		return
 	}
-	if e.diff.Active() {
-		e.captureOverlayFocus()
-		e.diff.Handle(ctx, ev)
-		if !e.diff.Active() {
-			if e.diff.ReturnToList() {
-				e.showChanges(true)
-			} else {
-				e.composer.FocusChat()
-			}
-		}
-		return
-	}
-	if e.code.Active() {
-		e.captureOverlayFocus()
-		e.code.Handle(ctx, ev)
-		if !e.code.Active() {
-			e.composer.FocusChat()
-		}
+	if pane, ok := e.rt.Panes.Active(); ok {
+		pane.Handle(ctx, ev)
 		return
 	}
 	e.composer.Handle(ctx, ev)
@@ -457,28 +381,6 @@ func (e *Editor) copyToClipboard(text string) bool {
 	return e.vx.CopyToClipboard(text) == nil
 }
 
-// handleErrorReply performs the error dialog's Retry/Copy side effects. It
-// runs on the UI goroutine as the overlay resolves.
-func (e *Editor) handleErrorReply(r controller.ErrorReply, text string) {
-	switch {
-	case r.Retry:
-		e.activity.Apply(controller.ActivityWaiting)
-		if !e.ctrl.RetryLastPrompt() {
-			e.activity.Apply(controller.ActivityIdle)
-			e.toast.Show("Nothing to retry", toast.ToastWarning, 2*time.Second)
-		}
-	case r.Copy:
-		if text == "" {
-			return
-		}
-		if e.copyToClipboard(text) {
-			e.toast.Show("Copied to clipboard", toast.ToastSuccess, 2*time.Second)
-		} else {
-			e.toast.Show("Clipboard unavailable", toast.ToastError, 2*time.Second)
-		}
-	}
-}
-
 // addPendingRef drops a code-viewer reference into the composer and refocuses
 // chat; the pane's own toast reports the add.
 func (e *Editor) addPendingRef(ref chat.Ref) {
@@ -486,35 +388,15 @@ func (e *Editor) addPendingRef(ref chat.Ref) {
 	e.composer.FocusChat()
 }
 
-// showSessionList opens the session picker bound to the session commands'
-// accept/delete handlers.
-func (e *Editor) showSessionList(items []session.SessionMeta, currentID string) {
-	e.composer.ShowSessionList(items, currentID, e.sessions.Accept, e.sessions.Delete)
-}
-
-// showSkillList opens the skills picker bound to the skills commands' accept
-// handler. /skill is a slash command, not a Ctrl+K palette entry: attaching a
-// skill belongs to composing a turn.
-func (e *Editor) showSkillList(
-	items []listpicker.Item,
-	cfg listpicker.ShowConfig,
-	onAccept func(listpicker.Item),
-) {
-	e.composer.ShowList(items, cfg, onAccept, nil)
-}
-
 // Draw renders the editor surface for the given draw context.
 func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	e.drainBus()
 
-	e.advanceSpinner()
-	_ = e.toast.Visible()
+	e.rt.Clock.Tick()
+	_ = e.toastPlugin.Visible()
 
-	if e.diff.Active() {
-		return e.drawOverlay(ctx, e.diff.Draw(ctx))
-	}
-	if e.code.Active() {
-		return e.drawOverlay(ctx, e.code.Draw(ctx))
+	if pane, ok := e.rt.Panes.Active(); ok {
+		return e.drawOverlay(ctx, pane.Draw(ctx))
 	}
 
 	maxSize := ctx.Max
@@ -522,7 +404,10 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 
 	footerH := 1
 	var chatH int
-	if askH, overlay := e.overlays.PreferredBottomHeight(maxSize.Width, ctx.Method); overlay {
+	// askActive mirrors the old overlays.Active(): the ask pane replaces the
+	// composer slot and suppresses the pickers below.
+	askH, askActive := e.rt.Panes.Height(maxSize.Width, ctx.Method)
+	if askActive {
 		chatH = askH
 		maxChatH := maxSize.Height - footerH - 3
 		if chatH > maxChatH {
@@ -557,14 +442,13 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	listH = e.transcript.ListHeight()
 
 	var chatSurf components.Surface
-	if surf, ok := e.overlays.DrawBottom(ctx, maxSize.Width, chatH); ok {
+	if surf, ok := e.rt.Panes.Draw(ctx, maxSize.Width, chatH); ok {
 		chatSurf = surf
 	} else {
 		chatSurf = e.composer.DrawChat(ctx, maxSize.Width, chatH)
 	}
 	footerSurf := e.footer.Draw(ctx, maxSize.Width, footer.State{
-		ExtensionStatus: e.extStatus,
-		UpdateHint:      e.updateHint,
+		UpdateHint: e.updateHint,
 	})
 
 	root.Children = []components.SubSurface{
@@ -572,7 +456,7 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 		{Origin: components.Point{X: 0, Y: listH}, Surface: chatSurf, Z: 1},
 		{Origin: components.Point{X: 0, Y: maxSize.Height - footerH}, Surface: footerSurf, Z: 2},
 	}
-	if !e.overlays.Active() {
+	if !askActive {
 		root.Children = append(root.Children, e.composer.PickerOverlays(ctx, listH, maxSize.Width)...)
 	}
 	// The palette may not shrink to an empty box: below this height the picker
@@ -590,30 +474,17 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	if list, ok := e.composer.ListOverlay(ctx); ok {
 		root.Children = append(root.Children, list)
 	}
-	if e.toast.Visible() {
-		toastSurf := e.toast.Draw(ctx)
-		root.Children = append(root.Children, components.SubSurface{
-			Origin:  components.Point{X: 0, Y: 0},
-			Surface: toastSurf,
-			Z:       40,
-		})
-	}
+	root.Children = append(root.Children, e.rt.Layers.Draw(ctx)...)
 	return root
 }
 
 // drawOverlay finishes a full-screen overlay: it keeps keyboard focus on the
 // Editor (palette and slash leave it on Chat, where keys would land under the
-// overlay) and stacks the toast on top.
+// overlay) and stacks the runtime overlay layers (toast) on top.
 func (e *Editor) drawOverlay(ctx components.DrawContext, root components.Surface) components.Surface {
 	e.captureOverlayFocus()
 	root.Widget = e
-	if e.toast.Visible() {
-		root.Children = append(root.Children, components.SubSurface{
-			Origin:  components.Point{X: 0, Y: 0},
-			Surface: e.toast.Draw(ctx),
-			Z:       40,
-		})
-	}
+	root.Children = append(root.Children, e.rt.Layers.Draw(ctx)...)
 	return root
 }
 
@@ -647,12 +518,9 @@ func (e *Editor) StartUpdateCheck(cacheDir string) {
 	}()
 }
 
-// StartBranchWatch hot-reloads the git branch in the path label when the
-// repo HEAD changes (checkout from another terminal, editor, …).
+// StartBranchWatch delegates to the session plugin; cmd calls it at startup.
 func (e *Editor) StartBranchWatch() {
-	pathutil.WatchBranch(e.cwd, func(label string) {
-		e.Publish(controller.BranchLabelMsg{Text: label})
-	})
+	e.sessionPlugin.WatchBranch(e.cwd)
 }
 
 func (e *Editor) applyTheme(name string) {
@@ -661,15 +529,11 @@ func (e *Editor) applyTheme(name string) {
 		return
 	}
 	e.theme = th
-	e.composer.SetTheme(th)
-	e.toast.Theme = th
+	e.rt.Theme.Apply(th)
 	e.transcript.SetTheme(th)
 	e.footer.SetTheme(th)
-	e.spin.Style = th.ToolName
-	e.syncStatusSlot()
-	e.overlays.SetTheme(th)
-	e.diff.SetTheme(th)
-	e.code.SetTheme(th)
-	e.toast.Show("Theme: "+name, toast.ToastSuccess, 2*time.Second)
+	// overlay, diff, code, and the activity status slot follow via
+	// rt.ApplyTheme subscriptions.
+	e.toastPlugin.Show("Theme: "+name, toast.ToastSuccess, 2*time.Second)
 	e.vx.QueueRefresh()
 }

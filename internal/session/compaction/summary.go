@@ -43,6 +43,11 @@ type OutputLimits struct {
 	ContextWindow int
 }
 
+// LimitsForModel selects the token limits needed for compaction.
+func LimitsForModel(cfg llm.ModelConfig) OutputLimits {
+	return OutputLimits{MaxTokens: cfg.MaxTokens, ContextWindow: cfg.ContextWindow}
+}
+
 // summaryMaxTokens is the output cap for one summary request: the model's
 // output limit, clamped so the estimated prompt plus output fits the window
 // (pi's clampMaxTokensToContext). The cap is always sent: omitting it falls back

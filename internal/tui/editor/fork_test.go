@@ -10,7 +10,6 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/app"
-	"github.com/pulseaiclub/phi/internal/extension/loader"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
@@ -27,7 +26,6 @@ func forkEditor(t *testing.T) *Editor {
 	for _, key := range []string{"PHI_MODEL", "PHI_API_KEY", "PHI_BASE_URL", "PHI_THINK_LEVEL"} {
 		t.Setenv(key, "")
 	}
-	t.Setenv(loader.EnvExtensions, "off")
 	require.NoError(t, os.MkdirAll(filepath.Join(home, ".phi"), 0o700))
 	config := `models:
   - name: primary
@@ -42,22 +40,19 @@ func forkEditor(t *testing.T) *Editor {
 	proj, err := project.Discover(dir)
 	require.NoError(t, err)
 	bus := controller.NewBus(nil)
-	ctrl, err := controller.NewController(bus, proj, nil)
-	require.NoError(t, err)
-	t.Cleanup(ctrl.Close)
+	ctrl := newInjectedTestController(t, bus, proj)
 
 	return NewEditor(app.NewApp(nil), bus, ctrl, nil, components.DefaultTheme(), dir, "primary", nil, nil)
 }
 
 func TestForkSlashSwitchesToANewSession(t *testing.T) {
 	e := forkEditor(t)
-	srcID, srcFile := e.ctrl.SessionID(), e.ctrl.SessionFile()
+	srcID := e.ctrl.SessionID()
 
 	require.True(t, e.commands.DispatchSlash("/fork", commands.NewContext(e.bus, nil)))
 	e.drainBus()
 
 	assert.NotEqual(t, srcID, e.ctrl.SessionID(), "/fork must open the session it created")
-	assert.NotEqual(t, srcFile, e.ctrl.SessionFile())
 	assert.Empty(t, e.transcript.Snapshot().Messages, "a fresh session forks empty")
 }
 

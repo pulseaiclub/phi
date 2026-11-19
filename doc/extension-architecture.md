@@ -1,6 +1,7 @@
 # Extension Architecture
 
-How phi loads, runs and hot-swaps PXB extensions. For the user-facing side see
+The legacy runner is disconnected from the CLI, TUI and sub-agents during the
+plugin refactor. This document describes its previous integration. See
 [extension-management-guide.md](extension-management-guide.md); for the wire
 protocol see [extensions.md](extensions.md).
 

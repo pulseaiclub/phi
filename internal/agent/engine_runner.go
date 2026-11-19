@@ -4,14 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/extension"
+	"github.com/pulseaiclub/phi/internal/agent/prompt"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
+	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
 	"github.com/pulseaiclub/phi/internal/project/model"
 	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/pulseaiclub/phi/internal/session/compaction"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
@@ -19,18 +22,15 @@ import (
 //
 // Each Run creates a fresh Engine with a persisted session under <job.Dir>/session/.
 // Child engines do not receive Jobs, so they have no agent_* tools.
-// Role (explore|worker|review) selects tools when Tools is nil. ModelFn
-// selects the model per role when set; otherwise Model is used as a snapshot.
-//
-// Extensions (or ExtensionsFn) are inherited from the parent so tool_call
-// handlers apply. Extension RegisterTool tools are not merged
-// into child engines. ExtensionsFn wins when set (live reload).
 type EngineRunner struct {
-	Model        llm.ModelConfig
-	ModelFn      func(role job.Role) llm.ModelConfig // if set, preferred over Model
-	Tools        []tooldef.Tool                      // nil → SpecForRole(job.Role).Tools
-	Extensions   *extension.Runner
-	ExtensionsFn func() *extension.Runner
+	specs map[job.Role]ChildSpec
+}
+
+// NewEngineRunner returns a runner with owned child specifications.
+func NewEngineRunner(specs map[job.Role]ChildSpec) EngineRunner {
+	owned := make(map[job.Role]ChildSpec, len(specs))
+	maps.Copy(owned, specs)
+	return EngineRunner{specs: owned}
 }
 
 // Run implements [job.Runner].
@@ -39,13 +39,21 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 		return "", errors.New("agent: EngineRunner requires job Dir")
 	}
 
-	spec := SpecForRole(env.Job.Role)
-	engine, err := r.newEngine(env.Job, spec)
+	role := job.NormalizeRole(string(env.Job.Role))
+	spec, ok := r.specs[role]
+	if !ok {
+		return "", fmt.Errorf("agent: no child spec for role %q", role)
+	}
+	sess, err := newJobSession(env.Job)
+	if err != nil {
+		return "", err
+	}
+	engine, err := newEngine(env.Model, spec, sess)
 	if err != nil {
 		return "", err
 	}
 
-	env.Log(fmt.Sprintf("sub-agent role=%s session=%s parent=%s", spec.Role, engine.SessionID(), env.Job.ParentID))
+	env.Log(fmt.Sprintf("sub-agent role=%s session=%s parent=%s", spec.Role, sess.ID(), env.Job.ParentID))
 
 	prompt := env.Job.Prompt
 	if env.Job.Description != "" {
@@ -87,7 +95,7 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 		}
 	}
 
-	if path := engine.SessionFile(); path != "" {
+	if path := sess.File(); path != "" {
 		env.Log("session_file=" + path)
 	}
 
@@ -106,40 +114,27 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 	return lastText, nil
 }
 
-func (r EngineRunner) newEngine(meta job.Meta, spec ChildSpec) (*Engine, error) {
+func newJobSession(meta job.Meta) (*Session, error) {
 	cwd := meta.WorkDir
 	if cwd == "" {
 		cwd = "."
 	}
-
-	toolList := r.Tools
-	if toolList == nil {
-		toolList = spec.Tools
-	}
-
-	cfg := r.Model
-	if r.ModelFn != nil {
-		cfg = r.ModelFn(meta.Role)
-	}
-
-	extRunner := r.Extensions
-	if r.ExtensionsFn != nil {
-		extRunner = r.ExtensionsFn()
-	}
-
-	sess, err := NewSession(
+	return NewSession(
 		WithCwd(cwd),
 		WithSessionDir(filepath.Join(meta.Dir, "session")),
 		WithPersist(true),
 		WithParentID(meta.ParentID),
 	)
-	if err != nil {
-		return nil, err
-	}
-	return NewEngine(cfg, sess,
-		WithTools(toolList),
-		WithExtensions(extRunner),
-		WithOmitExtensionTools(true),
-		WithHooks(model.HooksForConfig(cfg)),
+}
+
+func newEngine(cfg llm.ModelConfig, spec ChildSpec, sess *Session) (*Engine, error) {
+	hooks := model.HooksForConfig(cfg)
+	client := llmclient.NewClient(
+		cfg,
+		hooks,
+		tooldef.Definitions(spec.Tools),
+		prompt.Build(sess.Cwd(), cfg.SkillPaths, false, 0, nil),
 	)
+	executor := NewExecutor(tooldef.NewRegistry(spec.Tools), sess.Cwd())
+	return NewEngine(compaction.LimitsForModel(cfg), sess, client, executor)
 }

@@ -1,6 +1,10 @@
 package job
 
-import "context"
+import (
+	"context"
+
+	"github.com/pulseaiclub/phi/internal/llm"
+)
 
 // RunEnv is the in-memory execution context a [Runner] sees for one job.
 //
@@ -11,11 +15,11 @@ import "context"
 // OnProgress (when non-nil) receives structured tool updates for the parent TUI.
 // It must not block; the manager may drop events if subscribers are slow.
 type RunEnv struct {
-	Job           Meta
-	ParentContext ParentContext // independent snapshot captured for this spawn
-	Log           func(message string)
-	WriteResult   func(summary string) error
-	OnProgress    func(Progress)
+	Job         Meta
+	Model       llm.ModelConfig `json:"-"` // read-only spawn snapshot; zero if unconfigured
+	Log         func(message string)
+	WriteResult func(summary string) error
+	OnProgress  func(Progress)
 }
 
 // Runner executes job work. Implementations must respect ctx cancellation.

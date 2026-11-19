@@ -11,29 +11,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
-	"github.com/pulseaiclub/phi/internal/tui/composer"
-	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
 func diffEditor(t *testing.T, dir string) *Editor {
 	t.Helper()
-	e := NewEditor(app.NewApp(nil), controller.NewBus(nil), &controller.EngineController{}, nil,
-		components.DefaultTheme(), dir, "", nil, nil)
-	// Keep the real focus/blocking wiring without a terminal redraw callback.
-	e.composer.Wire(composer.WireDeps{
-		Transcript:            e.transcript,
-		Submitter:             e.submitter,
-		Commands:              e.commands,
-		Bus:                   e.bus,
-		DrainBus:              e.drainBus,
-		OverlayBlocksComposer: e.blocksComposer,
-		RequestFocusEditor:    func() { e.App.RequestFocus(e) },
-		RequestFocus:          e.App.RequestFocus,
-	})
-	return e
+	return newShellTestEditor(t, dir)
 }
 
 func diffKey(e *Editor, code xui.KeyCode, r rune) *components.EventContext {
@@ -59,7 +43,7 @@ func TestDiffPickerCombinesFilesAndReturnsToSelection(t *testing.T) {
 	e := diffEditor(t, dir)
 
 	require.True(t, e.commands.DispatchSlash("/diff", commands.NewContext(e.bus, nil)))
-	assert.False(t, e.diff.Active())
+	assert.False(t, e.diffPlugin.Active())
 	text := branchOverlay(t, e)
 	assert.Contains(t, text, "Changes")
 	assert.NotContains(t, text, "Staged")
@@ -72,13 +56,13 @@ func TestDiffPickerCombinesFilesAndReturnsToSelection(t *testing.T) {
 	}
 	ctx := diffKey(e, xui.KeyEnter, 0)
 	assert.Same(t, e, ctx.Focus, "the shared picker must hand focus to the detail view")
-	require.True(t, e.diff.Active())
+	require.True(t, e.diffPlugin.Active())
 	text = components.SurfaceText(frame(t, e))
 	assert.Contains(t, text, "base")
 	assert.Contains(t, text, "worktree-line")
 	assert.NotContains(t, text, "staged-line")
 	diffKey(e, xui.KeyEscape, 0)
-	assert.False(t, e.diff.Active())
+	assert.False(t, e.diffPlugin.Active())
 	assert.Equal(t, "both", e.composer.ListState().Query)
 	assert.Contains(t, e.composer.ListState().SelectedID, "both.txt")
 	diffKey(e, xui.KeyEscape, 0)
@@ -99,12 +83,12 @@ func TestDiffPickerEmptyAndGitError(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := diffEditor(t, tc.dir)
-			e.openDiff(nil)
-			assert.False(t, e.diff.Active())
+			e.diffPlugin.Open(nil)
+			assert.False(t, e.diffPlugin.Active())
 			_, open := e.composer.ListOverlay(components.DrawContext{})
 			assert.False(t, open)
-			assert.Contains(t, e.toast.Message, tc.want)
-			assert.Equal(t, tc.kind, e.toast.Kind)
+			assert.Contains(t, e.toastPlugin.Current().Message, tc.want)
+			assert.Equal(t, tc.kind, e.toastPlugin.Current().Kind)
 		})
 	}
 }
@@ -113,19 +97,19 @@ func TestDiffPickerRefreshAndExplicitCommand(t *testing.T) {
 	dir := gitFixtureRepo(t)
 	writeDiffFile(t, dir, "new.txt", "new content\n")
 	e := diffEditor(t, dir)
-	e.openDiff(nil)
+	e.diffPlugin.Open(nil)
 	diffKey(e, xui.KeyEnter, 0)
 	assert.Contains(t, components.SurfaceText(frame(t, e)), "new content")
 	gitFixtureRun(t, dir, "add", ".")
 	gitFixtureRun(t, dir, "commit", "-m", "clean")
 	diffKey(e, xui.KeyEscape, 0)
-	assert.Equal(t, "No changes", e.toast.Message)
-	assert.False(t, e.diff.Active())
+	assert.Equal(t, "No changes", e.toastPlugin.Current().Message)
+	assert.False(t, e.diffPlugin.Active())
 
 	writeDiffFile(t, dir, "new.txt", "staged content\n")
 	gitFixtureRun(t, dir, "add", ".")
-	e.openDiff([]string{"staged"})
-	require.True(t, e.diff.Active())
+	e.diffPlugin.Open([]string{"staged"})
+	require.True(t, e.diffPlugin.Active())
 	assert.Contains(t, components.SurfaceText(frame(t, e)), "staged content")
 	diffKey(e, xui.KeyEscape, 0)
 	_, open := e.composer.ListOverlay(components.DrawContext{})
@@ -137,7 +121,7 @@ func TestDiffPickerClearsBranchDeleteHandler(t *testing.T) {
 	writeDiffFile(t, dir, "new.txt", "content\n")
 	e := diffEditor(t, dir)
 	require.True(t, e.commands.DispatchSlash("/branch", commands.NewContext(e.bus, nil)))
-	e.openDiff(nil)
+	e.diffPlugin.Open(nil)
 	e.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'x', Mods: xui.ModCtrl})
 	assert.NotContains(t, branchOverlay(t, e), "Delete")
 	assert.Contains(t, branchOverlay(t, e), "new.txt")

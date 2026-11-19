@@ -7,9 +7,12 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/chat"
+	"github.com/pulseaiclub/phi/internal/components/layout"
 	"github.com/pulseaiclub/phi/internal/components/status"
+	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/pulseaiclub/phi/internal/tui/plugin/activity"
 	"github.com/pulseaiclub/phi/internal/tui/transcript"
 	imgutil "github.com/pulseaiclub/phi/internal/util/image"
 )
@@ -35,10 +38,26 @@ func (stubComposer) SetBashBorderActive(bool)              {}
 // newTestSubmitter wires a Submitter over a zero EngineController: SessionDir
 // is empty, so no shell history is created. Tests must not reach
 // StartPrompt — that path needs a live controller.
+// newTestActivity builds a real activity plugin over a no-op status slot.
+func newTestActivity(t *testing.T) *activity.Plugin {
+	t.Helper()
+	th := components.DefaultTheme()
+	return activity.New(th, status.NewSpinner(th.ToolName), activity.Deps{
+		Snapshot:      func() session.Snapshot { return session.Snapshot{} },
+		ContextWindow: func() int { return 0 },
+		Labels:        nopLabels{},
+	})
+}
+
+type nopLabels struct{}
+
+func (nopLabels) SetBottomLeftLabel(layout.BorderLabel) {}
+func (nopLabels) ClearBottomLeftLabel()                 {}
+
 func newTestSubmitter(
 	t *testing.T,
 	tp *transcript.TranscriptPane,
-	activity *controller.ActivityHandler,
+	activity ActivityPort,
 	composer *stubComposer,
 	cmds *commands.CommandRegistry,
 ) *Submitter {
@@ -54,6 +73,7 @@ func newTestSubmitter(
 		composer,
 		nil,
 		commands.NewContext(nil, nil),
+		ShellHooks{},
 		nil, nil,
 	)
 }
@@ -67,7 +87,7 @@ func TestSubmitter_IsBusy(t *testing.T) {
 	th := components.DefaultTheme()
 	spin := status.NewSpinner(th.ToolName)
 	tp := transcript.NewTranscriptPane(th, spin, "Phi test")
-	sub := newTestSubmitter(t, tp, controller.NewActivityHandler(), nil, nil)
+	sub := newTestSubmitter(t, tp, newTestActivity(t), nil, nil)
 	assert.False(t, sub.IsBusy())
 }
 
@@ -76,7 +96,7 @@ func TestSubmitter_IsBusy(t *testing.T) {
 func TestSubmitter_IsBusy_requestInFlight(t *testing.T) {
 	th := components.DefaultTheme()
 	spin := status.NewSpinner(th.ToolName)
-	activity := controller.NewActivityHandler()
+	activity := newTestActivity(t)
 	sub := newTestSubmitter(t, transcript.NewTranscriptPane(th, spin, "Phi test"), activity, nil, nil)
 
 	for _, a := range []controller.Activity{
@@ -96,7 +116,7 @@ func TestSubmitter_IsBusy_requestInFlight(t *testing.T) {
 func TestSubmitter_StreamActive_activity(t *testing.T) {
 	th := components.DefaultTheme()
 	spin := status.NewSpinner(th.ToolName)
-	activity := controller.NewActivityHandler()
+	activity := newTestActivity(t)
 	sub := newTestSubmitter(t, transcript.NewTranscriptPane(th, spin, "Phi test"), activity, nil, nil)
 	activity.Apply(controller.ActivityWaiting)
 	assert.True(t, sub.StreamActive())

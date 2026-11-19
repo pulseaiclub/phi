@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	branchesplugin "github.com/pulseaiclub/phi/internal/tui/plugin/branches"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -14,8 +16,8 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
-	"github.com/pulseaiclub/phi/internal/tui/composer"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/pulseaiclub/phi/internal/tui/plugin/composer"
 )
 
 // TestEditorAppliesBranchLabel removed: it constructed an Editor with a nil vx
@@ -107,25 +109,19 @@ func branchEditor(t *testing.T) *Editor {
 	dir := gitFixtureRepo(t)
 	bus := controller.NewBus(nil)
 	e := &Editor{
-		composer: composer.NewComposerPane(components.DefaultTheme(), "m", dir),
+		composer: composer.NewComposerPane(components.DefaultTheme(), "m", dir, composer.WithDeps(composer.Deps{})),
 		bus:      bus,
 		cwd:      dir,
 	}
-	e.composer.Wire(composer.WireDeps{})
 
-	builtins := commands.NewBuiltinRegistry(bus, nil, e.composer, nil, nil, nil, nil, nil)
-	e.commands = builtins.Registry
-	builtins.Bind(
-		nil,
-		commands.NewContext(bus, nil),
-		nil,
-		nil,
-		e.composer.ShowBranchList,
-		e.composer.RefreshBranchList,
-		nil,
-		dir,
-		func() bool { return false },
-	)
+	e.commands = commands.NewCommandRegistry()
+	e.branches = branchesplugin.New(e.commands, branchesplugin.BranchCommands{
+		Bus:            bus,
+		Dir:            dir,
+		OpenOverlay:    e.composer.ShowBranchList,
+		RefreshOverlay: e.composer.RefreshBranchList,
+		StreamActive:   func() bool { return false },
+	})
 
 	return e
 }

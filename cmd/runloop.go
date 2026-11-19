@@ -8,20 +8,23 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/agent"
-	"github.com/pulseaiclub/phi/internal/extension"
-	"github.com/pulseaiclub/phi/internal/job"
+	"github.com/pulseaiclub/phi/internal/agent/prompt"
 	"github.com/pulseaiclub/phi/internal/llm"
+	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
 	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/project/model"
 	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/pulseaiclub/phi/internal/session/compaction"
 	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/agenttool"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"github.com/pulseaiclub/phi/internal/util"
 )
@@ -89,10 +92,6 @@ func runHeadless(opts runOptions) error {
 		resumeID = opts.session
 	}
 
-	extRunner := loadRunExtensions(bs)
-	if extRunner != nil {
-		defer extRunner.Close()
-	}
 	// Load the pool before tool selection so an explicit --tools list still
 	// gets MCP-aware ls/read/write.
 	var mcpPool *mcp.Pool
@@ -102,44 +101,21 @@ func runHeadless(opts runOptions) error {
 		mcpPool = pool
 		defer func() { _ = pool.Close() }()
 	}
-	engineOpts := []agent.EngineConfigOption{
-		agent.WithExtensions(extRunner),
-	}
+	var selected []tooldef.Tool
 	if opts.builtinTools != "" {
-		selected, err := selectBuiltinTools(opts.builtinTools, mcpPool)
+		selected, err = selectBuiltinTools(opts.builtinTools, mcpPool)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "phi run:", err)
 			return exitCode(ExitUsage)
 		}
-		engineOpts = append(engineOpts, agent.WithTools(selected))
+	} else {
+		selected = tools.DefaultTools(mcpPool)
 	}
 	primary, err := resolveRunModel(bs.Config, opts.model)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "phi run:", err)
 		return exitCode(ExitUsage)
 	}
-	engineOpts = append(engineOpts, agent.WithHooks(model.HooksForConfig(primary)))
-	if mcpPool != nil {
-		engineOpts = append(engineOpts, agent.WithMCP(mcpPool))
-	}
-	if bs.Config.Agents.Enabled {
-		parent := primary
-		jobs, jobErr := agent.NewJobManager(bs.Proj.JobsDir(), parent, func(role job.Role) llm.ModelConfig {
-			if cfg, ok := bs.Config.FindModel(bs.Config.Agents.Models.ForRole(role)); ok {
-				return cfg
-			}
-			return parent
-		}, func() *extension.Runner {
-			return extRunner
-		})
-		if jobErr != nil {
-			fmt.Fprintln(os.Stderr, "phi run:", jobErr)
-			return exitCode(ExitUsage)
-		}
-		defer func() { _ = jobs.Close(context.Background()) }()
-		engineOpts = append(engineOpts, agent.WithJobs(jobs))
-	}
-
 	sessionOpts := []agent.SessionOption{
 		agent.WithCwd(bs.Cwd),
 		agent.WithSessionDir(bs.SessionDir),
@@ -156,14 +132,38 @@ func runHeadless(opts runOptions) error {
 		return exitCode(ExitUsage)
 	}
 
-	engine, err := agent.NewEngine(primary, sess, engineOpts...)
+	var binding *agenttool.Binding
+	if bs.Config.Agents.Enabled {
+		jobs, jobErr := newJobs(bs.Proj, primary, sess)
+		if jobErr != nil {
+			fmt.Fprintln(os.Stderr, "phi run:", jobErr)
+			return exitCode(ExitUsage)
+		}
+		defer func() { _ = jobs.Close(context.Background()) }()
+		binding = agenttool.BindForSession(jobs, sess.Cwd())
+	}
+
+	toolList := selected
+	if binding != nil {
+		toolList = slices.Concat(toolList, binding.Tools())
+	}
+	system := prompt.Build(
+		sess.Cwd(),
+		primary.SkillPaths,
+		binding != nil,
+		binding.MaxConcurrent(),
+		mcpPool.ServerNames(),
+	)
+	client := llmclient.NewClient(primary, model.HooksForConfig(primary), tooldef.Definitions(toolList), system)
+	executor := agent.NewExecutor(tooldef.NewRegistry(toolList), sess.Cwd())
+	engine, err := agent.NewEngine(compaction.LimitsForModel(primary), sess, client, executor)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "phi run:", err)
 		return exitCode(ExitUsage)
 	}
 
-	fmt.Fprintf(os.Stderr, "session: %s\n", engine.SessionID())
-	if f := engine.SessionFile(); f != "" {
+	fmt.Fprintf(os.Stderr, "session: %s\n", sess.ID())
+	if f := sess.File(); f != "" {
 		fmt.Fprintf(os.Stderr, "file: %s\n", f)
 	}
 
@@ -174,32 +174,12 @@ func runHeadless(opts runOptions) error {
 		defer cancel()
 	}
 
-	return exitCode(runLoop(runCtx, engine, opts))
-}
-
-// loadRunExtensions discovers user + project extensions for headless `phi run`.
-// Failures are non-fatal (fail-open). Warnings go to stderr as a one-line hint.
-func loadRunExtensions(bs *runBootstrap) *extension.Runner {
-	if bs == nil || bs.Proj == nil {
-		return nil
-	}
-	r, warns, err := extension.Load(bs.Proj.Global().ExtensionsDir(), bs.Proj.ExtensionsDir())
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "warning: extensions:", err)
-		return nil
-	}
-	if n := len(warns); n > 0 {
-		fmt.Fprintf(os.Stderr, "warning: extensions: %d warning(s) while loading\n", n)
-		for _, w := range warns {
-			fmt.Fprintln(os.Stderr, "  ", w.String())
-		}
-	}
-	return r
+	return exitCode(runLoop(runCtx, engine, sess, opts))
 }
 
 // runLoop consumes the same engine.Loop the TUI uses — no second loop is
 // implemented here — and maps events to stdout/stderr + exit codes.
-func runLoop(ctx context.Context, engine *agent.Engine, opts runOptions) int {
+func runLoop(ctx context.Context, engine *agent.Engine, sess *agent.Session, opts runOptions) int {
 	enc := &jsonlEncoder{out: os.Stdout, enabled: opts.jsonl}
 
 	exit := ExitOK
@@ -244,7 +224,7 @@ func runLoop(ctx context.Context, engine *agent.Engine, opts runOptions) int {
 		fmt.Fprintln(os.Stdout, finalText)
 	}
 
-	enc.doneEvent(engine.SessionID(), engine.SessionFile(), exit)
+	enc.doneEvent(sess.ID(), sess.File(), exit)
 	return exit
 }
 

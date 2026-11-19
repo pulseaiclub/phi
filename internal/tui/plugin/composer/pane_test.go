@@ -1,0 +1,455 @@
+package composer
+
+import (
+	"encoding/base64"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/pulseaiclub/xui"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/pulseaiclub/phi/internal/components"
+	"github.com/pulseaiclub/phi/internal/components/listpicker"
+	"github.com/pulseaiclub/phi/internal/components/mention"
+	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/pulseaiclub/phi/internal/tui/commands"
+	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/pulseaiclub/phi/internal/util/clipboard"
+	"github.com/pulseaiclub/phi/internal/util/gitx"
+	imgutil "github.com/pulseaiclub/phi/internal/util/image"
+)
+
+// png1x1Base64 is a 1x1 transparent PNG (same fixture as util/image tests).
+const png1x1Base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+
+func TestTryAttachClipboardImageBlockedWithoutModelSupport(t *testing.T) {
+	c := NewComposerPane(components.DefaultTheme(), "m", "/tmp")
+	bus := controller.NewBus(nil)
+	c.bus = bus
+	c.imageEnabled = func() bool { return false }
+
+	ctx := &components.EventContext{}
+	require.True(t, c.tryAttachClipboardImage(ctx))
+	assert.True(t, ctx.Consume)
+	assert.Contains(t, drainToast(t, bus), "does not support images")
+}
+
+func TestTryAttachClipboardImageFallsThroughWhenSupported(t *testing.T) {
+	c := NewComposerPane(components.DefaultTheme(), "m", "/tmp")
+	c.imageEnabled = func() bool { return true }
+	// The machine's clipboard state must not decide this test: stub the read
+	// to the unavailable result the fall-through path expects.
+	c.readImage = func() (imgutil.Result, error) { return imgutil.Result{}, clipboard.ErrUnavailable }
+
+	ctx := &components.EventContext{}
+	require.False(t, c.tryAttachClipboardImage(ctx))
+}
+
+func TestTryAttachClipboardImageAllowedWithoutModelInfo(t *testing.T) {
+	c := NewComposerPane(components.DefaultTheme(), "m", "/tmp")
+	c.readImage = func() (imgutil.Result, error) { return imgutil.Result{}, clipboard.ErrUnavailable }
+
+	ctx := &components.EventContext{}
+	require.False(t, c.tryAttachClipboardImage(ctx))
+}
+
+func TestAcceptMentionImageBlockedWithoutModelSupport(t *testing.T) {
+	dir := t.TempDir()
+	png, err := base64.StdEncoding.DecodeString(png1x1Base64)
+	require.NoError(t, err)
+	path := filepath.Join(dir, "pixel.png")
+	require.NoError(t, os.WriteFile(path, png, 0o644))
+
+	c := NewComposerPane(components.DefaultTheme(), "m", dir)
+	bus := controller.NewBus(nil)
+	c.bus = bus
+	c.imageEnabled = func() bool { return false }
+	c.Chat.Value = "@pixel.png"
+	c.Chat.Cursor = len(c.Chat.Value)
+
+	c.acceptMention(mention.Item{Path: "pixel.png"})
+
+	assert.Contains(t, drainToast(t, bus), "does not support images")
+	assert.Empty(t, c.Chat.PendingImages)
+	assert.Equal(t, "@pixel.png ", c.Chat.Value)
+}
+
+// drainToast returns the message of the last queued ToastMsg and empties the bus.
+func drainToast(t *testing.T, bus *controller.Bus) string {
+	t.Helper()
+	var msg string
+	for _, m := range bus.Drain() {
+		if tm, ok := m.(controller.ToastMsg); ok {
+			msg = tm.Message
+		}
+	}
+	return msg
+}
+
+func TestAcceptMentionImageAttachesWhenSupported(t *testing.T) {
+	dir := t.TempDir()
+	png, err := base64.StdEncoding.DecodeString(png1x1Base64)
+	require.NoError(t, err)
+	path := filepath.Join(dir, "pixel.png")
+	require.NoError(t, os.WriteFile(path, png, 0o644))
+
+	c := NewComposerPane(components.DefaultTheme(), "m", dir)
+	c.imageEnabled = func() bool { return true }
+	c.Chat.Value = "@pixel.png"
+	c.Chat.Cursor = len(c.Chat.Value)
+
+	c.acceptMention(mention.Item{Path: "pixel.png"})
+
+	require.Len(t, c.Chat.PendingImages, 1)
+	assert.Equal(t, "pixel.png", c.Chat.PendingImages[0].Label)
+	assert.Empty(t, c.Chat.Value)
+}
+
+func TestConstructorCwdSurvivesDepsForMentions(t *testing.T) {
+	dir := t.TempDir()
+	png, err := base64.StdEncoding.DecodeString(png1x1Base64)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "pixel.png"), png, 0o644))
+
+	c := NewComposerPane(components.DefaultTheme(), "m", dir, WithDeps(Deps{}))
+	c.Chat.Value = "@pixel.png"
+	c.Chat.Cursor = len(c.Chat.Value)
+
+	c.acceptMention(mention.Item{Path: "pixel.png"})
+
+	require.Len(t, c.Chat.PendingImages, 1)
+	assert.Equal(t, "pixel.png", c.Chat.PendingImages[0].Label)
+}
+
+func TestTopRightLabelPairsModelLeftOfThink(t *testing.T) {
+	th := components.DefaultTheme()
+	c := NewComposerPane(th, "sonnet", "/tmp")
+	assert.Equal(t, "sonnet", c.Chat.TopRightLabel.Text)
+	assert.Equal(t, th.IdentityOrSuccess(), c.Chat.TopRightLabel.Style)
+
+	c.SetModelLabel("sonnet", "high")
+	require.Len(t, c.Chat.TopRightLabel.Spans, 3)
+	assert.Equal(t, "sonnet", c.Chat.TopRightLabel.Spans[0].Text)
+	assert.Equal(t, th.IdentityOrSuccess(), c.Chat.TopRightLabel.Spans[0].Style)
+	assert.Equal(t, "high", c.Chat.TopRightLabel.Spans[2].Text)
+	assert.Equal(t, th.IdentityOrSuccess(), c.Chat.TopRightLabel.Spans[2].Style)
+
+	c.SetModelLabel("sonnet", "off")
+	assert.Equal(t, "sonnet", c.Chat.TopRightLabel.Text)
+	assert.Equal(t, th.IdentityOrSuccess(), c.Chat.TopRightLabel.Style)
+	assert.Empty(t, c.Chat.TopRightLabel.Spans)
+}
+
+func TestSlashTabCompletesWithoutSubmitting(t *testing.T) {
+	c, bus := wiredComposer(t)
+	openSlashPicker(t, c, "/ne", "ne")
+
+	ctx := &components.EventContext{}
+	c.Handle(ctx, xui.KeyEvent{Code: xui.KeyTab, Press: true})
+
+	assert.Equal(t, "/new ", c.Chat.Value, "Tab should fill the command in the composer")
+	assert.Empty(t, submittedText(t, bus), "Tab must not run the command")
+	assert.False(t, c.slash.Open)
+}
+
+func TestSlashTabCompletesNeedsArgsCommand(t *testing.T) {
+	c, bus := wiredComposer(t)
+	openSlashPicker(t, c, "/di", "di")
+
+	ctx := &components.EventContext{}
+	c.Handle(ctx, xui.KeyEvent{Code: xui.KeyTab, Press: true})
+
+	assert.Equal(t, "/diff ", c.Chat.Value, "Trailing space stays single")
+	assert.Empty(t, submittedText(t, bus))
+}
+
+func TestSlashEnterStillSubmits(t *testing.T) {
+	c, bus := wiredComposer(t)
+	openSlashPicker(t, c, "/ne", "ne")
+
+	ctx := &components.EventContext{}
+	c.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
+
+	assert.Equal(t, "/new", c.Chat.Value)
+	assert.Equal(t, "/new", submittedText(t, bus), "Enter keeps running a no-arg command")
+}
+
+func TestMentionTabCompletesIntoComposer(t *testing.T) {
+	c, bus := wiredComposer(t)
+	c.mention.SetResults([]mention.Item{{Path: "go.mod"}}, "")
+	c.mention.Show()
+	c.Chat.MentionOpen = true
+	c.Chat.Value = "@go"
+	c.Chat.Cursor = len(c.Chat.Value)
+
+	ctx := &components.EventContext{}
+	c.Handle(ctx, xui.KeyEvent{Code: xui.KeyTab, Press: true})
+
+	assert.Equal(t, "@go.mod ", c.Chat.Value)
+	assert.Empty(t, submittedText(t, bus))
+	assert.False(t, c.mention.Open)
+}
+
+// wiredComposer builds a composer wired like the app, with a small command
+// registry: `new` (no args, runs on Enter) and `diff` (needs args).
+func wiredComposer(t *testing.T) (*ComposerPane, *controller.Bus) {
+	t.Helper()
+	bus := controller.NewBus(nil)
+	reg := commands.NewCommandRegistry()
+	reg.Register(commands.Command{Name: "new", Slash: true})
+	reg.Register(commands.Command{Name: "diff", Slash: true, NeedsArgs: true})
+	c := NewComposerPane(
+		components.DefaultTheme(), "m", t.TempDir(),
+		WithDeps(Deps{Commands: reg, Bus: bus}),
+	)
+	return c, bus
+}
+
+// openSlashPicker types value into the composer and opens the slash picker.
+func openSlashPicker(t *testing.T, c *ComposerPane, value, query string) {
+	t.Helper()
+	c.Chat.Value = value
+	c.Chat.Cursor = len(value)
+	c.onSlashChange(true, query)
+	require.True(t, c.slash.Open, "slash picker should be open")
+}
+
+// submittedText drains SubmitMsg texts published on the bus.
+func submittedText(t *testing.T, bus *controller.Bus) string {
+	t.Helper()
+	out := ""
+	for _, m := range bus.Drain() {
+		if sm, ok := m.(controller.SubmitMsg); ok {
+			out = sm.Text
+		}
+	}
+	return out
+}
+
+func TestShowBranchListDrawsRowsAndRoutesAccept(t *testing.T) {
+	c := NewComposerPane(components.DefaultTheme(), "m", "/repo")
+	var accepted []string
+	c.ShowBranchList(
+		[]gitx.Branch{
+			{
+				Name: "main", Current: true, Upstream: "origin/main",
+				Committed: "3 hours ago", Subject: "init",
+			},
+			{Name: "fix/x", Ahead: 1, Subject: "wip"},
+		},
+		[]string{"fix/x"},
+		func(name string) { accepted = append(accepted, name) },
+		nil,
+	)
+
+	// 80 columns is the narrow end worth guarding: the branch name column must
+	// leave the commit subject visible.
+	overlay, ok := c.ListOverlay(components.DrawContext{
+		Max:    components.Size{Width: 80, Height: 24},
+		Method: xui.WidthUnicode,
+	})
+	require.True(t, ok)
+	text := components.SurfaceText(overlay.Surface)
+	assert.Contains(t, text, "Branches")
+	assert.Contains(t, text, "fix/x")
+	assert.Contains(t, text, "init", "the commit column is the second one")
+	assert.NotContains(t, text, "current", "two columns only — no badge column")
+	assert.NotContains(t, text, "origin/main", "no upstream column")
+
+	// The picker opens on the current branch, so Enter on an untouched list is
+	// the no-op the caller has to answer for.
+	c.listPicker.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyEnter})
+	assert.Equal(t, []string{"main"}, accepted)
+}
+
+// Esc has to cancel a turn whose request is still in flight — the stream has
+// not produced a token yet, so the transcript looks idle.
+func TestEscapeCancelsRequestInFlight(t *testing.T) {
+	c := NewComposerPane(components.DefaultTheme(), "m", "/tmp")
+	bus := controller.NewBus(nil)
+	c.bus = bus
+	c.busy = func() bool { return true }
+
+	ctx := &components.EventContext{}
+	require.True(t, c.handleEscape(ctx))
+	assert.True(t, ctx.Consume)
+
+	cancelled := false
+	for _, m := range bus.Drain() {
+		if _, ok := m.(controller.CancelStreamMsg); ok {
+			cancelled = true
+		}
+	}
+	assert.True(t, cancelled, "Esc on a turn in flight must publish CancelStreamMsg")
+}
+
+// Nothing in flight: Esc stays unclaimed so it can fall through to the
+// transcript and its selection handling.
+func TestEscapeUnclaimedWhenIdle(t *testing.T) {
+	c := NewComposerPane(components.DefaultTheme(), "m", "/tmp")
+	c.bus = controller.NewBus(nil)
+	c.busy = func() bool { return false }
+
+	assert.False(t, c.handleEscape(&components.EventContext{}))
+}
+
+func TestSessionPickerKeepsCurrentSelectionWithoutBadge(t *testing.T) {
+	c := NewComposerPane(components.DefaultTheme(), "m", "/repo")
+	var accepted string
+	c.ShowSessionList([]session.SessionMeta{
+		{ID: "newest", Preview: "recent conversation"},
+		{ID: "active", Preview: "current conversation"},
+	}, "active", func(id string) { accepted = id }, nil)
+	c.listPicker.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyEnter})
+	assert.Equal(t, "active", accepted)
+}
+
+func TestListAcceptHandlerIsNotSharedBetweenDomains(t *testing.T) {
+	c := NewComposerPane(components.DefaultTheme(), "m", "/repo")
+	var sessions, branches []string
+	c.ShowList(nil, listpicker.ShowConfig{}, func(item listpicker.Item) { sessions = append(sessions, item.ID) }, nil)
+	c.ShowBranchList([]gitx.Branch{{Name: "main", Current: true}}, nil, func(name string) {
+		branches = append(branches, name)
+	}, nil)
+
+	c.listPicker.Items = []listpicker.Item{{ID: "main"}}
+	c.listPicker.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyEnter})
+
+	assert.Equal(t, []string{"main"}, branches)
+	assert.Empty(t, sessions, "opening a second picker must replace the first accept path")
+}
+
+func TestListDeleteHandlerIsNotSharedBetweenDomains(t *testing.T) {
+	c := NewComposerPane(components.DefaultTheme(), "m", "/repo")
+	var sessions, branches []string
+	c.ShowSessionList(nil, "", nil, func(id string) { sessions = append(sessions, id) })
+	c.ShowBranchList([]gitx.Branch{{Name: "main", Current: true}}, nil, nil, func(name string) {
+		branches = append(branches, name)
+	})
+
+	// The branch picker owns its own delete path: ctrl+x must land there, not
+	// on the session handler it replaced on the shared picker instance.
+	ctx := &components.EventContext{}
+	c.listPicker.Items = []listpicker.Item{{ID: "main"}}
+	c.listPicker.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'x', Mods: xui.ModCtrl})
+	c.listPicker.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'y'})
+	assert.Equal(t, []string{"main"}, branches)
+	assert.Empty(t, sessions, "opening a branch picker must clear the session delete path")
+}
+
+// A remote row deletes as itself and still accepts as the local branch that
+// tracks it — the two refs are one row, two operations.
+func TestShowBranchListSplitsAcceptAndDeleteIdentities(t *testing.T) {
+	c := NewComposerPane(components.DefaultTheme(), "m", "/repo")
+	var accepted, deleted []string
+	c.ShowBranchList(
+		[]gitx.Branch{{Name: "feat"}, {Name: "origin/feat", Remote: true}},
+		nil,
+		func(name string) { accepted = append(accepted, name) },
+		func(name string) { deleted = append(deleted, name) },
+	)
+
+	ctx := &components.EventContext{}
+	c.listPicker.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyDown})
+	c.listPicker.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'x', Mods: xui.ModCtrl})
+	c.listPicker.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'y'})
+	assert.Equal(t, []string{"origin/feat"}, deleted, "origin/feat is not the local feat")
+
+	c.listPicker.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyEnter})
+	assert.Equal(t, []string{"feat"}, accepted, "accepting the remote row checks out its tracking branch")
+}
+
+func TestRefreshBranchListKeepsOpenPickerInPlace(t *testing.T) {
+	c := NewComposerPane(components.DefaultTheme(), "m", "/repo")
+	c.ShowBranchList([]gitx.Branch{{Name: "main"}, {Name: "fix/x"}}, nil, nil, nil)
+	c.listPicker.SetQuery("fix")
+
+	c.RefreshBranchList([]gitx.Branch{{Name: "main"}}, nil)
+	assert.True(t, c.listPicker.Open)
+	assert.Equal(t, "fix", c.listPicker.Query(), "refresh keeps the filter")
+	require.Len(t, c.listPicker.Items, 1)
+	assert.Equal(t, "main", c.listPicker.Items[0].ID)
+
+	c.listPicker.Hide()
+	c.RefreshBranchList([]gitx.Branch{{Name: "fix/x"}}, nil)
+	assert.False(t, c.listPicker.Open, "a closed picker stays closed")
+}
+
+func TestShowSessionListRoutesDelete(t *testing.T) {
+	c := NewComposerPane(components.DefaultTheme(), "m", "/repo")
+	var deleted string
+	c.ShowSessionList([]session.SessionMeta{{ID: "deadbeef"}}, "", nil, func(id string) { deleted = id })
+
+	ctx := &components.EventContext{}
+	c.listPicker.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'x', Mods: xui.ModCtrl})
+	c.listPicker.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'y'})
+	assert.Equal(t, "deadbeef", deleted)
+}
+
+func TestRefreshSessionListKeepsOpenPickerInPlace(t *testing.T) {
+	c := NewComposerPane(components.DefaultTheme(), "m", "/repo")
+	c.ShowSessionList([]session.SessionMeta{{ID: "a"}, {ID: "b"}}, "", nil, nil)
+	c.listPicker.SetQuery("a")
+
+	c.RefreshSessionList([]session.SessionMeta{{ID: "b"}})
+	assert.True(t, c.listPicker.Open)
+	assert.Equal(t, "a", c.listPicker.Query(), "refresh keeps the filter")
+	require.Len(t, c.listPicker.Items, 1)
+	assert.Equal(t, "b", c.listPicker.Items[0].ID)
+
+	// Closed picker: refresh is a no-op, not a reopen.
+	c.listPicker.Hide()
+	c.RefreshSessionList([]session.SessionMeta{{ID: "a"}})
+	assert.False(t, c.listPicker.Open)
+}
+
+// TestQuestionShortcutItemsHideRecallByDefault keeps Up/Down out of `?` unless
+// the recall store is wired, since the keys do nothing otherwise.
+func TestQuestionShortcutItemsHideRecallByDefault(t *testing.T) {
+	off := questionShortcutItems(false)
+	assert.Empty(t, filterQuestionItems("recall", off))
+	assert.Empty(t, filterQuestionItems("Up/Down", off))
+
+	on := questionShortcutItems(true)
+	recall := filterQuestionItems("recall", on)
+	require.Len(t, recall, 1)
+	assert.Equal(t, "Up/Down, Ctrl+P/Ctrl+N", recall[0].Path)
+	assert.Len(t, filterQuestionItems("ctrl+n", on), 1, "either key form finds the row")
+}
+
+// fakePromptHistory is an in-memory PromptHistory for the composer tests.
+type fakePromptHistory struct{ entries []string }
+
+func (f *fakePromptHistory) Entries() []string { return append([]string(nil), f.entries...) }
+
+func (f *fakePromptHistory) Append(text string) error {
+	f.entries = append(f.entries, text)
+	return nil
+}
+
+func TestRememberPromptSkipsCommands(t *testing.T) {
+	c, _ := wiredComposer(t)
+	h := &fakePromptHistory{}
+	c.SetPromptHistory(h)
+
+	c.Chat.OnSubmit("hello")
+	c.Chat.OnSubmit("/new")
+	c.Chat.OnSubmit("!ls")
+	c.Chat.OnSubmit("   ")
+
+	assert.Equal(t, []string{"hello"}, h.entries)
+	assert.Equal(t, []string{"hello"}, c.Chat.History, "the recall ring follows the store")
+}
+
+func TestSetPromptHistoryLoadsExisting(t *testing.T) {
+	c, _ := wiredComposer(t)
+	c.SetPromptHistory(&fakePromptHistory{entries: []string{"one", "two"}})
+	assert.Equal(t, []string{"one", "two"}, c.Chat.History)
+
+	// A nil store leaves recall untouched (no session directory case).
+	c.SetPromptHistory(nil)
+	assert.Equal(t, []string{"one", "two"}, c.Chat.History)
+}

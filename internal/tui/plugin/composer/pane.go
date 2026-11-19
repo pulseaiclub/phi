@@ -1,0 +1,1177 @@
+package composer
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/pulseaiclub/xui"
+
+	"github.com/pulseaiclub/phi/internal/components"
+	"github.com/pulseaiclub/phi/internal/components/chat"
+	"github.com/pulseaiclub/phi/internal/components/layout"
+	"github.com/pulseaiclub/phi/internal/components/listpicker"
+	"github.com/pulseaiclub/phi/internal/components/listrows"
+	"github.com/pulseaiclub/phi/internal/components/mention"
+	"github.com/pulseaiclub/phi/internal/components/palette"
+	"github.com/pulseaiclub/phi/internal/components/toast"
+	"github.com/pulseaiclub/phi/internal/debuglog"
+	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/pulseaiclub/phi/internal/tui/commands"
+	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/pulseaiclub/phi/internal/tui/footer"
+	"github.com/pulseaiclub/phi/internal/tui/pathutil"
+	"github.com/pulseaiclub/phi/internal/tui/runtime"
+	"github.com/pulseaiclub/phi/internal/tui/transcript"
+	"github.com/pulseaiclub/phi/internal/util/clipboard"
+	"github.com/pulseaiclub/phi/internal/util/filesearch"
+	"github.com/pulseaiclub/phi/internal/util/gitx"
+	imgutil "github.com/pulseaiclub/phi/internal/util/image"
+)
+
+// ComposerPane owns the chat input, its completer pickers (/, ?, @, !), the
+// palette, and the session list.
+type ComposerPane struct {
+	theme components.Theme
+	cwd   string
+
+	// OnPaletteOpen refreshes root commands before Ctrl+K opens the palette.
+	OnPaletteOpen func()
+
+	Chat     chat.ChatInput
+	mention  mention.Picker
+	slash    mention.Picker
+	question mention.Picker
+	// bash offers completions from shell history while the user types a "!"
+	// command. Its rows are whole commands, so accepting replaces the text.
+	bash       bashSuggest
+	palette    palette.CommandPalette
+	listPicker listpicker.Picker
+
+	mentionGen int
+	// mentionCancel stops the search in flight; nil before the first search.
+	mentionCancel context.CancelFunc
+	commands      *commands.CommandRegistry
+
+	transcript *transcript.TranscriptPane
+	// Session state port. The submitter is built after the composer (it takes
+	// the input widget), so these resolve through the root at call time
+	// instead of wiring the composer in a second phase.
+	busy        func() bool
+	runningBash func() bool
+	syncBorder  func(text string)
+
+	bus      *controller.Bus
+	drainBus func()
+
+	// readImage reads the system clipboard image; stubbed in tests so the
+	// attach path never depends on machine clipboard state.
+	readImage func() (imgutil.Result, error)
+	onRedraw  func()
+
+	overlayBlocksComposer func() bool
+	handleOverlayKey      WireKeyHandler
+	handleCopyKey         WireKeyHandler
+	requestFocusEditor    func()
+	requestFocus          func(components.Widget)
+	ctrlClose             func()
+	imageEnabled          func() bool
+
+	// promptHistory is the per-project recall ring behind Up/Down; nil when
+	// the session directory is unavailable.
+	promptHistory PromptHistory
+}
+
+// Option configures the composer at construction. Initial state goes through
+// the constructor, never through a post-construction wire-up method.
+type Option func(*ComposerPane)
+
+// WithDeps supplies the collaborator set the pane needs to run.
+func WithDeps(d Deps) Option { return func(c *ComposerPane) { c.apply(d) } }
+
+// WithBashPredictor installs the "!" completion source.
+func WithBashPredictor(p BashPredictor) Option {
+	return func(c *ComposerPane) { c.SetBashPredictor(p) }
+}
+
+// WithPromptHistory installs (and loads) the per-project recall ring.
+func WithPromptHistory(h PromptHistory) Option {
+	return func(c *ComposerPane) { c.SetPromptHistory(h) }
+}
+
+// NewComposerPane builds a usable composer: widgets, deps, and input hooks all
+// land here, so no caller can hold a half-built pane.
+func NewComposerPane(
+	theme components.Theme, modelLabel, cwd string, opts ...Option,
+) *ComposerPane {
+	c := &ComposerPane{
+		theme: theme,
+		cwd:   cwd,
+		Chat:  newChatInput(theme, modelLabel, cwd),
+		mention: mention.Picker{
+			Theme: theme,
+		},
+		slash: mention.Picker{
+			Theme:  theme,
+			Prefix: "/",
+		},
+		question: mention.Picker{
+			Theme:    theme,
+			NoPrefix: true,
+		},
+		palette: palette.CommandPalette{
+			Picker: listpicker.Picker{Theme: theme},
+		},
+		listPicker: listpicker.Picker{
+			Theme: theme,
+		},
+	}
+	c.bash = newBashSuggest(c, theme)
+	c.readImage = clipboard.ReadImageResult
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
+}
+
+// Deps holds the collaborators the composer needs to run. The root passes
+// them at construction; the session-state port stays a set of narrow funcs
+// because the submitter is built after the composer.
+type Deps struct {
+	Transcript            *transcript.TranscriptPane
+	Commands              *commands.CommandRegistry
+	Bus                   *controller.Bus
+	DrainBus              func()
+	OnRedraw              func()
+	ImageEnabled          func() bool
+	OverlayBlocksComposer func() bool
+	HandleOverlayKey      WireKeyHandler
+	HandleCopyKey         WireKeyHandler
+	RequestFocusEditor    func()
+	RequestFocus          func(components.Widget)
+	CtrlClose             func()
+	// Session state, resolved through the root at call time.
+	Busy        func() bool
+	RunningBash func() bool
+	SyncBorder  func(text string)
+	// OnPaletteOpen refreshes root commands before the palette opens.
+	OnPaletteOpen func()
+}
+
+// apply installs the deps and the input hooks they drive.
+func (c *ComposerPane) apply(deps Deps) {
+	c.commands = deps.Commands
+	c.transcript = deps.Transcript
+	c.busy = deps.Busy
+	c.runningBash = deps.RunningBash
+	c.syncBorder = deps.SyncBorder
+	c.OnPaletteOpen = deps.OnPaletteOpen
+	c.bus = deps.Bus
+	c.drainBus = deps.DrainBus
+	c.onRedraw = deps.OnRedraw
+	c.imageEnabled = deps.ImageEnabled
+	c.overlayBlocksComposer = deps.OverlayBlocksComposer
+	c.handleOverlayKey = deps.HandleOverlayKey
+	c.handleCopyKey = deps.HandleCopyKey
+	c.requestFocusEditor = deps.RequestFocusEditor
+	c.requestFocus = deps.RequestFocus
+	c.ctrlClose = deps.CtrlClose
+
+	c.palette.Picker.FocusReturn = &c.Chat
+	c.listPicker.FocusReturn = &c.Chat
+	c.Chat.OnSubmit = func(text string) {
+		c.rememberPrompt(text)
+		c.bus.Publish(controller.SubmitMsg{Text: text})
+		if c.drainBus != nil {
+			c.drainBus()
+		}
+	}
+	c.Chat.OnChange = func(text string) {
+		c.SyncBashBorder(text)
+		if c.onRedraw != nil {
+			c.onRedraw()
+		}
+	}
+	c.Chat.OnMentionChange = c.onMentionChange
+	c.Chat.OnSlashChange = c.onSlashChange
+	c.Chat.OnQuestionChange = c.onQuestionChange
+	c.Chat.OnBashChange = c.bash.onChange
+	c.mention.OnAccept = c.acceptMention
+	c.slash.OnAccept = c.acceptSlash
+	c.question.OnAccept = c.acceptQuestion
+	c.bash.picker.OnAccept = c.bash.accept
+	c.bash.picker.OnComplete = c.bash.accept
+	// Tab must never run a command, so slash gets a fill-only completer.
+	// mention/question edit the composer already: accept is the fallback.
+	c.slash.OnComplete = c.completeSlash
+}
+
+// HideCompleters closes mention, slash, question, @, and "!" pickers.
+func (c *ComposerPane) HideCompleters() {
+	c.mention.Hide()
+	c.Chat.MentionOpen = false
+	c.abandonMentionSearch()
+	c.slash.Hide()
+	c.Chat.SlashOpen = false
+	c.question.Hide()
+	c.Chat.QuestionOpen = false
+	// The "!" picker closes through the one path that also forgets its rows: what
+	// it holds is what it draws, so a picker that is down must hold nothing.
+	c.bash.hide()
+}
+
+// HidePalette closes the command palette if open.
+func (c *ComposerPane) HidePalette() {
+	c.palette.Hide()
+}
+
+// ShowList opens the opaque list picker overlay. Each caller passes its own
+// onAccept: the picker is a single instance, so a shared handler would leak one
+// domain's accept path into another's.
+func (c *ComposerPane) ShowList(
+	items []listpicker.Item,
+	cfg listpicker.ShowConfig,
+	onAccept func(listpicker.Item),
+	onDelete func(listpicker.Item),
+) {
+	c.HideCompleters()
+	c.HidePalette()
+	c.listPicker.OnAccept = onAccept
+	c.listPicker.FocusReturn = &c.Chat
+	// Assign unconditionally: a nil clears a prior domain's delete path off
+	// the shared picker, mirroring the accept-leak guard above.
+	c.listPicker.OnDelete = onDelete
+	c.listPicker.Show(items, cfg)
+	if c.requestFocus != nil {
+		c.requestFocus(&c.listPicker)
+	}
+	if c.onRedraw != nil {
+		c.onRedraw()
+	}
+}
+
+// ListState saves the shared picker's query and selected row before acceptance.
+func (c *ComposerPane) ListState() listpicker.State { return c.listPicker.State() }
+
+// RestoreListState restores a domain's place after reopening the shared picker.
+func (c *ComposerPane) RestoreListState(state listpicker.State) { c.listPicker.Restore(state) }
+
+// SetListFocusReturn directs acceptance to a detail view instead of chat.
+func (c *ComposerPane) SetListFocusReturn(w components.Widget) { c.listPicker.FocusReturn = w }
+
+// ShowSessionList maps sessions into list rows and opens the picker.
+func (c *ComposerPane) ShowSessionList(
+	items []session.SessionMeta,
+	currentID string,
+	onAccept func(id string),
+	onDelete func(id string),
+) {
+	c.ShowList(
+		listrows.SessionItems(items),
+		listrows.SessionConfig(),
+		func(item listpicker.Item) {
+			if onAccept != nil {
+				onAccept(item.ID)
+			}
+		},
+		func(item listpicker.Item) {
+			if onDelete != nil {
+				onDelete(item.ID)
+			}
+		},
+	)
+	c.listPicker.Restore(listpicker.State{SelectedID: currentID})
+}
+
+// RefreshSessionList swaps the rows of an open session picker in place,
+// keeping the filter query — used after a delete instead of reopening.
+func (c *ComposerPane) RefreshSessionList(items []session.SessionMeta) {
+	if !c.listPicker.Open {
+		return
+	}
+	c.listPicker.SetItems(listrows.SessionItems(items))
+	if c.onRedraw != nil {
+		c.onRedraw()
+	}
+}
+
+// ShowBranchList maps git branches into list rows and opens the picker.
+func (c *ComposerPane) ShowBranchList(
+	branches []gitx.Branch,
+	recent []string,
+	onAccept func(name string),
+	onDelete func(name string),
+) {
+	// Rows carry their own ref (origin/feat and feat are two branches), while
+	// accepting a remote row means checking out the local branch that tracks
+	// it: git switch refuses a remote-tracking ref outright.
+	targets := make(map[string]string, len(branches))
+	for _, b := range branches {
+		targets[b.Name] = b.LocalName()
+	}
+	// A nil delete stays nil so the picker keeps ctrl+x inert instead of arming
+	// a confirm nobody answers.
+	var onDeleteItem func(listpicker.Item)
+	if onDelete != nil {
+		onDeleteItem = func(item listpicker.Item) { onDelete(item.ID) }
+	}
+	c.ShowList(listrows.BranchItems(branches, recent), listrows.BranchConfig(), func(item listpicker.Item) {
+		if onAccept != nil {
+			onAccept(targets[item.ID])
+		}
+	}, onDeleteItem)
+}
+
+// RefreshBranchList swaps the rows of an open branch picker in place, keeping
+// the filter query — used after a delete instead of reopening.
+func (c *ComposerPane) RefreshBranchList(branches []gitx.Branch, recent []string) {
+	if !c.listPicker.Open {
+		return
+	}
+	c.listPicker.SetItems(listrows.BranchItems(branches, recent))
+	if c.onRedraw != nil {
+		c.onRedraw()
+	}
+}
+
+// ListOverlay returns the list picker surface when open.
+func (c *ComposerPane) ListOverlay(ctx components.DrawContext) (components.SubSurface, bool) {
+	if !c.listPicker.Open {
+		return components.SubSurface{}, false
+	}
+	return components.SubSurface{
+		Origin:  components.Point{X: 0, Y: 0},
+		Surface: c.listPicker.Draw(ctx),
+		Z:       20,
+	}, true
+}
+
+// SetPromptHistory installs the per-project recall ring and loads what is
+// already stored. A nil store leaves the composer without recall.
+func (c *ComposerPane) SetPromptHistory(h PromptHistory) {
+	c.promptHistory = h
+	if h != nil {
+		c.Chat.History = h.Entries()
+	}
+}
+
+// rememberPrompt records a submitted prompt so Up can recall it later. Slash
+// and shell commands are skipped: they are already reachable by typing, and
+// recalling a "!" line would run it on Enter.
+func (c *ComposerPane) rememberPrompt(text string) {
+	if c.promptHistory == nil {
+		return
+	}
+	text = strings.TrimSpace(text)
+	if text == "" || strings.HasPrefix(text, "/") || strings.HasPrefix(text, "!") {
+		return
+	}
+	if err := c.promptHistory.Append(text); err != nil {
+		debuglog.Logf("composer: record prompt history: %v", err)
+		return
+	}
+	c.Chat.History = c.promptHistory.Entries()
+}
+
+// ClearInput clears the chat composer text.
+func (c *ComposerPane) ClearInput() {
+	c.Chat.Value = ""
+	c.Chat.Cursor = 0
+	c.Chat.ResetHistoryBrowse()
+}
+
+// SetInput replaces the composer text and places the cursor at the end.
+func (c *ComposerPane) SetInput(text string) {
+	c.Chat.Value = text
+	c.Chat.Cursor = len(text)
+	c.Chat.ResetHistoryBrowse()
+}
+
+// PendingSkills returns attached skill names awaiting submit.
+func (c *ComposerPane) PendingSkills() []string {
+	out := make([]string, 0, len(c.Chat.PendingSkills))
+	out = append(out, c.Chat.PendingSkills...)
+	return out
+}
+
+func (c *ComposerPane) PendingImages() []imgutil.Attachment {
+	out := make([]imgutil.Attachment, len(c.Chat.PendingImages))
+	copy(out, c.Chat.PendingImages)
+	return out
+}
+
+// ClearPendingImages removes attached images from the composer.
+func (c *ComposerPane) ClearPendingImages() {
+	c.Chat.ClearPendingImages()
+}
+
+// ClearPendingSkills removes attached skills from the composer.
+func (c *ComposerPane) ClearPendingSkills() {
+	c.Chat.ClearPendingSkills()
+}
+
+// PendingRefs returns attached code references awaiting submit.
+func (c *ComposerPane) PendingRefs() []chat.Ref {
+	out := make([]chat.Ref, len(c.Chat.PendingRefs))
+	copy(out, c.Chat.PendingRefs)
+	return out
+}
+
+// ClearPendingRefs removes attached references from the composer.
+func (c *ComposerPane) ClearPendingRefs() {
+	c.Chat.ClearPendingRefs()
+}
+
+// SyncBashBorder updates composer chrome for "!cmd" prefix.
+func (c *ComposerPane) SyncBashBorder(text string) {
+	if c.syncBorder != nil {
+		c.syncBorder(text)
+	}
+}
+
+// flowBusy reports whether a stream or a running "!" job owns the session.
+func (c *ComposerPane) flowBusy() bool {
+	if c.runningBash != nil && c.runningBash() {
+		return true
+	}
+	return c.busy != nil && c.busy()
+}
+
+// SetBashBorderActive toggles bash-mode border styling.
+func (c *ComposerPane) SetBashBorderActive(active bool) {
+	if active {
+		c.Chat.BorderStyle = c.theme.ToolName
+	} else {
+		c.Chat.BorderStyle = c.theme.Border
+	}
+}
+
+// FocusChat requests keyboard focus on the chat input.
+func (c *ComposerPane) FocusChat() {
+	if c.requestFocus != nil {
+		c.requestFocus(&c.Chat)
+	}
+}
+
+// AddPendingSkill attaches a skill badge to the composer.
+func (c *ComposerPane) AddPendingSkill(name string) {
+	c.Chat.AddPendingSkill(name)
+	if c.onRedraw != nil {
+		c.onRedraw()
+	}
+}
+
+// AddPendingImage attaches an image to the composer.
+func (c *ComposerPane) AddPendingImage(att imgutil.Attachment) {
+	c.Chat.AddPendingImage(att)
+	if c.onRedraw != nil {
+		c.onRedraw()
+	}
+}
+
+// AddPendingRef attaches a code slice picked in the viewer to the composer.
+func (c *ComposerPane) AddPendingRef(r chat.Ref) {
+	c.Chat.AddPendingRef(r)
+	if c.onRedraw != nil {
+		c.onRedraw()
+	}
+}
+
+// SetModelLabel updates the model name and thinking level in the composer header.
+// When thinkLevel is non-empty and not "off", it is appended (e.g. "claude-sonnet-4.20250514 • high").
+// Spans carry their own styles — BorderLabel.Style is ignored once Spans is set.
+func (c *ComposerPane) SetModelLabel(name, thinkLevel string) {
+	id := c.theme.IdentityOrSuccess()
+	if thinkLevel != "" && thinkLevel != "off" {
+		c.Chat.TopRightLabel = layout.BorderLabel{
+			Spans: []layout.BorderSpan{
+				{Text: name, Style: id},
+				{Text: "::", Style: id},
+				{Text: thinkLevel, Style: id},
+			},
+		}
+		return
+	}
+	c.Chat.TopRightLabel = layout.BorderLabel{Text: name, Style: id}
+}
+
+// SetBranchLabel updates the path label in the composer footer.
+func (c *ComposerPane) SetBranchLabel(text string) {
+	c.Chat.BottomRightLabel.Text = text
+}
+
+// ClearBottomLeftLabel clears the composer status slot (activity or tokens).
+func (c *ComposerPane) ClearBottomLeftLabel() {
+	c.Chat.BottomLeftLabel = layout.BorderLabel{}
+}
+
+// SetBottomLeftLabel sets the composer status slot (activity or tokens).
+func (c *ComposerPane) SetBottomLeftLabel(label layout.BorderLabel) {
+	c.Chat.BottomLeftLabel = label
+}
+
+// SetPaletteCommands replaces Ctrl+K root commands.
+func (c *ComposerPane) SetPaletteCommands(cmds []palette.PaletteCommand) {
+	c.palette.SetRoot(cmds)
+}
+
+// PushPalette opens or nests a palette submenu.
+func (c *ComposerPane) PushPalette(title string, cmds []palette.PaletteCommand) {
+	if !c.palette.Picker.Open {
+		c.palette.Show()
+	}
+	c.palette.Push(title, cmds)
+	if c.requestFocus != nil {
+		c.requestFocus(&c.palette.Picker)
+	}
+}
+
+// SetTheme updates composer widget themes.
+func (c *ComposerPane) SetTheme(th components.Theme) {
+	c.theme = th
+	c.Chat.Theme = th
+	c.Chat.BorderStyle = th.Border
+	c.Chat.TextStyle = th.Foreground
+	c.Chat.BottomRightLabel.Style = footer.PathLabelStyle(th)
+	if len(c.Chat.TopRightLabel.Spans) >= 3 {
+		c.SetModelLabel(c.Chat.TopRightLabel.Spans[0].Text, c.Chat.TopRightLabel.Spans[2].Text)
+	} else {
+		c.Chat.TopRightLabel.Style = th.IdentityOrSuccess()
+	}
+	c.palette.Picker.Theme = th
+	c.listPicker.Theme = th
+	c.mention.Theme = th
+	c.slash.Theme = th
+	c.question.Theme = th
+	c.bash.picker.Theme = th
+	c.SyncBashBorder(c.Chat.Value)
+}
+
+// ApplyMentionResults updates the @ picker from async file search.
+func (c *ComposerPane) ApplyMentionResults(msg controller.MentionResultsMsg) {
+	if msg.Gen != c.mentionGen || !c.mention.Open {
+		return
+	}
+	if msg.ErrText != "" {
+		c.mention.SetResults(nil, msg.ErrText)
+		return
+	}
+	items := make([]mention.Item, 0, len(msg.Paths))
+	for _, p := range msg.Paths {
+		items = append(items, mention.Item{Path: p})
+	}
+	status := ""
+	switch {
+	case len(items) == 0:
+		status = "No matching files"
+	case msg.Truncated:
+		// Say the list is partial, so a missing file reads as "narrow the
+		// query" rather than "the file is not there".
+		status = fmt.Sprintf("First %d matches — type more to narrow", len(items))
+	}
+	c.mention.SetResults(items, status)
+}
+
+// PreferredHeight reports the chat input area height.
+func (c *ComposerPane) PreferredHeight(width int, method xui.WidthMethod) int {
+	chatH := c.Chat.PreferredHeight(width, method)
+	minChatH := 5
+	if len(c.Chat.PendingSkills) > 0 {
+		minChatH++
+	}
+	if chatH < minChatH {
+		chatH = minChatH
+	}
+	return chatH
+}
+
+// DrawChat renders the chat input surface.
+func (c *ComposerPane) DrawChat(ctx components.DrawContext, width, height int) components.Surface {
+	return c.Chat.Draw(
+		ctx.WithConstraints(components.Size{}, components.Size{Width: width, Height: height}),
+	)
+}
+
+// PickerOverlays returns the completer surfaces anchored above the composer.
+func (c *ComposerPane) PickerOverlays(ctx components.DrawContext, listH, width int) []components.SubSurface {
+	var out []components.SubSurface
+	if c.slash.Open {
+		c.slash.AnchorBottomY = listH
+		c.slash.AnchorX = 0
+		c.slash.AnchorWidth = width
+		out = append(out, components.SubSurface{
+			Origin:  components.Point{X: 0, Y: 0},
+			Surface: c.slash.Draw(ctx),
+			Z:       15,
+		})
+	}
+	if c.question.Open {
+		c.question.AnchorBottomY = listH
+		c.question.AnchorX = 0
+		c.question.AnchorWidth = width
+		out = append(out, components.SubSurface{
+			Origin:  components.Point{X: 0, Y: 0},
+			Surface: c.question.Draw(ctx),
+			Z:       15,
+		})
+	}
+	if c.mention.Open {
+		c.mention.AnchorBottomY = listH
+		c.mention.AnchorX = 0
+		c.mention.AnchorWidth = width
+		out = append(out, components.SubSurface{
+			Origin:  components.Point{X: 0, Y: 0},
+			Surface: c.mention.Draw(ctx),
+			Z:       15,
+		})
+	}
+	if c.bash.picker.Open {
+		c.bash.picker.AnchorBottomY = listH
+		c.bash.picker.AnchorX = 0
+		c.bash.picker.AnchorWidth = width
+		out = append(out, components.SubSurface{
+			Origin:  components.Point{X: 0, Y: 0},
+			Surface: c.bash.picker.Draw(ctx),
+			Z:       15,
+		})
+	}
+	return out
+}
+
+// PaletteOpen reports whether the Ctrl+K palette is showing. The editor wires
+// it as the app's ModalInput so clicks below the palette cannot move the
+// keyboard focus out from under it.
+func (c *ComposerPane) PaletteOpen() bool { return c.palette.Picker.Open }
+
+// PaletteOverlay returns the Ctrl+K palette surface when open.
+func (c *ComposerPane) PaletteOverlay(ctx components.DrawContext) (components.SubSurface, bool) {
+	if !c.palette.Picker.Open {
+		return components.SubSurface{}, false
+	}
+	return components.SubSurface{
+		Origin:  components.Point{X: 0, Y: 0},
+		Surface: c.palette.Draw(ctx),
+		Z:       20,
+	}, true
+}
+
+// Handle dispatches keyboard/mouse input to the composer area.
+func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
+	switch ev := ev.(type) {
+	case xui.FocusEvent:
+		if c.overlayBlocksComposer != nil && c.overlayBlocksComposer() {
+			if c.requestFocusEditor != nil {
+				c.requestFocusEditor()
+			}
+		} else if c.listPicker.Open {
+			if c.requestFocus != nil {
+				c.requestFocus(&c.listPicker)
+			}
+		} else if c.palette.Picker.Open {
+			if c.requestFocus != nil {
+				c.requestFocus(&c.palette.Picker)
+			}
+		} else {
+			c.FocusChat()
+		}
+	case xui.KeyEvent:
+		if ev.CtrlC() {
+			if c.ctrlClose != nil {
+				c.ctrlClose()
+			}
+			ctx.Quit = true
+			return
+		}
+		if c.handleOverlayKey != nil && c.handleOverlayKey(ctx, ev) {
+			return
+		}
+		if c.handleCopyKey != nil && c.handleCopyKey(ctx, ev) {
+			return
+		}
+		if ev.Press && ev.Code == xui.KeyEscape {
+			if c.palette.Picker.Open {
+				c.palette.Handle(ctx, ev)
+				if !c.palette.Picker.Open {
+					c.FocusChat()
+				}
+				return
+			}
+			if c.handleEscape(ctx) {
+				return
+			}
+		}
+		if c.listPicker.Open {
+			c.listPicker.Handle(ctx, ev)
+			if !c.listPicker.Open && c.requestFocus != nil {
+				c.requestFocus(c.listPicker.FocusReturn)
+			}
+			return
+		}
+		if ev.Press && ev.Mods.Has(xui.ModCtrl) && ev.Code == xui.KeyRune &&
+			(ev.Rune == 'k' || ev.Rune == 'K') {
+			if c.palette.Picker.Open {
+				c.palette.Hide()
+				c.FocusChat()
+			} else {
+				c.HideCompleters()
+				if c.OnPaletteOpen != nil {
+					c.OnPaletteOpen()
+				}
+				c.palette.Show()
+				if c.requestFocus != nil {
+					c.requestFocus(&c.palette.Picker)
+				}
+			}
+			ctx.ConsumeAndRedraw()
+			return
+		}
+		if c.palette.Picker.Open {
+			c.palette.Handle(ctx, ev)
+			if !c.palette.Picker.Open {
+				c.FocusChat()
+			}
+			return
+		}
+		if c.question.Open && mentionNavKey(ev) {
+			c.question.Handle(ctx, ev)
+			if !c.question.Open {
+				c.Chat.QuestionOpen = false
+			}
+			return
+		}
+		if c.slash.Open && mentionNavKey(ev) {
+			c.slash.Handle(ctx, ev)
+			if !c.slash.Open {
+				c.Chat.SlashOpen = false
+			}
+			return
+		}
+		// The "!" picker owns the navigation keys only while it has rows: an
+		// empty list that swallowed Enter would make running a "!" command need
+		// two of them. Enter on the row the user already typed would only rewrite
+		// the composer with itself, so it keeps its usual meaning — run it.
+		if c.bash.picker.Open && len(c.bash.picker.Items) > 0 && mentionNavKey(ev) {
+			if ev.Code != xui.KeyEnter || !c.bash.rowIsTypedText() {
+				c.bash.picker.Handle(ctx, ev)
+				if !c.bash.picker.Open {
+					c.Chat.BashOpen = false
+					c.bash.abandon()
+				}
+				return
+			}
+			c.bash.hide()
+		}
+		if c.mention.Open && mentionNavKey(ev) {
+			c.mention.Handle(ctx, ev)
+			if !c.mention.Open {
+				c.Chat.MentionOpen = false
+				c.abandonMentionSearch()
+			}
+			return
+		}
+		if ev.Code == xui.KeyPageUp || ev.Code == xui.KeyPageDown {
+			if c.transcript != nil {
+				c.transcript.HandlePageKey(ctx, ev)
+			}
+			return
+		}
+		if ev.Press && ev.Mods.Has(xui.ModCtrl) && ev.Code == xui.KeyRune && (ev.Rune == 'v' || ev.Rune == 'V') {
+			// Ctrl+V: attempt to attach an image from the system clipboard.
+			if c.tryAttachClipboardImage(ctx) {
+				return
+			}
+		}
+		c.Chat.Handle(ctx, ev)
+	case xui.MouseEvent:
+		if c.listPicker.Open {
+			c.listPicker.Handle(ctx, ev)
+			return
+		}
+		if c.palette.Picker.Open {
+			c.palette.Handle(ctx, ev)
+			return
+		}
+		if c.transcript != nil {
+			c.transcript.HandleMouse(ctx, ev, c.FocusChat)
+		}
+	case xui.PasteEvent:
+		if c.listPicker.Open {
+			c.listPicker.Handle(ctx, ev)
+			return
+		}
+		if c.palette.Picker.Open {
+			c.palette.Handle(ctx, ev)
+			return
+		}
+		c.Chat.Handle(ctx, ev)
+	}
+}
+
+// handleEscape closes the topmost open overlay, then falls back to
+// canceling an in-flight stream or selection. Returns true when the
+// Escape key was consumed. Priority order matters: pickers first, then
+// the running stream, then a selection.
+func (c *ComposerPane) handleEscape(ctx *components.EventContext) bool {
+	if c.listPicker.Open {
+		c.listPicker.Hide()
+		c.FocusChat()
+		ctx.ConsumeAndRedraw()
+		return true
+	}
+	if c.palette.Picker.Open {
+		c.palette.Hide()
+		c.FocusChat()
+		ctx.ConsumeAndRedraw()
+		return true
+	}
+	if c.question.Open {
+		c.question.Cancel()
+		c.Chat.QuestionOpen = false
+		ctx.ConsumeAndRedraw()
+		return true
+	}
+	// A judgement in flight is worth dropping even while nothing is on screen
+	// yet. Falling through here would cancel the running turn instead, which is
+	// not what Esc aimed at a "!" command means.
+	if c.bash.pending() {
+		c.bash.hide()
+		ctx.ConsumeAndRedraw()
+		return true
+	}
+	if c.slash.Open {
+		c.slash.Cancel()
+		c.Chat.SlashOpen = false
+		ctx.ConsumeAndRedraw()
+		return true
+	}
+	if c.mention.Open {
+		c.mention.Cancel()
+		c.Chat.MentionOpen = false
+		c.abandonMentionSearch()
+		ctx.ConsumeAndRedraw()
+		return true
+	}
+	if c.flowBusy() {
+		c.bus.Publish(controller.CancelStreamMsg{})
+		if c.drainBus != nil {
+			c.drainBus()
+		}
+		ctx.ConsumeAndRedraw()
+		return true
+	}
+	if c.transcript != nil && c.transcript.SelectionActive() {
+		c.transcript.ClearSelection()
+		ctx.ConsumeAndRedraw()
+		return true
+	}
+	return false
+}
+
+func (c *ComposerPane) onMentionChange(active bool, query string) {
+	if !active {
+		c.mention.Hide()
+		c.Chat.MentionOpen = false
+		c.abandonMentionSearch()
+		return
+	}
+	if c.slash.Open || c.Chat.SlashOpen || c.question.Open || c.Chat.QuestionOpen {
+		return
+	}
+	c.slash.Hide()
+	c.Chat.SlashOpen = false
+	c.mention.Show()
+	c.Chat.MentionOpen = true
+	if len(c.mention.Items) == 0 {
+		c.mention.Status = "Searching…"
+	}
+	c.scheduleMentionSearch(query)
+}
+
+func (c *ComposerPane) onSlashChange(active bool, query string) {
+	if !active {
+		c.slash.Hide()
+		c.Chat.SlashOpen = false
+		return
+	}
+	c.question.Hide()
+	c.Chat.QuestionOpen = false
+	c.mention.Hide()
+	c.Chat.MentionOpen = false
+	c.abandonMentionSearch()
+	items := c.commands.FilterSlash(query)
+	status := ""
+	if len(items) == 0 {
+		status = "No matching commands"
+	}
+	c.slash.SetResults(items, status)
+	c.slash.Show()
+	c.Chat.SlashOpen = true
+}
+
+func (c *ComposerPane) onQuestionChange(active bool, query string) {
+	if !active {
+		c.question.Hide()
+		c.Chat.QuestionOpen = false
+		return
+	}
+	c.mention.Hide()
+	c.Chat.MentionOpen = false
+	c.abandonMentionSearch()
+	c.slash.Hide()
+	c.Chat.SlashOpen = false
+	items := filterQuestionItems(query, questionShortcutItems(c.promptHistory != nil))
+	status := ""
+	if len(items) == 0 {
+		status = "No matching shortcuts"
+	}
+	c.question.SetResults(items, status)
+	c.question.Show()
+	c.Chat.QuestionOpen = true
+}
+
+// mentionSearchLimit is how many file rows the picker shows.
+const mentionSearchLimit = 20
+
+// abandonMentionSearch drops any result still in flight and stops the work
+// behind it. Bumping the generation alone only makes the UI ignore the answer;
+// the fd process keeps walking the tree. Every path that closes the picker or
+// starts a new query goes through here, so the two always happen together.
+func (c *ComposerPane) abandonMentionSearch() {
+	c.mentionGen++
+	if c.mentionCancel != nil {
+		c.mentionCancel()
+		c.mentionCancel = nil
+	}
+}
+
+// scheduleMentionSearch debounces, then searches. Each call cancels the search
+// in flight: without that, every keystroke leaves an fd process walking the
+// tree, and on a large one they pile up faster than they finish.
+func (c *ComposerPane) scheduleMentionSearch(query string) {
+	c.abandonMentionSearch()
+	gen := c.mentionGen
+	cwd := c.cwd
+	bus := c.bus
+
+	ctx, cancel := context.WithCancel(context.Background())
+	c.mentionCancel = cancel
+
+	go func() {
+		defer cancel()
+		// Debounce. A newer keystroke cancels this before any work starts.
+		select {
+		case <-time.After(100 * time.Millisecond):
+		case <-ctx.Done():
+			return
+		}
+
+		searchCtx, searchCancel := context.WithTimeout(ctx, 3*time.Second)
+		defer searchCancel()
+		paths, truncated, err := filesearch.Search(searchCtx, cwd, query, mentionSearchLimit)
+
+		// A superseded search has nothing useful to report.
+		if ctx.Err() != nil {
+			return
+		}
+
+		msg := controller.MentionResultsMsg{Gen: gen, Query: query, Paths: paths, Truncated: truncated}
+		if err != nil {
+			if errors.Is(err, filesearch.ErrTimeout) {
+				msg.ErrText = "Search timed out — type more of the path"
+			} else {
+				msg.ErrText = err.Error()
+			}
+		}
+		bus.Publish(msg)
+	}()
+}
+
+func (c *ComposerPane) acceptMention(item mention.Item) {
+	_, start, end, ok := chat.ActiveMention(c.Chat.Value, c.Chat.Cursor)
+	if !ok {
+		start, end = c.Chat.Cursor, c.Chat.Cursor
+	}
+	c.abandonMentionSearch()
+	c.mention.Hide()
+	c.Chat.MentionOpen = false
+
+	// @mention path: try to load it as an image file first.
+	abs := resolveMentionPath(c.cwd, item.Path)
+	if res, err := imgutil.Load(abs); err == nil {
+		if !c.imagesSupported() {
+			c.warnImagesDisabled()
+			// Keep a text path reference when the model cannot take images.
+			c.Chat.ReplaceRange(start, end, "@"+item.Path+" ")
+			return
+		}
+		// Image loaded successfully — add to the pending queue for submission.
+		c.Chat.AddPendingImage(imgutil.AttachmentFromResult(imgutil.AttachmentLabel(abs), res))
+		c.Chat.ReplaceRange(start, end, "")
+		if c.onRedraw != nil {
+			c.onRedraw()
+		}
+		return
+	}
+
+	c.Chat.ReplaceRange(start, end, "@"+item.Path+" ")
+}
+
+// imagesSupported is true when the active model opts into image attachments,
+// or when no model callback is wired (tests / partial setup).
+func (c *ComposerPane) imagesSupported() bool {
+	return c.imageEnabled == nil || c.imageEnabled()
+}
+
+func (c *ComposerPane) warnImagesDisabled() {
+	c.showToast(
+		"Current model does not support images (set image_enabled: true in config)",
+		toast.ToastWarning,
+		3*time.Second,
+	)
+}
+
+func (c *ComposerPane) showToast(msg string, kind toast.ToastKind, d time.Duration) {
+	c.bus.Publish(controller.ToastMsg{Message: msg, Kind: kind, Duration: d})
+}
+
+func (c *ComposerPane) tryAttachClipboardImage(ctx *components.EventContext) bool {
+	if !c.imagesSupported() {
+		c.warnImagesDisabled()
+		ctx.ConsumeAndRedraw()
+		return true
+	}
+	res, err := c.readImage()
+	if errors.Is(err, clipboard.ErrUnavailable) {
+		return false
+	}
+	if err != nil {
+		c.showToast(err.Error(), toast.ToastError, 3*time.Second)
+		ctx.ConsumeAndRedraw()
+		return true
+	}
+	// Build a sequential label (clipboard #1, #2, …) for the pending queue.
+	label := fmt.Sprintf("clipboard #%d", len(c.Chat.PendingImages)+1)
+	// Add the clipboard image to the pending queue for submission.
+	c.Chat.AddPendingImage(imgutil.AttachmentFromResult(label, res))
+	if c.onRedraw != nil {
+		c.onRedraw()
+	}
+	ctx.ConsumeAndRedraw()
+	return true
+}
+
+func resolveMentionPath(cwd, rel string) string {
+	rel = strings.TrimSpace(rel)
+	if filepath.IsAbs(rel) {
+		return filepath.Clean(rel)
+	}
+	return filepath.Join(cwd, rel)
+}
+
+func (c *ComposerPane) acceptQuestion(_ mention.Item) {
+	_, start, end, ok := chat.ActiveQuestion(c.Chat.Value, c.Chat.Cursor)
+	if ok {
+		c.Chat.ReplaceRange(start, end, "")
+	}
+	c.question.Hide()
+	c.Chat.QuestionOpen = false
+}
+
+func (c *ComposerPane) acceptSlash(item mention.Item) {
+	start, end, insert := c.slashTarget(item)
+	c.Chat.ReplaceRange(start, end, insert)
+	c.slash.Hide()
+	c.Chat.SlashOpen = false
+	if !strings.HasSuffix(insert, " ") {
+		c.bus.Publish(controller.SubmitMsg{Text: strings.TrimSpace(insert)})
+		if c.drainBus != nil {
+			c.drainBus()
+		}
+	}
+}
+
+// completeSlash fills the composer with the command and stops there.
+// Enter on a no-arg command runs it; Tab must only complete.
+func (c *ComposerPane) completeSlash(item mention.Item) {
+	start, end, insert := c.slashTarget(item)
+	// The trailing space closes the command token; without it ActiveSlash keeps
+	// matching and the picker would reopen on the command just inserted.
+	if !strings.HasSuffix(insert, " ") {
+		insert += " "
+	}
+	c.Chat.ReplaceRange(start, end, insert)
+	c.slash.Hide()
+	c.Chat.SlashOpen = false
+}
+
+// slashTarget resolves the composer range to replace and the insert text.
+func (c *ComposerPane) slashTarget(item mention.Item) (start, end int, insert string) {
+	_, start, end, ok := chat.ActiveSlash(c.Chat.Value, c.Chat.Cursor)
+	if !ok {
+		start, end = 0, c.Chat.Cursor
+	}
+	insert = c.commands.LookupInsert(item.Path)
+	if insert == "" {
+		insert = "/" + item.Path
+	}
+	return start, end, insert
+}
+
+func newChatInput(theme components.Theme, modelLabel, cwd string) chat.ChatInput {
+	return chat.ChatInput{
+		MinBodyRows:    3,
+		MaxBodyRows:    8,
+		UseBlockCursor: false,
+		PaddingX:       1,
+		Theme:          theme,
+		BorderStyle:    theme.Border,
+		TextStyle:      theme.Foreground,
+		CursorStyle:    xui.Style{Reverse: true},
+		TopRightLabel: layout.BorderLabel{
+			Text:  modelLabel,
+			Style: theme.IdentityOrSuccess(),
+		},
+		BottomRightLabel: layout.BorderLabel{
+			Text:  pathutil.PathWithBranch(cwd),
+			Style: footer.PathLabelStyle(theme),
+		},
+	}
+}
+
+func mentionNavKey(e xui.KeyEvent) bool {
+	if !e.Press {
+		return false
+	}
+	switch e.Code {
+	case xui.KeyUp, xui.KeyDown, xui.KeyTab, xui.KeyEnter, xui.KeyEscape:
+		return true
+	case xui.KeyRune:
+		if e.Mods.Has(xui.ModCtrl) && (e.Rune == 'n' || e.Rune == 'N' || e.Rune == 'p' || e.Rune == 'P') {
+			return true
+		}
+	}
+	return false
+}
+
+// Ensure ComposerPane implements Input.
+var _ Input = (*ComposerPane)(nil)
+
+// Register wires the composer into the runtime: async mention/bash-suggest
+// results, the branch label, and theme switches. The composer is built in the
+// Editor literal and registered before Wire binds the remaining hooks.
+func (c *ComposerPane) Register(rt *runtime.Runtime) {
+	runtime.Subscribe(rt, c.ApplyMentionResults)
+	runtime.Subscribe(rt, c.ApplyBashSuggestions)
+	runtime.Subscribe(rt, c.onBranchLabel)
+	rt.Theme.On(c.SetTheme)
+}
+
+func (c *ComposerPane) onBranchLabel(msg controller.BranchLabelMsg) {
+	c.SetBranchLabel(msg.Text)
+	if c.onRedraw != nil {
+		c.onRedraw()
+	}
+}

@@ -4,33 +4,26 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"slices"
 
 	"github.com/pulseaiclub/xui"
 
-	"github.com/pulseaiclub/phi/internal/debuglog"
-	"github.com/pulseaiclub/phi/internal/extension"
-
+	"github.com/pulseaiclub/phi/internal/agent"
+	"github.com/pulseaiclub/phi/internal/agent/prompt"
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/app"
+	"github.com/pulseaiclub/phi/internal/job"
+	"github.com/pulseaiclub/phi/internal/llm"
+	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
+	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/project"
+	projectmodel "github.com/pulseaiclub/phi/internal/project/model"
+	"github.com/pulseaiclub/phi/internal/session/compaction"
+	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/agenttool"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 	"github.com/pulseaiclub/phi/internal/tui/editor"
 )
-
-// loadExtensions discovers ~/.phi/extensions and <cwd>/.phi/extensions.
-// Load errors are non-fatal (fail-open: no extensions).
-func loadExtensions(proj *project.Project) *extension.Runner {
-	r, warns, err := extension.Load(proj.Global().ExtensionsDir(), proj.ExtensionsDir())
-	if err != nil {
-		debuglog.Logf("extension: load failed: %v", err)
-		return nil
-	}
-	for _, w := range warns {
-		debuglog.Logf("extension: %s", w.String())
-	}
-	return r
-}
 
 // runTUI starts the interactive terminal UI (default entrypoint).
 func runTUI() error {
@@ -70,17 +63,6 @@ func runTUI() error {
 		modelNames = append(modelNames, m.Name)
 	}
 
-	extRunner := loadExtensions(proj)
-	var extensionModels []extension.ModelRoute
-	if extRunner != nil {
-		extensionModels = extRunner.ExtensionModels()
-	}
-	for _, route := range extensionModels {
-		if !slices.Contains(modelNames, route.Reg.Name) {
-			modelNames = append(modelNames, route.Reg.Name)
-		}
-	}
-
 	model := proj.Config().Model()
 	modelName := model.Name
 	if think := model.Think.Mode; think != "off" && think != "" {
@@ -90,12 +72,26 @@ func runTUI() error {
 	redraw := controller.NewRedrawRelay()
 	bus := controller.NewBus(redraw.Fire)
 
-	ctrl, err := controller.NewController(bus, proj, extRunner)
+	sess, err := newSession(proj, model)
 	if err != nil {
-		extRunner.Close()
 		fmt.Fprintln(os.Stderr, "phi:", err)
 		return exitCode(ExitError)
 	}
+	mcpPool := newMCPPool(proj)
+	jobs, err := newJobs(proj, model, sess)
+	if err != nil {
+		_ = mcpPool.Close()
+		fmt.Fprintln(os.Stderr, "phi:", err)
+		return exitCode(ExitError)
+	}
+	engine, err := newEngine(proj, model, sess, jobs, mcpPool)
+	if err != nil {
+		_ = jobs.Close(context.Background())
+		_ = mcpPool.Close()
+		fmt.Fprintln(os.Stderr, "phi:", err)
+		return exitCode(ExitError)
+	}
+	ctrl := controller.NewController(bus, proj, sess, jobs, mcpPool, engine)
 	defer ctrl.Close()
 
 	cwd, err := os.Getwd()
@@ -124,4 +120,61 @@ func runTUI() error {
 		return exitCode(ExitError)
 	}
 	return nil
+}
+
+func newMCPPool(proj *project.Project) *mcp.Pool {
+	pool, err := mcp.LoadPool(proj.MCPConfigFile())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "warning: mcp:", err)
+		return mcp.NewPool(nil)
+	}
+	if pool == nil {
+		return mcp.NewPool(nil)
+	}
+	return pool
+}
+
+func newJobs(proj *project.Project, model llm.ModelConfig, sess *agent.Session) (*job.Manager, error) {
+	config := proj.Config()
+	models := config.ResolveRoleModels(model, config.Agents.Models.RoleOverrides())
+	return job.New(proj.JobsDir(), agent.NewEngineRunner(agent.DefaultChildSpecs()),
+		job.WithParent(sess.ID(), sess.Cwd(), 0), job.WithRoleModels(models))
+}
+
+func newSession(proj *project.Project, model llm.ModelConfig) (*agent.Session, error) {
+	return agent.NewSession(
+		agent.WithCwd(proj.Root()),
+		agent.WithSessionDir(proj.SessionDir()),
+		agent.WithPersist(true),
+		agent.WithModel(model.Name),
+	)
+}
+
+func newJobBinding(proj *project.Project, jobs *job.Manager, sess *agent.Session) *agenttool.Binding {
+	if !proj.Config().Agents.Enabled {
+		return nil
+	}
+	return agenttool.BindForSession(jobs, sess.Cwd())
+}
+
+func newEngine(
+	proj *project.Project,
+	model llm.ModelConfig,
+	sess *agent.Session,
+	jobs *job.Manager,
+	mcpPool *mcp.Pool,
+) (*agent.Engine, error) {
+	jobBinding := newJobBinding(proj, jobs, sess)
+	toolList := tools.DefaultTools(mcpPool)
+	toolList = append(toolList, jobBinding.Tools()...)
+	system := prompt.Build(
+		sess.Cwd(),
+		model.SkillPaths,
+		proj.Config().Agents.Enabled,
+		jobBinding.MaxConcurrent(),
+		mcpPool.ServerNames(),
+	)
+	client := llmclient.NewClient(model, projectmodel.HooksForConfig(model), tooldef.Definitions(toolList), system)
+	executor := agent.NewExecutor(tooldef.NewRegistry(toolList), sess.Cwd())
+	return agent.NewEngine(compaction.LimitsForModel(model), sess, client, executor)
 }

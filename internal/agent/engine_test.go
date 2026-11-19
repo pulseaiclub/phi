@@ -15,8 +15,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
+	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
 	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/pulseaiclub/phi/internal/session/compaction"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
@@ -24,6 +27,26 @@ import (
 // chars per token). Two of them exceed the default keepRecentTokens (20k), so
 // force-compact finds an older prefix to summarize.
 var compactionSeed = strings.Repeat("x", 12000*4)
+
+func newLoopEngine(
+	t *testing.T,
+	cfg llm.ModelConfig,
+	sess *Session,
+	client llm.ChatClient,
+	tools ...tooldef.Tool,
+) *Engine {
+	t.Helper()
+	executor := NewExecutor(tooldef.NewRegistry(tools), sess.Cwd())
+	engine, err := NewEngine(compaction.LimitsForModel(cfg), sess, client, executor)
+	require.NoError(t, err)
+	return engine
+}
+
+func newHTTPLoopEngine(t *testing.T, cfg llm.ModelConfig, sess *Session, tools ...tooldef.Tool) *Engine {
+	t.Helper()
+	client := llmclient.NewClient(cfg, llmclient.Hooks{}, tooldef.Definitions(tools), "")
+	return newLoopEngine(t, cfg, sess, client, tools...)
+}
 
 // sseToolCallChunk encodes one SSE data line carrying a full tool-call delta.
 func sseToolCallChunk(id, name, args string) string {
@@ -141,15 +164,11 @@ func TestRunCompactUsesModelOutputLimit(t *testing.T) {
 				llm.Message{Role: llm.RoleAssistant, Content: compactionSeed},
 				llm.Message{Role: llm.RoleUser, Content: compactionSeed},
 			))
-			engine, err := NewEngine(
-				llm.ModelConfig{
-					Name: "fake", BaseURL: server.URL, APIKey: "x",
-					ContextWindow: tc.contextWindow, MaxTokens: tc.maxTokens,
-				},
-				sess,
-				WithTools([]tooldef.Tool{}),
-			)
-			require.NoError(t, err)
+			cfg := llm.ModelConfig{
+				Name: "fake", BaseURL: server.URL, APIKey: "x",
+				ContextWindow: tc.contextWindow, MaxTokens: tc.maxTokens,
+			}
+			engine := newHTTPLoopEngine(t, cfg, sess)
 
 			did, err := engine.runCompact(t.Context(), func(session.Event, error) bool { return true }, 0, true)
 			require.NoError(t, err)
@@ -182,12 +201,8 @@ func TestLoopOverflowCompactsAndRetries(t *testing.T) {
 		llm.Message{Role: llm.RoleAssistant, Content: compactionSeed, Usage: llm.Usage{TotalTokens: 50000}},
 	))
 
-	engine, err := NewEngine(
-		llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 200_000},
-		sess,
-		WithTools([]tooldef.Tool{}),
-	)
-	require.NoError(t, err)
+	cfg := llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 200_000}
+	engine := newHTTPLoopEngine(t, cfg, sess)
 
 	var lastErr error
 	var finalText string
@@ -242,12 +257,8 @@ func TestLoopOverflowFailsClosedAfterOneRetry(t *testing.T) {
 		llm.Message{Role: llm.RoleAssistant, Content: compactionSeed, Usage: llm.Usage{TotalTokens: 50000}},
 	))
 
-	engine, err := NewEngine(
-		llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 200_000},
-		sess,
-		WithTools([]tooldef.Tool{}),
-	)
-	require.NoError(t, err)
+	cfg := llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 200_000}
+	engine := newHTTPLoopEngine(t, cfg, sess)
 
 	var lastErr error
 	for ev, err := range engine.Loop(t.Context(), "continue", LoopOpts{}) {
@@ -298,12 +309,8 @@ func TestLoopOverflowRejectsCappedSummary(t *testing.T) {
 		llm.Message{Role: llm.RoleAssistant, Content: compactionSeed, Usage: llm.Usage{TotalTokens: 50000}},
 	))
 
-	engine, err := NewEngine(
-		llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 200_000},
-		sess,
-		WithTools([]tooldef.Tool{}),
-	)
-	require.NoError(t, err)
+	cfg := llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 200_000}
+	engine := newHTTPLoopEngine(t, cfg, sess)
 
 	var lastErr error
 	var sawFailure bool
@@ -365,12 +372,8 @@ func TestLoopOverflowRejectsBlankSummary(t *testing.T) {
 		llm.Message{Role: llm.RoleAssistant, Content: compactionSeed, Usage: llm.Usage{TotalTokens: 50000}},
 	))
 
-	engine, err := NewEngine(
-		llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 200_000},
-		sess,
-		WithTools([]tooldef.Tool{}),
-	)
-	require.NoError(t, err)
+	cfg := llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 200_000}
+	engine := newHTTPLoopEngine(t, cfg, sess)
 
 	var lastErr error
 	var sawFailure bool
@@ -446,9 +449,7 @@ func TestLoopResumeDoesNotAppendUserMessage(t *testing.T) {
 		stubErrorStream(errors.New("first attempt failed")),
 		stubMessageStream(llm.Message{Role: llm.RoleAssistant, Content: "recovered"}),
 	}}
-	engine, err := NewEngine(llm.ModelConfig{Name: "stub"}, sess, WithTools([]tooldef.Tool{}))
-	require.NoError(t, err)
-	engine.client = client
+	engine := newLoopEngine(t, llm.ModelConfig{Name: "stub"}, sess, client)
 
 	var appended int
 	require.ErrorContains(t, runLoop(t, engine, t.Context(), "try this", LoopOpts{
@@ -488,12 +489,7 @@ func TestLoopResumeReusesCompletedToolResult(t *testing.T) {
 		stubErrorStream(errors.New("second attempt failed")),
 		stubMessageStream(llm.Message{Role: llm.RoleAssistant, Content: "recovered"}),
 	}}
-	engine, err := NewEngine(
-		llm.ModelConfig{Name: "stub"}, sess,
-		WithTools([]tooldef.Tool{countingTool(&runs)}),
-	)
-	require.NoError(t, err)
-	engine.client = client
+	engine := newLoopEngine(t, llm.ModelConfig{Name: "stub"}, sess, client, countingTool(&runs))
 
 	require.ErrorContains(t, runLoop(t, engine, t.Context(), "run it", LoopOpts{}), "second attempt failed")
 	require.NoError(t, runLoop(t, engine, t.Context(), "run it", LoopOpts{Resume: true}))
@@ -516,9 +512,7 @@ func TestLoopCanceledBeforeStartDoesNotAppendOrCallback(t *testing.T) {
 	client := &stubChatClient{streams: []func(context.Context, []llm.Message) iter.Seq2[llm.StreamEvent, error]{
 		stubMessageStream(llm.Message{Role: llm.RoleAssistant, Content: "unreachable"}),
 	}}
-	engine, err := NewEngine(llm.ModelConfig{Name: "stub"}, sess, WithTools([]tooldef.Tool{}))
-	require.NoError(t, err)
-	engine.client = client
+	engine := newLoopEngine(t, llm.ModelConfig{Name: "stub"}, sess, client)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
@@ -550,9 +544,7 @@ func TestLoopStopsAfterConsumerCancelsDuringPartialStreamError(t *testing.T) {
 			}
 		},
 	}}
-	engine, err := NewEngine(llm.ModelConfig{Name: "stub"}, sess, WithTools([]tooldef.Tool{}))
-	require.NoError(t, err)
-	engine.client = client
+	engine := newLoopEngine(t, llm.ModelConfig{Name: "stub"}, sess, client)
 
 	var events int
 	engine.Loop(ctx, "stop this", LoopOpts{})(func(event session.Event, err error) bool {
@@ -597,16 +589,11 @@ func runCompactWith(
 		llm.Message{Role: llm.RoleAssistant, Content: compactionSeed},
 		llm.Message{Role: llm.RoleUser, Content: compactionSeed},
 	))
-	engine, err := NewEngine(
-		llm.ModelConfig{Name: "fake", BaseURL: "http://unused.test", ContextWindow: 200_000},
-		sess,
-		WithTools([]tooldef.Tool{}),
-	)
-	require.NoError(t, err)
-	engine.client = fakeCompactClient{compact: func(context.Context) error {
+	client := fakeCompactClient{compact: func(context.Context) error {
 		during(sess)
 		return nil
 	}}
+	engine := newLoopEngine(t, llm.ModelConfig{Name: "fake", ContextWindow: 200_000}, sess, client)
 	did, err = engine.runCompact(ctx, func(ev session.Event, _ error) bool {
 		if c, ok := ev.(session.CompactionComplete); ok {
 			complete = c
@@ -673,12 +660,8 @@ func TestLoopNonOverflowErrorDoesNotCompact(t *testing.T) {
 
 	sess, err := NewSession(WithCwd(t.TempDir()))
 	require.NoError(t, err)
-	engine, err := NewEngine(
-		llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x"},
-		sess,
-		WithTools([]tooldef.Tool{}),
-	)
-	require.NoError(t, err)
+	cfg := llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x"}
+	engine := newHTTPLoopEngine(t, cfg, sess)
 
 	var lastErr error
 	var sawCompact bool
@@ -773,12 +756,8 @@ func TestLoopCompactsMidTurnBeforeNextRequest(t *testing.T) {
 		llm.Message{Role: llm.RoleAssistant, Content: strings.Repeat("d", 48000), Usage: llm.Usage{TotalTokens: 22000}},
 	))
 
-	engine, err := NewEngine(
-		llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 40_000},
-		sess,
-		WithTools([]tooldef.Tool{bulkyTool()}),
-	)
-	require.NoError(t, err)
+	cfg := llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 40_000}
+	engine := newHTTPLoopEngine(t, cfg, sess, bulkyTool())
 
 	var lastErr error
 	var sawCompact bool
@@ -807,4 +786,102 @@ func TestLoopCompactsMidTurnBeforeNextRequest(t *testing.T) {
 	require.NotContains(t, second, strings.Repeat("b", 32))
 	require.Contains(t, second, strings.Repeat("c", 32))
 	require.Contains(t, second, strings.Repeat("d", 32))
+}
+
+func TestLoopStopsDuringCompaction(t *testing.T) {
+	for _, stopAtStart := range []bool{true, false} {
+		name := "failed completion"
+		if stopAtStart {
+			name = "start"
+		}
+		t.Run(name, func(t *testing.T) {
+			sess, err := NewSession(WithCwd(t.TempDir()))
+			require.NoError(t, err)
+			require.NoError(t, sess.Append(
+				llm.Message{Role: llm.RoleUser, Content: compactionSeed},
+				llm.Message{Role: llm.RoleAssistant, Content: compactionSeed},
+				llm.Message{Role: llm.RoleUser, Content: compactionSeed},
+			))
+			var compacts int
+			client := fakeCompactClient{compact: func(context.Context) error {
+				compacts++
+				return errors.New("summary failed")
+			}}
+			engine := newLoopEngine(t, llm.ModelConfig{Name: "stub", ContextWindow: 40_000}, sess, client)
+			var events int
+			for event, err := range engine.Loop(t.Context(), "go", LoopOpts{}) {
+				require.NoError(t, err)
+				events++
+				if stopAtStart {
+					require.IsType(t, session.CompactionStarted{}, event)
+					break
+				}
+				if complete, ok := event.(session.CompactionComplete); ok {
+					require.True(t, complete.Failed)
+					break
+				}
+			}
+			if stopAtStart {
+				require.Equal(t, 1, events)
+				require.Zero(t, compacts)
+			} else {
+				require.Equal(t, 2, events)
+				require.Equal(t, 1, compacts)
+			}
+			requireNoCompactionEntry(t, sess)
+		})
+	}
+}
+
+func TestLoopStopsToolBatchWithoutRunningTools(t *testing.T) {
+	for _, readable := range []bool{false, true} {
+		name := "sequential"
+		if readable {
+			name = "concurrent"
+		}
+		t.Run(name, func(t *testing.T) {
+			sess, err := NewSession(WithCwd(t.TempDir()))
+			require.NoError(t, err)
+			var runs atomic.Int32
+			tool := countingTool(&runs)
+			tool.Definition.Readable = readable
+			client := &stubChatClient{streams: []func(context.Context, []llm.Message) iter.Seq2[llm.StreamEvent, error]{
+				stubMessageStream(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+					{ID: "first", Type: "function", Function: llm.Function{Name: "count", Arguments: `{}`}},
+					{ID: "second", Type: "function", Function: llm.Function{Name: "count", Arguments: `{}`}},
+				}}),
+			}}
+			engine := newLoopEngine(t, llm.ModelConfig{Name: "stub"}, sess, client, tool)
+			var toolEvents int
+			for event, err := range engine.Loop(t.Context(), "go", LoopOpts{}) {
+				require.NoError(t, err)
+				if _, ok := event.(session.ToolData); ok {
+					toolEvents++
+					break
+				}
+			}
+			require.Equal(t, 1, toolEvents)
+			require.Zero(t, runs.Load())
+			require.Len(t, client.calls, 1)
+			require.NoError(t, t.Context().Err(), "stopping a consumer must not cancel its parent")
+		})
+	}
+}
+
+func TestChildToolsHaveNoAgent(t *testing.T) {
+	for _, tool := range SpecForRole(job.RoleExplore).Tools {
+		assert.NotContains(t, tool.Definition.Name, "agent_")
+	}
+}
+
+func TestChildToolsAreReadonly(t *testing.T) {
+	names := map[string]bool{}
+	for _, tool := range SpecForRole(job.RoleExplore).Tools {
+		names[tool.Definition.Name] = true
+	}
+	assert.True(t, names["read"])
+	assert.True(t, names["grep"])
+	assert.True(t, names["bash"])
+	assert.False(t, names["write"])
+	assert.False(t, names["edit"])
 }

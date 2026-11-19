@@ -40,31 +40,35 @@ func jsonMarshalDelta(content string) string {
 	return `{"choices":[{"delta":{"role":"assistant","content":"` + content + `"}}]}`
 }
 
+func newExploreManager(t *testing.T, baseURL string, opts ...job.Option) *job.Manager {
+	t.Helper()
+	opts = append(opts, job.WithRoleModels(map[job.Role]llm.ModelConfig{
+		job.RoleExplore: {Name: "fake", BaseURL: baseURL, APIKey: "x"},
+	}))
+	mgr, err := job.New(t.TempDir(), agent.NewEngineRunner(agent.DefaultChildSpecs()), opts...)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
+	return mgr
+}
+
+func TestEngineRunnerMissingSpec(t *testing.T) {
+	runner := agent.NewEngineRunner(map[job.Role]agent.ChildSpec{
+		job.RoleWorker: agent.SpecForRole(job.RoleWorker),
+	})
+	_, err := runner.Run(t.Context(), job.RunEnv{Job: job.Meta{Dir: t.TempDir()}})
+	require.EqualError(t, err, `agent: no child spec for role "explore"`)
+}
+
 func TestEngineRunnerViaJobManager(t *testing.T) {
 	srv := textOnlySSEServer("explored auth module; see internal/auth/login.go")
 	defer srv.Close()
 
-	jobsRoot := t.TempDir()
 	workdir := t.TempDir()
-
-	runner := agent.EngineRunner{
-		Model: llm.ModelConfig{
-			Name:    "fake",
-			BaseURL: srv.URL,
-			APIKey:  "x",
-		},
-	}
-	mgr, err := job.New(job.Options{
-		Root:   jobsRoot,
-		Runner: runner,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
+	mgr := newExploreManager(t, srv.URL, job.WithParent("parent-sess-1", "", 0))
 
 	info, err := mgr.Spawn(t.Context(), job.SpawnRequest{
 		Prompt:      "Look at auth",
 		Description: "auth explore",
-		ParentID:    "parent-sess-1",
 		WorkDir:     workdir,
 	})
 	require.NoError(t, err)
@@ -120,14 +124,12 @@ func TestEngineRunnerExplicitPreset(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	runner := agent.EngineRunner{
+	text, err := agent.NewEngineRunner(agent.DefaultChildSpecs()).Run(t.Context(), job.RunEnv{
 		Model: llm.ModelConfig{
 			Name: "opaque-route", Preset: "gemini-2.5-pro", API: llm.Gemini,
 			BaseURL: srv.URL, APIKey: "test",
 			Think: llm.ThinkConfig{Enabled: true, Mode: llm.Low},
 		},
-	}
-	text, err := runner.Run(t.Context(), job.RunEnv{
 		Job: job.Meta{Dir: t.TempDir(), WorkDir: t.TempDir(), Prompt: "Reply OK"},
 		Log: func(string) {},
 	})
@@ -152,15 +154,7 @@ func TestEngineRunnerCancel(t *testing.T) {
 	defer srv.Close()
 	defer close(block)
 
-	runner := agent.EngineRunner{
-		Model: llm.ModelConfig{Name: "fake", BaseURL: srv.URL, APIKey: "x"},
-	}
-	mgr, err := job.New(job.Options{
-		Root:   t.TempDir(),
-		Runner: runner,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
+	mgr := newExploreManager(t, srv.URL)
 
 	info, err := mgr.Spawn(t.Context(), job.SpawnRequest{
 		Prompt:  "hang",

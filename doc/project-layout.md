@@ -20,11 +20,10 @@
 | `internal/tui/transcript/` | Session→widget projection (Mapper, Pane) |
 | `internal/tui/composer/` | Chat input, `/` `?` `@` `!` pickers, palette |
 | `internal/tui/footer/`   | Activity spinner, token labels, update hint |
-| `internal/tui/overlays/` | Extension confirmation / error panels |
-| `internal/tui/diffpane/` | Git diff review overlay (`/diff`) |
-| `internal/tui/codepane/` | Source viewer overlay (`/code`) |
+| `internal/tui/overlays/` | Error panels |
+| `internal/components/pane/` | Full-screen Git diff review (`/diff`) and source viewer (`/code`) |
 | `internal/tui/submit/`   | Submit, cancel, slash dispatch, bash runner |
-| `internal/tui/commands/` | Slash/palette registry, session/extension commands |
+| `internal/tui/commands/` | Slash/palette registry, session commands |
 | `internal/tui/pathutil/` | Cwd + git branch path labels |
 | `internal/tui/controller/` | Engine lifecycle, Bus/Msg, activity |
 | `internal/version/`      | Build-time `Version` (splash / `phi update`) |
@@ -40,5 +39,5 @@
 | [`extensions.md`](extensions.md) | Extensions: discover, API, events, migration from hooks |
 | [`mcp.md`](mcp.md) | MCP: zero schema pollution, mcp:// URLs, config, CLI |
 | [`models.md`](models.md) | Supported models, presets, explicit `api`, thinking config |
-| [`tui.md`](tui.md) | TUI: package layout, aggregation, interaction flows |
+| [`tui-runtime.md`](tui-runtime.md) | TUI: runtime + plugin architecture, extension points, transport rules |
 | [`session-context-building.md`](session-context-building.md) | Sessions: tree model, compaction, context building |

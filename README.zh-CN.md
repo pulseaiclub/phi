@@ -12,7 +12,7 @@
   <a href="https://github.com/pulseaiclub/phi/releases"><img src="https://img.shields.io/github/v/release/pulseaiclub/phi?style=flat&colorA=222222&colorB=8957E5" alt="Release"></a>
 </p>
 
-- 15 MB · ~31 ms · sub-agent · 锚点编辑 · 渐进式 MCP · PXB 插件 · 全屏审阅 & 代码选中 · OpenAI / Anthropic / Gemini
+- 15 MB · ~31 ms · sub-agent · 锚点编辑 · 渐进式 MCP · 全屏审阅 & 代码选中 · OpenAI / Anthropic / Gemini
 
 ![phi 欢迎界面](assets/phi.png)
 
@@ -20,8 +20,7 @@
 
 ![phi diff 审阅](assets/diff.png)
 
-你可以通过 [Skills（技能）](#skills技能)、[Extensions（扩展）](#extensions扩展)
-和 [MCP](#mcp) 扩展它——不必做成插件框架。
+你可以通过 [Skills（技能）](#skills技能) 和 [MCP](#mcp) 扩展它。
 
 - [赞助商](#赞助商)
 - [文档](https://pulseaiclub.github.io/docs/getting-started/)
@@ -240,7 +239,7 @@ agents:
 - `?` —— 快捷键帮助选择器（列出 `/`、`!`、`!!`、`@` 和按键绑定；`Esc` 关闭）
 - `!command` —— 在本地运行 shell 命令，并把输出流式写入对话记录
   （见 [命令](#命令)）
-- `Ctrl+K` —— 命令面板：设置 → 模型 / 主题 / 代理（含各角色模型）/ 思考 / 调试，以及扩展管理（`extensions`）。用 `/skill` 选择技能。
+- `Ctrl+K` —— 命令面板：设置 → 模型 / 主题 / 代理（含各角色模型）/ 思考 / 调试。用 `/skill` 选择技能。
 
 ### 键盘快捷键
 
@@ -415,6 +414,9 @@ Instructions the agent should follow when this skill is relevant.
 
 ## Extensions（扩展）
 
+**重构期间暂停运行插件。** `phi run`、TUI 和子代理均不会启动已安装的插件。
+`phi plugin` 仍可管理已安装的文件。下述 PXB 协议及 SDK 保留供后续重构使用。
+
 扩展是讲 **PXB** 二进制协议的原生进程（作者 SDK：Go `github.com/pulseaiclub/phi/ext/go/phi`、Rust [`ext/rust`](ext/rust) `phi-ext` 和 TypeScript [`ext/ts`](ext/ts) `@pulseaiclub/phi-ext`）：订阅工具/会话事件、注册 LLM 工具、添加斜杠命令。
 
 ```bash
@@ -439,8 +441,7 @@ func main() {
 }
 ```
 
-放到 `~/.phi/extensions/<name>/`，附带 `phi.yaml` 指向二进制。
-TUI：`Ctrl+K` → **extensions**。禁用：`PHI_EXTENSIONS=off`。完整指南见 [doc/extensions.md](doc/extensions.md)。
+旧版 Runner 参考文档：[doc/extensions.md](doc/extensions.md)。
 
 Codec 吞吐（Apple Silicon，release，单线程）：
 

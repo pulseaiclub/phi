@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	skillsplugin "github.com/pulseaiclub/phi/internal/tui/plugin/skills"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -12,8 +14,8 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
-	"github.com/pulseaiclub/phi/internal/tui/composer"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/pulseaiclub/phi/internal/tui/plugin/composer"
 )
 
 // TestSkillSlashOpensPicker walks the wiring the way the shell uses it:
@@ -63,34 +65,18 @@ Do the work.
 
 	bus := controller.NewBus(nil)
 	e := &Editor{
-		composer: composer.NewComposerPane(components.DefaultTheme(), "m", dir),
+		composer: composer.NewComposerPane(components.DefaultTheme(), "m", dir, composer.WithDeps(composer.Deps{})),
 		bus:      bus,
 		cwd:      dir,
 	}
-	e.composer.Wire(composer.WireDeps{})
 
-	builtins := commands.NewBuiltinRegistry(
-		bus,
-		nil,
-		e.composer,
-		nil,
-		nil,
-		[]string{filepath.Join(dir, "skills")},
-		nil,
-		nil,
-	)
-	e.commands = builtins.Registry
-	builtins.Bind(
-		nil,
-		commands.NewContext(bus, nil),
-		nil,
-		nil,
-		nil,
-		nil,
-		e.showSkillList,
-		dir,
-		func() bool { return false },
-	)
+	e.commands = commands.NewCommandRegistry()
+	e.skills = skillsplugin.New(e.commands, skillsplugin.SkillsCommands{
+		Bus:        bus,
+		SkillPaths: []string{filepath.Join(dir, "skills")},
+		Add:        e.composer,
+		ShowList:   e.composer.ShowList,
+	})
 
 	return e
 }

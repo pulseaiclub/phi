@@ -41,7 +41,8 @@ Examples:
   phi plugin update greet@latest # switch to the newest release
   phi plugin remove greet        # uninstall (alias: rm)
 
-Security: extension processes run with your full permissions.`,
+Runtime support is paused during the plugin refactor. These commands manage
+installed files; phi does not start the installed plugins.`,
 	}
 
 	pluginInstallCommand = cli.Command{

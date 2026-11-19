@@ -16,11 +16,12 @@ import (
 	cli "github.com/pulseaiclub/pli"
 
 	"github.com/pulseaiclub/phi/internal/agent"
-	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/mcp"
+	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
 	"github.com/pulseaiclub/phi/internal/project"
+	"github.com/pulseaiclub/phi/internal/project/model"
 	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/pulseaiclub/phi/internal/session/compaction"
 	"github.com/pulseaiclub/phi/internal/tools"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
@@ -184,37 +185,6 @@ func TestSelectBuiltinToolsErrorListsAvailableNames(t *testing.T) {
 	assert.ErrorContains(t, err, "available: "+strings.Join(toolNames(tools.DefaultTools(nil)), ", "))
 }
 
-func TestSelectedBuiltinToolsStillAppendExternalTools(t *testing.T) {
-	selected, err := selectBuiltinTools("read", nil)
-	require.NoError(t, err)
-	pool := mcp.NewPool(map[string]mcp.ServerConfig{
-		"echo": {Command: []string{"true"}},
-	})
-	t.Cleanup(func() { require.NoError(t, pool.Close()) })
-	jobs, err := job.New(job.Options{
-		Root: t.TempDir(),
-		Runner: job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
-			return "ok", nil
-		}),
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, jobs.Close(t.Context())) })
-
-	sess, err := agent.NewSession(agent.WithCwd(t.TempDir()))
-	require.NoError(t, err)
-	engine, err := agent.NewEngine(
-		llm.ModelConfig{Name: "test", APIKey: "x", BaseURL: "http://127.0.0.1:9"},
-		sess,
-		agent.WithTools(selected),
-		agent.WithMCP(pool),
-		agent.WithJobs(jobs),
-	)
-	require.NoError(t, err)
-	assert.True(t, engine.HasTool("read"))
-	assert.False(t, engine.HasTool("bash"))
-	assert.True(t, engine.HasTool("agent_spawn"))
-}
-
 func TestRunLoopTimeoutCancelsLLMRequest(t *testing.T) {
 	block := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
@@ -225,21 +195,17 @@ func TestRunLoopTimeoutCancelsLLMRequest(t *testing.T) {
 
 	sess, err := agent.NewSession(agent.WithCwd(t.TempDir()))
 	require.NoError(t, err)
-	engine, err := agent.NewEngine(
-		llm.ModelConfig{
-			Name:    "fake",
-			BaseURL: server.URL,
-			APIKey:  "test",
-		},
-		sess,
-	)
+	cfg := llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "test"}
+	client := llmclient.NewClient(cfg, model.HooksForConfig(cfg), nil, "")
+	executor := agent.NewExecutor(tooldef.NewRegistry(nil), sess.Cwd())
+	engine, err := agent.NewEngine(compaction.LimitsForModel(cfg), sess, client, executor)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
 
 	start := time.Now()
-	exit := runLoop(ctx, engine, runOptions{prompt: "wait"})
+	exit := runLoop(ctx, engine, sess, runOptions{prompt: "wait"})
 
 	assert.Equal(t, ExitError, exit)
 	assert.Less(t, time.Since(start), time.Second)

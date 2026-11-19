@@ -69,12 +69,14 @@ const paneTestRows = 12
 
 // bashPane draws one user turn plus a collapsed bash run and returns the drawn
 // pane. Rows are bottom-anchored, so the bash title is the last viewport row.
-func bashPane(t *testing.T) (*TranscriptPane, *controller.Bus, *block.BashBlock) {
+func bashPane(t *testing.T, copyFn func(string) bool) (*TranscriptPane, *controller.Bus, *block.BashBlock) {
 	t.Helper()
 	th := components.DefaultTheme()
-	pane := NewTranscriptPane(th, status.NewSpinner(th.ToolName), "Phi test")
+	if copyFn == nil {
+		copyFn = func(string) bool { return true }
+	}
 	bus := controller.NewBus(nil)
-	pane.SetCopyHandlers(bus, func(string) bool { return true })
+	pane := NewTranscriptPane(th, status.NewSpinner(th.ToolName), "Phi test", WithCopyHandlers(bus, copyFn))
 	pane.LoadReplay(session.Snapshot{
 		Messages: []session.Message{
 			{ID: "u1", Role: session.RoleUser, State: session.StateComplete, Text: "hello"},
@@ -101,9 +103,8 @@ func bashPane(t *testing.T) (*TranscriptPane, *controller.Bus, *block.BashBlock)
 // Dragging from a collapsed title row must copy text, not expand: the block
 // toggles only once the pane has ruled out a drag-selection.
 func TestTranscriptPane_DragFromTitleRowCopies(t *testing.T) {
-	pane, bus, bash := bashPane(t)
 	var copied string
-	pane.SetCopyHandlers(bus, func(text string) bool {
+	pane, bus, bash := bashPane(t, func(text string) bool {
 		copied = text
 		return true
 	})
@@ -133,12 +134,14 @@ func longMessagePane(t *testing.T) (*TranscriptPane, *string) {
 		rows[i] = fmt.Sprintf("L%02d", i)
 	}
 	th := components.DefaultTheme()
-	pane := NewTranscriptPane(th, status.NewSpinner(th.ToolName), "Phi test")
 	copied := new(string)
-	pane.SetCopyHandlers(controller.NewBus(nil), func(text string) bool {
-		*copied = text
-		return true
-	})
+	pane := NewTranscriptPane(
+		th, status.NewSpinner(th.ToolName), "Phi test",
+		WithCopyHandlers(controller.NewBus(nil), func(text string) bool {
+			*copied = text
+			return true
+		}),
+	)
 	pane.LoadReplay(session.Snapshot{Messages: []session.Message{
 		{ID: "u1", Role: session.RoleUser, State: session.StateComplete, Text: strings.Join(rows, "\n")},
 	}})
@@ -335,7 +338,7 @@ func TestTranscriptPane_SelectionTextMatchesViewportRead(t *testing.T) {
 
 // A press that never moves is a click: the same row toggles instead of copying.
 func TestTranscriptPane_ClickOnTitleRowToggles(t *testing.T) {
-	pane, _, bash := bashPane(t)
+	pane, _, bash := bashPane(t, nil)
 	const row = paneTestRows - 1
 
 	ctx := &components.EventContext{}

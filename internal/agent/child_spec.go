@@ -38,6 +38,15 @@ func SpecForRole(role job.Role) ChildSpec {
 	}
 }
 
+// DefaultChildSpecs returns the built-in child profiles keyed by role.
+func DefaultChildSpecs() map[job.Role]ChildSpec {
+	return map[job.Role]ChildSpec{
+		job.RoleExplore: SpecForRole(job.RoleExplore),
+		job.RoleWorker:  SpecForRole(job.RoleWorker),
+		job.RoleReview:  SpecForRole(job.RoleReview),
+	}
+}
+
 const exploreSummaryHint = `You are an explore sub-agent (no file edits). Recon the codebase and return dense findings the parent can act on without re-reading everything.
 
 Notes:

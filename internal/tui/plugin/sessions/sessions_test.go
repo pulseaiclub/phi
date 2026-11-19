@@ -1,0 +1,194 @@
+package sessions
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/pulseaiclub/phi/internal/tui/commands"
+	"github.com/pulseaiclub/phi/internal/tui/controller"
+)
+
+func TestSessionCommands_ShowOpensPicker(t *testing.T) {
+	dir := t.TempDir()
+	m, err := session.NewSessionManager(dir, session.WithSessionDir(dir), session.WithShouldFlush(true))
+	require.NoError(t, err)
+	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "hello world"})
+	require.NoError(t, err)
+	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+	require.NoError(t, err)
+
+	var got []session.SessionMeta
+	var current string
+	bus := controller.NewBus(nil)
+	s := New(nil, SessionCommands{
+		Bus:        bus,
+		SessionDir: func() string { return dir },
+		SessionID:  func() string { return m.ID() },
+		Lists: &recordingLists{items: func(items []session.SessionMeta, id string) {
+			got, current = items, id
+		}},
+	})
+	s.Show()
+	require.Len(t, got, 1)
+	assert.Equal(t, m.ID(), got[0].ID)
+	assert.Equal(t, m.ID(), current)
+	assert.Equal(t, "hello world", got[0].Preview)
+}
+
+func TestSessionCommands_ShowEmptyToasts(t *testing.T) {
+	bus := controller.NewBus(nil)
+	s := New(nil, SessionCommands{
+		Bus:        bus,
+		SessionDir: func() string { return t.TempDir() },
+		Lists: &recordingLists{items: func([]session.SessionMeta, string) {
+			require.Fail(t, "picker should not open")
+		}},
+	})
+	s.Show()
+	assert.Contains(t, drainToast(t, bus), "No sessions")
+}
+
+func TestSessionCommands_AcceptBlocksWhenBusy(t *testing.T) {
+	bus := controller.NewBus(nil)
+	s := New(nil, SessionCommands{
+		Bus:          bus,
+		StreamActive: func() bool { return true },
+	})
+	s.Accept("abc")
+	assert.Contains(t, drainToast(t, bus), "Cannot resume")
+}
+
+func TestSessionCommands_NewSessionBlocksWhenBusy(t *testing.T) {
+	bus := controller.NewBus(nil)
+	s := New(nil, SessionCommands{
+		Bus:          bus,
+		StreamActive: func() bool { return true },
+	})
+	s.NewSession()
+	assert.Contains(t, drainToast(t, bus), "Cannot start a new session")
+}
+
+func TestSessionCommands_ForkBlocksWhenBusy(t *testing.T) {
+	bus := controller.NewBus(nil)
+	s := New(nil, SessionCommands{
+		Bus:          bus,
+		StreamActive: func() bool { return true },
+	})
+	s.Fork(nil)
+	assert.Contains(t, drainToast(t, bus), "Cannot fork while a reply or command is running")
+}
+
+func TestSessionCommands_ForkRejectsArguments(t *testing.T) {
+	bus := controller.NewBus(nil)
+	s := New(nil, SessionCommands{Bus: bus, StreamActive: func() bool { return false }})
+	s.Fork([]string{"later"})
+	assert.Contains(t, drainToast(t, bus), "Usage: /fork")
+
+	reg := commands.NewCommandRegistry()
+	s.Register(reg)
+	assert.True(t, reg.DispatchSlash("/fork now", commands.NewContext(bus, nil)))
+	assert.Contains(t, drainToast(t, bus), "Usage: /fork", "arguments must not fall through to a prompt")
+}
+
+func TestSessionCommands_DeleteRemovesAndRefreshes(t *testing.T) {
+	dir := t.TempDir()
+	// Managers only persist once an assistant message exists (hasAssistantMsg
+	// gates flushing), so each fixture needs both roles to hit the disk.
+	current, err := session.NewSessionManager(dir, session.WithSessionDir(dir), session.WithShouldFlush(true))
+	require.NoError(t, err)
+	_, err = current.Append(llm.Message{Role: llm.RoleUser, Content: "keep me"})
+	require.NoError(t, err)
+	_, err = current.Append(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+	require.NoError(t, err)
+	other, err := session.NewSessionManager(dir, session.WithSessionDir(dir), session.WithShouldFlush(true))
+	require.NoError(t, err)
+	_, err = other.Append(llm.Message{Role: llm.RoleUser, Content: "delete me"})
+	require.NoError(t, err)
+	_, err = other.Append(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+	require.NoError(t, err)
+
+	bus := controller.NewBus(nil)
+	var refreshed []session.SessionMeta
+	s := New(nil, SessionCommands{
+		Bus:        bus,
+		SessionDir: func() string { return dir },
+		SessionID:  func() string { return current.ID() },
+		Lists:      &recordingLists{refreshed: func(items []session.SessionMeta) { refreshed = items }},
+	})
+	s.Delete(other.ID())
+
+	assert.Contains(t, drainToast(t, bus), "Deleted")
+	require.Len(t, refreshed, 1)
+	assert.Equal(t, current.ID(), refreshed[0].ID, "deleted session is gone from the refreshed list")
+	list, err := session.ListSessions(dir)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, current.ID(), list[0].ID)
+}
+
+func TestSessionCommands_DeleteBlocksWhenBusy(t *testing.T) {
+	bus := controller.NewBus(nil)
+	s := New(nil, SessionCommands{
+		Bus:          bus,
+		SessionDir:   func() string { return t.TempDir() },
+		StreamActive: func() bool { return true },
+	})
+	s.Delete("abc")
+	assert.Contains(t, drainToast(t, bus), "Cannot delete")
+}
+
+func TestSessionCommands_DeleteUnknownIdToastsAndKeepsList(t *testing.T) {
+	dir := t.TempDir()
+	m, err := session.NewSessionManager(dir, session.WithSessionDir(dir), session.WithShouldFlush(true))
+	require.NoError(t, err)
+	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "hi"})
+	require.NoError(t, err)
+	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+	require.NoError(t, err)
+
+	bus := controller.NewBus(nil)
+	var refreshed bool
+	s := New(nil, SessionCommands{
+		Bus:        bus,
+		SessionDir: func() string { return dir },
+		SessionID:  func() string { return m.ID() },
+		Lists:      &recordingLists{refreshed: func([]session.SessionMeta) { refreshed = true }},
+	})
+	s.Delete("nosuchsession")
+	assert.Contains(t, drainToast(t, bus), "not found")
+	assert.False(t, refreshed, "failed delete must not touch the picker")
+}
+
+// recordingLists captures what the plugin pushes into the composer picker.
+type recordingLists struct {
+	items     func(items []session.SessionMeta, currentID string)
+	refreshed func(items []session.SessionMeta)
+}
+
+func (l *recordingLists) ShowSessionList(items []session.SessionMeta, currentID string, _, _ func(string)) {
+	if l.items != nil {
+		l.items(items, currentID)
+	}
+}
+
+func (l *recordingLists) RefreshSessionList(items []session.SessionMeta) {
+	if l.refreshed != nil {
+		l.refreshed(items)
+	}
+}
+
+// drainToast returns the message of the last queued ToastMsg and empties the bus.
+func drainToast(t *testing.T, bus *controller.Bus) string {
+	t.Helper()
+	var msg string
+	for _, m := range bus.Drain() {
+		if tm, ok := m.(controller.ToastMsg); ok {
+			msg = tm.Message
+		}
+	}
+	return msg
+}

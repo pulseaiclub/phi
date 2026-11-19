@@ -53,13 +53,26 @@ type TranscriptPane struct {
 	listH        int
 	lastListSurf components.Surface
 
-	onUsage func(session.TokenUsage)
-	copyFn  func(text string) bool
-	bus     *controller.Bus
+	copyFn func(text string) bool
+	bus    *controller.Bus
+}
+
+// Option configures the pane at construction.
+type Option func(*TranscriptPane)
+
+// WithCopyHandlers wires clipboard copy at construction; feedback toasts go
+// through the bus.
+func WithCopyHandlers(bus *controller.Bus, copyFn func(text string) bool) Option {
+	return func(t *TranscriptPane) {
+		t.copyFn = copyFn
+		t.bus = bus
+	}
 }
 
 // NewTranscriptPane builds an empty transcript view.
-func NewTranscriptPane(theme components.Theme, spin *status.Spinner, brand string) *TranscriptPane {
+func NewTranscriptPane(
+	theme components.Theme, spin *status.Spinner, brand string, opts ...Option,
+) *TranscriptPane {
 	t := &TranscriptPane{
 		theme: theme,
 		list: msglist.MessageList{
@@ -80,21 +93,10 @@ func NewTranscriptPane(theme components.Theme, spin *status.Spinner, brand strin
 	t.mapper.Children = t.subagents.Children
 	t.mapper.ChildrenByJob = t.subagents.ChildrenByJob
 	t.mapper.LabelByJob = t.subagents.Label
+	for _, opt := range opts {
+		opt(t)
+	}
 	return t
-}
-
-// SetUsageCallback fires when an assistant message reports token usage.
-func (t *TranscriptPane) SetUsageCallback(fn func(session.TokenUsage)) {
-	t.onUsage = fn
-}
-
-// SetCopyHandlers wires clipboard copy; feedback toasts go through the bus.
-func (t *TranscriptPane) SetCopyHandlers(
-	bus *controller.Bus,
-	copyFn func(text string) bool,
-) {
-	t.copyFn = copyFn
-	t.bus = bus
 }
 
 // Snapshot returns the current session model (read-only use on UI goroutine).
@@ -145,9 +147,6 @@ func (t *TranscriptPane) ClearSelection() {
 // ApplySession applies one session event on the UI goroutine.
 func (t *TranscriptPane) ApplySession(ev session.Event) {
 	t.snap = session.Apply(t.snap, ev)
-	if upd, ok := ev.(session.AssistantMessageUpdate); ok && upd.Message.Usage.Reported() && t.onUsage != nil {
-		t.onUsage(upd.Message.Usage)
-	}
 	if td, ok := ev.(session.ToolData); ok {
 		t.applyAgentToolData(td)
 	}

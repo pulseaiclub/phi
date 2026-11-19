@@ -6,214 +6,47 @@ import (
 	"errors"
 	"fmt"
 	"iter"
-	"strings"
 	"time"
 
-	"github.com/pulseaiclub/phi/ext/go/pxb"
-	"github.com/pulseaiclub/phi/internal/agent/prompt"
-	"github.com/pulseaiclub/phi/internal/extension"
-	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
-	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
-	"github.com/pulseaiclub/phi/internal/llm/extmodel"
-	"github.com/pulseaiclub/phi/internal/llm/skills"
-	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/session/compaction"
-	"github.com/pulseaiclub/phi/internal/tools"
-	"github.com/pulseaiclub/phi/internal/tools/agenttool"
-	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
 // Engine drives the agent loop: stream → tools → stream…
 // and yields session.Event for the TUI reducer. Context compaction is owned
 // here so Session stays a thin message store.
 type Engine struct {
-	client       llm.ChatClient
-	executor     *Executor
-	modelCfg     llm.ModelConfig
-	hooks        llmclient.Hooks
-	jobs         *job.Manager
-	extensions   *extension.Runner // nil = disabled; all methods are nil-safe no-ops
-	baseTools    []tooldef.Tool    // nil = DefaultTools; preserved across rebind
-	omitExtTools bool              // sub-agents: emit events but skip RegisterTool merge
-	mcp          *mcp.Pool
-
-	session *Session
+	client   llm.ChatClient
+	executor *Executor
+	limits   compaction.OutputLimits
+	session  *Session
 }
 
-// NewEngine wires an LLM client, tool executor, and an externally created session.
-func NewEngine(model llm.ModelConfig, sess *Session, opts ...EngineConfigOption) (*Engine, error) {
+// NewEngine runs the supplied client and executor against a session.
+func NewEngine(
+	limits compaction.OutputLimits,
+	sess *Session,
+	client llm.ChatClient,
+	executor *Executor,
+) (*Engine, error) {
 	if sess == nil {
 		return nil, errors.New("agent: session is required")
 	}
-	var cfg EngineConfig
-	for _, opt := range opts {
-		cfg = opt.Apply(cfg)
+	if client == nil {
+		return nil, errors.New("agent: chat client is required")
 	}
-	engine := &Engine{
-		modelCfg:     model,
-		hooks:        cfg.hooks,
-		session:      sess,
-		jobs:         cfg.jobs,
-		extensions:   cfg.extensions,
-		omitExtTools: cfg.omitExtTools,
-		mcp:          cfg.mcp,
+	if executor == nil {
+		return nil, errors.New("agent: tool executor is required")
 	}
-	engine.baseTools = cfg.tools
-	engine.rebindTools()
-	return engine, nil
-}
-
-// newChatClient picks the transport for the active model: an extension-served
-// connection when the model name is registered Conn "ext" (an extension model
-// shadows a config.yaml entry with the same name), else the builtin HTTP
-// client. Hooks only apply to the builtin path — extension-served requests
-// never pass through a provider request builder.
-func (engine *Engine) newChatClient(tools []tooldef.Tool) llm.ChatClient {
-	defs := tooldef.Definitions(tools)
-	if route, ok := engine.extensions.LookupModel(engine.modelCfg.Name); ok && route.ExtConn() {
-		runner := engine.extensions
-		stream := func(
-			ctx context.Context,
-			req pxb.ModelInvoke,
-		) (iter.Seq2[pxb.ModelStreamEvent, error], error) {
-			return runner.ModelStream(ctx, route, req)
-		}
-		return extmodel.New(route.Reg.Name, stream, engine.modelCfg, defs, engine.systemPrompt())
-	}
-	return llmclient.NewClient(engine.modelCfg, engine.hooks, defs, engine.systemPrompt())
-}
-
-func (engine *Engine) buildToolList(base []tooldef.Tool) []tooldef.Tool {
-	out := engine.buildCoreTools(base)
-	if !engine.omitExtTools {
-		if extTools := engine.extensions.ExtensionTools(); len(extTools) > 0 {
-			merged := make([]tooldef.Tool, 0, len(out)+len(extTools))
-			merged = append(merged, out...)
-			merged = append(merged, extTools...)
-			return merged
-		}
-	}
-	return out
-}
-
-// buildCoreTools returns builtin (+ agent_*) tools without extension RegisterTool.
-// MCP needs no extra tools: the pool rides the default ls/read/write tools.
-func (engine *Engine) buildCoreTools(base []tooldef.Tool) []tooldef.Tool {
-	if base == nil {
-		base = tools.DefaultTools(engine.mcp)
-	}
-	out := base
-	if engine.jobs == nil {
-		return out
-	}
-	agentTools := agenttool.AgentTools(
-		agenttool.WithManager(engine.jobs),
-		agenttool.WithParentID(engine.SessionID),
-		agenttool.WithWorkDir(engine.SessionCwd),
-	)
-	merged := make([]tooldef.Tool, 0, len(out)+len(agentTools))
-	merged = append(merged, out...)
-	merged = append(merged, agentTools...)
-	return merged
-}
-
-// SetModel replaces the LLM client and model-related settings without
-// discarding the session tree. Agent tools remain registered when Jobs is set.
-// Hooks are left unchanged; use SetModelWithHooks when switching presets.
-func (engine *Engine) SetModel(cfg llm.ModelConfig) {
-	engine.SetModelWithHooks(cfg, engine.hooks)
-}
-
-// SetModelWithHooks replaces the model config and request hooks together.
-func (engine *Engine) SetModelWithHooks(cfg llm.ModelConfig, hooks llmclient.Hooks) {
-	engine.modelCfg = cfg
-	engine.hooks = hooks
-	engine.rebindTools()
-}
-
-// SetJobs attaches or detaches the job manager and rebuilds the tool list.
-// Pass nil to unregister agent_* tools (sub-agents disabled).
-func (engine *Engine) SetJobs(jobs *job.Manager) {
-	engine.jobs = jobs
-	engine.rebindTools()
-}
-
-func (engine *Engine) rebindTools() {
-	// Child engines share the runner, but the parent owns its host state.
-	if !engine.omitExtTools {
-		engine.extensions.SetBaseTools(engine.buildCoreTools(engine.baseTools))
-		engine.extensions.SetMeta(engine.SessionID(), engine.SessionCwd())
-	}
-	toolList := engine.buildToolList(engine.baseTools)
-	engine.client = engine.newChatClient(toolList)
-	engine.executor = NewExecutor(tooldef.NewRegistry(toolList), engine.extensions)
-	engine.executor.cwd = engine.SessionCwd()
-}
-
-func (engine *Engine) systemPrompt() string {
-	var mcpServers []string
-	if engine.mcp != nil {
-		mcpServers = engine.mcp.ServerNames()
-	}
-	maxConcurrent := 0
-	if engine.jobs != nil {
-		maxConcurrent = engine.jobs.MaxConcurrent()
-	}
-	// Build from the session cwd, not the process cwd: a sub-agent spawned with
-	// its own workdir must load that workspace's instructions.
-	return prompt.Build(
-		engine.SessionCwd(),
-		engine.modelCfg.SkillPaths,
-		engine.jobs != nil,
-		maxConcurrent,
-		mcpServers,
-	)
-}
-
-// HasTool reports whether a tool is currently registered on the executor.
-func (engine *Engine) HasTool(name string) bool {
-	_, ok := engine.executor.registry[name]
-	return ok
-}
-
-// SetExtensions replaces the extension runner. Pass nil to disable extensions.
-// Rebinds tools so RegisterTool from the new runner takes effect.
-func (engine *Engine) SetExtensions(r *extension.Runner) {
-	engine.extensions = r
-	engine.rebindTools()
-}
-
-// SessionID returns the durable session id.
-func (engine *Engine) SessionID() string {
-	return engine.session.ID()
-}
-
-// SessionFile returns the JSONL path (empty in memory mode).
-func (engine *Engine) SessionFile() string {
-	return engine.session.File()
-}
-
-// SessionCwd returns the cwd recorded on the session header.
-func (engine *Engine) SessionCwd() string {
-	return engine.session.Cwd()
-}
-
-// Session returns the underlying session wrapper (for UI transcript replay).
-func (engine *Engine) Session() *Session {
-	return engine.session
+	return &Engine{limits: limits, session: sess, client: client, executor: executor}, nil
 }
 
 // LoopOpts configures a single agent loop turn.
 type LoopOpts struct {
-	// PendingSkills are skill names the user selected in the composer.
-	// When set, the model is instructed to read those SKILL.md files first.
-	PendingSkills []string
 	// Images are base64 attachments from the composer pending queue.
 	Images []llm.Image
-	// Resume continues inference from the current session without appending a
-	// new user message or running user-input preparation hooks.
+	// Resume continues inference from the current session without appending a new user message.
 	Resume bool
 	// OnPromptAppended is called synchronously after the initial user message
 	// is appended successfully. It is not called for resumed loops.
@@ -255,36 +88,10 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			return true
 		}
 
-		var content string
-		if !opts.Resume {
-			// The extension runner is nil-safe (nil = disabled), so calls are
-			// unconditional no-ops when no extensions are loaded.
-			var handled bool
-			content, handled = engine.extensions.EmitUserInput(prompt)
-			if handled {
-				return
-			}
-			if instr := pendingSkillsInstruction(engine.modelCfg.SkillPaths, opts.PendingSkills); instr != "" {
-				if content == "" {
-					content = instr
-				} else {
-					content = instr + "\n\n" + content
-				}
-			}
-			rewritten, extra := engine.extensions.EmitBeforeAgentStart(content)
-			content = rewritten
-			if extra != "" {
-				content = content + "\n\n" + extra
-			}
-		}
-
-		engine.extensions.EmitAgentStart()
-		defer engine.extensions.EmitAgentEnd()
-
 		if !opts.Resume {
 			if err := engine.session.Append(llm.Message{
 				Role:    llm.RoleUser,
-				Content: content,
+				Content: prompt,
 				Images:  append([]llm.Image(nil), opts.Images...),
 			}); err != nil {
 				yield(nil, err)
@@ -295,7 +102,6 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			}
 		}
 
-		toolRounds := 0
 		overflowRecovered := false
 		for {
 			if ctx.Err() != nil {
@@ -317,8 +123,6 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			if did {
 				continue
 			}
-
-			engine.extensions.EmitTurnStart(toolRounds)
 
 			msgs := engine.session.BuildContext()
 
@@ -352,7 +156,6 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			}
 
 			if len(msg.ToolCalls) == 0 {
-				engine.extensions.EmitTurnEnd(toolRounds)
 				// Turn finished — compact using this assistant's usage. The
 				// threshold reads context size the same way the composer does.
 				if _, err := engine.runCompact(ctx, yield, msg.Usage.ContextTokens(), false); err != nil {
@@ -361,16 +164,11 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 				return
 			}
 
-			toolRounds++
-			toolMsgs, stop, _ := engine.executor.Run(ctx, msg.ToolCalls, func(td session.ToolData) bool {
+			toolMsgs := engine.executor.Run(ctx, msg.ToolCalls, func(td session.ToolData) bool {
 				return yield(td, nil)
 			})
 			if err := engine.session.Append(toolMsgs...); err != nil {
 				yield(nil, err)
-				return
-			}
-			engine.extensions.EmitTurnEnd(toolRounds - 1)
-			if stop {
 				return
 			}
 
@@ -400,10 +198,7 @@ func (engine *Engine) runCompact(
 	force bool,
 ) (did bool, err error) {
 	settings := compaction.DefaultSettings()
-	if engine.client == nil {
-		return false, nil
-	}
-	if !force && !compaction.ShouldCompact(usage, engine.modelCfg.ContextWindow, settings) {
+	if !force && !compaction.ShouldCompact(usage, engine.limits.ContextWindow, settings) {
 		return false, nil
 	}
 	prep, err := compaction.PrepareCompact(engine.session.PathEntries(), settings)
@@ -413,10 +208,7 @@ func (engine *Engine) runCompact(
 	if prep.FirstKeptEntryId == "" {
 		return false, nil
 	}
-	prep.Limits = compaction.OutputLimits{
-		MaxTokens:     engine.modelCfg.MaxTokens,
-		ContextWindow: engine.modelCfg.ContextWindow,
-	}
+	prep.Limits = engine.limits
 	if force && len(prep.MessagesToSummarize) == 0 && len(prep.TurnPrefixMessages) == 0 {
 		return false, nil
 	}
@@ -453,13 +245,12 @@ func (engine *Engine) runCompact(
 	if !yield(complete, nil) {
 		return false, context.Canceled
 	}
-	engine.extensions.EmitSessionCompact("auto")
 	return true, nil
 }
 
 // streamTurn runs one assistant stream. On success it returns the final
-// message and a StateComplete event (not yet yielded — caller checks tool
-// budget first). On API/stream failure it returns err without yielding it
+// message and a StateComplete event for Loop to yield.
+// On API/stream failure it returns err without yielding it
 // so Loop can attempt overflow recovery. A nil event with nil err means
 // cancel or the consumer stopped receiving.
 func (engine *Engine) streamTurn(
@@ -583,25 +374,4 @@ func emitMessage(
 		Text:       text,
 		Usage:      session.TokenUsageFrom(usage),
 	}}
-}
-
-// pendingSkillsInstruction tells the model to read SKILL.md files for the
-// selected skills (reuse the read tool, no dedicated skill tool).
-func pendingSkillsInstruction(skillPaths, names []string) string {
-	if len(names) == 0 {
-		return ""
-	}
-	list := skills.LoadAll(skillPaths)
-	targets := make([]string, 0, len(names))
-	for _, name := range names {
-		if s := skills.Find(list, name); s != nil && s.SkillFilePath != "" {
-			targets = append(targets, s.SkillFilePath)
-			continue
-		}
-		targets = append(targets, name)
-	}
-	return fmt.Sprintf(
-		"You MUST read these skill files first with the read tool and follow them: %s. Do this immediately before responding.",
-		strings.Join(targets, ", "),
-	)
 }

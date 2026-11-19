@@ -17,8 +17,6 @@ type SpawnArgs struct {
 	Description string `json:"description,omitempty"`
 	WorkDir     string `json:"workdir,omitempty"`
 	TimeoutSec  int    `json:"timeout_sec,omitempty"`
-	ParentID    string `json:"parent_id,omitempty"`
-	Depth       int    `json:"depth,omitempty"`
 	Role        string `json:"role,omitempty"`
 }
 
@@ -38,8 +36,6 @@ func (m *Manager) HandleSpawn(ctx context.Context, raw json.RawMessage) (Info, e
 		Prompt:      args.Prompt,
 		Description: args.Description,
 		WorkDir:     args.WorkDir,
-		ParentID:    args.ParentID,
-		Depth:       args.Depth,
 		Role:        Role(args.Role),
 	}
 	if args.TimeoutSec > 0 {

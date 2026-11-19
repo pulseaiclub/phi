@@ -181,7 +181,7 @@ func (m *Mapper) patchTool(w components.Widget, it session.Item) (ok, dirty bool
 		if exp, ok := m.expanded[it.ID]; ok {
 			b.Expanded = exp
 		} else if run.Local || run.Expanded {
-			// User "!cmd" / plugin Expanded: keep body visible.
+			// User "!cmd" or an explicitly expanded command: keep body visible.
 			b.Expanded = true
 		} else if b.Status == status.ToolRunning && b.Output != "" {
 			b.Expanded = true

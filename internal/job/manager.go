@@ -4,42 +4,80 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sync"
 	"time"
+
+	"github.com/pulseaiclub/phi/internal/llm"
 )
 
-// Options configures a [Manager].
-type Options struct {
-	Root          string // required: jobs directory
-	Runner        Runner // required
-	MaxConcurrent int    // default 4; Spawn returns [ErrBusy] when full (no queue)
-	MaxDepth      int    // default 1 (children cannot spawn further)
-	Recovery      RecoveryMode
-	// OnStoreError is called when a disk write fails after the job is live.
-	// Create/Spawn still return the create error directly.
-	OnStoreError func(op, jobID string, err error)
+type options struct {
+	maxConcurrent int
+	maxDepth      int
+	recovery      RecoveryMode
+	parentID      string
+	workDir       string
+	parentDepth   int
+	roleModels    map[Role]llm.ModelConfig
+	onStoreError  func(op, jobID string, err error)
 }
 
-// Manager owns in-process job lifecycles and a disk store.
+// Option configures optional job manager behavior.
+type Option func(*options)
+
+// WithParent sets the initial parent session, working directory, and nesting depth.
+func WithParent(id, workDir string, depth int) Option {
+	return func(o *options) { o.parentID, o.workDir, o.parentDepth = id, workDir, depth }
+}
+
+// WithRoleModels supplies the initial models for child jobs. New copies the map.
+func WithRoleModels(models map[Role]llm.ModelConfig) Option {
+	return func(o *options) { o.roleModels = maps.Clone(models) }
+}
+
+// WithMaxConcurrent limits the number of running jobs. Non-positive values use the default of 4.
+func WithMaxConcurrent(n int) Option {
+	return func(o *options) { o.maxConcurrent = n }
+}
+
+// WithMaxDepth limits nesting. Non-positive values use the default of 1.
+func WithMaxDepth(n int) Option {
+	return func(o *options) { o.maxDepth = n }
+}
+
+// WithRecovery selects how to handle unfinished jobs from a previous process.
+func WithRecovery(mode RecoveryMode) Option {
+	return func(o *options) { o.recovery = mode }
+}
+
+// WithOnStoreError reports disk write failures after a job is live.
+func WithOnStoreError(fn func(op, jobID string, err error)) Option {
+	return func(o *options) { o.onStoreError = fn }
+}
+
+// Manager owns in-process job lifecycles and their persistence.
 type Manager struct {
-	store         *store
+	store         store
 	runner        Runner
 	maxConcurrent int
 	maxDepth      int
 	onStoreError  func(op, jobID string, err error)
 
-	mu     sync.Mutex
-	closed bool
-	slots  chan struct{}
-	jobs   map[string]*liveJob
-	subs   []*subscriber
+	mu          sync.Mutex
+	closed      bool
+	slots       chan struct{}
+	jobs        map[string]*liveJob
+	subs        []*subscriber
+	roleModels  map[Role]llm.ModelConfig
+	parentID    string
+	workDir     string
+	parentDepth int
 }
 
 type liveJob struct {
 	meta            Meta
 	parentToolUseID string
-	parentContext   ParentContext
 	cancel          context.CancelFunc
 	done            chan struct{}
 }
@@ -52,36 +90,44 @@ type subscriber struct {
 	closed bool
 }
 
-// New creates a Manager. Root and Runner are required.
+// New creates a Manager for the given jobs directory and runner.
 //
 // By default ([RecoverMarkFailed]), leftover starting/running jobs on disk are
 // marked failed so a process restart does not leave Wait/Cancel zombies.
-func New(opts Options) (*Manager, error) {
-	if opts.Runner == nil {
+func New(root string, runner Runner, opts ...Option) (*Manager, error) {
+	if runner == nil {
 		return nil, fmt.Errorf("%w: Runner is required", ErrInvalid)
 	}
-	st, err := newStore(opts.Root)
+	st, err := newDiskStore(root)
 	if err != nil {
 		return nil, err
 	}
-	maxC := opts.MaxConcurrent
+	var cfg options
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	maxC := cfg.maxConcurrent
 	if maxC <= 0 {
 		maxC = 4
 	}
-	maxD := opts.MaxDepth
+	maxD := cfg.maxDepth
 	if maxD <= 0 {
 		maxD = 1
 	}
 	m := &Manager{
 		store:         st,
-		runner:        opts.Runner,
+		runner:        runner,
 		maxConcurrent: maxC,
 		maxDepth:      maxD,
-		onStoreError:  opts.OnStoreError,
+		onStoreError:  cfg.onStoreError,
+		parentID:      cfg.parentID,
+		workDir:       cfg.workDir,
+		parentDepth:   cfg.parentDepth,
+		roleModels:    cfg.roleModels,
 		slots:         make(chan struct{}, maxC),
 		jobs:          make(map[string]*liveJob),
 	}
-	if opts.Recovery != RecoverIgnore {
+	if cfg.recovery != RecoverIgnore {
 		if err := m.recoverStale(); err != nil {
 			return nil, err
 		}
@@ -136,19 +182,41 @@ func (m *Manager) persistEvent(meta Meta, msg string) {
 	}
 }
 
+// SetRoleModels replaces the models for future jobs. The map is copied;
+// callers and runners must treat slices and maps within each config as immutable.
+func (m *Manager) SetRoleModels(models map[Role]llm.ModelConfig) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.roleModels = maps.Clone(models)
+}
+
+// SetParent sets the session, default working directory and depth for future spawns.
+func (m *Manager) SetParent(id, workDir string, depth int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.parentID, m.workDir, m.parentDepth = id, workDir, depth
+}
+
 // Spawn starts a job asynchronously. The returned Info reflects starting state.
 //
 // Concurrency: if MaxConcurrent slots are full, Spawn returns [ErrBusy]
-// (jobs are not queued). Depth: if req.Depth >= MaxDepth, returns [ErrDepth].
+// (jobs are not queued).
 func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (Info, error) {
 	if err := req.validate(); err != nil {
 		return Info{}, err
 	}
-	if req.Depth >= m.maxDepth {
-		return Info{}, fmt.Errorf("%w: depth %d >= max %d", ErrDepth, req.Depth, m.maxDepth)
-	}
 
+	role := NormalizeRole(string(req.Role))
 	m.mu.Lock()
+	parentID, workDir, depth := m.parentID, m.workDir, m.parentDepth
+	if depth < 0 {
+		m.mu.Unlock()
+		return Info{}, fmt.Errorf("%w: depth %d is negative", ErrInvalid, depth)
+	}
+	if depth >= m.maxDepth {
+		m.mu.Unlock()
+		return Info{}, fmt.Errorf("%w: depth %d >= max %d", ErrDepth, depth, m.maxDepth)
+	}
 	if m.closed {
 		m.mu.Unlock()
 		return Info{}, ErrClosed
@@ -159,6 +227,7 @@ func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (Info, error) {
 		m.mu.Unlock()
 		return Info{}, ErrBusy
 	}
+	model := m.roleModels[role]
 	m.mu.Unlock()
 
 	id, err := newJobID()
@@ -167,14 +236,17 @@ func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (Info, error) {
 		return Info{}, err
 	}
 	now := time.Now().UTC()
+	if req.WorkDir != "" {
+		workDir = req.WorkDir
+	}
 	meta := Meta{
 		ID:          id,
-		ParentID:    req.ParentID,
-		ParentDepth: req.Depth,
-		Role:        NormalizeRole(string(req.Role)),
+		ParentID:    parentID,
+		ParentDepth: depth,
+		Role:        role,
 		Prompt:      req.Prompt,
 		Description: req.Description,
-		WorkDir:     req.WorkDir,
+		WorkDir:     workDir,
 		Status:      StatusStarting,
 		CreatedAt:   now,
 	}
@@ -203,7 +275,6 @@ func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (Info, error) {
 	lj := &liveJob{
 		meta:            meta,
 		parentToolUseID: req.ParentToolUseID,
-		parentContext:   req.ParentContext,
 		cancel:          cancel,
 		done:            make(chan struct{}),
 	}
@@ -211,11 +282,11 @@ func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (Info, error) {
 	m.jobs[id] = lj
 	m.mu.Unlock()
 
-	go m.run(runCtx, lj)
+	go m.run(runCtx, lj, model)
 	return Info{Meta: meta}, nil
 }
 
-func (m *Manager) run(ctx context.Context, lj *liveJob) {
+func (m *Manager) run(ctx context.Context, lj *liveJob, model llm.ModelConfig) {
 	defer close(lj.done)
 	defer func() { <-m.slots }()
 
@@ -227,8 +298,8 @@ func (m *Manager) run(ctx context.Context, lj *liveJob) {
 	m.persistEvent(meta, "running")
 
 	env := RunEnv{
-		Job:           meta,
-		ParentContext: lj.parentContext,
+		Job:   meta,
+		Model: model,
 		Log: func(message string) {
 			m.persistEvent(meta, message)
 		},

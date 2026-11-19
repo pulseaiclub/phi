@@ -8,20 +8,37 @@ import (
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
-	"github.com/pulseaiclub/phi/internal/tui/composer"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/pulseaiclub/phi/internal/tui/plugin/composer"
+	"github.com/pulseaiclub/phi/internal/tui/runtime"
 	"github.com/pulseaiclub/phi/internal/tui/transcript"
 	imgutil "github.com/pulseaiclub/phi/internal/util/image"
 )
 
-// Submitter owns submit / cancel / slash dispatch and coordinates bash runs.
+// ShellHooks routes "!cmd" shell mode to the bash plugin: the runner moved
+// out of the Submitter, so these are method values the root wires.
+type ShellHooks struct {
+	Running    func() bool
+	Cancel     func() bool
+	SyncBorder func(text string)
+}
+
+// ActivityPort is the activity surface the submit path drives. Defined here
+// so the Submitter depends on a consumer-shaped port, not the plugin package.
+type ActivityPort interface {
+	Apply(controller.Activity)
+	Current() controller.Activity
+	TurnPending() bool
+}
+
+// Submitter owns submit / cancel / slash dispatch for the shell path.
 type Submitter struct {
 	ctrl       *controller.EngineController
 	commands   *commands.CommandRegistry
 	transcript *transcript.TranscriptPane
-	activity   *controller.ActivityHandler
+	activity   ActivityPort
 	composer   composer.Input
-	bash       *BashRunner
+	hooks      ShellHooks
 
 	commandContext commands.Context
 
@@ -29,18 +46,38 @@ type Submitter struct {
 
 	overlayBlocksSessionSwitch func() bool
 	cancelOverlays             func()
+
+	rt *runtime.Runtime
+}
+
+// Register wires the submit path into the runtime: SubmitMsg runs the plugin
+// submit filters first, CancelStreamMsg aborts.
+func (s *Submitter) Register(rt *runtime.Runtime) {
+	s.rt = rt
+	runtime.Subscribe(rt, s.onSubmitMsg)
+	runtime.Subscribe(rt, s.onCancelMsg)
+}
+
+func (s *Submitter) onSubmitMsg(msg controller.SubmitMsg) {
+	if !s.rt.Submit.Filter(msg.Text) {
+		s.Submit(msg.Text)
+	}
+}
+
+func (s *Submitter) onCancelMsg(controller.CancelStreamMsg) {
+	s.Cancel()
 }
 
 // NewSubmitter builds a Submitter from explicit collaborators (no *Editor back-pointer).
-// BashRunner is composed internally from transcript/composer/bus.
 func NewSubmitter(
 	ctrl *controller.EngineController,
 	commands *commands.CommandRegistry,
 	transcript *transcript.TranscriptPane,
-	activity *controller.ActivityHandler,
+	activity ActivityPort,
 	composer composer.Input,
 	bus *controller.Bus,
 	commandContext commands.Context,
+	hooks ShellHooks,
 	overlayBlocksSessionSwitch func() bool,
 	cancelOverlays func(),
 ) *Submitter {
@@ -50,7 +87,7 @@ func NewSubmitter(
 		transcript:                 transcript,
 		activity:                   activity,
 		composer:                   composer,
-		bash:                       newBashRunner(transcript, composer, bus, ctrl),
+		hooks:                      hooks,
 		commandContext:             commandContext,
 		bus:                        bus,
 		overlayBlocksSessionSwitch: overlayBlocksSessionSwitch,
@@ -60,17 +97,15 @@ func NewSubmitter(
 
 // SyncBashBorder updates composer chrome for "!cmd" prefix.
 func (s *Submitter) SyncBashBorder(text string) {
-	s.bash.SyncBorder(text)
+	if s.hooks.SyncBorder != nil {
+		s.hooks.SyncBorder(text)
+	}
 }
 
-// Submit handles a user prompt from the composer (agent, slash, or bash).
+// Submit handles a user prompt from the composer (agent or slash); "!" shell
+// input is claimed earlier by the bash plugin's submit filter.
 func (s *Submitter) Submit(text string) {
 	text = strings.TrimSpace(text)
-	if strings.HasPrefix(text, "!") {
-		if s.bash.HandleSubmit(text) {
-			return
-		}
-	}
 	if strings.HasPrefix(text, "/") && s.commands != nil {
 		if insert, ok := s.commands.IncompleteSlash(text); ok {
 			s.composer.HideCompleters()
@@ -170,7 +205,7 @@ func (s *Submitter) Cancel() {
 	if s.cancelOverlays != nil {
 		s.cancelOverlays()
 	}
-	if s.bash.Cancel() {
+	if s.hooks.Cancel != nil && s.hooks.Cancel() {
 		return
 	}
 	s.ctrl.Cancel()
@@ -184,13 +219,13 @@ func (s *Submitter) Cancel() {
 
 // RunningBash reports whether a local "!cmd" is in flight.
 func (s *Submitter) RunningBash() bool {
-	return s.bash.Running()
+	return s.hooks.Running != nil && s.hooks.Running()
 }
 
 // IsBusy reports agent stream, the pre-token window of a request in flight, or
 // local bash activity.
 func (s *Submitter) IsBusy() bool {
-	return s.transcript.IsStreaming() || s.bash.Running() || s.activity.TurnPending()
+	return s.transcript.IsStreaming() || s.RunningBash() || s.activity.TurnPending()
 }
 
 // StreamActive reports whether user input should be blocked for stream/overlays.
@@ -198,7 +233,7 @@ func (s *Submitter) StreamActive() bool {
 	if s.IsBusy() || (s.overlayBlocksSessionSwitch != nil && s.overlayBlocksSessionSwitch()) {
 		return true
 	}
-	switch s.activity.Current {
+	switch s.activity.Current() {
 	case controller.ActivitySubmitting,
 		controller.ActivityWaiting,
 		controller.ActivityStreaming,
