@@ -20,6 +20,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 	"github.com/pulseaiclub/phi/internal/tui/footer"
 	"github.com/pulseaiclub/phi/internal/tui/pathutil"
+	activityplugin "github.com/pulseaiclub/phi/internal/tui/plugin/activity"
 	"github.com/pulseaiclub/phi/internal/tui/plugin/bash"
 	"github.com/pulseaiclub/phi/internal/tui/plugin/code"
 	"github.com/pulseaiclub/phi/internal/tui/plugin/diff"
@@ -64,11 +65,11 @@ type Editor struct {
 
 	// The TUI redraws at 60fps; the flowing status highlight moves every fourth
 	// frame, matching the ~80ms cadence status.Spinner used to declare.
-	spin       *status.Spinner
-	spinTick   int
-	activity   *controller.ActivityHandler
-	updateHint string
-	commandCtx commands.Context
+	spin           *status.Spinner
+	spinTick       int
+	activityPlugin *activityplugin.Plugin
+	updateHint     string
+	commandCtx     commands.Context
 
 	ctrl *controller.EngineController
 
@@ -94,21 +95,22 @@ func NewEditor(
 	modelNames []string,
 ) *Editor {
 	e := &Editor{
-		vx:          vx,
-		App:         application,
-		theme:       theme,
-		cwd:         cwd,
-		bus:         bus,
-		ctrl:        ctrl,
-		rt:          runtime.New(),
-		toastPlugin: toastplugin.New(theme),
-		composer:    composer.NewComposerPane(theme, modelLabel, cwd),
-		footer:      footer.NewFooterChrome(theme),
-		spin:        status.NewSpinner(theme.ToolName),
-		activity:    controller.NewActivityHandler(),
+		vx:             vx,
+		App:            application,
+		theme:          theme,
+		cwd:            cwd,
+		bus:            bus,
+		ctrl:           ctrl,
+		rt:             runtime.New(),
+		toastPlugin:    toastplugin.New(theme),
+		composer:       composer.NewComposerPane(theme, modelLabel, cwd),
+		footer:         footer.NewFooterChrome(theme),
+		spin:           status.NewSpinner(theme.ToolName),
+		activityPlugin: activityplugin.New(),
 	}
 	e.rt.Register(e.toastPlugin)
-	e.activity.SetOnChange(e.onActivityChange)
+	e.rt.Register(e.activityPlugin)
+	e.activityPlugin.SetOnChange(e.onActivityChange)
 	e.composer.SetBashPredictor(composer.NewBashPredictor(cwd))
 	// Prompt recall is opt-in: it persists what the user typed under the home
 	// directory, so it stays off until PHI_PROMPT_HISTORY turns it on.
@@ -119,7 +121,7 @@ func NewEditor(
 	e.syncStatusSlot()
 	e.overlayPlugin = overlay.New(
 		theme,
-		e.activity,
+		e.activityPlugin,
 		e.composer,
 		e.focusSelf,
 		e.composer.FocusChat,
@@ -172,7 +174,7 @@ func NewEditor(
 		e.ctrl,
 		e.commands,
 		e.transcript,
-		e.activity,
+		e.activityPlugin,
 		e.composer,
 		e.bus,
 		cmdCtx,
@@ -223,11 +225,11 @@ func (e *Editor) Publish(m controller.Msg) {
 }
 
 // Update applies one message on the UI goroutine. Runtime plugins get the
-// types they subscribed to; the switch below keeps the unmigrated shell msgs.
+// types they subscribed to first; the switch below keeps the remaining shell
+// msgs. A msg type may have both: the plugin handles its slice (activity
+// FooterMsg kinds), the shell keeps the rest (update hint).
 func (e *Editor) Update(m controller.Msg) {
-	if e.rt.Dispatch(m) {
-		return
-	}
+	e.rt.Dispatch(m)
 	switch msg := m.(type) {
 	case controller.SubmitMsg:
 		// Plugins claim their inputs first ("!cmd" shell lines); the rest
@@ -244,7 +246,7 @@ func (e *Editor) Update(m controller.Msg) {
 	case controller.LoopStartedMsg:
 		if e.ctrl.CurrentLoop(msg.Gen) {
 			e.overlayPlugin.ResolveError(controller.ErrorReply{})
-			e.activity.Apply(controller.ActivityWaiting)
+			e.activityPlugin.Apply(controller.ActivityWaiting)
 		}
 	case controller.LoopFinishedMsg:
 		if !e.ctrl.CurrentLoop(msg.Gen) {
@@ -252,9 +254,9 @@ func (e *Editor) Update(m controller.Msg) {
 		}
 		e.transcript.ApplySession(session.CancelStreaming{})
 		e.transcript.Sync()
-		e.activity.Apply(controller.ActivityIdle)
+		e.activityPlugin.Apply(controller.ActivityIdle)
 		if msg.Cancelled {
-			e.activity.Apply(controller.ActivityCancelled)
+			e.activityPlugin.Apply(controller.ActivityCancelled)
 		}
 		if msg.ErrorText != "" {
 			e.overlayPlugin.Apply(controller.OverlayMsg{Kind: controller.OverlayErrorAsk, ErrorText: msg.ErrorText})
@@ -296,7 +298,7 @@ func (e *Editor) drainBus() {
 	}
 	if agentEvent {
 		e.transcript.Sync()
-		e.activity.SyncFromSnap(e.transcript.Snapshot())
+		e.activityPlugin.SyncFromSnap(e.transcript.Snapshot())
 		e.syncStatusSlot()
 		if atBottom {
 			e.transcript.StickToBottom()
@@ -312,7 +314,7 @@ func (e *Editor) onActivityChange() {
 
 func (e *Editor) advanceSpinner() {
 	e.spinTick++
-	if e.activity.ShowSpinner() && e.spinTick%spinnerFrameDivisor == 0 {
+	if e.activityPlugin.ShowSpinner() && e.spinTick%spinnerFrameDivisor == 0 {
 		e.spin.Tick()
 		e.syncStatusSlot()
 	}
@@ -320,8 +322,8 @@ func (e *Editor) advanceSpinner() {
 
 func (e *Editor) syncStatusSlot() {
 	label := footer.StatusLabel(e.theme, footer.StatusInput{
-		Activity:      e.activity.Label(e.transcript.Snapshot()),
-		ShowSpinner:   e.activity.ShowSpinner(),
+		Activity:      e.activityPlugin.Label(e.transcript.Snapshot()),
+		ShowSpinner:   e.activityPlugin.ShowSpinner(),
 		Spinner:       e.spin,
 		Usage:         e.transcript.Snapshot().LastUsage(),
 		ContextWindow: e.ctrl.ContextWindow(),
@@ -334,22 +336,17 @@ func (e *Editor) syncStatusSlot() {
 }
 
 func (e *Editor) resetActivity() {
-	e.activity.Apply(controller.ActivityIdle)
+	e.activityPlugin.Apply(controller.ActivityIdle)
 }
 
 func (e *Editor) refreshPalette() {
 	e.composer.SetPaletteCommands(e.commands.BuildPalette(e.commandCtx))
 }
 
+// applyFooterMessage keeps the shell-owned footer slice (update hint); the
+// activity plugin consumes the Set/ClearIf kinds via its own subscription.
 func (e *Editor) applyFooterMessage(msg controller.FooterMsg) {
-	switch msg.Kind {
-	case controller.FooterClearIfActivity:
-		if e.activity.Current == msg.If {
-			e.activity.Apply(controller.ActivityIdle)
-		}
-	case controller.FooterSetActivity:
-		e.activity.Apply(msg.Activity)
-	case controller.FooterUpdateAvailable:
+	if msg.Kind == controller.FooterUpdateAvailable {
 		e.updateHint = strings.TrimPrefix(msg.Latest, "v") + " available · phi update"
 	}
 }
@@ -423,9 +420,9 @@ func (e *Editor) copyToClipboard(text string) bool {
 func (e *Editor) handleErrorReply(r controller.ErrorReply, text string) {
 	switch {
 	case r.Retry:
-		e.activity.Apply(controller.ActivityWaiting)
+		e.activityPlugin.Apply(controller.ActivityWaiting)
 		if !e.ctrl.RetryLastPrompt() {
-			e.activity.Apply(controller.ActivityIdle)
+			e.activityPlugin.Apply(controller.ActivityIdle)
 			e.toastPlugin.Show("Nothing to retry", toast.ToastWarning, 2*time.Second)
 		}
 	case r.Copy:

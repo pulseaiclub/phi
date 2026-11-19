@@ -14,11 +14,18 @@ type overlayComposer interface {
 	HidePalette()
 }
 
+// ActivitySink is the activity surface the error dialog drives. Defined here
+// so the plugin depends on a consumer-shaped port.
+type ActivitySink interface {
+	Apply(controller.Activity)
+	Current() controller.Activity
+}
+
 // Plugin owns the modal error UI that replaces the composer slot.
 type Plugin struct {
 	theme    components.Theme
 	err      *errorAskState
-	activity *controller.ActivityHandler
+	activity ActivitySink
 	composer overlayComposer
 
 	focusEditor    func()
@@ -29,7 +36,7 @@ type Plugin struct {
 // New builds overlay state handlers.
 func New(
 	theme components.Theme,
-	activity *controller.ActivityHandler,
+	activity ActivitySink,
 	composer overlayComposer,
 	focusEditor, focusChat func(),
 	onErrorResolve func(controller.ErrorReply, string),

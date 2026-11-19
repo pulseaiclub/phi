@@ -184,7 +184,7 @@ func (o *Plugin) dismissError() {
 	if !was {
 		return
 	}
-	if o.activity != nil && o.activity.Current == controller.ActivityAwaitingApproval {
+	if o.activity != nil && o.activity.Current() == controller.ActivityAwaitingApproval {
 		o.activity.Apply(controller.ActivityIdle)
 	}
 	if o.focusChat != nil {

@@ -22,12 +22,20 @@ type ShellHooks struct {
 	SyncBorder func(text string)
 }
 
+// ActivityPort is the activity surface the submit path drives. Defined here
+// so the Submitter depends on a consumer-shaped port, not the plugin package.
+type ActivityPort interface {
+	Apply(controller.Activity)
+	Current() controller.Activity
+	TurnPending() bool
+}
+
 // Submitter owns submit / cancel / slash dispatch for the shell path.
 type Submitter struct {
 	ctrl       *controller.EngineController
 	commands   *commands.CommandRegistry
 	transcript *transcript.TranscriptPane
-	activity   *controller.ActivityHandler
+	activity   ActivityPort
 	composer   composer.Input
 	hooks      ShellHooks
 
@@ -44,7 +52,7 @@ func NewSubmitter(
 	ctrl *controller.EngineController,
 	commands *commands.CommandRegistry,
 	transcript *transcript.TranscriptPane,
-	activity *controller.ActivityHandler,
+	activity ActivityPort,
 	composer composer.Input,
 	bus *controller.Bus,
 	commandContext commands.Context,
@@ -204,7 +212,7 @@ func (s *Submitter) StreamActive() bool {
 	if s.IsBusy() || (s.overlayBlocksSessionSwitch != nil && s.overlayBlocksSessionSwitch()) {
 		return true
 	}
-	switch s.activity.Current {
+	switch s.activity.Current() {
 	case controller.ActivitySubmitting,
 		controller.ActivityWaiting,
 		controller.ActivityStreaming,
