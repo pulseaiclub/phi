@@ -2,7 +2,6 @@
 package editor
 
 import (
-	"strconv"
 	"strings"
 	"time"
 
@@ -12,7 +11,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/components/chat"
 	"github.com/pulseaiclub/phi/internal/components/listpicker"
-	"github.com/pulseaiclub/phi/internal/components/pane"
 	"github.com/pulseaiclub/phi/internal/components/status"
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/session"
@@ -22,6 +20,8 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 	"github.com/pulseaiclub/phi/internal/tui/footer"
 	"github.com/pulseaiclub/phi/internal/tui/pathutil"
+	"github.com/pulseaiclub/phi/internal/tui/plugin/code"
+	"github.com/pulseaiclub/phi/internal/tui/plugin/diff"
 	"github.com/pulseaiclub/phi/internal/tui/plugin/overlay"
 	toastplugin "github.com/pulseaiclub/phi/internal/tui/plugin/toast"
 	"github.com/pulseaiclub/phi/internal/tui/runtime"
@@ -57,9 +57,8 @@ type Editor struct {
 	footer        *footer.FooterChrome
 	overlayPlugin *overlay.Plugin
 	toastPlugin   *toastplugin.Plugin
-	diff          *pane.Diff
-	code          *pane.Code
-	diffList      listpicker.State
+	diffPlugin    *diff.Plugin
+	codePlugin    *code.Plugin
 
 	// The TUI redraws at 60fps; the flowing status highlight moves every fourth
 	// frame, matching the ~80ms cadence status.Spinner used to declare.
@@ -126,16 +125,27 @@ func NewEditor(
 	)
 	e.rt.Register(e.overlayPlugin)
 	e.transcript.SetCopyHandlers(e.bus, e.copyToClipboard)
-	e.diff = pane.NewDiff(e.theme, cwd,
-		e.publishSubmit,
-		e.copyToClipboard,
-		e.publishToast,
-	)
-
-	e.code = pane.NewCode(e.theme, cwd,
-		e.addPendingRef,
-		e.publishToast,
-	)
+	e.diffPlugin = diff.New(e.theme, cwd, diff.Deps{
+		Submit:      e.publishSubmit,
+		Copy:        e.copyToClipboard,
+		Toast:       e.toastPlugin,
+		Publish:     e.publishToast,
+		Lists:       e.composer,
+		FocusPane:   e.captureOverlayFocus,
+		FocusChat:   e.composer.FocusChat,
+		FocusTarget: e,
+	})
+	e.rt.Register(e.diffPlugin)
+	e.codePlugin = code.New(e.theme, cwd, code.Deps{
+		AddRef:      e.addPendingRef,
+		Toast:       e.toastPlugin,
+		Publish:     e.publishToast,
+		Lists:       e.composer,
+		FocusPane:   e.captureOverlayFocus,
+		FocusChat:   e.composer.FocusChat,
+		FocusTarget: e,
+	})
+	e.rt.Register(e.codePlugin)
 
 	builtins := commands.NewBuiltinRegistry(
 		e.bus,
@@ -331,12 +341,7 @@ func (e *Editor) applyFooterMessage(msg controller.FooterMsg) {
 	}
 }
 
-func (e *Editor) blocksComposer() bool {
-	if e.rt.BlocksComposer() || e.diff.Active() || e.code.Active() {
-		return true
-	}
-	return false
-}
+func (e *Editor) blocksComposer() bool { return e.rt.BlocksComposer() }
 
 // handleOverlayKey routes composer keys to runtime bottom panes (error ask).
 func (e *Editor) handleOverlayKey(ctx *components.EventContext, ke xui.KeyEvent) bool {
@@ -345,40 +350,16 @@ func (e *Editor) handleOverlayKey(ctx *components.EventContext, ke xui.KeyEvent)
 
 // openDiff and openCode each close the other: two full-screen overlays cannot
 // both own the frame, and the one underneath would come back on the next Esc.
+// The mutual exclusion is the shell's rule; the plugins own the rest.
 func (e *Editor) openDiff(args []string) {
-	e.code.Close()
-	if len(args) == 0 {
-		e.diff.Close()
-		e.diffList = listpicker.State{}
-		e.showChanges(false)
-		return
-	}
-	e.diff.OpenGit(e.cwd, args)
-	e.captureOverlayFocus()
+	e.codePlugin.Close()
+	e.diffPlugin.Open(args)
 }
 
-// openCode shows a file in the viewer. A ":line" suffix puts the cursor there.
-// An "@" prefix is expanded to "./" so the shell can complete the path.
+// openCode shows a file in the viewer (see plugin/code for the path syntax).
 func (e *Editor) openCode(args []string) {
-	path := strings.TrimSpace(strings.Join(args, " "))
-	if strings.HasPrefix(path, "@") {
-		path = "./" + path[1:]
-	}
-	if path == "" {
-		e.diff.Close()
-		e.code.Close()
-		e.showCodeFiles()
-		return
-	}
-	line := 0
-	if base, tail, ok := strings.Cut(path, ":"); ok {
-		if n, err := strconv.Atoi(tail); err == nil && n > 0 {
-			path, line = base, n
-		}
-	}
-	e.diff.Close()
-	e.code.OpenAt(path, line)
-	e.captureOverlayFocus()
+	e.diffPlugin.Close()
+	e.codePlugin.Open(args)
 }
 
 func (e *Editor) captureOverlayFocus() {
@@ -392,24 +373,8 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 		e.composer.Handle(ctx, ev)
 		return
 	}
-	if e.diff.Active() {
-		e.captureOverlayFocus()
-		e.diff.Handle(ctx, ev)
-		if !e.diff.Active() {
-			if e.diff.ReturnToList() {
-				e.showChanges(true)
-			} else {
-				e.composer.FocusChat()
-			}
-		}
-		return
-	}
-	if e.code.Active() {
-		e.captureOverlayFocus()
-		e.code.Handle(ctx, ev)
-		if !e.code.Active() {
-			e.composer.FocusChat()
-		}
+	if pane, ok := e.rt.ActiveFullPane(); ok {
+		pane.Handle(ctx, ev)
 		return
 	}
 	e.composer.Handle(ctx, ev)
@@ -493,11 +458,8 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	e.advanceSpinner()
 	_ = e.toastPlugin.Visible()
 
-	if e.diff.Active() {
-		return e.drawOverlay(ctx, e.diff.Draw(ctx))
-	}
-	if e.code.Active() {
-		return e.drawOverlay(ctx, e.code.Draw(ctx))
+	if pane, ok := e.rt.ActiveFullPane(); ok {
+		return e.drawOverlay(ctx, pane.Draw(ctx))
 	}
 
 	maxSize := ctx.Max
@@ -639,9 +601,7 @@ func (e *Editor) applyTheme(name string) {
 	e.footer.SetTheme(th)
 	e.spin.Style = th.ToolName
 	e.syncStatusSlot()
-	// overlayPlugin follows via the rt.ApplyTheme subscription.
-	e.diff.SetTheme(th)
-	e.code.SetTheme(th)
+	// overlay, diff, and code follow via rt.ApplyTheme subscriptions.
 	e.toastPlugin.Show("Theme: "+name, toast.ToastSuccess, 2*time.Second)
 	e.vx.QueueRefresh()
 }

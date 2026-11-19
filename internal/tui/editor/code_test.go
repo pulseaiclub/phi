@@ -67,11 +67,11 @@ func frame(t *testing.T, e *Editor) components.Surface {
 // test exists to catch.
 func TestCodeCommandOpensPane(t *testing.T) {
 	e := newTestEditor(t)
-	require.NotNil(t, e.code, "NewEditor must construct the code pane")
+	require.NotNil(t, e.codePlugin, "NewEditor must construct the code pane")
 
 	require.True(t, e.commands.DispatchSlash("/code a.go", commands.NewContext(e.bus, nil)))
 
-	require.True(t, e.code.Active())
+	require.True(t, e.codePlugin.Active())
 	assert.True(t, e.blocksComposer(), "the overlay owns the keyboard")
 
 	surf := frame(t, e)
@@ -83,7 +83,7 @@ func TestCodeCommandOpensPane(t *testing.T) {
 func TestCodeCommandAcceptsLineSuffix(t *testing.T) {
 	e := newTestEditor(t)
 	require.True(t, e.commands.DispatchSlash("/code a.go:3", commands.NewContext(e.bus, nil)))
-	require.True(t, e.code.Active())
+	require.True(t, e.codePlugin.Active())
 
 	// Line 3 is `func main() {}`; the caret sits on the code, not in column 0.
 	assert.Contains(t, components.SurfaceText(frame(t, e)), "a.go:3:1")
@@ -93,7 +93,7 @@ func TestCodeCommandAcceptsLineSuffix(t *testing.T) {
 func TestCodeCommandExpandsAtPrefix(t *testing.T) {
 	e := newTestEditor(t)
 	require.True(t, e.commands.DispatchSlash("/code @a.go", commands.NewContext(e.bus, nil)))
-	require.True(t, e.code.Active())
+	require.True(t, e.codePlugin.Active())
 	assert.Contains(t, components.SurfaceText(frame(t, e)), "a.go")
 }
 
@@ -107,7 +107,7 @@ func TestCodeCommandWithoutPathOpensPicker(t *testing.T) {
 	writeDiffFile(t, dir, "internal/a.go", "nested file\n")
 	e := diffEditor(t, dir)
 	require.True(t, e.commands.DispatchSlash("/code", commands.NewContext(e.bus, nil)))
-	assert.False(t, e.code.Active())
+	assert.False(t, e.codePlugin.Active())
 	text := strings.Join(strings.Fields(branchOverlay(t, e)), " ")
 	assert.Contains(t, text, "Files")
 	assert.Contains(t, text, "a.go .")
@@ -117,10 +117,10 @@ func TestCodeCommandWithoutPathOpensPicker(t *testing.T) {
 	}
 	ctx := diffKey(e, xui.KeyEnter, 0)
 	assert.Same(t, e, ctx.Focus)
-	require.True(t, e.code.Active())
+	require.True(t, e.codePlugin.Active())
 	assert.Contains(t, components.SurfaceText(frame(t, e)), "nested file")
 	diffKey(e, xui.KeyEscape, 0)
-	assert.False(t, e.code.Active())
+	assert.False(t, e.codePlugin.Active())
 	assert.False(t, e.blocksComposer())
 }
 
@@ -129,14 +129,14 @@ func TestCodePickerEmptyAndCancel(t *testing.T) {
 		t.Skip(err)
 	}
 	e := diffEditor(t, t.TempDir())
-	e.diff.OpenText("", nil)
+	e.diffPlugin.OpenText("", nil)
 	e.openCode(nil)
-	assert.False(t, e.diff.Active())
+	assert.False(t, e.diffPlugin.Active())
 	assert.Contains(t, branchOverlay(t, e), "No files found")
 	diffKey(e, xui.KeyEscape, 0)
 	_, open := e.composer.ListOverlay(components.DrawContext{})
 	assert.False(t, open)
-	assert.False(t, e.code.Active())
+	assert.False(t, e.codePlugin.Active())
 }
 
 func TestCodePickerOpensLiteralPath(t *testing.T) {
@@ -148,7 +148,7 @@ func TestCodePickerOpensLiteralPath(t *testing.T) {
 	e := diffEditor(t, dir)
 	e.openCode(nil)
 	diffKey(e, xui.KeyEnter, 0)
-	require.True(t, e.code.Active())
+	require.True(t, e.codePlugin.Active())
 	assert.Contains(t, components.SurfaceText(frame(t, e)), "literal path")
 }
 
@@ -161,20 +161,20 @@ func TestCodePickerSearchError(t *testing.T) {
 	assert.Contains(t, e.toastPlugin.Current().Message, "List files:")
 	_, open := e.composer.ListOverlay(components.DrawContext{})
 	assert.False(t, open)
-	assert.False(t, e.code.Active())
+	assert.False(t, e.codePlugin.Active())
 }
 
 func TestCodePaneTakesKeysAndReturnsFocus(t *testing.T) {
 	e := newTestEditor(t)
 	e.openCode([]string{"a.go"})
-	require.True(t, e.code.Active())
+	require.True(t, e.codePlugin.Active())
 
 	ctx := &components.EventContext{}
 	e.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'j'})
 	assert.True(t, ctx.Consume, "the pane swallows the key")
 
 	e.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyEscape})
-	assert.False(t, e.code.Active())
+	assert.False(t, e.codePlugin.Active())
 	assert.False(t, e.blocksComposer(), "closing the pane hands the keyboard back")
 }
 
@@ -184,7 +184,7 @@ func TestClosingCodePaneReleasesFocus(t *testing.T) {
 
 	ctx := &components.EventContext{}
 	e.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'q'})
-	assert.False(t, e.code.Active())
+	assert.False(t, e.codePlugin.Active())
 }
 
 // TestThemeChangeReachesCodePane was dropped with the nil-collaborator guards:
@@ -193,10 +193,10 @@ func TestClosingCodePaneReleasesFocus(t *testing.T) {
 // Openers must not leave the other overlay live underneath.
 func TestOpeningCodeClosesDiff(t *testing.T) {
 	e := newTestEditor(t)
-	e.diff.OpenText("", nil)
-	require.True(t, e.diff.Active())
+	e.diffPlugin.OpenText("", nil)
+	require.True(t, e.diffPlugin.Active())
 
 	e.openCode([]string{"a.go"})
-	assert.False(t, e.diff.Active())
-	assert.True(t, e.code.Active())
+	assert.False(t, e.diffPlugin.Active())
+	assert.True(t, e.codePlugin.Active())
 }
