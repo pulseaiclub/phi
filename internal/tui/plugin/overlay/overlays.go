@@ -1,4 +1,4 @@
-package overlays
+package overlay
 
 import (
 	"github.com/pulseaiclub/xui"
@@ -6,6 +6,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/layout"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/pulseaiclub/phi/internal/tui/runtime"
 )
 
 type overlayComposer interface {
@@ -13,8 +14,8 @@ type overlayComposer interface {
 	HidePalette()
 }
 
-// Overlays owns modal error UI that replaces the composer slot.
-type Overlays struct {
+// Plugin owns the modal error UI that replaces the composer slot.
+type Plugin struct {
 	theme    components.Theme
 	err      *errorAskState
 	activity *controller.ActivityHandler
@@ -25,15 +26,15 @@ type Overlays struct {
 	onErrorResolve func(controller.ErrorReply, string)
 }
 
-// NewOverlays builds overlay state handlers.
-func NewOverlays(
+// New builds overlay state handlers.
+func New(
 	theme components.Theme,
 	activity *controller.ActivityHandler,
 	composer overlayComposer,
 	focusEditor, focusChat func(),
 	onErrorResolve func(controller.ErrorReply, string),
-) *Overlays {
-	return &Overlays{
+) *Plugin {
+	return &Plugin{
 		theme:          theme,
 		activity:       activity,
 		composer:       composer,
@@ -43,28 +44,36 @@ func NewOverlays(
 	}
 }
 
+// Register wires the plugin into the runtime: the OverlayMsg subscription,
+// theme fan-out, and the composer-slot bottom pane.
+func (o *Plugin) Register(rt *runtime.Runtime) {
+	runtime.Subscribe(rt, o.Apply)
+	rt.AddBottomPane(o)
+	rt.OnTheme(o.SetTheme)
+}
+
 // SetTheme updates overlay chrome styling.
-func (o *Overlays) SetTheme(th components.Theme) {
+func (o *Plugin) SetTheme(th components.Theme) {
 	o.theme = th
 }
 
 // Active reports whether a modal overlay is showing.
-func (o *Overlays) Active() bool {
+func (o *Plugin) Active() bool {
 	return o.err != nil
 }
 
 // BlocksComposer reports whether composer input should be disabled.
-func (o *Overlays) BlocksComposer() bool {
+func (o *Plugin) BlocksComposer() bool {
 	return o.Active()
 }
 
 // BlocksSessionSwitch reports whether an error dialog blocks session changes.
-func (o *Overlays) BlocksSessionSwitch() bool {
+func (o *Plugin) BlocksSessionSwitch() bool {
 	return o.err != nil
 }
 
 // Apply routes overlay bus messages by Kind.
-func (o *Overlays) Apply(msg controller.OverlayMsg) {
+func (o *Plugin) Apply(msg controller.OverlayMsg) {
 	switch msg.Kind {
 	case controller.OverlayErrorAsk:
 		o.beginErrorAsk(msg)
@@ -74,17 +83,17 @@ func (o *Overlays) Apply(msg controller.OverlayMsg) {
 }
 
 // HandleKey routes keys in the same priority order as DrawBottom.
-func (o *Overlays) HandleKey(ctx *components.EventContext, e xui.KeyEvent) bool {
+func (o *Plugin) HandleKey(ctx *components.EventContext, e xui.KeyEvent) bool {
 	return o.handleErrorKey(ctx, e)
 }
 
 // Cancel dismisses the active error dialog.
-func (o *Overlays) Cancel() {
+func (o *Plugin) Cancel() {
 	o.resolveError(controller.ErrorReply{})
 }
 
-// PreferredBottomHeight estimates rows for the bottom overlay or composer slot.
-func (o *Overlays) PreferredBottomHeight(width int, method xui.WidthMethod) (height int, overlay bool) {
+// PreferredHeight estimates rows for the bottom overlay or composer slot.
+func (o *Plugin) PreferredHeight(width int, method xui.WidthMethod) (height int, overlay bool) {
 	if o.err != nil {
 		return o.err.preferredAskHeight(width, method), true
 	}
@@ -92,7 +101,7 @@ func (o *Overlays) PreferredBottomHeight(width int, method xui.WidthMethod) (hei
 }
 
 // DrawBottom renders the overlay panel when active.
-func (o *Overlays) DrawBottom(ctx components.DrawContext, width, height int) (components.Surface, bool) {
+func (o *Plugin) DrawBottom(ctx components.DrawContext, width, height int) (components.Surface, bool) {
 	if o.err != nil {
 		return o.drawError(ctx, width, height), true
 	}

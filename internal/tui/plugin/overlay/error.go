@@ -1,4 +1,4 @@
-package overlays
+package overlay
 
 import (
 	"strings"
@@ -162,7 +162,7 @@ func (st *errorAskState) visibleLines(
 	return errorOptionViewport(actions, options, st.selected, available)
 }
 
-func (o *Overlays) beginErrorAsk(msg controller.OverlayMsg) {
+func (o *Plugin) beginErrorAsk(msg controller.OverlayMsg) {
 	if o.err != nil {
 		o.resolveError(controller.ErrorReply{})
 	}
@@ -178,7 +178,7 @@ func (o *Overlays) beginErrorAsk(msg controller.OverlayMsg) {
 	}
 }
 
-func (o *Overlays) dismissError() {
+func (o *Plugin) dismissError() {
 	was := o.err != nil
 	o.err = nil
 	if !was {
@@ -195,7 +195,7 @@ func (o *Overlays) dismissError() {
 // resolveError clears the overlay and delivers the reply directly to the
 // onResolve callback: nobody waits on this dialog, so unlike the ask
 // overlays there is no reply chan.
-func (o *Overlays) resolveError(r controller.ErrorReply) {
+func (o *Plugin) resolveError(r controller.ErrorReply) {
 	st := o.err
 	if st == nil {
 		return
@@ -208,11 +208,11 @@ func (o *Overlays) resolveError(r controller.ErrorReply) {
 }
 
 // ResolveError sends an error-dialog reply and clears the overlay.
-func (o *Overlays) ResolveError(r controller.ErrorReply) {
+func (o *Plugin) ResolveError(r controller.ErrorReply) {
 	o.resolveError(r)
 }
 
-func (o *Overlays) handleErrorKey(ctx *components.EventContext, e xui.KeyEvent) bool {
+func (o *Plugin) handleErrorKey(ctx *components.EventContext, e xui.KeyEvent) bool {
 	st := o.err
 	if st == nil || !e.Press {
 		return false
@@ -253,7 +253,7 @@ func (o *Overlays) handleErrorKey(ctx *components.EventContext, e xui.KeyEvent) 
 	return true
 }
 
-func (o *Overlays) acceptErrorOption(idx int) {
+func (o *Plugin) acceptErrorOption(idx int) {
 	switch idx {
 	case errOptRetry:
 		o.resolveError(controller.ErrorReply{Retry: true})
@@ -264,7 +264,7 @@ func (o *Overlays) acceptErrorOption(idx int) {
 	}
 }
 
-func (o *Overlays) drawError(ctx components.DrawContext, width, height int) components.Surface {
+func (o *Plugin) drawError(ctx components.DrawContext, width, height int) components.Surface {
 	st := o.err
 	if st == nil {
 		return components.NewSurface(width, height, nil)

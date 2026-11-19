@@ -12,9 +12,9 @@ import (
 
 type stubFullPane struct{ active bool }
 
-func (p *stubFullPane) Active() bool { return p.active }
-func (p *stubFullPane) Handle(*components.EventContext, xui.Event) {}
-func (p *stubFullPane) Draw(components.DrawContext) components.Surface {
+func (p *stubFullPane) Active() bool                             { return p.active }
+func (*stubFullPane) Handle(*components.EventContext, xui.Event) {}
+func (*stubFullPane) Draw(components.DrawContext) components.Surface {
 	return components.NewSurface(1, 1, nil)
 }
 
@@ -27,6 +27,7 @@ type stubBottomPane struct {
 func (p *stubBottomPane) PreferredHeight(int, xui.WidthMethod) (int, bool) {
 	return 8, p.active
 }
+
 func (p *stubBottomPane) DrawBottom(components.DrawContext, int, int) (components.Surface, bool) {
 	return components.NewSurface(4, 4, nil), p.active
 }

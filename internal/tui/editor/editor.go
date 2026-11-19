@@ -21,8 +21,8 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/composer"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 	"github.com/pulseaiclub/phi/internal/tui/footer"
-	"github.com/pulseaiclub/phi/internal/tui/overlays"
 	"github.com/pulseaiclub/phi/internal/tui/pathutil"
+	"github.com/pulseaiclub/phi/internal/tui/plugin/overlay"
 	toastplugin "github.com/pulseaiclub/phi/internal/tui/plugin/toast"
 	"github.com/pulseaiclub/phi/internal/tui/runtime"
 	"github.com/pulseaiclub/phi/internal/tui/submit"
@@ -52,14 +52,14 @@ type Editor struct {
 
 	rt *runtime.Runtime
 
-	transcript  *transcript.TranscriptPane
-	composer    *composer.ComposerPane
-	footer      *footer.FooterChrome
-	overlays    *overlays.Overlays
-	toastPlugin *toastplugin.Plugin
-	diff        *pane.Diff
-	code        *pane.Code
-	diffList    listpicker.State
+	transcript    *transcript.TranscriptPane
+	composer      *composer.ComposerPane
+	footer        *footer.FooterChrome
+	overlayPlugin *overlay.Plugin
+	toastPlugin   *toastplugin.Plugin
+	diff          *pane.Diff
+	code          *pane.Code
+	diffList      listpicker.State
 
 	// The TUI redraws at 60fps; the flowing status highlight moves every fourth
 	// frame, matching the ~80ms cadence status.Spinner used to declare.
@@ -116,7 +116,7 @@ func NewEditor(
 	}
 	e.transcript = transcript.NewTranscriptPane(theme, e.spin, "Phi "+version.Version)
 	e.syncStatusSlot()
-	e.overlays = overlays.NewOverlays(
+	e.overlayPlugin = overlay.New(
 		theme,
 		e.activity,
 		e.composer,
@@ -124,6 +124,7 @@ func NewEditor(
 		e.composer.FocusChat,
 		e.handleErrorReply,
 	)
+	e.rt.Register(e.overlayPlugin)
 	e.transcript.SetCopyHandlers(e.bus, e.copyToClipboard)
 	e.diff = pane.NewDiff(e.theme, cwd,
 		e.publishSubmit,
@@ -161,8 +162,8 @@ func NewEditor(
 		e.composer,
 		e.bus,
 		cmdCtx,
-		e.overlays.BlocksSessionSwitch,
-		e.overlays.Cancel,
+		e.overlayPlugin.BlocksSessionSwitch,
+		e.overlayPlugin.Cancel,
 	)
 	builtins.Bind(
 		e.showSessionList,
@@ -183,7 +184,7 @@ func NewEditor(
 		OnRedraw:              e.vx.QueueRefresh,
 		ImageEnabled:          e.ctrl.ImageEnabled,
 		OverlayBlocksComposer: e.blocksComposer,
-		HandleOverlayKey:      e.overlays.HandleKey,
+		HandleOverlayKey:      e.handleOverlayKey,
 		HandleCopyKey:         e.handleCopyKey,
 		RequestFocusEditor:    e.focusSelf,
 		RequestFocus:          e.App.RequestFocus,
@@ -217,11 +218,9 @@ func (e *Editor) Update(m controller.Msg) {
 		e.composer.ApplyMentionResults(msg)
 	case controller.BashSuggestionsMsg:
 		e.composer.ApplyBashSuggestions(msg)
-	case controller.OverlayMsg:
-		e.overlays.Apply(msg)
 	case controller.LoopStartedMsg:
 		if e.ctrl.CurrentLoop(msg.Gen) {
-			e.overlays.ResolveError(controller.ErrorReply{})
+			e.overlayPlugin.ResolveError(controller.ErrorReply{})
 			e.activity.Apply(controller.ActivityWaiting)
 		}
 	case controller.LoopFinishedMsg:
@@ -235,7 +234,7 @@ func (e *Editor) Update(m controller.Msg) {
 			e.activity.Apply(controller.ActivityCancelled)
 		}
 		if msg.ErrorText != "" {
-			e.overlays.Apply(controller.OverlayMsg{Kind: controller.OverlayErrorAsk, ErrorText: msg.ErrorText})
+			e.overlayPlugin.Apply(controller.OverlayMsg{Kind: controller.OverlayErrorAsk, ErrorText: msg.ErrorText})
 		}
 	case controller.FooterMsg:
 		e.applyFooterMessage(msg)
@@ -333,13 +332,15 @@ func (e *Editor) applyFooterMessage(msg controller.FooterMsg) {
 }
 
 func (e *Editor) blocksComposer() bool {
-	if e.overlays.BlocksComposer() {
+	if e.rt.BlocksComposer() || e.diff.Active() || e.code.Active() {
 		return true
 	}
-	if e.diff.Active() {
-		return true
-	}
-	return e.code.Active()
+	return false
+}
+
+// handleOverlayKey routes composer keys to runtime bottom panes (error ask).
+func (e *Editor) handleOverlayKey(ctx *components.EventContext, ke xui.KeyEvent) bool {
+	return e.rt.BottomKey(ctx, ke)
 }
 
 // openDiff and openCode each close the other: two full-screen overlays cannot
@@ -504,7 +505,10 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 
 	footerH := 1
 	var chatH int
-	if askH, overlay := e.overlays.PreferredBottomHeight(maxSize.Width, ctx.Method); overlay {
+	// askActive mirrors the old overlays.Active(): the ask pane replaces the
+	// composer slot and suppresses the pickers below.
+	askH, askActive := e.rt.BottomHeight(maxSize.Width, ctx.Method)
+	if askActive {
 		chatH = askH
 		maxChatH := maxSize.Height - footerH - 3
 		if chatH > maxChatH {
@@ -539,7 +543,7 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	listH = e.transcript.ListHeight()
 
 	var chatSurf components.Surface
-	if surf, ok := e.overlays.DrawBottom(ctx, maxSize.Width, chatH); ok {
+	if surf, ok := e.rt.DrawBottom(ctx, maxSize.Width, chatH); ok {
 		chatSurf = surf
 	} else {
 		chatSurf = e.composer.DrawChat(ctx, maxSize.Width, chatH)
@@ -553,7 +557,7 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 		{Origin: components.Point{X: 0, Y: listH}, Surface: chatSurf, Z: 1},
 		{Origin: components.Point{X: 0, Y: maxSize.Height - footerH}, Surface: footerSurf, Z: 2},
 	}
-	if !e.overlays.Active() {
+	if !askActive {
 		root.Children = append(root.Children, e.composer.PickerOverlays(ctx, listH, maxSize.Width)...)
 	}
 	// The palette may not shrink to an empty box: below this height the picker
@@ -635,7 +639,7 @@ func (e *Editor) applyTheme(name string) {
 	e.footer.SetTheme(th)
 	e.spin.Style = th.ToolName
 	e.syncStatusSlot()
-	e.overlays.SetTheme(th)
+	// overlayPlugin follows via the rt.ApplyTheme subscription.
 	e.diff.SetTheme(th)
 	e.code.SetTheme(th)
 	e.toastPlugin.Show("Theme: "+name, toast.ToastSuccess, 2*time.Second)
