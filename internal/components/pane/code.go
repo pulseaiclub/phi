@@ -1,7 +1,5 @@
-// Package codepane renders a full-screen source-file pane: syntax-highlighted
-// reading with a caret, a line-wise selection, and one handoff back to the chat
-// composer.
-package codepane
+// Package pane provides full-screen source and diff review components.
+package pane
 
 import (
 	"bytes"
@@ -34,9 +32,9 @@ const (
 	selLineWide = 1 << 20
 )
 
-// Pane is a full-screen source-file overlay. Reading, key handling and painting
+// Code is a full-screen source-file overlay. Reading, key handling and painting
 // all happen on the UI goroutine, so the state needs no lock.
-type Pane struct {
+type Code struct {
 	cwd     string
 	onRef   func(chat.Ref)
 	onToast func(string)
@@ -83,10 +81,10 @@ type Pane struct {
 	gotoBuf  string
 }
 
-// New builds an inactive pane. onRef receives the line the user picked for the
+// NewCode builds an inactive pane. onRef receives the line the user picked for the
 // chat input; onToast reports the outcome of an action.
-func New(theme components.Theme, cwd string, onRef func(chat.Ref), onToast func(string)) *Pane {
-	return &Pane{
+func NewCode(theme components.Theme, cwd string, onRef func(chat.Ref), onToast func(string)) *Code {
+	return &Code{
 		cwd:     cwd,
 		onRef:   onRef,
 		onToast: onToast,
@@ -96,23 +94,23 @@ func New(theme components.Theme, cwd string, onRef func(chat.Ref), onToast func(
 }
 
 // Active reports whether the overlay is showing.
-func (p *Pane) Active() bool {
+func (p *Code) Active() bool {
 	return p.active
 }
 
 // SetTheme updates chrome and syntax colors.
-func (p *Pane) SetTheme(th components.Theme) {
+func (p *Code) SetTheme(th components.Theme) {
 	p.theme = th
 	p.hl = codeview.Highlight(p.abs, p.lines, th)
 }
 
 // Open shows a file from the top. Relative paths resolve against the pane cwd.
-func (p *Pane) Open(path string) {
+func (p *Code) Open(path string) {
 	p.OpenAt(path, 0)
 }
 
 // OpenAt shows path with the cursor on line (1-based; 0 leaves it at the top).
-func (p *Pane) OpenAt(path string, line int) {
+func (p *Code) OpenAt(path string, line int) {
 	p.active = true
 	p.pendingG = false
 	p.selecting = false
@@ -128,7 +126,7 @@ func (p *Pane) OpenAt(path string, line int) {
 }
 
 // Close hides the overlay.
-func (p *Pane) Close() {
+func (p *Code) Close() {
 	p.active = false
 	p.pendingG = false
 	p.resetPrompts()
@@ -136,7 +134,7 @@ func (p *Pane) Close() {
 
 // resetPrompts drops the transient / and : state. Open and Close both need it:
 // the pane outlives a close, so a reopened file must not inherit a query.
-func (p *Pane) resetPrompts() {
+func (p *Code) resetPrompts() {
 	p.searchMode = false
 	p.searchQuery = ""
 	p.matches = nil
@@ -145,7 +143,7 @@ func (p *Pane) resetPrompts() {
 }
 
 // Handle consumes keyboard input while the overlay is active.
-func (p *Pane) Handle(ctx *components.EventContext, ev xui.Event) {
+func (p *Code) Handle(ctx *components.EventContext, ev xui.Event) {
 	if !p.Active() {
 		return
 	}
@@ -168,7 +166,7 @@ func (p *Pane) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 }
 
-func (p *Pane) handleSearchKey(ctx *components.EventContext, e xui.KeyEvent) {
+func (p *Code) handleSearchKey(ctx *components.EventContext, e xui.KeyEvent) {
 	switch e.Code {
 	case xui.KeyEscape:
 		// Cancel: nothing was asked for, so the caret goes back to where the
@@ -197,7 +195,7 @@ func (p *Pane) handleSearchKey(ctx *components.EventContext, e xui.KeyEvent) {
 	ctx.ConsumeAndRedraw()
 }
 
-func (p *Pane) handleGotoKey(ctx *components.EventContext, e xui.KeyEvent) {
+func (p *Code) handleGotoKey(ctx *components.EventContext, e xui.KeyEvent) {
 	switch e.Code {
 	case xui.KeyEscape:
 		p.gotoMode = false
@@ -223,7 +221,7 @@ func (p *Pane) handleGotoKey(ctx *components.EventContext, e xui.KeyEvent) {
 
 // handleKey runs one key against pane state. It returns a toast to raise, which
 // the caller delivers once the key is done with.
-func (p *Pane) handleKey(ctx *components.EventContext, e xui.KeyEvent) string {
+func (p *Code) handleKey(ctx *components.EventContext, e xui.KeyEvent) string {
 	if e.Code == xui.KeyEscape && p.selecting {
 		// Cancel the selection first: losing a ten-line pick to a close that was
 		// meant to undo it is worse than one extra Esc.
@@ -282,7 +280,7 @@ func (p *Pane) handleKey(ctx *components.EventContext, e xui.KeyEvent) string {
 	return ""
 }
 
-func (p *Pane) handlePending(ctx *components.EventContext, e xui.KeyEvent) bool {
+func (p *Code) handlePending(ctx *components.EventContext, e xui.KeyEvent) bool {
 	if !p.pendingG {
 		return false
 	}
@@ -295,7 +293,7 @@ func (p *Pane) handlePending(ctx *components.EventContext, e xui.KeyEvent) bool 
 	return true
 }
 
-func (p *Pane) handleRune(ctx *components.EventContext, r rune) string {
+func (p *Code) handleRune(ctx *components.EventContext, r rune) string {
 	switch r {
 	case 'j':
 		p.moveLine(1)
@@ -353,14 +351,14 @@ func (p *Pane) handleRune(ctx *components.EventContext, r rune) string {
 	return ""
 }
 
-func (p *Pane) notify(msg string) {
+func (p *Code) notify(msg string) {
 	if msg != "" {
 		p.onToast(msg)
 	}
 }
 
 // load reads path and moves the cursor to line (1-based, 0 = top).
-func (p *Pane) load(path string, line int) error {
+func (p *Code) load(path string, line int) error {
 	abs := p.resolve(path)
 	lines, err := readFileLines(abs)
 	if err != nil {
@@ -387,7 +385,7 @@ func (p *Pane) load(path string, line int) error {
 	return nil
 }
 
-func (p *Pane) resolve(path string) string {
+func (p *Code) resolve(path string) string {
 	if filepath.IsAbs(path) {
 		return filepath.Clean(path)
 	}
@@ -471,21 +469,21 @@ func humanBytes(n int64) string {
 	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
 }
 
-func (p *Pane) lineText() string {
+func (p *Code) lineText() string {
 	if p.line < 0 || p.line >= len(p.lines) {
 		return ""
 	}
 	return p.lines[p.line]
 }
 
-func (p *Pane) moveLine(delta int) {
+func (p *Code) moveLine(delta int) {
 	p.line += delta
 	p.clamp()
 	p.col = clampCol(p.lineText(), p.col)
 	p.reveal()
 }
 
-func (p *Pane) moveCol(delta int) {
+func (p *Code) moveCol(delta int) {
 	s := p.lineText()
 	if delta < 0 {
 		if p.col > 0 {
@@ -499,7 +497,7 @@ func (p *Pane) moveCol(delta int) {
 	p.reveal()
 }
 
-func (p *Pane) page() int {
+func (p *Code) page() int {
 	h := p.viewH / 2
 	if h < 1 {
 		h = 8
@@ -507,13 +505,13 @@ func (p *Pane) page() int {
 	return h
 }
 
-func (p *Pane) clamp() {
+func (p *Code) clamp() {
 	p.line = clampLine(p.line, len(p.lines))
 	p.col = clampCol(p.lineText(), p.col)
 }
 
 // reveal scrolls so the cursor line and column are inside the viewport.
-func (p *Pane) reveal() {
+func (p *Code) reveal() {
 	if p.viewH > 0 {
 		if p.line < p.scroll {
 			p.scroll = p.line
@@ -548,14 +546,14 @@ type caretPos struct {
 	xScroll int
 }
 
-func (p *Pane) pos() caretPos {
+func (p *Code) pos() caretPos {
 	return caretPos{line: p.line, col: p.col, scroll: p.scroll, xScroll: p.xScroll}
 }
 
 // jumpTo restores a caretPos verbatim. reveal only nudges the scroll when the
 // caret falls outside the viewport, so a canceled search would not get its
 // scroll back without the explicit restore.
-func (p *Pane) jumpTo(c caretPos) {
+func (p *Code) jumpTo(c caretPos) {
 	p.line, p.col, p.scroll, p.xScroll = c.line, c.col, c.scroll, c.xScroll
 	p.clamp()
 	p.reveal()
@@ -563,7 +561,7 @@ func (p *Pane) jumpTo(c caretPos) {
 
 // jumpToLine lands on the first non-blank of a line: a goto and a search hit
 // both want the code, not the indentation in front of it.
-func (p *Pane) jumpToLine(line int) {
+func (p *Code) jumpToLine(line int) {
 	p.line = clampLine(line, len(p.lines))
 	p.col = firstNonBlank(p.lineText())
 	p.clamp()
@@ -622,13 +620,13 @@ func gutterWidth(lines int) int {
 
 // toggleSelect starts or drops a line-wise selection. The caret is the moving
 // end, so the ordinary movement keys extend it without any extra state.
-func (p *Pane) toggleSelect() {
+func (p *Code) toggleSelect() {
 	p.selecting = !p.selecting
 	p.selAnchor = p.line
 }
 
 // selectionLines returns the inclusive, ordered line span of the selection.
-func (p *Pane) selectionLines() (lo, hi int) {
+func (p *Code) selectionLines() (lo, hi int) {
 	lo, hi = p.selAnchor, p.line
 	if lo > hi {
 		lo, hi = hi, lo
@@ -638,7 +636,7 @@ func (p *Pane) selectionLines() (lo, hi int) {
 
 // addRef hands the selected lines (or the caret line alone) to the chat input
 // and reports the outcome as a toast.
-func (p *Pane) addRef() string {
+func (p *Code) addRef() string {
 	ref, ok := p.selectedRef()
 	if !ok {
 		return "no file open"
@@ -649,7 +647,7 @@ func (p *Pane) addRef() string {
 }
 
 // selectedRef cuts the current selection out of the open file.
-func (p *Pane) selectedRef() (chat.Ref, bool) {
+func (p *Code) selectedRef() (chat.Ref, bool) {
 	if p.abs == "" || len(p.lines) == 0 {
 		return chat.Ref{}, false
 	}
@@ -673,7 +671,7 @@ func fenceLang(path string) string {
 }
 
 // Draw paints the overlay.
-func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
+func (p *Code) Draw(ctx components.DrawContext) components.Surface {
 	p.method = ctx.Method
 	p.viewW = ctx.Max.Width
 	p.viewH = max(ctx.Max.Height-2, 1)
@@ -681,7 +679,7 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 	return codeview.Paint(ctx, p.snapshot(ctx))
 }
 
-func (p *Pane) snapshot(ctx components.DrawContext) codeview.Model {
+func (p *Code) snapshot(ctx components.DrawContext) codeview.Model {
 	m := codeview.Model{
 		Theme:      p.theme,
 		Title:      "code" + chrome.Sep + p.title(),
@@ -710,7 +708,7 @@ func (p *Pane) snapshot(ctx components.DrawContext) codeview.Model {
 
 // status is the resting status row: where the reader is and where the search
 // stands, or the prompt itself while one is being typed.
-func (p *Pane) status() string {
+func (p *Code) status() string {
 	switch {
 	case p.loadErr != "":
 		return p.loadErr
@@ -740,7 +738,7 @@ func selectionStatus(n int) string {
 	return fmt.Sprintf("%d %s selected%s a to add", n, unit, chrome.Sep)
 }
 
-func (p *Pane) title() string {
+func (p *Code) title() string {
 	if p.rel == "" {
 		return "no file"
 	}
@@ -748,14 +746,14 @@ func (p *Pane) title() string {
 }
 
 // location is the resting status text: path, caret, line count.
-func (p *Pane) location() string {
+func (p *Code) location() string {
 	if p.abs == "" {
 		return ""
 	}
 	return fmt.Sprintf("%s:%d:%d%s%d lines", p.rel, p.line+1, p.col+1, chrome.Sep, len(p.lines))
 }
 
-func (p *Pane) emptyText() string {
+func (p *Code) emptyText() string {
 	if p.loadErr != "" {
 		return p.loadErr
 	}
@@ -784,7 +782,7 @@ var hintLine = strings.Join([]string{
 // to the top when the query only matches above it. Anchoring on that opening
 // line, not on the caret, is what keeps the caret from walking down the file as
 // characters are added to the query.
-func (p *Pane) updateSearch() {
+func (p *Code) updateSearch() {
 	q := strings.ToLower(p.searchQuery)
 	p.matches = p.matches[:0]
 	if q == "" {
@@ -804,7 +802,7 @@ func (p *Pane) updateSearch() {
 // ensureLowered builds the lowercase copy search scans. One pass per file beats
 // a ToLower per line per keystroke: on an 8 MiB file the first character typed
 // pays ~9 ms once, and the ones after it scan in ~1 ms.
-func (p *Pane) ensureLowered() {
+func (p *Code) ensureLowered() {
 	if p.lowered != nil {
 		return
 	}
@@ -817,7 +815,7 @@ func (p *Pane) ensureLowered() {
 // moveMatch steps n (dir > 0) and N (dir < 0) from the caret. Measuring from
 // the caret rather than from the index of the match last visited is what stops
 // n from stepping backwards after a j or k.
-func (p *Pane) moveMatch(dir int) string {
+func (p *Code) moveMatch(dir int) string {
 	if len(p.matches) == 0 {
 		if p.searchQuery == "" {
 			return "" // no query to repeat: n has nothing to do
@@ -837,7 +835,7 @@ func (p *Pane) moveMatch(dir int) string {
 
 // searchPrompt is the status row while a query is being typed: the query, then
 // the caret's place among its matches.
-func (p *Pane) searchPrompt() string {
+func (p *Code) searchPrompt() string {
 	out := "/" + p.searchQuery
 	if label := p.matchLabel(); label != "" {
 		out += "  " + label
@@ -847,7 +845,7 @@ func (p *Pane) searchPrompt() string {
 
 // gotoPrompt is the status row while : takes a line number: the digits typed
 // and the file's length, so the range a number has to land in is on screen.
-func (p *Pane) gotoPrompt() string {
+func (p *Code) gotoPrompt() string {
 	if p.gotoBuf == "" {
 		return ":"
 	}
@@ -858,7 +856,7 @@ func (p *Pane) gotoPrompt() string {
 // one, "no matches" for a query that hit nothing, "" when no query is live. It
 // is derived from the caret line, so a j/k after a search cannot leave a stale
 // counter on screen.
-func (p *Pane) matchLabel() string {
+func (p *Code) matchLabel() string {
 	if p.searchQuery == "" {
 		return ""
 	}
@@ -873,7 +871,7 @@ func (p *Pane) matchLabel() string {
 
 // matchIndex is where the caret sits in the match list, or -1 when its line is
 // not one of them.
-func (p *Pane) matchIndex() int {
+func (p *Code) matchIndex() int {
 	for i, m := range p.matches {
 		if m == p.line {
 			return i
@@ -884,7 +882,7 @@ func (p *Pane) matchIndex() int {
 
 // firstMatchAtOrAfter is the index of the first match on or below line, or the
 // top of the file when the query only matches above it.
-func (p *Pane) firstMatchAtOrAfter(line int) int {
+func (p *Code) firstMatchAtOrAfter(line int) int {
 	for i, m := range p.matches {
 		if m >= line {
 			return i
@@ -895,7 +893,7 @@ func (p *Pane) firstMatchAtOrAfter(line int) int {
 
 // matchAfter is the index of the first match below line, wrapping to the top:
 // what n does at the end of the file.
-func (p *Pane) matchAfter(line int) int {
+func (p *Code) matchAfter(line int) int {
 	for i, m := range p.matches {
 		if m > line {
 			return i
@@ -906,7 +904,7 @@ func (p *Pane) matchAfter(line int) int {
 
 // matchBefore is the index of the last match above line, wrapping to the
 // bottom: what N does at the top of the file.
-func (p *Pane) matchBefore(line int) int {
+func (p *Code) matchBefore(line int) int {
 	idx := len(p.matches) - 1 // nothing above: wrap to the bottom match
 	for i, m := range p.matches {
 		if m >= line {
@@ -921,7 +919,7 @@ func (p *Pane) matchBefore(line int) int {
 // lines it sits in. The caret parks on the paragraph's last line, as it must,
 // because the selection has one moving end and a paragraph cannot be selected
 // without the caret riding it.
-func (p *Pane) selectParagraph() {
+func (p *Code) selectParagraph() {
 	if len(p.lines) == 0 {
 		return
 	}
@@ -936,7 +934,7 @@ func (p *Pane) selectParagraph() {
 }
 
 // paragraph is the run of non-blank lines the caret sits in.
-func (p *Pane) paragraph() (lo, hi int) {
+func (p *Code) paragraph() (lo, hi int) {
 	lo, hi = p.line, p.line
 	for lo > 0 && strings.TrimSpace(p.lines[lo-1]) != "" {
 		lo--
