@@ -10,6 +10,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 	"github.com/pulseaiclub/phi/internal/tui/plugin/composer"
+	"github.com/pulseaiclub/phi/internal/tui/runtime"
 	"github.com/pulseaiclub/phi/internal/tui/transcript"
 	imgutil "github.com/pulseaiclub/phi/internal/util/image"
 )
@@ -45,6 +46,26 @@ type Submitter struct {
 
 	overlayBlocksSessionSwitch func() bool
 	cancelOverlays             func()
+
+	rt *runtime.Runtime
+}
+
+// Register wires the submit path into the runtime: SubmitMsg runs the plugin
+// submit filters first, CancelStreamMsg aborts.
+func (s *Submitter) Register(rt *runtime.Runtime) {
+	s.rt = rt
+	runtime.Subscribe(rt, s.onSubmitMsg)
+	runtime.Subscribe(rt, s.onCancelMsg)
+}
+
+func (s *Submitter) onSubmitMsg(msg controller.SubmitMsg) {
+	if !s.rt.FilterSubmit(msg.Text) {
+		s.Submit(msg.Text)
+	}
+}
+
+func (s *Submitter) onCancelMsg(controller.CancelStreamMsg) {
+	s.Cancel()
 }
 
 // NewSubmitter builds a Submitter from explicit collaborators (no *Editor back-pointer).

@@ -2,11 +2,13 @@ package overlay
 
 import (
 	"strings"
+	"time"
 
 	"github.com/pulseaiclub/xui"
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/chrome"
+	uistoast "github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
@@ -192,9 +194,8 @@ func (o *Plugin) dismissError() {
 	}
 }
 
-// resolveError clears the overlay and delivers the reply directly to the
-// onResolve callback: nobody waits on this dialog, so unlike the ask
-// overlays there is no reply chan.
+// resolveError clears the overlay and applies the reply's side effects here:
+// nobody waits on this dialog, so unlike the ask overlays there is no reply chan.
 func (o *Plugin) resolveError(r controller.ErrorReply) {
 	st := o.err
 	if st == nil {
@@ -202,8 +203,28 @@ func (o *Plugin) resolveError(r controller.ErrorReply) {
 	}
 	text := st.message
 	o.dismissError()
-	if o.onErrorResolve != nil {
-		o.onErrorResolve(r, text)
+	o.applyReply(r, text)
+}
+
+// applyReply performs the dialog's Retry/Copy side effects. It runs on the
+// UI goroutine as the overlay resolves.
+func (o *Plugin) applyReply(r controller.ErrorReply, text string) {
+	switch {
+	case r.Retry:
+		o.activity.Apply(controller.ActivityWaiting)
+		if !o.retry() {
+			o.activity.Apply(controller.ActivityIdle)
+			o.toast.Show("Nothing to retry", uistoast.ToastWarning, 2*time.Second)
+		}
+	case r.Copy:
+		if text == "" {
+			return
+		}
+		if o.copy(text) {
+			o.toast.Show("Copied to clipboard", uistoast.ToastSuccess, 2*time.Second)
+		} else {
+			o.toast.Show("Clipboard unavailable", uistoast.ToastError, 2*time.Second)
+		}
 	}
 }
 

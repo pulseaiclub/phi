@@ -43,6 +43,8 @@ type Runtime struct {
 	batchStart  []BatchStart
 	batchEnd    []BatchEnd
 	batchMarked bool
+
+	frameHooks []FrameHook
 }
 
 // New returns an empty Runtime.

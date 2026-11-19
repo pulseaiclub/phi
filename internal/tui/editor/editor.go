@@ -68,7 +68,6 @@ type Editor struct {
 	// The TUI redraws at 60fps; the flowing status highlight moves every fourth
 	// frame, matching the ~80ms cadence status.Spinner used to declare.
 	spin           *status.Spinner
-	spinTick       int
 	activityPlugin *activityplugin.Plugin
 	updateHint     string
 	commandCtx     commands.Context
@@ -79,10 +78,6 @@ type Editor struct {
 	sessions  *commands.SessionCommands
 	submitter *submit.Submitter
 }
-
-// spinnerFrameDivisor throttles the 60fps app redraw to the status slot's
-// ~15Hz spinner cadence.
-const spinnerFrameDivisor = 4
 
 // NewEditor builds the TUI panes and wires injected collaborators.
 // application, bus, and ctrl must be non-nil.
@@ -97,23 +92,20 @@ func NewEditor(
 	modelNames []string,
 ) *Editor {
 	e := &Editor{
-		vx:             vx,
-		App:            application,
-		theme:          theme,
-		cwd:            cwd,
-		bus:            bus,
-		ctrl:           ctrl,
-		rt:             runtime.New(),
-		toastPlugin:    toastplugin.New(theme),
-		composer:       composer.NewComposerPane(theme, modelLabel, cwd),
-		footer:         footer.NewFooterChrome(theme),
-		spin:           status.NewSpinner(theme.ToolName),
-		activityPlugin: activityplugin.New(),
+		vx:          vx,
+		App:         application,
+		theme:       theme,
+		cwd:         cwd,
+		bus:         bus,
+		ctrl:        ctrl,
+		rt:          runtime.New(),
+		toastPlugin: toastplugin.New(theme),
+		composer:    composer.NewComposerPane(theme, modelLabel, cwd),
+		footer:      footer.NewFooterChrome(theme),
+		spin:        status.NewSpinner(theme.ToolName),
 	}
 	e.rt.Register(e.composer)
 	e.rt.Register(e.toastPlugin)
-	e.rt.Register(e.activityPlugin)
-	e.activityPlugin.SetOnChange(e.onActivityChange)
 	e.composer.SetBashPredictor(composer.NewBashPredictor(cwd))
 	// Prompt recall is opt-in: it persists what the user typed under the home
 	// directory, so it stays off until PHI_PROMPT_HISTORY turns it on.
@@ -121,15 +113,23 @@ func NewEditor(
 		e.composer.SetPromptHistory(shellhist.NewPromptHistory(dir))
 	}
 	e.transcript = transcript.NewTranscriptPane(theme, e.spin, "Phi "+version.Version)
-	e.syncStatusSlot()
-	e.overlayPlugin = overlay.New(
-		theme,
-		e.activityPlugin,
-		e.composer,
-		e.focusSelf,
-		e.composer.FocusChat,
-		e.handleErrorReply,
-	)
+	e.activityPlugin = activityplugin.New(theme, e.spin, activityplugin.Deps{
+		Snapshot:      e.transcript.Snapshot,
+		ContextWindow: e.ctrl.ContextWindow,
+		Labels:        e.composer,
+	})
+	e.rt.Register(e.activityPlugin)
+	e.activityPlugin.SyncStatusSlot()
+	e.overlayPlugin = overlay.New(overlay.Deps{
+		Theme:       theme,
+		Activity:    e.activityPlugin,
+		Composer:    e.composer,
+		FocusEditor: e.focusSelf,
+		FocusChat:   e.composer.FocusChat,
+		Retry:       e.ctrl.RetryLastPrompt,
+		Copy:        e.copyToClipboard,
+		Toast:       e.toastPlugin,
+	})
 	e.rt.Register(e.overlayPlugin)
 	e.transcript.SetCopyHandlers(e.bus, e.copyToClipboard)
 	e.diffPlugin = diff.New(e.theme, cwd, diff.Deps{
@@ -167,7 +167,7 @@ func NewEditor(
 	e.rt.OnBatchStart(e.sessionPlugin.CaptureBatch)
 	e.rt.OnBatchEnd(e.sessionPlugin.PostSync)
 	e.rt.OnBatchEnd(e.syncActivityFromSnap)
-	e.rt.OnBatchEnd(e.syncStatusSlot)
+	e.rt.OnBatchEnd(e.activityPlugin.SyncStatusSlot)
 	e.rt.OnBatchEnd(e.sessionPlugin.PostStick)
 
 	builtins := commands.NewBuiltinRegistry(
@@ -203,6 +203,7 @@ func NewEditor(
 		e.overlayPlugin.BlocksSessionSwitch,
 		e.overlayPlugin.Cancel,
 	)
+	e.rt.Register(e.submitter)
 	builtins.Bind(
 		e.showSessionList,
 		e.composer.RefreshSessionList,
@@ -248,14 +249,6 @@ func (e *Editor) Publish(m controller.Msg) {
 func (e *Editor) Update(m controller.Msg) {
 	e.rt.Dispatch(m)
 	switch msg := m.(type) {
-	case controller.SubmitMsg:
-		// Plugins claim their inputs first ("!cmd" shell lines); the rest
-		// follows the shell submit path.
-		if !e.rt.FilterSubmit(msg.Text) {
-			e.submitter.Submit(msg.Text)
-		}
-	case controller.CancelStreamMsg:
-		e.submitter.Cancel()
 	case controller.FooterMsg:
 		e.applyFooterMessage(msg)
 	case controller.ThemeMsg:
@@ -273,35 +266,6 @@ func (e *Editor) drainBus() {
 // method so the root registers method values, not closures.
 func (e *Editor) syncActivityFromSnap() {
 	e.activityPlugin.SyncFromSnap(e.transcript.Snapshot())
-}
-
-func (e *Editor) onActivityChange() {
-	e.spin.Frame = 0
-	e.spinTick = 0
-	e.syncStatusSlot()
-}
-
-func (e *Editor) advanceSpinner() {
-	e.spinTick++
-	if e.activityPlugin.ShowSpinner() && e.spinTick%spinnerFrameDivisor == 0 {
-		e.spin.Tick()
-		e.syncStatusSlot()
-	}
-}
-
-func (e *Editor) syncStatusSlot() {
-	label := footer.StatusLabel(e.theme, footer.StatusInput{
-		Activity:      e.activityPlugin.Label(e.transcript.Snapshot()),
-		ShowSpinner:   e.activityPlugin.ShowSpinner(),
-		Spinner:       e.spin,
-		Usage:         e.transcript.Snapshot().LastUsage(),
-		ContextWindow: e.ctrl.ContextWindow(),
-	})
-	if !label.Visible() {
-		e.composer.ClearBottomLeftLabel()
-		return
-	}
-	e.composer.SetBottomLeftLabel(label)
 }
 
 func (e *Editor) resetActivity() {
@@ -384,28 +348,6 @@ func (e *Editor) copyToClipboard(text string) bool {
 	return e.vx.CopyToClipboard(text) == nil
 }
 
-// handleErrorReply performs the error dialog's Retry/Copy side effects. It
-// runs on the UI goroutine as the overlay resolves.
-func (e *Editor) handleErrorReply(r controller.ErrorReply, text string) {
-	switch {
-	case r.Retry:
-		e.activityPlugin.Apply(controller.ActivityWaiting)
-		if !e.ctrl.RetryLastPrompt() {
-			e.activityPlugin.Apply(controller.ActivityIdle)
-			e.toastPlugin.Show("Nothing to retry", toast.ToastWarning, 2*time.Second)
-		}
-	case r.Copy:
-		if text == "" {
-			return
-		}
-		if e.copyToClipboard(text) {
-			e.toastPlugin.Show("Copied to clipboard", toast.ToastSuccess, 2*time.Second)
-		} else {
-			e.toastPlugin.Show("Clipboard unavailable", toast.ToastError, 2*time.Second)
-		}
-	}
-}
-
 // addPendingRef drops a code-viewer reference into the composer and refocuses
 // chat; the pane's own toast reports the add.
 func (e *Editor) addPendingRef(ref chat.Ref) {
@@ -434,7 +376,7 @@ func (e *Editor) showSkillList(
 func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	e.drainBus()
 
-	e.advanceSpinner()
+	e.rt.Frame()
 	_ = e.toastPlugin.Visible()
 
 	if pane, ok := e.rt.ActiveFullPane(); ok {
@@ -577,9 +519,8 @@ func (e *Editor) applyTheme(name string) {
 	e.rt.ApplyTheme(th)
 	e.transcript.SetTheme(th)
 	e.footer.SetTheme(th)
-	e.spin.Style = th.ToolName
-	e.syncStatusSlot()
-	// overlay, diff, and code follow via rt.ApplyTheme subscriptions.
+	// overlay, diff, code, and the activity status slot follow via
+	// rt.ApplyTheme subscriptions.
 	e.toastPlugin.Show("Theme: "+name, toast.ToastSuccess, 2*time.Second)
 	e.vx.QueueRefresh()
 }

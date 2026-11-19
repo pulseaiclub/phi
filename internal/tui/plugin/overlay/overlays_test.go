@@ -5,5 +5,5 @@ import (
 )
 
 func testPlugin(activity ActivitySink) *Plugin {
-	return New(components.DefaultTheme(), activity, nil, nil, nil, nil)
+	return New(Deps{Theme: components.DefaultTheme(), Activity: activity})
 }

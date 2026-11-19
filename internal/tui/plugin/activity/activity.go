@@ -7,24 +7,55 @@ package activity
 import (
 	"fmt"
 
+	"github.com/pulseaiclub/phi/internal/components"
+	"github.com/pulseaiclub/phi/internal/components/layout"
+	"github.com/pulseaiclub/phi/internal/components/status"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/pulseaiclub/phi/internal/tui/footer"
 	"github.com/pulseaiclub/phi/internal/tui/runtime"
 )
 
-// Plugin owns the activity state. It only mutates itself when Apply /
-// SyncFromSnap are called on the UI goroutine.
+// LabelSink receives the composer status slot (bottom-left label).
+type LabelSink interface {
+	SetBottomLeftLabel(layout.BorderLabel)
+	ClearBottomLeftLabel()
+}
+
+// Deps carries the collaborators the root wires as method values.
+type Deps struct {
+	// Snapshot reads the session snapshot for labels and tool counts.
+	Snapshot func() session.Snapshot
+	// ContextWindow reads the model context window for the usage readout.
+	ContextWindow func() int
+	// Labels is the composer status slot.
+	Labels LabelSink
+}
+
+// Plugin owns the activity state, the spinner cadence, and the composer
+// status slot. It only mutates itself when Apply / SyncFromSnap are called
+// on the UI goroutine.
 type Plugin struct {
 	current  controller.Activity
 	onChange func()
+	theme    components.Theme
+	spin     *status.Spinner
+	deps     Deps
+
+	spinTick int
 }
 
-// New builds the activity plugin in the idle state.
-func New() *Plugin { return &Plugin{} }
+// New builds the activity plugin around the shell's shared spinner.
+func New(theme components.Theme, spin *status.Spinner, deps Deps) *Plugin {
+	return &Plugin{theme: theme, spin: spin, deps: deps}
+}
 
-// Register wires the plugin into the runtime: FooterMsg activity updates.
+// Register wires the plugin into the runtime: FooterMsg activity updates,
+// theme switches, and the per-frame spinner tick.
 func (p *Plugin) Register(rt *runtime.Runtime) {
 	runtime.Subscribe(rt, p.onFooterMsg)
+	rt.OnTheme(p.SetTheme)
+	rt.OnFrame(p.Frame)
 }
 
 func (p *Plugin) onFooterMsg(msg controller.FooterMsg) {
@@ -38,12 +69,17 @@ func (p *Plugin) onFooterMsg(msg controller.FooterMsg) {
 	}
 }
 
-// SetOnChange registers a UI-thread callback after activity changes.
+// SetOnChange registers an extra UI-thread callback after activity changes.
+// The spinner reset and status-slot refresh always run; the callback is
+// additional.
 func (p *Plugin) SetOnChange(fn func()) {
 	p.onChange = fn
 }
 
 func (p *Plugin) notify() {
+	p.spin.Frame = 0
+	p.spinTick = 0
+	p.SyncStatusSlot()
 	if p.onChange != nil {
 		p.onChange()
 	}
@@ -159,4 +195,42 @@ func activityMessage(a controller.Activity) string {
 	default:
 		return ""
 	}
+}
+
+// Frame ticks the spinner on the UI frame cadence (~15Hz via the shell's
+// frame divisor) and refreshes the slot only while it animates.
+func (p *Plugin) Frame() {
+	p.spinTick++
+	if p.ShowSpinner() && p.spinTick%spinnerFrameDivisor == 0 {
+		p.spin.Tick()
+		p.SyncStatusSlot()
+	}
+}
+
+// spinnerFrameDivisor throttles the 60fps app redraw to the status slot's
+// ~15Hz spinner cadence. Must match the shell's divisor.
+const spinnerFrameDivisor = 4
+
+// SyncStatusSlot recomputes the composer status slot from the current
+// activity, spinner frame, and snapshot usage.
+func (p *Plugin) SyncStatusSlot() {
+	label := footer.StatusLabel(p.theme, footer.StatusInput{
+		Activity:      p.Label(p.deps.Snapshot()),
+		ShowSpinner:   p.ShowSpinner(),
+		Spinner:       p.spin,
+		Usage:         p.deps.Snapshot().LastUsage(),
+		ContextWindow: p.deps.ContextWindow(),
+	})
+	if !label.Visible() {
+		p.deps.Labels.ClearBottomLeftLabel()
+		return
+	}
+	p.deps.Labels.SetBottomLeftLabel(label)
+}
+
+// SetTheme switches the activity chrome and refreshes the slot.
+func (p *Plugin) SetTheme(th components.Theme) {
+	p.theme = th
+	p.spin.Style = th.ToolName
+	p.SyncStatusSlot()
 }

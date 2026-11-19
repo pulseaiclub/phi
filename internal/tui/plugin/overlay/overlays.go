@@ -1,10 +1,13 @@
 package overlay
 
 import (
+	"time"
+
 	"github.com/pulseaiclub/xui"
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/layout"
+	uistoast "github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 	"github.com/pulseaiclub/phi/internal/tui/runtime"
 )
@@ -21,6 +24,24 @@ type ActivitySink interface {
 	Current() controller.Activity
 }
 
+// ToastSink shows a toast in the current frame (resolve feedback).
+type ToastSink interface {
+	Show(message string, kind uistoast.ToastKind, d time.Duration)
+}
+
+// Deps carries the collaborators the root wires as method values.
+type Deps struct {
+	Theme                  components.Theme
+	Activity               ActivitySink
+	Composer               overlayComposer
+	FocusEditor, FocusChat func()
+	// Retry reruns the last failed prompt; false means nothing to retry.
+	Retry func() bool
+	// Copy adapts xui's error-returning clipboard to a bool.
+	Copy  func(text string) bool
+	Toast ToastSink
+}
+
 // Plugin owns the modal error UI that replaces the composer slot.
 type Plugin struct {
 	theme    components.Theme
@@ -28,26 +49,24 @@ type Plugin struct {
 	activity ActivitySink
 	composer overlayComposer
 
-	focusEditor    func()
-	focusChat      func()
-	onErrorResolve func(controller.ErrorReply, string)
+	focusEditor func()
+	focusChat   func()
+	retry       func() bool
+	copy        func(text string) bool
+	toast       ToastSink
 }
 
-// New builds overlay state handlers.
-func New(
-	theme components.Theme,
-	activity ActivitySink,
-	composer overlayComposer,
-	focusEditor, focusChat func(),
-	onErrorResolve func(controller.ErrorReply, string),
-) *Plugin {
+// New builds the overlay plugin from its deps.
+func New(deps Deps) *Plugin {
 	return &Plugin{
-		theme:          theme,
-		activity:       activity,
-		composer:       composer,
-		focusEditor:    focusEditor,
-		focusChat:      focusChat,
-		onErrorResolve: onErrorResolve,
+		theme:       deps.Theme,
+		activity:    deps.Activity,
+		composer:    deps.Composer,
+		focusEditor: deps.FocusEditor,
+		focusChat:   deps.FocusChat,
+		retry:       deps.Retry,
+		copy:        deps.Copy,
+		toast:       deps.Toast,
 	}
 }
 

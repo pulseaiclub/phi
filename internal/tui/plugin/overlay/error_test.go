@@ -3,28 +3,64 @@ package overlay
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pulseaiclub/xui"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/components"
+	"github.com/pulseaiclub/phi/internal/components/layout"
+	"github.com/pulseaiclub/phi/internal/components/status"
+	uistoast "github.com/pulseaiclub/phi/internal/components/toast"
+	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 	"github.com/pulseaiclub/phi/internal/tui/plugin/activity"
 )
 
 const testErrText = "request ended without sending any chunks"
 
-// errorPlugin builds overlays whose resolve callback records replies.
-func errorPlugin(replies *[]controller.ErrorReply, texts *[]string) *Plugin {
-	return New(
-		components.DefaultTheme(),
-		activity.New(),
-		nil, nil, nil,
-		func(r controller.ErrorReply, text string) {
-			*replies = append(*replies, r)
-			*texts = append(*texts, text)
-		},
-	)
+// resolveRecorder observes the reply side effects applyReply performs.
+type resolveRecorder struct {
+	retryCalls int
+	copied     []string
+	toasts     []string
+}
+
+func (r *resolveRecorder) empty() bool {
+	return r.retryCalls == 0 && len(r.copied) == 0 && len(r.toasts) == 0
+}
+
+type recordingToast struct{ rec *resolveRecorder }
+
+func (t *recordingToast) Show(message string, _ uistoast.ToastKind, _ time.Duration) {
+	t.rec.toasts = append(t.rec.toasts, message)
+}
+
+// testActivity builds a real activity plugin over a no-op status slot.
+func testActivity() *activity.Plugin {
+	th := components.DefaultTheme()
+	return activity.New(th, status.NewSpinner(th.ToolName), activity.Deps{
+		Snapshot:      func() session.Snapshot { return session.Snapshot{} },
+		ContextWindow: func() int { return 0 },
+		Labels:        nopLabels{},
+	})
+}
+
+type nopLabels struct{}
+
+func (nopLabels) SetBottomLeftLabel(layout.BorderLabel) {}
+func (nopLabels) ClearBottomLeftLabel()                 {}
+
+// errorPlugin builds overlays whose reply side effects record into rec.
+func errorPlugin(rec *resolveRecorder) *Plugin {
+	return New(Deps{
+		Theme:    components.DefaultTheme(),
+		Activity: testActivity(),
+		Retry:    func() bool { rec.retryCalls++; return true },
+		Copy:     func(text string) bool { rec.copied = append(rec.copied, text); return true },
+		Toast:    &recordingToast{rec: rec},
+	})
 }
 
 func beginErrorAsk(o *Plugin) {
@@ -32,9 +68,8 @@ func beginErrorAsk(o *Plugin) {
 }
 
 func TestErrorAskRendersAndResolves(t *testing.T) {
-	var replies []controller.ErrorReply
-	var texts []string
-	o := errorPlugin(&replies, &texts)
+	rec := &resolveRecorder{}
+	o := errorPlugin(rec)
 	beginErrorAsk(o)
 	require.NotNil(t, o.err, "expected errorAsk")
 	require.True(t, o.Active(), "error dialog must block the composer")
@@ -49,16 +84,14 @@ func TestErrorAskRendersAndResolves(t *testing.T) {
 
 	o.acceptErrorOption(errOptRetry)
 	require.Nil(t, o.err, "expected cleared")
-	require.Len(t, replies, 1)
-	require.True(t, replies[0].Retry)
-	require.False(t, replies[0].Copy)
-	require.Equal(t, testErrText, texts[0], "resolve callback gets the error text")
+	require.Equal(t, 1, rec.retryCalls)
+	assert.Empty(t, rec.copied)
+	assert.Empty(t, rec.toasts, "a successful retry shows no toast")
 }
 
 func TestErrorAskKeyNavigation(t *testing.T) {
-	var replies []controller.ErrorReply
-	var texts []string
-	o := errorPlugin(&replies, &texts)
+	rec := &resolveRecorder{}
+	o := errorPlugin(rec)
 	beginErrorAsk(o)
 	ctx := &components.EventContext{}
 
@@ -69,34 +102,30 @@ func TestErrorAskKeyNavigation(t *testing.T) {
 	o.handleErrorKey(ctx, xui.KeyEvent{Press: true, Code: xui.KeyUp})
 	require.Equal(t, errOptCopy, o.err.selected)
 
-	// Enter on Copy resolves with Copy=true.
+	// Enter on Copy copies the original error text.
 	o.handleErrorKey(ctx, xui.KeyEvent{Press: true, Code: xui.KeyEnter})
-	require.Len(t, replies, 1)
-	require.True(t, replies[0].Copy)
-	require.False(t, replies[0].Retry)
+	require.Equal(t, []string{testErrText}, rec.copied)
+	require.Zero(t, rec.retryCalls)
 	require.Nil(t, o.err)
 }
 
 func TestErrorAskEscapeDismisses(t *testing.T) {
-	var replies []controller.ErrorReply
-	var texts []string
-	o := errorPlugin(&replies, &texts)
+	rec := &resolveRecorder{}
+	o := errorPlugin(rec)
 	beginErrorAsk(o)
 	ctx := &components.EventContext{}
 	o.handleErrorKey(ctx, xui.KeyEvent{Press: true, Code: xui.KeyEscape})
-	require.Len(t, replies, 1, "escape should resolve")
-	require.False(t, replies[0].Retry)
-	require.False(t, replies[0].Copy)
+	require.Nil(t, o.err, "escape should resolve")
+	require.True(t, rec.empty(), "escape resolves without side effects")
 }
 
 func TestErrorDismissClearsOverlay(t *testing.T) {
-	var replies []controller.ErrorReply
-	var texts []string
-	o := errorPlugin(&replies, &texts)
+	rec := &resolveRecorder{}
+	o := errorPlugin(rec)
 	beginErrorAsk(o)
 	o.Apply(controller.OverlayMsg{Kind: controller.OverlayErrorDismiss})
 	require.Nil(t, o.err, "overlay should clear without resolving")
-	require.Empty(t, replies, "dismiss must not invoke the callback")
+	require.True(t, rec.empty(), "dismiss must not trigger side effects")
 }
 
 func TestErrorAskHeightAccountsForWrapping(t *testing.T) {
@@ -109,7 +138,7 @@ func TestErrorAskHeightAccountsForWrapping(t *testing.T) {
 	require.GreaterOrEqual(t, h, 2+1+1+3+1+len(errorOptionLabels)+1)
 
 	// Every option row must be inside the border (row 0 and h-1 are the frame).
-	o := testPlugin(activity.New())
+	o := testPlugin(testActivity())
 	o.err = st
 	surf := o.drawError(components.DrawContext{Max: components.Size{Width: 60, Height: h}}, 60, h)
 	plain := components.SurfaceText(surf)
@@ -132,7 +161,7 @@ func errorBodyText(st *errorAskState, width, height int) string {
 
 func TestErrorAskConstrainedHeightsKeepActions(t *testing.T) {
 	st := &errorAskState{message: strings.Repeat("long wrapped error ", 20)}
-	o := testPlugin(activity.New())
+	o := testPlugin(testActivity())
 	o.err = st
 
 	for _, height := range []int{8, 9} {
@@ -148,7 +177,7 @@ func TestErrorAskConstrainedHeightsKeepActions(t *testing.T) {
 
 func TestErrorAskNarrowWidthWrapsActionsWithoutOverwritingBorder(t *testing.T) {
 	st := &errorAskState{message: strings.Repeat("error ", 20), selected: errOptCopy}
-	o := testPlugin(activity.New())
+	o := testPlugin(testActivity())
 	o.err = st
 
 	for _, width := range []int{12, 8} {
@@ -164,7 +193,7 @@ func TestErrorAskNarrowWidthWrapsActionsWithoutOverwritingBorder(t *testing.T) {
 
 func TestErrorAskEmptyMessageUsesMinimumLayout(t *testing.T) {
 	st := &errorAskState{}
-	o := testPlugin(activity.New())
+	o := testPlugin(testActivity())
 	o.err = st
 
 	require.Equal(t, 8, st.preferredAskHeight(60, 0))
@@ -176,14 +205,11 @@ func TestErrorAskEmptyMessageUsesMinimumLayout(t *testing.T) {
 }
 
 func TestErrorAskKeepsOriginalMessageForCopy(t *testing.T) {
-	var replies []controller.ErrorReply
-	var texts []string
-	o := errorPlugin(&replies, &texts)
+	rec := &resolveRecorder{}
+	o := errorPlugin(rec)
 	original := "  error with surrounding whitespace  "
 	o.beginErrorAsk(controller.OverlayMsg{ErrorText: original})
 	o.acceptErrorOption(errOptCopy)
 
-	require.Len(t, replies, 1)
-	require.True(t, replies[0].Copy)
-	require.Equal(t, original, texts[0])
+	require.Equal(t, []string{original}, rec.copied, "copy gets the original, untrimmed text")
 }
