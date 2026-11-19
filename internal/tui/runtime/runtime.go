@@ -39,6 +39,10 @@ type Runtime struct {
 	fullPanes     []FullPane
 	bottomPanes   []BottomPane
 	submitFilters []SubmitFilter
+
+	batchStart  []BatchStart
+	batchEnd    []BatchEnd
+	batchMarked bool
 }
 
 // New returns an empty Runtime.

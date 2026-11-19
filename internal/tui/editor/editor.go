@@ -25,6 +25,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/plugin/code"
 	"github.com/pulseaiclub/phi/internal/tui/plugin/diff"
 	"github.com/pulseaiclub/phi/internal/tui/plugin/overlay"
+	sessionplugin "github.com/pulseaiclub/phi/internal/tui/plugin/session"
 	toastplugin "github.com/pulseaiclub/phi/internal/tui/plugin/toast"
 	"github.com/pulseaiclub/phi/internal/tui/runtime"
 	"github.com/pulseaiclub/phi/internal/tui/submit"
@@ -62,6 +63,7 @@ type Editor struct {
 	diffPlugin    *diff.Plugin
 	codePlugin    *code.Plugin
 	bashPlugin    *bash.Plugin
+	sessionPlugin *sessionplugin.Plugin
 
 	// The TUI redraws at 60fps; the flowing status highlight moves every fourth
 	// frame, matching the ~80ms cadence status.Spinner used to declare.
@@ -152,6 +154,20 @@ func NewEditor(
 	e.rt.Register(e.codePlugin)
 	e.bashPlugin = bash.New(e.transcript, e.composer, e.bus, e.ctrl)
 	e.rt.Register(e.bashPlugin)
+	e.sessionPlugin = sessionplugin.New(sessionplugin.Deps{
+		Store:    e.transcript,
+		Loop:     e.ctrl,
+		Activity: e.activityPlugin,
+		Errors:   e.overlayPlugin,
+	})
+	e.rt.Register(e.sessionPlugin)
+	// Drain-batch postludes, in the shell's historical order: project widgets,
+	// derive activity, refresh the status slot, then restore bottom pinning.
+	e.rt.OnBatchStart(e.sessionPlugin.CaptureBatch)
+	e.rt.OnBatchEnd(e.sessionPlugin.PostSync)
+	e.rt.OnBatchEnd(e.syncActivityFromSnap)
+	e.rt.OnBatchEnd(e.syncStatusSlot)
+	e.rt.OnBatchEnd(e.sessionPlugin.PostStick)
 
 	builtins := commands.NewBuiltinRegistry(
 		e.bus,
@@ -243,24 +259,6 @@ func (e *Editor) Update(m controller.Msg) {
 		e.composer.ApplyMentionResults(msg)
 	case controller.BashSuggestionsMsg:
 		e.composer.ApplyBashSuggestions(msg)
-	case controller.LoopStartedMsg:
-		if e.ctrl.CurrentLoop(msg.Gen) {
-			e.overlayPlugin.ResolveError(controller.ErrorReply{})
-			e.activityPlugin.Apply(controller.ActivityWaiting)
-		}
-	case controller.LoopFinishedMsg:
-		if !e.ctrl.CurrentLoop(msg.Gen) {
-			return
-		}
-		e.transcript.ApplySession(session.CancelStreaming{})
-		e.transcript.Sync()
-		e.activityPlugin.Apply(controller.ActivityIdle)
-		if msg.Cancelled {
-			e.activityPlugin.Apply(controller.ActivityCancelled)
-		}
-		if msg.ErrorText != "" {
-			e.overlayPlugin.Apply(controller.OverlayMsg{Kind: controller.OverlayErrorAsk, ErrorText: msg.ErrorText})
-		}
 	case controller.FooterMsg:
 		e.applyFooterMessage(msg)
 	case controller.ThemeMsg:
@@ -273,37 +271,16 @@ func (e *Editor) Update(m controller.Msg) {
 	}
 }
 
+// drainBus applies the pending batch through the runtime: plugins handle
+// their subscribed types, session postludes keep the single-Sync semantics.
 func (e *Editor) drainBus() {
-	batch := e.bus.Drain()
-	if len(batch) == 0 {
-		return
-	}
-	atBottom := e.transcript.AtBottom()
-	agentEvent := false
-	for _, m := range batch {
-		switch msg := m.(type) {
-		case controller.SessionEventMsg:
-			if msg.Gen != 0 && !e.ctrl.CurrentLoop(msg.Gen) {
-				continue
-			}
-			agentEvent = true
-			e.transcript.ApplySession(msg.Event)
-		case controller.JobProgressMsg:
-			if e.transcript.ApplyJobProgress(msg.Progress) {
-				agentEvent = true
-			}
-		default:
-			e.Update(m)
-		}
-	}
-	if agentEvent {
-		e.transcript.Sync()
-		e.activityPlugin.SyncFromSnap(e.transcript.Snapshot())
-		e.syncStatusSlot()
-		if atBottom {
-			e.transcript.StickToBottom()
-		}
-	}
+	e.rt.DispatchBatch(e.bus.Drain())
+}
+
+// syncActivityFromSnap derives activity from the post-batch snapshot; a named
+// method so the root registers method values, not closures.
+func (e *Editor) syncActivityFromSnap() {
+	e.activityPlugin.SyncFromSnap(e.transcript.Snapshot())
 }
 
 func (e *Editor) onActivityChange() {
