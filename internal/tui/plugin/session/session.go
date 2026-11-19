@@ -8,6 +8,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/pulseaiclub/phi/internal/tui/pathutil"
 	"github.com/pulseaiclub/phi/internal/tui/runtime"
 )
 
@@ -42,6 +43,8 @@ type Deps struct {
 	Loop     LoopPort
 	Activity ActivitySink
 	Errors   ErrorAsker
+	// Bus publishes the branch label; the composer plugin consumes it.
+	Bus *controller.Bus
 }
 
 // Plugin subscribes the session-side messages and keeps the batch state
@@ -63,6 +66,16 @@ func (p *Plugin) Register(rt *runtime.Runtime) {
 	runtime.Subscribe(rt, p.onJobProgress)
 	runtime.Subscribe(rt, p.onLoopStarted)
 	runtime.Subscribe(rt, p.onLoopFinished)
+}
+
+// WatchBranch hot-reloads the git branch in the path label when the repo
+// HEAD changes (checkout from another terminal, editor, …).
+func (p *Plugin) WatchBranch(cwd string) {
+	pathutil.WatchBranch(cwd, func(label string) {
+		if p.deps.Bus != nil {
+			p.deps.Bus.Publish(controller.BranchLabelMsg{Text: label})
+		}
+	})
 }
 
 // CaptureBatch snapshots the scroll position before the batch applies.

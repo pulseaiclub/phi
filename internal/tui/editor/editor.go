@@ -16,7 +16,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 	"github.com/pulseaiclub/phi/internal/tui/footer"
-	"github.com/pulseaiclub/phi/internal/tui/pathutil"
 	activityplugin "github.com/pulseaiclub/phi/internal/tui/plugin/activity"
 	"github.com/pulseaiclub/phi/internal/tui/plugin/bash"
 	branchesplugin "github.com/pulseaiclub/phi/internal/tui/plugin/branches"
@@ -144,6 +143,7 @@ func NewEditor(
 		Loop:     e.ctrl,
 		Activity: e.activityPlugin,
 		Errors:   e.overlayPlugin,
+		Bus:      e.bus,
 	})
 	e.rt.Register(e.sessionPlugin)
 	// Drain-batch postludes, in the shell's historical order: project widgets,
@@ -485,12 +485,9 @@ func (e *Editor) StartUpdateCheck(cacheDir string) {
 	}()
 }
 
-// StartBranchWatch hot-reloads the git branch in the path label when the
-// repo HEAD changes (checkout from another terminal, editor, …).
+// StartBranchWatch delegates to the session plugin; cmd calls it at startup.
 func (e *Editor) StartBranchWatch() {
-	pathutil.WatchBranch(e.cwd, func(label string) {
-		e.Publish(controller.BranchLabelMsg{Text: label})
-	})
+	e.sessionPlugin.WatchBranch(e.cwd)
 }
 
 func (e *Editor) applyTheme(name string) {

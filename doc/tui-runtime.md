@@ -1,9 +1,9 @@
 # TUI runtime + plugin
 
-The shell is moving from "one Editor switch" to a **runtime + plugin** shape:
+The shell is a **runtime + plugin** architecture:
 `internal/tui/runtime` hosts plugin capabilities, `internal/tui/plugin/<name>`
 owns one feature each, and `editor.NewEditor` stays the composition root that
-constructs the runtime and registers plugins.
+constructs the runtime, the command registry, and every plugin.
 
 ## Dependency direction
 
@@ -24,8 +24,13 @@ editor (root) ──► plugin/<name> ──► runtime ──► controller / c
 | Capability | API | Semantics |
 | ---------- | --- | --------- |
 | Msg handling | `runtime.Subscribe(rt, func(m T))` | Per concrete `controller.Msg` type; handlers run on the UI goroutine in registration order |
-| Dispatch | `rt.Dispatch(m) bool` | True when at least one handler ran; `Editor.Update` falls through to the shell switch otherwise |
+| Dispatch | `rt.Dispatch(m)` / `rt.DispatchBatch(batch)` | Batch dispatch runs start hooks, per-msg handlers, then marked end hooks |
 | Overlay layers | `rt.AddOverlay(z, draw)` / `rt.Overlays(ctx)` | Full-surface layers above the root layout, ascending z, stable within one z |
+| Full panes | `AddFullPane` / `ActiveFullPane` / `CloseFullPanesExcept` | Whole-frame panes; one-frame exclusivity enforced by the runtime |
+| Bottom panes | `AddBottomPane` / `BottomHeight` / `DrawBottom` / `BottomKey` | Composer-slot panes (error ask) |
+| Submit filters | `AddSubmitFilter` / `FilterSubmit` | First filter that claims the line wins |
+| Frame hooks | `OnFrame` / `Frame` | Once per UI frame, before layout |
+| Batch hooks | `OnBatchStart` / `MarkBatchEvent` / `OnBatchEnd` | Postludes run once per marked batch, in root-registered order |
 | Theme fan-out | `rt.OnTheme(fn)` / `rt.ApplyTheme(th)` | Registration order |
 | Plugin entry | `rt.Register(p)` / `runtime.Plugin` | Called once during assembly; plugins must be fully constructed (no two-phase init) |
 
@@ -47,31 +52,29 @@ tests and golden frames can freeze the toast lifecycle.
 
 ## Migration status: complete
 
-All eight features are plugins: `toast`, `overlay`, `bash`, `diff`, `code`,
-`session`, `activity`, `composer`.
-
-Extension points in the runtime:
-
-| Point | Consumer |
-| ----- | -------- |
-| `Subscribe` per msg type | toast, overlay, bash (submit filter below), session, activity, composer |
-| `AddSubmitFilter` | bash claims `!cmd` lines before the shell submit path |
-| `AddFullPane` / `ActiveFullPane` | diff, code (Draw/Handle interception, blocksComposer) |
-| `AddBottomPane` / `BottomHeight` / `DrawBottom` / `BottomKey` | overlay (error ask) |
-| `AddOverlay` (z-ordered surface layers) | toast |
-| `OnTheme` / `ApplyTheme` | every themed plugin |
-| `OnBatchStart` / `MarkBatchEvent` / `OnBatchEnd` / `DispatchBatch` | session projection postludes |
+Runtime-registered plugins (implement `runtime.Plugin`): `toast`, `overlay`,
+`bash`, `diff`, `code`, `session`, `activity`, `composer`. Command-domain
+plugins beside them (own slash commands + pickers, no runtime concerns):
+`sessions`, `branches`, `skills`, `settings`. The submit path (`Submitter`)
+stays a shell coordinator built from ports (`ActivityPort`, `ShellHooks`) —
+it is the submit adapter, not a feature plugin.
 
 The drain-batch semantics survived the migration: `Editor.drainBus` is now
 `rt.DispatchBatch(bus.Drain())`, and the root registers the historical
 postlude order explicitly (sync → activity-from-snap → status slot →
 stick-to-bottom). The order is root composition, not hidden plugin coupling.
 
-`Editor.Update` keeps exactly four shell cases: `SubmitMsg` (submit filter +
-submitter), `CancelStreamMsg`, `FooterMsg` (update hint — the activity plugin
-consumes the Set/ClearIf kinds), and `ThemeMsg` (root resolves + fans out).
-`Submitter` stays a shell coordinator built from ports (`ActivityPort`,
-`ShellHooks`); it is a submit-path adapter, not a feature plugin.
+`Editor.Update` keeps exactly two shell cases: `FooterMsg` (update hint — the
+activity plugin consumes the Set/ClearIf kinds via its own subscription) and
+`ThemeMsg` (root resolves the theme and fans out). The other eleven msg types
+are plugin subscriptions: `SubmitMsg`, `CancelStreamMsg`, `OverlayMsg`,
+`ToastMsg`, `SessionEventMsg`, `JobProgressMsg`, `LoopStartedMsg`,
+`LoopFinishedMsg`, `MentionResultsMsg`, `BashSuggestionsMsg`, `BranchLabelMsg`.
+
+Adding a feature today: one plugin package + one constructor line in
+`NewEditor`. Adding a slash command with a picker: one command-domain package
+that registers its `commands.Command` and wires its picker through
+consumer-shaped ports — no `Bind`-style late callbacks anywhere.
 
 `internal/tui/archtest` guards the red lines in CI: runtime imports no
 plugin package, and plugins never import each other. Plugins that need
