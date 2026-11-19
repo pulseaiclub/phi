@@ -28,6 +28,18 @@ type Toast struct {
 	Kind    ToastKind
 	Until   time.Time
 	Theme   components.Theme
+
+	// Now overrides the wall clock for tests and golden frames; nil means
+	// time.Now. Show/Visible/Draw all read it, so a fixed clock freezes the
+	// whole toast lifecycle.
+	Now func() time.Time
+}
+
+func (t *Toast) clock() time.Time {
+	if t.Now == nil {
+		return time.Now()
+	}
+	return t.Now()
 }
 
 // Show displays message for d (default 2s).
@@ -37,7 +49,7 @@ func (t *Toast) Show(message string, kind ToastKind, d time.Duration) {
 	}
 	t.Message = message
 	t.Kind = kind
-	t.Until = time.Now().Add(d)
+	t.Until = t.clock().Add(d)
 }
 
 // Clear hides the toast immediately.
@@ -48,7 +60,7 @@ func (t *Toast) Clear() {
 
 // Visible reports whether the toast should be drawn.
 func (t *Toast) Visible() bool {
-	return t.Message != "" && time.Now().Before(t.Until)
+	return t.Message != "" && t.clock().Before(t.Until)
 }
 
 func (t *Toast) theme() components.Theme {

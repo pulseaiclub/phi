@@ -13,12 +13,12 @@ import (
 func (e *Editor) showChanges(restore bool) {
 	root, changes, err := gitx.ChangedFiles(context.Background(), e.cwd)
 	if err != nil {
-		e.toast.Show(err.Error(), toast.ToastError, 4*time.Second)
+		e.toastPlugin.Show(err.Error(), toast.ToastError, 4*time.Second)
 		e.composer.FocusChat()
 		return
 	}
 	if len(changes) == 0 {
-		e.toast.Show("No changes", toast.ToastSuccess, 2*time.Second)
+		e.toastPlugin.Show("No changes", toast.ToastSuccess, 2*time.Second)
 		e.composer.FocusChat()
 		return
 	}
@@ -35,7 +35,11 @@ func (e *Editor) showChanges(restore bool) {
 	if restore {
 		e.composer.RestoreListState(e.diffList)
 		if _, exists := byID[e.diffList.SelectedID]; !exists {
-			e.toast.Show("Selected change is no longer available; list refreshed", toast.ToastWarning, 3*time.Second)
+			e.toastPlugin.Show(
+				"Selected change is no longer available; list refreshed",
+				toast.ToastWarning,
+				3*time.Second,
+			)
 		}
 	}
 }

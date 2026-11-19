@@ -23,6 +23,8 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/footer"
 	"github.com/pulseaiclub/phi/internal/tui/overlays"
 	"github.com/pulseaiclub/phi/internal/tui/pathutil"
+	toastplugin "github.com/pulseaiclub/phi/internal/tui/plugin/toast"
+	"github.com/pulseaiclub/phi/internal/tui/runtime"
 	"github.com/pulseaiclub/phi/internal/tui/submit"
 	"github.com/pulseaiclub/phi/internal/tui/transcript"
 	"github.com/pulseaiclub/phi/internal/util/update"
@@ -48,14 +50,16 @@ type Editor struct {
 	bus   *controller.Bus
 	cwd   string
 
-	transcript *transcript.TranscriptPane
-	composer   *composer.ComposerPane
-	footer     *footer.FooterChrome
-	overlays   *overlays.Overlays
-	toast      toast.Toast
-	diff       *pane.Diff
-	code       *pane.Code
-	diffList   listpicker.State
+	rt *runtime.Runtime
+
+	transcript  *transcript.TranscriptPane
+	composer    *composer.ComposerPane
+	footer      *footer.FooterChrome
+	overlays    *overlays.Overlays
+	toastPlugin *toastplugin.Plugin
+	diff        *pane.Diff
+	code        *pane.Code
+	diffList    listpicker.State
 
 	// The TUI redraws at 60fps; the flowing status highlight moves every fourth
 	// frame, matching the ~80ms cadence status.Spinner used to declare.
@@ -89,18 +93,20 @@ func NewEditor(
 	modelNames []string,
 ) *Editor {
 	e := &Editor{
-		vx:       vx,
-		App:      application,
-		theme:    theme,
-		cwd:      cwd,
-		bus:      bus,
-		ctrl:     ctrl,
-		toast:    toast.Toast{Theme: theme},
-		composer: composer.NewComposerPane(theme, modelLabel, cwd),
-		footer:   footer.NewFooterChrome(theme),
-		spin:     status.NewSpinner(theme.ToolName),
-		activity: controller.NewActivityHandler(),
+		vx:          vx,
+		App:         application,
+		theme:       theme,
+		cwd:         cwd,
+		bus:         bus,
+		ctrl:        ctrl,
+		rt:          runtime.New(),
+		toastPlugin: toastplugin.New(theme),
+		composer:    composer.NewComposerPane(theme, modelLabel, cwd),
+		footer:      footer.NewFooterChrome(theme),
+		spin:        status.NewSpinner(theme.ToolName),
+		activity:    controller.NewActivityHandler(),
 	}
+	e.rt.Register(e.toastPlugin)
 	e.activity.SetOnChange(e.onActivityChange)
 	e.composer.SetBashPredictor(composer.NewBashPredictor(cwd))
 	// Prompt recall is opt-in: it persists what the user typed under the home
@@ -196,8 +202,12 @@ func (e *Editor) Publish(m controller.Msg) {
 	e.bus.Publish(m)
 }
 
-// Update applies one message on the UI goroutine.
+// Update applies one message on the UI goroutine. Runtime plugins get the
+// types they subscribed to; the switch below keeps the unmigrated shell msgs.
 func (e *Editor) Update(m controller.Msg) {
+	if e.rt.Dispatch(m) {
+		return
+	}
 	switch msg := m.(type) {
 	case controller.SubmitMsg:
 		e.submitter.Submit(msg.Text)
@@ -229,8 +239,6 @@ func (e *Editor) Update(m controller.Msg) {
 		}
 	case controller.FooterMsg:
 		e.applyFooterMessage(msg)
-	case controller.ToastMsg:
-		e.toast.Show(msg.Message, msg.Kind, msg.Duration)
 	case controller.ThemeMsg:
 		e.applyTheme(msg.Name)
 	case controller.BranchLabelMsg:
@@ -439,16 +447,16 @@ func (e *Editor) handleErrorReply(r controller.ErrorReply, text string) {
 		e.activity.Apply(controller.ActivityWaiting)
 		if !e.ctrl.RetryLastPrompt() {
 			e.activity.Apply(controller.ActivityIdle)
-			e.toast.Show("Nothing to retry", toast.ToastWarning, 2*time.Second)
+			e.toastPlugin.Show("Nothing to retry", toast.ToastWarning, 2*time.Second)
 		}
 	case r.Copy:
 		if text == "" {
 			return
 		}
 		if e.copyToClipboard(text) {
-			e.toast.Show("Copied to clipboard", toast.ToastSuccess, 2*time.Second)
+			e.toastPlugin.Show("Copied to clipboard", toast.ToastSuccess, 2*time.Second)
 		} else {
-			e.toast.Show("Clipboard unavailable", toast.ToastError, 2*time.Second)
+			e.toastPlugin.Show("Clipboard unavailable", toast.ToastError, 2*time.Second)
 		}
 	}
 }
@@ -482,7 +490,7 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	e.drainBus()
 
 	e.advanceSpinner()
-	_ = e.toast.Visible()
+	_ = e.toastPlugin.Visible()
 
 	if e.diff.Active() {
 		return e.drawOverlay(ctx, e.diff.Draw(ctx))
@@ -563,30 +571,17 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	if list, ok := e.composer.ListOverlay(ctx); ok {
 		root.Children = append(root.Children, list)
 	}
-	if e.toast.Visible() {
-		toastSurf := e.toast.Draw(ctx)
-		root.Children = append(root.Children, components.SubSurface{
-			Origin:  components.Point{X: 0, Y: 0},
-			Surface: toastSurf,
-			Z:       40,
-		})
-	}
+	root.Children = append(root.Children, e.rt.Overlays(ctx)...)
 	return root
 }
 
 // drawOverlay finishes a full-screen overlay: it keeps keyboard focus on the
 // Editor (palette and slash leave it on Chat, where keys would land under the
-// overlay) and stacks the toast on top.
+// overlay) and stacks the runtime overlay layers (toast) on top.
 func (e *Editor) drawOverlay(ctx components.DrawContext, root components.Surface) components.Surface {
 	e.captureOverlayFocus()
 	root.Widget = e
-	if e.toast.Visible() {
-		root.Children = append(root.Children, components.SubSurface{
-			Origin:  components.Point{X: 0, Y: 0},
-			Surface: e.toast.Draw(ctx),
-			Z:       40,
-		})
-	}
+	root.Children = append(root.Children, e.rt.Overlays(ctx)...)
 	return root
 }
 
@@ -635,7 +630,7 @@ func (e *Editor) applyTheme(name string) {
 	}
 	e.theme = th
 	e.composer.SetTheme(th)
-	e.toast.Theme = th
+	e.rt.ApplyTheme(th)
 	e.transcript.SetTheme(th)
 	e.footer.SetTheme(th)
 	e.spin.Style = th.ToolName
@@ -643,6 +638,6 @@ func (e *Editor) applyTheme(name string) {
 	e.overlays.SetTheme(th)
 	e.diff.SetTheme(th)
 	e.code.SetTheme(th)
-	e.toast.Show("Theme: "+name, toast.ToastSuccess, 2*time.Second)
+	e.toastPlugin.Show("Theme: "+name, toast.ToastSuccess, 2*time.Second)
 	e.vx.QueueRefresh()
 }

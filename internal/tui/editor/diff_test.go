@@ -100,8 +100,8 @@ func TestDiffPickerEmptyAndGitError(t *testing.T) {
 			assert.False(t, e.diff.Active())
 			_, open := e.composer.ListOverlay(components.DrawContext{})
 			assert.False(t, open)
-			assert.Contains(t, e.toast.Message, tc.want)
-			assert.Equal(t, tc.kind, e.toast.Kind)
+			assert.Contains(t, e.toastPlugin.Current().Message, tc.want)
+			assert.Equal(t, tc.kind, e.toastPlugin.Current().Kind)
 		})
 	}
 }
@@ -116,7 +116,7 @@ func TestDiffPickerRefreshAndExplicitCommand(t *testing.T) {
 	gitFixtureRun(t, dir, "add", ".")
 	gitFixtureRun(t, dir, "commit", "-m", "clean")
 	diffKey(e, xui.KeyEscape, 0)
-	assert.Equal(t, "No changes", e.toast.Message)
+	assert.Equal(t, "No changes", e.toastPlugin.Current().Message)
 	assert.False(t, e.diff.Active())
 
 	writeDiffFile(t, dir, "new.txt", "staged content\n")

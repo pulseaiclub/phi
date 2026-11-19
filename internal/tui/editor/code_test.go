@@ -158,7 +158,7 @@ func TestCodePickerSearchError(t *testing.T) {
 	}
 	e := diffEditor(t, filepath.Join(t.TempDir(), "missing"))
 	e.openCode(nil)
-	assert.Contains(t, e.toast.Message, "List files:")
+	assert.Contains(t, e.toastPlugin.Current().Message, "List files:")
 	_, open := e.composer.ListOverlay(components.DrawContext{})
 	assert.False(t, open)
 	assert.False(t, e.code.Active())

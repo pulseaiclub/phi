@@ -15,7 +15,7 @@ func (e *Editor) showCodeFiles() {
 	defer cancel()
 	paths, truncated, err := filesearch.Search(ctx, e.cwd, "", 10000)
 	if err != nil {
-		e.toast.Show("List files: "+err.Error(), toast.ToastError, 4*time.Second)
+		e.toastPlugin.Show("List files: "+err.Error(), toast.ToastError, 4*time.Second)
 		e.composer.FocusChat()
 		return
 	}
