@@ -54,8 +54,8 @@ func New(theme components.Theme, spin *status.Spinner, deps Deps) *Plugin {
 // theme switches, and the per-frame spinner tick.
 func (p *Plugin) Register(rt *runtime.Runtime) {
 	runtime.Subscribe(rt, p.onFooterMsg)
-	rt.OnTheme(p.SetTheme)
-	rt.OnFrame(p.Frame)
+	rt.Theme.On(p.SetTheme)
+	rt.Clock.On(p.Frame)
 }
 
 func (p *Plugin) onFooterMsg(msg controller.FooterMsg) {

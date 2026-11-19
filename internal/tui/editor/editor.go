@@ -148,11 +148,11 @@ func NewEditor(
 	e.rt.Register(e.sessionPlugin)
 	// Drain-batch postludes, in the shell's historical order: project widgets,
 	// derive activity, refresh the status slot, then restore bottom pinning.
-	e.rt.OnBatchStart(e.sessionPlugin.CaptureBatch)
-	e.rt.OnBatchEnd(e.sessionPlugin.PostSync)
-	e.rt.OnBatchEnd(e.syncActivityFromSnap)
-	e.rt.OnBatchEnd(e.activityPlugin.SyncStatusSlot)
-	e.rt.OnBatchEnd(e.sessionPlugin.PostStick)
+	e.rt.Msgs.OnBatchStart(e.sessionPlugin.CaptureBatch)
+	e.rt.Msgs.OnBatchEnd(e.sessionPlugin.PostSync)
+	e.rt.Msgs.OnBatchEnd(e.syncActivityFromSnap)
+	e.rt.Msgs.OnBatchEnd(e.activityPlugin.SyncStatusSlot)
+	e.rt.Msgs.OnBatchEnd(e.sessionPlugin.PostStick)
 
 	registry := commands.NewCommandRegistry()
 	e.commands = registry
@@ -265,7 +265,7 @@ func (e *Editor) Publish(m controller.Msg) {
 // msgs. A msg type may have both: the plugin handles its slice (activity
 // FooterMsg kinds), the shell keeps the rest (update hint).
 func (e *Editor) Update(m controller.Msg) {
-	e.rt.Dispatch(m)
+	e.rt.Msgs.Dispatch(m)
 	switch msg := m.(type) {
 	case controller.FooterMsg:
 		e.applyFooterMessage(msg)
@@ -277,7 +277,7 @@ func (e *Editor) Update(m controller.Msg) {
 // drainBus applies the pending batch through the runtime: plugins handle
 // their subscribed types, session postludes keep the single-Sync semantics.
 func (e *Editor) drainBus() {
-	e.rt.DispatchBatch(e.bus.Drain())
+	e.rt.Msgs.DispatchBatch(e.bus.Drain())
 }
 
 // syncActivityFromSnap derives activity from the post-batch snapshot; a named
@@ -298,11 +298,11 @@ func (e *Editor) applyFooterMessage(msg controller.FooterMsg) {
 	}
 }
 
-func (e *Editor) blocksComposer() bool { return e.rt.BlocksComposer() }
+func (e *Editor) blocksComposer() bool { return e.rt.Panes.BlocksComposer() }
 
 // handleOverlayKey routes composer keys to runtime bottom panes (error ask).
 func (e *Editor) handleOverlayKey(ctx *components.EventContext, ke xui.KeyEvent) bool {
-	return e.rt.BottomKey(ctx, ke)
+	return e.rt.Panes.Key(ctx, ke)
 }
 
 func (e *Editor) captureOverlayFocus() {
@@ -316,7 +316,7 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 		e.composer.Handle(ctx, ev)
 		return
 	}
-	if pane, ok := e.rt.ActiveFullPane(); ok {
+	if pane, ok := e.rt.Panes.Active(); ok {
 		pane.Handle(ctx, ev)
 		return
 	}
@@ -359,10 +359,10 @@ func (e *Editor) addPendingRef(ref chat.Ref) {
 func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	e.drainBus()
 
-	e.rt.Frame()
+	e.rt.Clock.Tick()
 	_ = e.toastPlugin.Visible()
 
-	if pane, ok := e.rt.ActiveFullPane(); ok {
+	if pane, ok := e.rt.Panes.Active(); ok {
 		return e.drawOverlay(ctx, pane.Draw(ctx))
 	}
 
@@ -373,7 +373,7 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	var chatH int
 	// askActive mirrors the old overlays.Active(): the ask pane replaces the
 	// composer slot and suppresses the pickers below.
-	askH, askActive := e.rt.BottomHeight(maxSize.Width, ctx.Method)
+	askH, askActive := e.rt.Panes.Height(maxSize.Width, ctx.Method)
 	if askActive {
 		chatH = askH
 		maxChatH := maxSize.Height - footerH - 3
@@ -409,7 +409,7 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	listH = e.transcript.ListHeight()
 
 	var chatSurf components.Surface
-	if surf, ok := e.rt.DrawBottom(ctx, maxSize.Width, chatH); ok {
+	if surf, ok := e.rt.Panes.Draw(ctx, maxSize.Width, chatH); ok {
 		chatSurf = surf
 	} else {
 		chatSurf = e.composer.DrawChat(ctx, maxSize.Width, chatH)
@@ -441,7 +441,7 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	if list, ok := e.composer.ListOverlay(ctx); ok {
 		root.Children = append(root.Children, list)
 	}
-	root.Children = append(root.Children, e.rt.Overlays(ctx)...)
+	root.Children = append(root.Children, e.rt.Layers.Draw(ctx)...)
 	return root
 }
 
@@ -451,7 +451,7 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 func (e *Editor) drawOverlay(ctx components.DrawContext, root components.Surface) components.Surface {
 	e.captureOverlayFocus()
 	root.Widget = e
-	root.Children = append(root.Children, e.rt.Overlays(ctx)...)
+	root.Children = append(root.Children, e.rt.Layers.Draw(ctx)...)
 	return root
 }
 
@@ -496,7 +496,7 @@ func (e *Editor) applyTheme(name string) {
 		return
 	}
 	e.theme = th
-	e.rt.ApplyTheme(th)
+	e.rt.Theme.Apply(th)
 	e.transcript.SetTheme(th)
 	e.footer.SetTheme(th)
 	// overlay, diff, code, and the activity status slot follow via

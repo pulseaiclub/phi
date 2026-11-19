@@ -42,8 +42,8 @@ func New(theme components.Theme, opts ...Option) *Plugin {
 // Register wires the plugin into the runtime.
 func (p *Plugin) Register(rt *runtime.Runtime) {
 	runtime.Subscribe(rt, p.onToastMsg)
-	rt.AddOverlay(zToast, p.draw)
-	rt.OnTheme(p.SetTheme)
+	rt.Layers.Add(zToast, p.draw)
+	rt.Theme.On(p.SetTheme)
 }
 
 // Show displays message for d (default 2s) on the UI goroutine, in the same

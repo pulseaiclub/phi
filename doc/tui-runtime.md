@@ -21,17 +21,17 @@ editor (root) ──► plugin/<name> ──► runtime ──► controller / c
 
 ## Runtime contract (`internal/tui/runtime`)
 
-| Capability | API | Semantics |
-| ---------- | --- | --------- |
-| Msg handling | `runtime.Subscribe(rt, func(m T))` | Per concrete `controller.Msg` type; handlers run on the UI goroutine in registration order |
-| Dispatch | `rt.Dispatch(m)` / `rt.DispatchBatch(batch)` | Batch dispatch runs start hooks, per-msg handlers, then marked end hooks |
-| Overlay layers | `rt.AddOverlay(z, draw)` / `rt.Overlays(ctx)` | Full-surface layers above the root layout, ascending z, stable within one z |
-| Full panes | `AddFullPane` / `ActiveFullPane` / `CloseFullPanesExcept` | Whole-frame panes; one-frame exclusivity enforced by the runtime |
-| Bottom panes | `AddBottomPane` / `BottomHeight` / `DrawBottom` / `BottomKey` | Composer-slot panes (error ask) |
-| Submit filters | `AddSubmitFilter` / `FilterSubmit` | First filter that claims the line wins |
-| Frame hooks | `OnFrame` / `Frame` | Once per UI frame, before layout |
-| Batch hooks | `OnBatchStart` / `MarkBatchEvent` / `OnBatchEnd` | Postludes run once per marked batch, in root-registered order |
-| Theme fan-out | `rt.OnTheme(fn)` / `rt.ApplyTheme(th)` | Registration order |
+`Runtime` composes six single-concern components, one file each; it is a
+composition root, not a god object.
+
+| Component | API | Semantics |
+| --------- | --- | --------- |
+| `rt.Msgs` (`Dispatcher`) | `runtime.Subscribe(rt, func(m T))`, `Dispatch(m)`, `DispatchBatch(batch)`, `OnBatchStart` / `MarkBatchEvent` / `OnBatchEnd` | Handlers per concrete msg type, UI goroutine, registration order; batch postludes run once per marked batch in root-registered order |
+| `rt.Submit` (`SubmitChain`) | `Add(f)` / `Filter(text)` | First filter that claims the line wins |
+| `rt.Layers` (`OverlayStack`) | `Add(z, draw)` / `Draw(ctx)` | Full-surface layers above the root layout, ascending z, stable within one z |
+| `rt.Panes` (`PaneStack`) | `AddFull` / `Active` / `CloseOthers`; `AddBottom` / `Height` / `Draw` / `Key` / `BlocksComposer` | Whole-frame panes with one-frame exclusivity; composer-slot panes (error ask) |
+| `rt.Clock` (`FrameClock`) | `On(fn)` / `Tick()` | Once per UI frame, before layout |
+| `rt.Theme` (`ThemeHub`) | `On(fn)` / `Apply(th)` | Registration order |
 | Plugin entry | `rt.Register(p)` / `runtime.Plugin` | Called once during assembly; plugins must be fully constructed (no two-phase init) |
 
 ## Toast: the first migrated plugin
@@ -79,7 +79,7 @@ stays a shell coordinator built from ports (`ActivityPort`, `ShellHooks`) —
 it is the submit adapter, not a feature plugin.
 
 The drain-batch semantics survived the migration: `Editor.drainBus` is now
-`rt.DispatchBatch(bus.Drain())`, and the root registers the historical
+`rt.Msgs.DispatchBatch(bus.Drain())`, and the root registers the historical
 postlude order explicitly (sync → activity-from-snap → status slot →
 stick-to-bottom). The order is root composition, not hidden plugin coupling.
 

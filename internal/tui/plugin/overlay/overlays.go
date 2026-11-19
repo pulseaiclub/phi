@@ -74,8 +74,8 @@ func New(deps Deps) *Plugin {
 // theme fan-out, and the composer-slot bottom pane.
 func (o *Plugin) Register(rt *runtime.Runtime) {
 	runtime.Subscribe(rt, o.Apply)
-	rt.AddBottomPane(o)
-	rt.OnTheme(o.SetTheme)
+	rt.Panes.AddBottom(o)
+	rt.Theme.On(o.SetTheme)
 }
 
 // SetTheme updates overlay chrome styling.

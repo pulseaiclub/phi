@@ -59,7 +59,7 @@ func (s *Submitter) Register(rt *runtime.Runtime) {
 }
 
 func (s *Submitter) onSubmitMsg(msg controller.SubmitMsg) {
-	if !s.rt.FilterSubmit(msg.Text) {
+	if !s.rt.Submit.Filter(msg.Text) {
 		s.Submit(msg.Text)
 	}
 }

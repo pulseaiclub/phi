@@ -17,7 +17,9 @@ import (
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/pulseaiclub/phi/internal/util/clipboard"
 	"github.com/pulseaiclub/phi/internal/util/gitx"
+	imgutil "github.com/pulseaiclub/phi/internal/util/image"
 )
 
 // png1x1Base64 is a 1x1 transparent PNG (same fixture as util/image tests).
@@ -38,15 +40,17 @@ func TestTryAttachClipboardImageBlockedWithoutModelSupport(t *testing.T) {
 func TestTryAttachClipboardImageFallsThroughWhenSupported(t *testing.T) {
 	c := NewComposerPane(components.DefaultTheme(), "m", "/tmp")
 	c.imageEnabled = func() bool { return true }
+	// The machine's clipboard state must not decide this test: stub the read
+	// to the unavailable result the fall-through path expects.
+	c.readImage = func() (imgutil.Result, error) { return imgutil.Result{}, clipboard.ErrUnavailable }
 
 	ctx := &components.EventContext{}
-	// No clipboard tooling in CI: the gate passes and the read reports
-	// ErrUnavailable, so the key is not consumed.
 	require.False(t, c.tryAttachClipboardImage(ctx))
 }
 
 func TestTryAttachClipboardImageAllowedWithoutModelInfo(t *testing.T) {
 	c := NewComposerPane(components.DefaultTheme(), "m", "/tmp")
+	c.readImage = func() (imgutil.Result, error) { return imgutil.Result{}, clipboard.ErrUnavailable }
 
 	ctx := &components.EventContext{}
 	require.False(t, c.tryAttachClipboardImage(ctx))

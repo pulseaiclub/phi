@@ -61,7 +61,11 @@ type ComposerPane struct {
 
 	bus      *controller.Bus
 	drainBus func()
-	onRedraw func()
+
+	// readImage reads the system clipboard image; stubbed in tests so the
+	// attach path never depends on machine clipboard state.
+	readImage func() (imgutil.Result, error)
+	onRedraw  func()
 
 	overlayBlocksComposer func() bool
 	handleOverlayKey      WireKeyHandler
@@ -101,6 +105,7 @@ func NewComposerPane(theme components.Theme, modelLabel, cwd string) *ComposerPa
 		},
 	}
 	c.bash = newBashSuggest(c, theme)
+	c.readImage = clipboard.ReadImageResult
 	return c
 }
 
@@ -992,7 +997,7 @@ func (c *ComposerPane) tryAttachClipboardImage(ctx *components.EventContext) boo
 		ctx.ConsumeAndRedraw()
 		return true
 	}
-	res, err := clipboard.ReadImageResult()
+	res, err := c.readImage()
 	if errors.Is(err, clipboard.ErrUnavailable) {
 		return false
 	}
@@ -1115,7 +1120,7 @@ func (c *ComposerPane) Register(rt *runtime.Runtime) {
 	runtime.Subscribe(rt, c.ApplyMentionResults)
 	runtime.Subscribe(rt, c.ApplyBashSuggestions)
 	runtime.Subscribe(rt, c.onBranchLabel)
-	rt.OnTheme(c.SetTheme)
+	rt.Theme.On(c.SetTheme)
 }
 
 func (c *ComposerPane) onBranchLabel(msg controller.BranchLabelMsg) {

@@ -68,7 +68,7 @@ func New(transcript SessionSink, composer Input, bus *controller.Bus, ctrl Engin
 
 // Register wires the plugin into the runtime.
 func (p *Plugin) Register(rt *runtime.Runtime) {
-	rt.AddSubmitFilter(p.HandleSubmit)
+	rt.Submit.Add(p.HandleSubmit)
 }
 
 // Running reports whether a local bash command is in flight.

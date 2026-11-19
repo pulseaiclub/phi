@@ -33,7 +33,7 @@ func TestToastMsgShowsToast(t *testing.T) {
 	now := time.Unix(0, 0)
 	p, rt := newTestPlugin(t, func() time.Time { return now })
 
-	rt.Dispatch(controller.ToastMsg{Message: "saved", Kind: uistoast.ToastSuccess, Duration: 3 * time.Second})
+	rt.Msgs.Dispatch(controller.ToastMsg{Message: "saved", Kind: uistoast.ToastSuccess, Duration: 3 * time.Second})
 
 	cur := p.Current()
 	assert.Equal(t, "saved", cur.Message)
@@ -67,11 +67,11 @@ func TestDrawSkipsHiddenToastAndRendersVisible(t *testing.T) {
 	p, rt := newTestPlugin(t, func() time.Time { return clock })
 	ctx := drawCtx()
 
-	layers := rt.Overlays(ctx)
+	layers := rt.Layers.Draw(ctx)
 	assert.Empty(t, layers, "hidden toast contributes no layer")
 
 	p.Show("hello toast", uistoast.ToastSuccess, time.Second)
-	layers = rt.Overlays(ctx)
+	layers = rt.Layers.Draw(ctx)
 	require.Len(t, layers, 1)
 	assert.Equal(t, zToast, layers[0].Z)
 	assert.Contains(t, components.SurfaceText(layers[0].Surface), "hello toast")
@@ -82,6 +82,6 @@ func TestSetThemeAppliesToState(t *testing.T) {
 	p, rt := newTestPlugin(t, func() time.Time { return now })
 
 	th := components.DefaultTheme()
-	rt.ApplyTheme(th)
+	rt.Theme.Apply(th)
 	assert.Equal(t, th, p.Current().Theme)
 }

@@ -96,12 +96,12 @@ func (p *Plugin) onSessionEvent(msg controller.SessionEventMsg) {
 		return
 	}
 	p.deps.Store.ApplySession(msg.Event)
-	p.rt.MarkBatchEvent()
+	p.rt.Msgs.MarkBatchEvent()
 }
 
 func (p *Plugin) onJobProgress(msg controller.JobProgressMsg) {
 	if p.deps.Store.ApplyJobProgress(msg.Progress) {
-		p.rt.MarkBatchEvent()
+		p.rt.Msgs.MarkBatchEvent()
 	}
 }
 

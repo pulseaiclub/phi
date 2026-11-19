@@ -90,13 +90,13 @@ func (p *Plugin) registerCommand() {
 // Register wires the plugin into the runtime.
 func (p *Plugin) Register(rt *runtime.Runtime) {
 	p.rt = rt
-	rt.AddFullPane(p)
-	rt.OnTheme(p.SetTheme)
+	rt.Panes.AddFull(p)
+	rt.Theme.On(p.SetTheme)
 }
 
 func (p *Plugin) closeSiblings() {
 	if p.rt != nil {
-		p.rt.CloseFullPanesExcept(p)
+		p.rt.Panes.CloseOthers(p)
 	}
 }
 
