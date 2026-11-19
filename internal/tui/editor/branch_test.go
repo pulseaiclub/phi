@@ -14,8 +14,8 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
-	"github.com/pulseaiclub/phi/internal/tui/composer"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/pulseaiclub/phi/internal/tui/plugin/composer"
 )
 
 // TestEditorAppliesBranchLabel removed: it constructed an Editor with a nil vx

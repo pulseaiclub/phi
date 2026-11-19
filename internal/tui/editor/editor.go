@@ -16,13 +16,13 @@ import (
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/session/shellhist"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
-	"github.com/pulseaiclub/phi/internal/tui/composer"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 	"github.com/pulseaiclub/phi/internal/tui/footer"
 	"github.com/pulseaiclub/phi/internal/tui/pathutil"
 	activityplugin "github.com/pulseaiclub/phi/internal/tui/plugin/activity"
 	"github.com/pulseaiclub/phi/internal/tui/plugin/bash"
 	"github.com/pulseaiclub/phi/internal/tui/plugin/code"
+	"github.com/pulseaiclub/phi/internal/tui/plugin/composer"
 	"github.com/pulseaiclub/phi/internal/tui/plugin/diff"
 	"github.com/pulseaiclub/phi/internal/tui/plugin/overlay"
 	sessionplugin "github.com/pulseaiclub/phi/internal/tui/plugin/session"
@@ -110,6 +110,7 @@ func NewEditor(
 		spin:           status.NewSpinner(theme.ToolName),
 		activityPlugin: activityplugin.New(),
 	}
+	e.rt.Register(e.composer)
 	e.rt.Register(e.toastPlugin)
 	e.rt.Register(e.activityPlugin)
 	e.activityPlugin.SetOnChange(e.onActivityChange)
@@ -255,19 +256,10 @@ func (e *Editor) Update(m controller.Msg) {
 		}
 	case controller.CancelStreamMsg:
 		e.submitter.Cancel()
-	case controller.MentionResultsMsg:
-		e.composer.ApplyMentionResults(msg)
-	case controller.BashSuggestionsMsg:
-		e.composer.ApplyBashSuggestions(msg)
 	case controller.FooterMsg:
 		e.applyFooterMessage(msg)
 	case controller.ThemeMsg:
 		e.applyTheme(msg.Name)
-	case controller.BranchLabelMsg:
-		e.composer.SetBranchLabel(msg.Text)
-		e.vx.QueueRefresh()
-	case controller.JobProgressMsg:
-		// Applied in drainBus so we can skip Sync when the tree is unchanged.
 	}
 }
 
@@ -582,7 +574,6 @@ func (e *Editor) applyTheme(name string) {
 		return
 	}
 	e.theme = th
-	e.composer.SetTheme(th)
 	e.rt.ApplyTheme(th)
 	e.transcript.SetTheme(th)
 	e.footer.SetTheme(th)

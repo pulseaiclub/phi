@@ -24,6 +24,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 	"github.com/pulseaiclub/phi/internal/tui/footer"
 	"github.com/pulseaiclub/phi/internal/tui/pathutil"
+	"github.com/pulseaiclub/phi/internal/tui/runtime"
 	"github.com/pulseaiclub/phi/internal/tui/transcript"
 	"github.com/pulseaiclub/phi/internal/util/clipboard"
 	"github.com/pulseaiclub/phi/internal/util/filesearch"
@@ -1106,3 +1107,20 @@ func mentionNavKey(e xui.KeyEvent) bool {
 
 // Ensure ComposerPane implements Input.
 var _ Input = (*ComposerPane)(nil)
+
+// Register wires the composer into the runtime: async mention/bash-suggest
+// results, the branch label, and theme switches. The composer is built in the
+// Editor literal and registered before Wire binds the remaining hooks.
+func (c *ComposerPane) Register(rt *runtime.Runtime) {
+	runtime.Subscribe(rt, c.ApplyMentionResults)
+	runtime.Subscribe(rt, c.ApplyBashSuggestions)
+	runtime.Subscribe(rt, c.onBranchLabel)
+	rt.OnTheme(c.SetTheme)
+}
+
+func (c *ComposerPane) onBranchLabel(msg controller.BranchLabelMsg) {
+	c.SetBranchLabel(msg.Text)
+	if c.onRedraw != nil {
+		c.onRedraw()
+	}
+}

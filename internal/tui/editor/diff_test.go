@@ -13,7 +13,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
-	"github.com/pulseaiclub/phi/internal/tui/composer"
+	"github.com/pulseaiclub/phi/internal/tui/plugin/composer"
 )
 
 func diffEditor(t *testing.T, dir string) *Editor {

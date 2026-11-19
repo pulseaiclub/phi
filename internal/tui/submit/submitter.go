@@ -8,8 +8,8 @@ import (
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
-	"github.com/pulseaiclub/phi/internal/tui/composer"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/pulseaiclub/phi/internal/tui/plugin/composer"
 	"github.com/pulseaiclub/phi/internal/tui/transcript"
 	imgutil "github.com/pulseaiclub/phi/internal/util/image"
 )
