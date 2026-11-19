@@ -8,7 +8,7 @@
 // The package is split into semantic subpackages with a one-way dependency
 // graph, so an extension feature lands in exactly one place (Cordis-style):
 //
-//	extension/            this package: facade re-exports + Load      — what agent/tui/cmd import
+//	extension/            this package: extension discovery + Load     — lifecycle entry point
 //	├── core/             kernel: Proc (one subprocess) + Fiber (its  — spawn, handshake, RPC,
 //	│                         lifecycle state machine) + Runner       — dispose, topology, read model
 //	├── ui/               BusUI: extension UI effects → host callbacks
@@ -24,7 +24,9 @@
 // The split mirrors cordis packages/core, which keeps Context / Fiber /
 // Registry as files of one package — here core is that package: proc.go
 // (PXB transport), fiber.go (state machine), runner.go / view.go / manage.go
-// (the Runner and its read model).
+// (the Runner and its read model). The root package intentionally exposes only
+// lifecycle discovery through Load; callers use core and ui for their concrete
+// types.
 //
 // See doc/extensions.md for the protocol and the author-facing SDK.
 package extension
