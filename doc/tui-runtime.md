@@ -45,19 +45,38 @@ Two timing rules preserved from the shell:
 `components/toast.Toast` takes an optional `Now func() time.Time` clock so
 tests and golden frames can freeze the toast lifecycle.
 
-## Migration order (in progress)
+## Migration status: complete
 
-Done: toast. Next, smallest-first: overlay (error ask) → bash → diff/code →
-session/activity → composer. Each migration:
+All eight features are plugins: `toast`, `overlay`, `bash`, `diff`, `code`,
+`session`, `activity`, `composer`.
 
-1. Moves the feature state and its msg handler into `plugin/<name>`.
-2. Registers via one `rt.Register` line in `NewEditor`.
-3. Keeps behavior identical — golden/interaction tests must stay green.
+Extension points in the runtime:
 
-Deferred until the session plugin migrates: the `drainBus` batch semantics
-(`atBottom` capture, stale-gen filtering, one `Sync` + `SyncFromSnap` per
-batch) need a batch-aware dispatcher; until then those messages stay in the
-`Editor` switch.
+| Point | Consumer |
+| ----- | -------- |
+| `Subscribe` per msg type | toast, overlay, bash (submit filter below), session, activity, composer |
+| `AddSubmitFilter` | bash claims `!cmd` lines before the shell submit path |
+| `AddFullPane` / `ActiveFullPane` | diff, code (Draw/Handle interception, blocksComposer) |
+| `AddBottomPane` / `BottomHeight` / `DrawBottom` / `BottomKey` | overlay (error ask) |
+| `AddOverlay` (z-ordered surface layers) | toast |
+| `OnTheme` / `ApplyTheme` | every themed plugin |
+| `OnBatchStart` / `MarkBatchEvent` / `OnBatchEnd` / `DispatchBatch` | session projection postludes |
+
+The drain-batch semantics survived the migration: `Editor.drainBus` is now
+`rt.DispatchBatch(bus.Drain())`, and the root registers the historical
+postlude order explicitly (sync → activity-from-snap → status slot →
+stick-to-bottom). The order is root composition, not hidden plugin coupling.
+
+`Editor.Update` keeps exactly four shell cases: `SubmitMsg` (submit filter +
+submitter), `CancelStreamMsg`, `FooterMsg` (update hint — the activity plugin
+consumes the Set/ClearIf kinds), and `ThemeMsg` (root resolves + fans out).
+`Submitter` stays a shell coordinator built from ports (`ActivityPort`,
+`ShellHooks`); it is a submit-path adapter, not a feature plugin.
+
+`internal/tui/archtest` guards the red lines in CI: runtime imports no
+plugin package, and plugins never import each other. Plugins that need
+another plugin's effect declare a consumer-shaped port (e.g. `diff.ToastSink`,
+`session.ErrorAsker`) and the root passes the method values.
 
 ## Out of scope
 
