@@ -6,16 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"slices"
 	"strings"
 	"time"
 
-	"github.com/pulseaiclub/phi/ext/go/pxb"
 	"github.com/pulseaiclub/phi/internal/agent/prompt"
-	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
-	"github.com/pulseaiclub/phi/internal/llm/extmodel"
 	"github.com/pulseaiclub/phi/internal/llm/skills"
 	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/session"
@@ -29,15 +27,13 @@ import (
 // and yields session.Event for the TUI reducer. Context compaction is owned
 // here so Session stays a thin message store.
 type Engine struct {
-	client       llm.ChatClient
-	executor     *Executor
-	modelCfg     llm.ModelConfig
-	hooks        llmclient.Hooks
-	jobs         *job.Manager
-	extensions   *extension.Runner // nil = disabled; all methods are nil-safe no-ops
-	baseTools    []tooldef.Tool    // nil = DefaultTools; preserved across rebind
-	omitExtTools bool              // sub-agents: emit events but skip RegisterTool merge
-	mcp          *mcp.Pool
+	client    llm.ChatClient
+	executor  *Executor
+	modelCfg  llm.ModelConfig
+	hooks     llmclient.Hooks
+	jobs      *job.Manager
+	baseTools []tooldef.Tool // nil = DefaultTools; preserved across rebind
+	mcp       *mcp.Pool
 
 	session *Session
 }
@@ -52,78 +48,22 @@ func NewEngine(model llm.ModelConfig, sess *Session, opts ...EngineConfigOption)
 		cfg = opt.Apply(cfg)
 	}
 	engine := &Engine{
-		modelCfg:     model,
-		hooks:        cfg.hooks,
-		session:      sess,
-		jobs:         cfg.jobs,
-		extensions:   cfg.extensions,
-		omitExtTools: cfg.omitExtTools,
-		mcp:          cfg.mcp,
+		modelCfg: model,
+		hooks:    cfg.hooks,
+		session:  sess,
+		jobs:     cfg.jobs,
+		mcp:      cfg.mcp,
 	}
 	engine.baseTools = cfg.tools
 	engine.rebindTools()
 	return engine, nil
 }
 
-// newChatClient picks the transport for the active model: an extension-served
-// connection when the model name is registered Conn "ext" (an extension model
-// shadows a config.yaml entry with the same name), else the builtin HTTP
-// client. Hooks only apply to the builtin path — extension-served requests
-// never pass through a provider request builder.
-func (engine *Engine) newChatClient(tools []tooldef.Tool) llm.ChatClient {
-	defs := tooldef.Definitions(tools)
-	if route, ok := engine.extensions.LookupModel(engine.modelCfg.Name); ok && route.ExtConn() {
-		runner := engine.extensions
-		stream := func(
-			ctx context.Context,
-			req pxb.ModelInvoke,
-		) (iter.Seq2[pxb.ModelStreamEvent, error], error) {
-			return runner.ModelStream(ctx, route, req)
-		}
-		return extmodel.New(route.Reg.Name, stream, engine.modelCfg, defs, engine.systemPrompt())
-	}
-	return llmclient.NewClient(engine.modelCfg, engine.hooks, defs, engine.systemPrompt())
-}
-
-func (engine *Engine) buildToolList(base []tooldef.Tool) []tooldef.Tool {
-	out := engine.buildCoreTools(base)
-	if !engine.omitExtTools {
-		if extTools := engine.extensions.ExtensionTools(); len(extTools) > 0 {
-			merged := make([]tooldef.Tool, 0, len(out)+len(extTools))
-			merged = append(merged, out...)
-			merged = append(merged, extTools...)
-			return merged
-		}
-	}
-	return out
-}
-
-// buildCoreTools returns builtin (+ agent_*) tools without extension RegisterTool.
-// MCP needs no extra tools: the pool rides the default ls/read/write tools.
-func (engine *Engine) buildCoreTools(base []tooldef.Tool) []tooldef.Tool {
-	if base == nil {
-		base = tools.DefaultTools(engine.mcp)
-	}
-	out := base
-	if engine.jobs == nil {
-		return out
-	}
-	agentTools := agenttool.AgentTools(
-		agenttool.WithManager(engine.jobs),
-		agenttool.WithParentID(engine.SessionID),
-		agenttool.WithWorkDir(engine.SessionCwd),
-	)
-	merged := make([]tooldef.Tool, 0, len(out)+len(agentTools))
-	merged = append(merged, out...)
-	merged = append(merged, agentTools...)
-	return merged
-}
-
 // SetModel replaces the LLM client and model-related settings without
 // discarding the session tree. Agent tools remain registered when Jobs is set.
-// Hooks are left unchanged; use SetModelWithHooks when switching presets.
 func (engine *Engine) SetModel(cfg llm.ModelConfig) {
-	engine.SetModelWithHooks(cfg, engine.hooks)
+	engine.modelCfg = cfg
+	engine.rebindTools()
 }
 
 // SetModelWithHooks replaces the model config and request hooks together.
@@ -141,14 +81,25 @@ func (engine *Engine) SetJobs(jobs *job.Manager) {
 }
 
 func (engine *Engine) rebindTools() {
-	// Child engines share the runner, but the parent owns its host state.
-	if !engine.omitExtTools {
-		engine.extensions.SetBaseTools(engine.buildCoreTools(engine.baseTools))
-		engine.extensions.SetMeta(engine.SessionID(), engine.SessionCwd())
+	toolList := engine.baseTools
+	if toolList == nil {
+		// MCP needs no extra tools: the pool rides the default ls/read/write tools.
+		toolList = tools.DefaultTools(engine.mcp)
 	}
-	toolList := engine.buildToolList(engine.baseTools)
-	engine.client = engine.newChatClient(toolList)
-	engine.executor = NewExecutor(tooldef.NewRegistry(toolList), engine.extensions)
+	if engine.jobs != nil {
+		toolList = slices.Concat(toolList, agenttool.AgentTools(
+			agenttool.WithManager(engine.jobs),
+			agenttool.WithParentID(engine.SessionID),
+			agenttool.WithWorkDir(engine.SessionCwd),
+		))
+	}
+	engine.client = llmclient.NewClient(
+		engine.modelCfg,
+		engine.hooks,
+		tooldef.Definitions(toolList),
+		engine.systemPrompt(),
+	)
+	engine.executor = NewExecutor(tooldef.NewRegistry(toolList))
 	engine.executor.cwd = engine.SessionCwd()
 }
 
@@ -178,13 +129,6 @@ func (engine *Engine) HasTool(name string) bool {
 	return ok
 }
 
-// SetExtensions replaces the extension runner. Pass nil to disable extensions.
-// Rebinds tools so RegisterTool from the new runner takes effect.
-func (engine *Engine) SetExtensions(r *extension.Runner) {
-	engine.extensions = r
-	engine.rebindTools()
-}
-
 // SessionID returns the durable session id.
 func (engine *Engine) SessionID() string {
 	return engine.session.ID()
@@ -212,8 +156,7 @@ type LoopOpts struct {
 	PendingSkills []string
 	// Images are base64 attachments from the composer pending queue.
 	Images []llm.Image
-	// Resume continues inference from the current session without appending a
-	// new user message or running user-input preparation hooks.
+	// Resume continues inference from the current session without appending a new user message.
 	Resume bool
 	// OnPromptAppended is called synchronously after the initial user message
 	// is appended successfully. It is not called for resumed loops.
@@ -255,15 +198,8 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			return true
 		}
 
-		var content string
 		if !opts.Resume {
-			// The extension runner is nil-safe (nil = disabled), so calls are
-			// unconditional no-ops when no extensions are loaded.
-			var handled bool
-			content, handled = engine.extensions.EmitUserInput(prompt)
-			if handled {
-				return
-			}
+			content := prompt
 			if instr := pendingSkillsInstruction(engine.modelCfg.SkillPaths, opts.PendingSkills); instr != "" {
 				if content == "" {
 					content = instr
@@ -271,17 +207,6 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 					content = instr + "\n\n" + content
 				}
 			}
-			rewritten, extra := engine.extensions.EmitBeforeAgentStart(content)
-			content = rewritten
-			if extra != "" {
-				content = content + "\n\n" + extra
-			}
-		}
-
-		engine.extensions.EmitAgentStart()
-		defer engine.extensions.EmitAgentEnd()
-
-		if !opts.Resume {
 			if err := engine.session.Append(llm.Message{
 				Role:    llm.RoleUser,
 				Content: content,
@@ -295,7 +220,6 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			}
 		}
 
-		toolRounds := 0
 		overflowRecovered := false
 		for {
 			if ctx.Err() != nil {
@@ -317,8 +241,6 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			if did {
 				continue
 			}
-
-			engine.extensions.EmitTurnStart(toolRounds)
 
 			msgs := engine.session.BuildContext()
 
@@ -352,7 +274,6 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			}
 
 			if len(msg.ToolCalls) == 0 {
-				engine.extensions.EmitTurnEnd(toolRounds)
 				// Turn finished — compact using this assistant's usage. The
 				// threshold reads context size the same way the composer does.
 				if _, err := engine.runCompact(ctx, yield, msg.Usage.ContextTokens(), false); err != nil {
@@ -361,16 +282,11 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 				return
 			}
 
-			toolRounds++
-			toolMsgs, stop, _ := engine.executor.Run(ctx, msg.ToolCalls, func(td session.ToolData) bool {
+			toolMsgs := engine.executor.Run(ctx, msg.ToolCalls, func(td session.ToolData) bool {
 				return yield(td, nil)
 			})
 			if err := engine.session.Append(toolMsgs...); err != nil {
 				yield(nil, err)
-				return
-			}
-			engine.extensions.EmitTurnEnd(toolRounds - 1)
-			if stop {
 				return
 			}
 
@@ -453,13 +369,12 @@ func (engine *Engine) runCompact(
 	if !yield(complete, nil) {
 		return false, context.Canceled
 	}
-	engine.extensions.EmitSessionCompact("auto")
 	return true, nil
 }
 
 // streamTurn runs one assistant stream. On success it returns the final
-// message and a StateComplete event (not yet yielded — caller checks tool
-// budget first). On API/stream failure it returns err without yielding it
+// message and a StateComplete event for Loop to yield.
+// On API/stream failure it returns err without yielding it
 // so Loop can attempt overflow recovery. A nil event with nil err means
 // cancel or the consumer stopped receiving.
 func (engine *Engine) streamTurn(

@@ -14,7 +14,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/components/chrome"
 	"github.com/pulseaiclub/phi/internal/components/palette"
-	"github.com/pulseaiclub/phi/internal/extension/loader"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/session"
@@ -29,7 +28,6 @@ func TestPaletteReopenReflectsThinkingSelectionAndModelSwitch(t *testing.T) {
 	for _, key := range []string{"PHI_MODEL", "PHI_API_KEY", "PHI_BASE_URL", "PHI_THINK_LEVEL"} {
 		t.Setenv(key, "")
 	}
-	t.Setenv(loader.EnvExtensions, "off")
 	require.NoError(t, os.MkdirAll(filepath.Join(home, ".phi"), 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(home, ".phi", "config.yaml"), []byte(`models:
   - name: primary
@@ -48,7 +46,7 @@ func TestPaletteReopenReflectsThinkingSelectionAndModelSwitch(t *testing.T) {
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
 	bus := controller.NewBus(nil)
-	ctrl, err := controller.NewController(bus, proj, nil)
+	ctrl, err := controller.NewController(bus, proj)
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 	e := NewEditor(
@@ -134,23 +132,33 @@ func TestPaletteRefreshesRegistryOnlyWhenOpening(t *testing.T) {
 			return palette.PaletteCommand{ID: "live-setting", Verb: current}
 		},
 	})
-	rec := &recordingComposer{}
-	e.extCmds.Composer = rec
 	toggle := func() {
 		e.composer.Handle(
 			&components.EventContext{},
 			xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'k', Mods: xui.ModCtrl},
 		)
 	}
+	paletteRoot := func() []palette.PaletteCommand {
+		t.Helper()
+		overlay, ok := e.composer.PaletteOverlay(components.DrawContext{
+			Max: components.Size{Width: 100, Height: 30}, Method: xui.WidthUnicode,
+		})
+		require.True(t, ok)
+		p, ok := overlay.Surface.Widget.(*palette.CommandPalette)
+		require.True(t, ok)
+		return p.Root
+	}
 	toggle()
 	require.Equal(t, 1, builds)
-	assert.Equal(t, "first", rec.last[len(rec.last)-1].Verb)
+	root := paletteRoot()
+	assert.Equal(t, "first", root[len(root)-1].Verb)
 	toggle()
 	assert.Equal(t, 1, builds, "closing must not rebuild commands before Hide restores parent frames")
 	current = "second"
 	toggle()
 	require.Equal(t, 2, builds)
-	assert.Equal(t, "second", rec.last[len(rec.last)-1].Verb)
+	root = paletteRoot()
+	assert.Equal(t, "second", root[len(root)-1].Verb)
 }
 
 func TestModelPaletteSavesDefaultAndRestoresSession(t *testing.T) {
@@ -160,7 +168,6 @@ func TestModelPaletteSavesDefaultAndRestoresSession(t *testing.T) {
 	for _, key := range []string{"PHI_MODEL", "PHI_API_KEY", "PHI_BASE_URL", "PHI_THINK_LEVEL"} {
 		t.Setenv(key, "")
 	}
-	t.Setenv(loader.EnvExtensions, "off")
 	configDir := filepath.Join(home, ".phi")
 	require.NoError(t, os.MkdirAll(configDir, 0o700))
 	configPath := filepath.Join(configDir, "config.yaml")
@@ -180,7 +187,7 @@ func TestModelPaletteSavesDefaultAndRestoresSession(t *testing.T) {
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
 	bus := controller.NewBus(nil)
-	ctrl, err := controller.NewController(bus, proj, nil)
+	ctrl, err := controller.NewController(bus, proj)
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 	e := NewEditor(app.NewApp(nil), bus, ctrl, nil, components.DefaultTheme(), cwd,
@@ -253,7 +260,7 @@ func TestModelPaletteSavesDefaultAndRestoresSession(t *testing.T) {
 	assert.Equal(t, "secondary", ctrl.ModelName())
 
 	ctrl.Close()
-	restarted, err := controller.NewController(controller.NewBus(nil), proj, nil)
+	restarted, err := controller.NewController(controller.NewBus(nil), proj)
 	require.NoError(t, err)
 	t.Cleanup(restarted.Close)
 	assert.Equal(t, "secondary", restarted.ModelName(), "saved default must survive restart")

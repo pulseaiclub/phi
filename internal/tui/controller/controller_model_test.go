@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/extension/loader"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/project"
 )
@@ -42,13 +41,23 @@ func TestModelLifecycle(t *testing.T) {
 	ctrl.Close()
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
-	restarted, err := NewController(NewBus(nil), proj, nil)
+	restarted, err := NewController(NewBus(nil), proj)
 	require.NoError(t, err)
 	defer restarted.Close()
 	assert.Equal(t, "primary", restarted.ModelName(), "startup must use the configured default")
 	_, err = restarted.Resume(secondID)
 	require.NoError(t, err)
 	assert.Equal(t, "secondary", restarted.ModelName(), "resume must restore only the selected session's model")
+}
+
+func TestUnlistedModelUsesPrimaryConnection(t *testing.T) {
+	const baseURL = "http://127.0.0.1:9"
+	ctrl := newTestController(t, baseURL)
+	require.NoError(t, ctrl.SetModel("unlisted"))
+	cfg := ctrl.modelSnapshot()
+	assert.Equal(t, "unlisted", cfg.Name)
+	assert.Equal(t, baseURL, cfg.BaseURL)
+	assert.Equal(t, "test-key", cfg.APIKey)
 }
 
 func newTestController(t *testing.T, baseURL string) *EngineController {
@@ -59,7 +68,6 @@ func newTestController(t *testing.T, baseURL string) *EngineController {
 	t.Setenv("PHI_MODEL", "primary")
 	t.Setenv("PHI_API_KEY", "test-key")
 	t.Setenv("PHI_BASE_URL", baseURL)
-	t.Setenv(loader.EnvExtensions, "off")
 	require.NoError(t, os.MkdirAll(filepath.Join(home, ".phi"), 0o700))
 	config := fmt.Sprintf(`models:
   - name: primary
@@ -75,7 +83,7 @@ func newTestController(t *testing.T, baseURL string) *EngineController {
 	cwd := t.TempDir()
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
-	ctrl, err := NewController(NewBus(nil), proj, nil)
+	ctrl, err := NewController(NewBus(nil), proj)
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 	return ctrl

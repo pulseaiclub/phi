@@ -15,7 +15,6 @@ type SessionCommands struct {
 	Composer      BuiltinComposer
 	Transcript    *transcript.TranscriptPane
 	Bus           *controller.Bus
-	SyncHooks     func()
 	ResetActivity func()
 	// OpenPicker opens the session list overlay (wired by Builtin.Bind).
 	OpenPicker func(items []session.SessionMeta, currentID string)
@@ -33,13 +32,11 @@ func NewSessionCommands(
 	ctrl *controller.EngineController,
 	transcript *transcript.TranscriptPane,
 	bus *controller.Bus,
-	syncHooks func(),
 ) *SessionCommands {
 	return &SessionCommands{
 		Ctrl:       ctrl,
 		Transcript: transcript,
 		Bus:        bus,
-		SyncHooks:  syncHooks,
 	}
 }
 
@@ -118,9 +115,6 @@ func (s *SessionCommands) resume(id string) {
 		publishToast(s.Bus, err.Error(), toast.ToastError, 4*time.Second)
 		return
 	}
-	if s.SyncHooks != nil {
-		s.SyncHooks()
-	}
 	snap := s.Ctrl.ReplaySnapshot()
 	s.Transcript.LoadReplay(snap)
 	s.Transcript.Sync()
@@ -168,7 +162,7 @@ func (s *SessionCommands) refreshPicker() {
 	s.RefreshPicker(list)
 }
 
-// NewSession starts a new empty session. Blocks while a stream or extension command is active.
+// NewSession starts a new empty session. Blocks while a stream is active.
 func (s *SessionCommands) NewSession() {
 	if s.blocked("start a new session") {
 		return
@@ -196,9 +190,6 @@ func (s *SessionCommands) Fork(args []string) {
 	if err != nil {
 		publishToast(s.Bus, err.Error(), toast.ToastError, 4*time.Second)
 		return
-	}
-	if s.SyncHooks != nil {
-		s.SyncHooks()
 	}
 	s.resetSessionView()
 	publishToast(s.Bus, "Forked "+session.ShortID(id), toast.ToastSuccess, 3*time.Second)

@@ -48,7 +48,6 @@ func TestNewBuiltinRegistry_RegistersDomains(t *testing.T) {
 	require.NotNil(t, b)
 	require.NotNil(t, b.Registry)
 	require.NotNil(t, b.Sessions)
-	require.NotNil(t, b.Ext)
 
 	assert.Equal(t, "/sessions", b.Registry.LookupInsert("sessions"))
 	assert.Equal(t, "/new", b.Registry.LookupInsert("new"))
@@ -64,7 +63,6 @@ func TestNewBuiltinRegistry_RegistersDomains(t *testing.T) {
 	assert.True(t, ids["settings-model"])
 	assert.True(t, ids["settings-theme"])
 	assert.True(t, ids["settings-agents"])
-	assert.True(t, ids["extensions"])
 	assert.False(t, ids["skills"], "/skill is a slash command, not a palette entry")
 
 	assert.Equal(t, "/sessions", b.Registry.LookupInsert("sessions"))
@@ -74,7 +72,7 @@ func TestNewBuiltinRegistry_RegistersDomains(t *testing.T) {
 	assert.True(t, b.Registry.DispatchSlash("/diff staged", ctx))
 	assert.Equal(t, []string{"staged"}, opened)
 
-	b.Bind(nil, nil, nil, nil, nil, nil, nil, "", func() bool { return true })
+	b.Bind(nil, nil, nil, nil, nil, "", func() bool { return true })
 
 	b.Sessions.NewSession()
 	assert.Contains(t, drainToast(t, bus), "Cannot start a new session")

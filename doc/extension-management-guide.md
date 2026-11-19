@@ -1,7 +1,8 @@
 # Extension Management Guide
 
-Extensions are PXB subprocesses. Phi discovers them in two directories, starts
-them, and can reload or unload them while the session runs.
+The legacy runner is disconnected during the plugin refactor. `phi plugin`
+still manages installed files, but Phi does not start them. The palette and
+runtime workflows below describe the previous integration.
 Layout, `phi.yaml` reference and the authoring SDK live in
 [extensions.md](extensions.md); the host-side architecture lives in
 [extension-architecture.md](extension-architecture.md).

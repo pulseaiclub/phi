@@ -82,8 +82,6 @@ Do the work.
 	e.commands = builtins.Registry
 	builtins.Bind(
 		nil,
-		commands.NewContext(bus, nil),
-		nil,
 		nil,
 		nil,
 		nil,

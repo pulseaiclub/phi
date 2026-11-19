@@ -112,41 +112,6 @@ func TestAgentsCommand_RoleModels(t *testing.T) {
 	assert.Equal(t, "cheap", gotName)
 }
 
-func TestExtensionsCommand_ListAndReload(t *testing.T) {
-	var reloaded bool
-	var pushedTitle string
-	var pushed []palette.PaletteCommand
-	cmd := ExtensionsPalette(
-		func() []palette.PaletteCommand {
-			return []palette.PaletteCommand{{
-				ID:       "ext-demo",
-				Verb:     "demo  [project]",
-				Disabled: true,
-			}}
-		},
-		func() { reloaded = true },
-		func(title string, cmds []palette.PaletteCommand) {
-			pushedTitle = title
-			pushed = cmds
-		},
-	)
-
-	assert.Equal(t, "extensions", cmd.Noun)
-	assert.Equal(t, "manage", cmd.Verb)
-	require.Len(t, cmd.Submenu, 2)
-
-	cmd.Submenu[0].Run() // list → PushSubmenu
-	assert.Equal(t, "Extensions", pushedTitle)
-	require.NotEmpty(t, pushed)
-	assert.Equal(t, "ext-demo", pushed[0].ID)
-
-	cmd.Submenu[1].Run() // reload
-	assert.True(t, reloaded)
-
-	// A nil push must not panic when the list row runs.
-	ExtensionsPalette(nil, nil, nil)
-}
-
 func TestFilterSlashCommands(t *testing.T) {
 	r := NewCommandRegistry()
 	(&SessionCommands{}).Register(r)
@@ -214,11 +179,8 @@ func TestCommandRegistry_DispatchSlash(t *testing.T) {
 func TestCommandRegistry_BuildPalette(t *testing.T) {
 	r := NewCommandRegistry()
 	var model string
-	var pushed bool
 	bus := controller.NewBus(nil)
-	ctx := NewContext(bus, func(string, []palette.PaletteCommand) {
-		pushed = true
-	})
+	ctx := NewContext(bus, nil)
 
 	r.Register(Command{
 		Name: "settings-model",
@@ -226,41 +188,16 @@ func TestCommandRegistry_BuildPalette(t *testing.T) {
 			return buildModelPalette(func(name string) { model = name }, nil, []string{"gpt"}, "gpt")
 		},
 	})
-	r.Register(Command{
-		Name: "extensions",
-		Build: func(Context) palette.PaletteCommand {
-			return palette.PaletteCommand{
-				ID:           "extensions",
-				Noun:         "extensions",
-				Verb:         "manage",
-				SubmenuTitle: "Extensions",
-				Submenu: []palette.PaletteCommand{
-					{ID: "ext-list", Verb: "list", Run: func() { pushed = true }},
-				},
-			}
-		},
-	})
 	// /skill is a slash command, not a palette entry; registering it must not
 	// add anything to BuildPalette.
 	(&SkillsCommands{Bus: bus, SkillPaths: []string{t.TempDir()}}).Register(r)
 
 	cmds := r.BuildPalette(ctx)
-	require.Len(t, cmds, 2, "only the two Build-registered commands reach the palette")
+	require.Len(t, cmds, 1, "only Build-registered commands reach the palette")
 
 	require.NotEmpty(t, cmds[0].Submenu)
 	cmds[0].Submenu[0].Run()
 	assert.Equal(t, "gpt", model)
-
-	var extCmd palette.PaletteCommand
-	for _, c := range cmds {
-		if c.ID == "extensions" {
-			extCmd = c
-			break
-		}
-	}
-	require.Equal(t, "extensions", extCmd.ID)
-	extCmd.Submenu[0].Run()
-	assert.True(t, pushed)
 }
 
 func TestCommandRegistry_RegisterReplace(t *testing.T) {
@@ -281,19 +218,6 @@ func TestCommandRegistry_RegisterReplace(t *testing.T) {
 	assert.Equal(t, "replaced", r.SlashCommands()[0].Description)
 }
 
-func TestCommandRegistry_ExtCommandsDoNotReplaceBuiltins(t *testing.T) {
-	r := NewCommandRegistry()
-	(&SessionCommands{}).Register(r)
-	assert.False(t, r.registerExt(Command{Name: "new", Slash: true, Insert: "/hijack"}))
-	assert.Equal(t, "/new", r.LookupInsert("new"))
-
-	assert.True(t, r.registerExt(Command{Name: "review", Slash: true, Insert: "/review"}))
-	assert.Equal(t, "/review", r.LookupInsert("review"))
-	r.clearExtCommands()
-	assert.Empty(t, r.LookupInsert("review"))
-	assert.Equal(t, "/new", r.LookupInsert("new"))
-}
-
 func TestCommandRegistry_NeedsArgs(t *testing.T) {
 	r := NewCommandRegistry()
 	r.Register(Command{
@@ -308,9 +232,6 @@ func TestCommandRegistry_NeedsArgs(t *testing.T) {
 	assert.Equal(t, "/plan ", insert)
 	_, ok = r.IncompleteSlash("/plan on")
 	assert.False(t, ok)
-
-	assert.True(t, r.registerExt(Command{Name: "review", Slash: true, NeedsArgs: true}))
-	assert.Equal(t, "/review ", r.LookupInsert("review"))
 }
 
 // drainToast returns the message of the last queued ToastMsg and empties the bus.

@@ -1,5 +1,8 @@
 # Extensions (PXB)
 
+> **Runtime support is paused.** This reference describes the retained runner
+> and SDKs. The CLI, TUI, and sub-agents do not start installed PXB extensions.
+
 Extensions are **native binaries** that speak the **Phi eXtension Binary (PXB)**
 protocol over stdin/stdout. They replace the former yaegi-interpreted `.go`
 sources.

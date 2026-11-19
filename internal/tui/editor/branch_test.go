@@ -117,8 +117,6 @@ func branchEditor(t *testing.T) *Editor {
 	e.commands = builtins.Registry
 	builtins.Bind(
 		nil,
-		commands.NewContext(bus, nil),
-		nil,
 		nil,
 		e.composer.ShowBranchList,
 		e.composer.RefreshBranchList,

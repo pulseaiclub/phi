@@ -4,11 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"sync"
 	"sync/atomic"
 
-	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
@@ -17,26 +15,19 @@ import (
 // ToolCanceledResult is returned to the model when a user cancels a tool call.
 const ToolCanceledResult = "User cancelled the tool call."
 
-const (
-	extContextOpen  = "<ext_context>"
-	extContextClose = "</ext_context>"
-)
-
 // Executor runs model tool_calls against a tool registry and emits ToolData for the UI.
 type Executor struct {
 	registry tooldef.Registry
-	ext      *extension.Runner // nil = disabled; methods are nil-safe no-ops
 	cwd      string
 }
 
-// NewExecutor builds an executor. extRunner may be nil.
-func NewExecutor(registry tooldef.Registry, extRunner *extension.Runner) *Executor {
-	return &Executor{registry: registry, ext: extRunner}
+// NewExecutor builds an executor.
+func NewExecutor(registry tooldef.Registry) *Executor {
+	return &Executor{registry: registry}
 }
 
 // Run executes tool calls and yields ToolData updates via emit.
 // Returns role=tool messages for the next LLM turn (including cancel stubs).
-// stop=true means an extension PostTool asked to end the agent loop.
 //
 // A batch whose calls all target read-only tools (Definition.Readable) runs
 // concurrently — read-only calls have no side effects, so parallel execution
@@ -46,7 +37,7 @@ func (e *Executor) Run(
 	ctx context.Context,
 	calls []llm.ToolCall,
 	emit func(session.ToolData) bool,
-) (msgs []llm.Message, stop bool, stopReason string) {
+) []llm.Message {
 	if e.readableBatch(calls) {
 		return e.runConcurrent(ctx, calls, emit)
 	}
@@ -68,43 +59,29 @@ func (e *Executor) readableBatch(calls []llm.ToolCall) bool {
 	return true
 }
 
-// runSequential executes calls one at a time, stopping at the first halt.
 func (e *Executor) runSequential(
 	ctx context.Context,
 	calls []llm.ToolCall,
 	emit func(session.ToolData) bool,
-) (msgs []llm.Message, stop bool, stopReason string) {
+) []llm.Message {
 	results := make([]llm.Message, 0, len(calls))
 	for _, call := range calls {
 		if ctx.Err() != nil {
 			results = append(results, e.cancelResult(call, emit))
 			continue
 		}
-		msg, halt, reason := e.runOne(ctx, call, emit)
-		results = append(results, msg)
-		if halt {
-			return results, true, reason
-		}
+		results = append(results, e.runOne(ctx, call, emit))
 	}
-	return results, false, ""
+	return results
 }
 
-// runConcurrent executes a read-only batch in parallel, one goroutine per
-// call. UI emits are serialized so ToolData never interleaves from two
-// goroutines; results are reassembled in call order. A halt ends the turn —
-// later calls already ran, but since they are read-only their results are
-// safe to drop.
+// runConcurrent serializes UI callbacks but stores results in call order.
 func (e *Executor) runConcurrent(
 	ctx context.Context,
 	calls []llm.ToolCall,
 	emit func(session.ToolData) bool,
-) (msgs []llm.Message, stop bool, stopReason string) {
-	type outcome struct {
-		msg    llm.Message
-		halt   bool
-		reason string
-	}
-	outcomes := make([]outcome, len(calls))
+) []llm.Message {
+	msgs := make([]llm.Message, len(calls))
 
 	var emitMu sync.Mutex
 	var stopped atomic.Bool
@@ -124,27 +101,18 @@ func (e *Executor) runConcurrent(
 	var wg sync.WaitGroup
 	for i, call := range calls {
 		wg.Go(func() {
-			msg, halt, reason := e.runOne(ctx, call, lockedEmit)
-			outcomes[i] = outcome{msg: msg, halt: halt, reason: reason}
+			msgs[i] = e.runOne(ctx, call, lockedEmit)
 		})
 	}
 	wg.Wait()
-
-	msgs = make([]llm.Message, 0, len(calls))
-	for _, o := range outcomes {
-		msgs = append(msgs, o.msg)
-		if o.halt {
-			return msgs, true, o.reason
-		}
-	}
-	return msgs, false, ""
+	return msgs
 }
 
 func (e *Executor) runOne(
 	ctx context.Context,
 	call llm.ToolCall,
 	emit func(session.ToolData) bool,
-) (llm.Message, bool, string) {
+) llm.Message {
 	ctx = tooldef.WithCwd(ctx, e.cwd)
 	tool, ok := e.registry[call.Function.Name]
 	args := json.RawMessage(call.Function.Arguments)
@@ -156,39 +124,13 @@ func (e *Executor) runOne(
 	}
 
 	if !emit(session.ToolData{Run: e.toolRun(call, session.ToolInProgress, detail, "", "")}) {
-		return e.toolMessage(call.ID, ToolCanceledResult), false, ""
+		return e.toolMessage(call.ID, ToolCanceledResult)
 	}
 
 	if !ok {
 		errText := fmt.Sprintf("tool '%s' not found", call.Function.Name)
 		_ = emit(session.ToolData{Run: e.toolRun(call, session.ToolError, detail, errText, "")})
-		return e.toolMessage(call.ID, errText), false, ""
-	}
-
-	e.ext.EmitToolExecutionStart(call.Function.Name, call.ID, args)
-
-	// ExtensionPre → Run → ExtensionPost. Extensions may rewrite arguments or
-	// block a call before the handler runs.
-	var preContext string
-	newArgs, blocked, reason, ctxText := e.ext.PreTool(ctx, call.Function.Name, call.ID, args)
-	preContext = ctxText
-	if blocked {
-		if reason == "" {
-			reason = "tool execution denied by extension"
-		}
-		reason = appendExtContext(reason, preContext)
-		e.ext.EmitToolExecutionEnd(call.Function.Name, call.ID, true)
-		return e.rejectResult(call, detail, reason, emit), false, ""
-	}
-	if len(newArgs) > 0 {
-		args = newArgs
-		if tool.DetailFromArgs != nil {
-			if d := tool.DetailFromArgs(args); d != "" {
-				detail = d
-			}
-		} else {
-			detail = string(args)
-		}
+		return e.toolMessage(call.ID, errText)
 	}
 
 	result, err := tool.Run(tooldef.WithToolCallID(ctx, call.ID), args)
@@ -200,8 +142,7 @@ func (e *Executor) runOne(
 	)
 	if err != nil {
 		if ctx.Err() != nil {
-			e.ext.EmitToolExecutionEnd(call.Function.Name, call.ID, true)
-			return e.cancelResult(call, emit), false, ""
+			return e.cancelResult(call, emit)
 		}
 		errText = err.Error()
 		content = errText
@@ -216,51 +157,14 @@ func (e *Executor) runOne(
 		}
 	}
 
-	var (
-		postContext string
-		postStop    bool
-		postReason  string
-	)
-	newContent, ctxText, stop, reason := e.ext.PostTool(
-		ctx,
-		call.Function.Name,
-		call.ID,
-		args,
-		content,
-		err != nil,
-		errText,
-	)
-	postContext = ctxText
-	postStop = stop
-	postReason = reason
-	// PostTool passes content through untouched when the runner is nil or no
-	// handler rewrites it; only a changed result is applied so tool Error/Output
-	// never duplicate (and nil behaves like an empty runner).
-	if newContent != "" && newContent != content {
-		content = newContent
-		output = newContent
-	}
-	e.ext.EmitToolExecutionEnd(call.Function.Name, call.ID, err != nil)
-
-	modelContent := appendExtContext(content, joinExtContexts(preContext, postContext))
-
 	if err != nil {
 		_ = emit(session.ToolData{Run: e.toolRun(call, session.ToolError, detail, errText, output)})
-		return e.toolMessage(call.ID, modelContent), postStop, postReason
+		return e.toolMessage(call.ID, content)
 	}
 	run := e.toolRun(call, session.ToolDone, detail, "", output)
 	run.Expanded = result.Expanded
 	_ = emit(session.ToolData{Run: run})
-	return e.toolMessage(call.ID, modelContent), postStop, postReason
-}
-
-func (e *Executor) rejectResult(
-	call llm.ToolCall,
-	detail, reason string,
-	emit func(session.ToolData) bool,
-) llm.Message {
-	_ = emit(session.ToolData{Run: e.toolRun(call, session.ToolRejected, detail, reason, "")})
-	return e.toolMessage(call.ID, reason)
+	return e.toolMessage(call.ID, content)
 }
 
 func (e *Executor) cancelResult(call llm.ToolCall, emit func(session.ToolData) bool) llm.Message {
@@ -297,28 +201,4 @@ func (*Executor) toolMessage(id, content string) llm.Message {
 		ToolCallID: id,
 		Content:    content,
 	}
-}
-
-func joinExtContexts(parts ...string) string {
-	var nonempty []string
-	for _, p := range parts {
-		if p != "" {
-			nonempty = append(nonempty, p)
-		}
-	}
-	return strings.Join(nonempty, "\n\n")
-}
-
-// appendExtContext adds model-facing extension notes. TUI Detail/Output stay clean.
-func appendExtContext(content, ctx string) string {
-	if ctx == "" {
-		return content
-	}
-	escaped := strings.ReplaceAll(ctx, extContextClose, "</ext_context\u200b>")
-
-	block := extContextOpen + "\n" + escaped + "\n" + extContextClose
-	if content == "" {
-		return block
-	}
-	return content + "\n\n" + block
 }

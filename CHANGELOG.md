@@ -10,6 +10,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Removed
 
+- The CLI, TUI, and sub-agents no longer run installed PXB extensions during the
+  plugin refactor. `phi plugin` still manages installed files; the runner, PXB
+  protocol, and author SDKs are retained.
+
 ### Changed
 
 - Command Palette now uses the shared list picker with a dedicated command-list

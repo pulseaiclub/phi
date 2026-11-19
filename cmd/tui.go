@@ -4,12 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"slices"
 
 	"github.com/pulseaiclub/xui"
-
-	"github.com/pulseaiclub/phi/internal/debuglog"
-	"github.com/pulseaiclub/phi/internal/extension"
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/app"
@@ -17,20 +13,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 	"github.com/pulseaiclub/phi/internal/tui/editor"
 )
-
-// loadExtensions discovers ~/.phi/extensions and <cwd>/.phi/extensions.
-// Load errors are non-fatal (fail-open: no extensions).
-func loadExtensions(proj *project.Project) *extension.Runner {
-	r, warns, err := extension.Load(proj.Global().ExtensionsDir(), proj.ExtensionsDir())
-	if err != nil {
-		debuglog.Logf("extension: load failed: %v", err)
-		return nil
-	}
-	for _, w := range warns {
-		debuglog.Logf("extension: %s", w.String())
-	}
-	return r
-}
 
 // runTUI starts the interactive terminal UI (default entrypoint).
 func runTUI() error {
@@ -70,17 +52,6 @@ func runTUI() error {
 		modelNames = append(modelNames, m.Name)
 	}
 
-	extRunner := loadExtensions(proj)
-	var extensionModels []extension.ModelRoute
-	if extRunner != nil {
-		extensionModels = extRunner.ExtensionModels()
-	}
-	for _, route := range extensionModels {
-		if !slices.Contains(modelNames, route.Reg.Name) {
-			modelNames = append(modelNames, route.Reg.Name)
-		}
-	}
-
 	model := proj.Config().Model()
 	modelName := model.Name
 	if think := model.Think.Mode; think != "off" && think != "" {
@@ -90,9 +61,8 @@ func runTUI() error {
 	redraw := controller.NewRedrawRelay()
 	bus := controller.NewBus(redraw.Fire)
 
-	ctrl, err := controller.NewController(bus, proj, extRunner)
+	ctrl, err := controller.NewController(bus, proj)
 	if err != nil {
-		extRunner.Close()
 		fmt.Fprintln(os.Stderr, "phi:", err)
 		return exitCode(ExitError)
 	}

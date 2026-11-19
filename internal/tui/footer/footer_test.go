@@ -13,21 +13,19 @@ import (
 	"github.com/pulseaiclub/phi/internal/session"
 )
 
-func TestDrawExtensionStatus(t *testing.T) {
-	f := NewFooterChrome(components.DefaultTheme())
-	row := components.SurfaceText(f.Draw(components.DrawContext{Method: xui.WidthUnicode}, 40, State{
-		ExtensionStatus: " review ",
-	}))
-	assert.Contains(t, row, "review")
-	assert.NotContains(t, row, "job")
-	assert.NotContains(t, row, "Stopped")
-}
-
 func TestDrawEmptyFooter(t *testing.T) {
 	f := NewFooterChrome(components.DefaultTheme())
 
 	row := components.SurfaceText(f.Draw(components.DrawContext{Method: xui.WidthUnicode}, 40, State{}))
 	assert.Empty(t, strings.TrimSpace(row))
+}
+
+func TestDrawUpdateHint(t *testing.T) {
+	f := NewFooterChrome(components.DefaultTheme())
+	row := components.SurfaceText(f.Draw(components.DrawContext{Method: xui.WidthUnicode}, 40, State{
+		UpdateHint: "v1.2.3 available",
+	}))
+	assert.Contains(t, row, "v1.2.3 available")
 }
 
 func TestStatusLabelUsesSnapshotUsage(t *testing.T) {

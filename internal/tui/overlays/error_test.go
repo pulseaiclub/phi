@@ -186,24 +186,3 @@ func TestErrorAskKeepsOriginalMessageForCopy(t *testing.T) {
 	require.True(t, replies[0].Copy)
 	require.Equal(t, original, texts[0])
 }
-
-func TestErrorAskReplacesOtherModals(t *testing.T) {
-	var replies []controller.ErrorReply
-	var texts []string
-	o := errorOverlays(&replies, &texts)
-	confirmReply := make(chan controller.ExtConfirmReply, 1)
-	o.beginExtConfirm(controller.OverlayMsg{
-		Kind:         controller.OverlayExtConfirm,
-		Title:        "Confirm",
-		ConfirmReply: confirmReply,
-	})
-	beginErrorAsk(o)
-	require.Nil(t, o.confirm, "error dialog replaces ext confirm")
-	require.NotNil(t, o.err)
-	select {
-	case <-confirmReply:
-		// ext confirm resolved as dismissed
-	default:
-		require.Fail(t, "replaced ext confirm should resolve")
-	}
-}

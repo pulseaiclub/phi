@@ -47,8 +47,8 @@ func (c PaletteCommand) Label() string {
 // command behavior and nested pages; listpicker owns all rendering and input.
 type CommandPalette struct {
 	Title string
-	// Root is the command registry shown on entry, replaced live by extension
-	// syncs. Commands is the page on screen — a snapshot of Root or of a
+	// Root is the command registry shown on entry. Commands is the page on
+	// screen — a snapshot of Root or of a
 	// pushed submenu. Keeping them apart means a sync under an open submenu
 	// cannot orphan its rows: they still resolve against the page they came
 	// from.

@@ -64,14 +64,13 @@ type Editor struct {
 	spin       *status.Spinner
 	spinTick   int
 	activity   *controller.ActivityHandler
-	extStatus  string
 	updateHint string
+	commandCtx commands.Context
 
 	ctrl *controller.EngineController
 
 	commands  *commands.CommandRegistry
 	sessions  *commands.SessionCommands
-	extCmds   *commands.ExtCommands
 	submitter *submit.Submitter
 }
 
@@ -147,11 +146,10 @@ func NewEditor(
 	e.commands = builtins.Registry
 	e.sessions = builtins.Sessions
 	e.sessions.ResetActivity = e.resetActivity
-	e.extCmds = builtins.Ext
-	e.extCmds.SetStatus = e.setExtensionStatus
-	e.composer.OnPaletteOpen = builtins.Ext.RefreshPalette
 
 	cmdCtx := commands.NewContext(e.bus, e.composer.PushPalette)
+	e.commandCtx = cmdCtx
+	e.composer.OnPaletteOpen = e.refreshPalette
 	e.submitter = submit.NewSubmitter(
 		e.ctrl,
 		e.commands,
@@ -164,8 +162,6 @@ func NewEditor(
 		e.overlays.Cancel,
 	)
 	builtins.Bind(
-		e.submitter,
-		cmdCtx,
 		e.showSessionList,
 		e.composer.RefreshSessionList,
 		e.composer.ShowBranchList,
@@ -194,7 +190,7 @@ func NewEditor(
 	// clickable; keep it from taking the keyboard while the palette is open.
 	e.App.ModalInput = e.composer.PaletteOpen
 
-	e.extCmds.Sync()
+	e.refreshPalette()
 	return e
 }
 
@@ -247,23 +243,9 @@ func (e *Editor) Update(m controller.Msg) {
 		case "think_level":
 			e.composer.SetModelLabel(e.ctrl.ModelName(), msg.Value)
 		}
-	case controller.ExtSessionEffectsMsg:
-		if msg.StatusSet {
-			e.extStatus = msg.Status
-		}
-		if msg.Toast != "" {
-			e.toast.Show(msg.Toast, toast.ToastSuccess, 3*time.Second)
-		}
 	case controller.BranchLabelMsg:
 		e.composer.SetBranchLabel(msg.Text)
 		e.vx.QueueRefresh()
-	case controller.ExtCommandResultMsg:
-		e.extCmds.Apply(msg)
-	case controller.ExtTopologyChangedMsg:
-		// Extensions changed underneath us (a reload): the agent still holds the old
-		// tool schemas and the palette the commands of the process that died.
-		e.ctrl.SyncExtensionTools()
-		e.extCmds.Sync()
 	case controller.JobProgressMsg:
 		// Applied in drainBus so we can skip Sync when the tree is unchanged.
 	}
@@ -335,14 +317,16 @@ func (e *Editor) resetActivity() {
 	e.activity.Apply(controller.ActivityIdle)
 }
 
-func (e *Editor) setExtensionStatus(status string) {
-	e.extStatus = status
+func (e *Editor) refreshPalette() {
+	e.composer.SetPaletteCommands(e.commands.BuildPalette(e.commandCtx))
 }
 
 func (e *Editor) applyFooterMessage(msg controller.FooterMsg) {
 	switch msg.Kind {
 	case controller.FooterClearIfActivity:
-		e.overlays.ClearActivityIf(msg.If)
+		if e.activity.Current == msg.If {
+			e.activity.Apply(controller.ActivityIdle)
+		}
 	case controller.FooterSetActivity:
 		e.activity.Apply(msg.Activity)
 	case controller.FooterUpdateAvailable:
@@ -563,8 +547,7 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 		chatSurf = e.composer.DrawChat(ctx, maxSize.Width, chatH)
 	}
 	footerSurf := e.footer.Draw(ctx, maxSize.Width, footer.State{
-		ExtensionStatus: e.extStatus,
-		UpdateHint:      e.updateHint,
+		UpdateHint: e.updateHint,
 	})
 
 	root.Children = []components.SubSurface{

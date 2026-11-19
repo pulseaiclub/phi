@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/agent"
-	"github.com/pulseaiclub/phi/internal/extension/loader"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/session"
@@ -168,7 +167,6 @@ func setupThinkingTest(t *testing.T, api llm.RouterType, baseURL string) string 
 	for _, key := range []string{"PHI_MODEL", "PHI_API_KEY", "PHI_BASE_URL", "PHI_THINK_LEVEL"} {
 		t.Setenv(key, "")
 	}
-	t.Setenv(loader.EnvExtensions, "off")
 	require.NoError(t, os.MkdirAll(filepath.Join(home, ".phi"), 0o700))
 	config := fmt.Sprintf(`models:
   - name: primary
@@ -191,7 +189,7 @@ func newThinkingTestController(t *testing.T, cwd string) *EngineController {
 	t.Helper()
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
-	ctrl, err := NewController(NewBus(nil), proj, nil)
+	ctrl, err := NewController(NewBus(nil), proj)
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 	return ctrl

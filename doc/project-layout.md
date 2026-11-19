@@ -20,11 +20,11 @@
 | `internal/tui/transcript/` | Session→widget projection (Mapper, Pane) |
 | `internal/tui/composer/` | Chat input, `/` `?` `@` `!` pickers, palette |
 | `internal/tui/footer/`   | Activity spinner, token labels, update hint |
-| `internal/tui/overlays/` | Extension confirmation / error panels |
+| `internal/tui/overlays/` | Error panels |
 | `internal/tui/diffpane/` | Git diff review overlay (`/diff`) |
 | `internal/tui/codepane/` | Source viewer overlay (`/code`) |
 | `internal/tui/submit/`   | Submit, cancel, slash dispatch, bash runner |
-| `internal/tui/commands/` | Slash/palette registry, session/extension commands |
+| `internal/tui/commands/` | Slash/palette registry, session commands |
 | `internal/tui/pathutil/` | Cwd + git branch path labels |
 | `internal/tui/controller/` | Engine lifecycle, Bus/Msg, activity |
 | `internal/version/`      | Build-time `Version` (splash / `phi update`) |

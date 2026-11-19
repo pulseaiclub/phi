@@ -44,9 +44,8 @@ reviews:
       instructions: |
         Review agent lifecycle and executor changes as stateful, concurrent code.
 
-        - Trace the full path from user input through extension pre-hooks, the
-          permission gate, tool execution, extension post-hooks, and final events.
-          Preserve the order: ExtensionPre -> Gate/Ask -> Run -> ExtensionPost.
+        - Trace the full path from user input through tool execution and final
+          events. The legacy extension runner is disconnected during the refactor.
         - Check cancellation, retry, timeout, goroutine ownership, channel closure,
           session persistence, and failure recovery. Do not report success merely
           because the happy path compiles.
@@ -81,8 +80,7 @@ reviews:
         - Preserve discovery precedence, project-local versus global extension
           behavior, disabled extensions, process lifecycle, RPC timeouts, and
           cancellation semantics.
-        - Keep extension calls inside the documented event chain. Tool calls must
-          retain ExtensionPre -> Gate/Ask -> Run -> ExtensionPost ordering.
+        - Keep the legacy runner isolated from CLI, TUI, and sub-agent execution.
         - Treat extension processes as code with the user's permissions. Validate
           executable paths and metadata, avoid leaking secrets, and fail closed on
           malformed frames, protocol errors, timeouts, and oversized payloads.

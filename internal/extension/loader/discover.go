@@ -140,8 +140,3 @@ func scanDir(dir, source string) ([]Discovered, []Warning, error) {
 	}
 	return out, warnings, nil
 }
-
-// FormatDiscovered returns a one-line status for palette / logs.
-func FormatDiscovered(d Discovered) string {
-	return fmt.Sprintf("%s  [%s]  %s", d.ID, d.Source, d.Path)
-}

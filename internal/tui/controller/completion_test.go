@@ -17,8 +17,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/llm"
-	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
-	"github.com/pulseaiclub/phi/internal/llm/extmodel"
 )
 
 func TestGenerateCommitMessageBuiltin(t *testing.T) {
@@ -111,15 +109,6 @@ func TestGenerateCommitMessageRejectsTruncatedStream(t *testing.T) {
 			assert.Empty(t, got)
 		})
 	}
-}
-
-func TestCompletionClientRoutesCurrentExtensions(t *testing.T) {
-	runner := loadResolveModelRunner(t)
-	ctrl := &EngineController{modelCfg: llm.ModelConfig{Name: "echo"}}
-	ctrl.extRunner.Store(runner)
-	assert.IsType(t, &extmodel.Client{}, newCompletionClient(ctrl.modelSnapshot(), ctrl.Extensions(), "rules"))
-	ctrl.extRunner.Store(nil)
-	assert.IsType(t, &llmclient.Client{}, newCompletionClient(ctrl.modelSnapshot(), ctrl.Extensions(), "rules"))
 }
 
 func TestCollectCompletion(t *testing.T) {

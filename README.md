@@ -12,7 +12,7 @@
   <a href="https://github.com/pulseaiclub/phi/releases"><img src="https://img.shields.io/github/v/release/pulseaiclub/phi?style=flat&colorA=222222&colorB=8957E5" alt="Release"></a>
 </p>
 
-- 15 MB · ~31 ms  · sub-agents · anchored sloppy edits · progressive MCP · PXB extensions · native diff review & code selection · OpenAI / Anthropic / Gemini
+- 15 MB · ~31 ms  · sub-agents · anchored sloppy edits · progressive MCP · native diff review & code selection · OpenAI / Anthropic / Gemini
 
 ![phi welcome](assets/phi.png)
 
@@ -266,7 +266,7 @@ The editor supports:
 - `?` — shortcut help picker (lists `/`, `!`, `!!`, `@`, and key bindings; `Esc` closes)
 - `!command` — run a shell command locally and stream its output into the
   transcript (see [Commands](#commands))
-- `Ctrl+K` — command palette: settings → model / theme / agents (incl. per-role models) / thinking / debug, plus extension management (`extensions`); use `/skill` to select a skill.
+- `Ctrl+K` — command palette: settings → model / theme / agents (incl. per-role models) / thinking / debug; use `/skill` to select a skill.
 
 ### Keyboard shortcuts
 
@@ -463,6 +463,10 @@ with the selected skills applied.
 
 ## Extensions
 
+**Runtime support is paused.** Neither `phi run`, the TUI, nor sub-agents start
+installed extensions. `phi plugin` still manages installed files. The PXB
+protocol and SDKs below are retained for the refactor.
+
 Extensions are native binaries speaking the **PXB** binary protocol over
 stdin/stdout (author SDKs: Go `github.com/pulseaiclub/phi/ext/go/phi`, Rust
 [`ext/rust`](ext/rust) (`phi-ext`), and TypeScript
@@ -491,9 +495,7 @@ func main() {
 }
 ```
 
-Install under `~/.phi/extensions/<name>/` with a `phi.yaml` pointing at the
-binary. In the TUI: `Ctrl+K` → **extensions**. Disable with
-`PHI_EXTENSIONS=off`. Full guide: [doc/extensions.md](doc/extensions.md).
+Legacy runner reference: [doc/extensions.md](doc/extensions.md).
 
 Codec throughput on Apple Silicon (release, single-threaded):
 

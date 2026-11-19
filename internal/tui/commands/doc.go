@@ -3,8 +3,8 @@
 // Assembly:
 //
 //	builtins := commands.NewBuiltinRegistry(bus, ctrl, composer, ...)
-//	builtins.Bind(submitter, commandCtx, openPicker, openBranchPicker, cwd, streamActive)
+//	builtins.Bind(openPicker, refreshPicker, openBranchPicker, refreshBranchPicker, openSkillPicker, cwd, streamActive)
 //
-// Domains (session, branch, settings, extensions, skills, diff) register themselves
+// Domains (session, branch, settings, skills, diff) register themselves and
 // hold Ctrl/Bus/Composer directly — no *Deps / *Params bags.
 package commands

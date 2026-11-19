@@ -7,12 +7,9 @@ import (
 	"iter"
 	"strings"
 
-	"github.com/pulseaiclub/phi/ext/go/pxb"
 	"github.com/pulseaiclub/phi/internal/agent/prompt"
-	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/llm"
 	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
-	"github.com/pulseaiclub/phi/internal/llm/extmodel"
 	"github.com/pulseaiclub/phi/internal/project/model"
 )
 
@@ -23,8 +20,8 @@ const (
 )
 
 // GenerateCommitMessage requests one tool-free completion using the controller's
-// current model and extension topology. The request does not touch the agent
-// engine, session, or executor.
+// current model. The request does not touch the agent engine, session, or
+// executor.
 func (c *EngineController) GenerateCommitMessage(
 	ctx context.Context,
 	system, user string,
@@ -33,13 +30,12 @@ func (c *EngineController) GenerateCommitMessage(
 		return "", err
 	}
 	cfg := c.modelSnapshot()
-	runner := c.Extensions()
 	system = strings.TrimSpace(system + "\n\n" + prompt.ProjectContext(c.cwd))
 	// Provider streams do not consistently preserve truncation reasons. Require
 	// an explicit terminator so a valid-looking partial subject is not offered.
 	system += "\nFor this completion apply only repository commit-message rules. After the complete subject, append " +
 		"a newline and <phi-commit-end>. This required transport marker is not part of the message."
-	client := newCompletionClient(cfg, runner, system)
+	client := llmclient.NewClient(cfg, model.HooksForConfig(cfg), nil, system)
 	text, err := collectCompletion(ctx, client.Stream(ctx, []llm.Message{{Role: llm.RoleUser, Content: user}}))
 	if err != nil {
 		return "", err
@@ -49,23 +45,6 @@ func (c *EngineController) GenerateCommitMessage(
 		return "", errors.New("commit message completion is missing its end marker; try again")
 	}
 	return strings.TrimSuffix(text, commitEndMarker), nil
-}
-
-func newCompletionClient(
-	cfg llm.ModelConfig,
-	runner *extension.Runner,
-	system string,
-) llm.ChatClient {
-	if route, ok := runner.LookupModel(cfg.Name); ok && route.ExtConn() {
-		stream := func(
-			ctx context.Context,
-			req pxb.ModelInvoke,
-		) (iter.Seq2[pxb.ModelStreamEvent, error], error) {
-			return runner.ModelStream(ctx, route, req)
-		}
-		return extmodel.New(route.Reg.Name, stream, cfg, nil, system)
-	}
-	return llmclient.NewClient(cfg, model.HooksForConfig(cfg), nil, system)
 }
 
 func collectCompletion(ctx context.Context, events iter.Seq2[llm.StreamEvent, error]) (string, error) {
