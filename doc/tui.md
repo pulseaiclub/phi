@@ -241,6 +241,10 @@ sessions keep going from here with the same history. It takes no arguments:
 extra words get a usage toast instead of falling through to a prompt, and a
 running reply, local bash or open overlay refuses it.
 
+`EngineController` owns the active session. It passes that session to the engine
+and binds job tools to its ID and working directory. A session switch installs
+new bindings; already-started jobs keep their original parent.
+
 One move, no options: `session.Manager.Fork` writes the current branch to a new
 JSONL file (new id, source recorded as `parentSession`, entry ids copied
 verbatim) and reopens it through `session.OpenSession`, so the fork is read back

@@ -17,8 +17,8 @@ func TestModelLifecycle(t *testing.T) {
 	ctrl := newTestController(t, "http://127.0.0.1:9")
 	cwd := ctrl.cwd
 	flush := func() {
-		require.NoError(t, ctrl.engine.Session().Append(llm.Message{Role: llm.RoleUser, Content: "hello"}))
-		require.NoError(t, ctrl.engine.Session().Append(llm.Message{Role: llm.RoleAssistant, Content: "done"}))
+		require.NoError(t, ctrl.session.Append(llm.Message{Role: llm.RoleUser, Content: "hello"}))
+		require.NoError(t, ctrl.session.Append(llm.Message{Role: llm.RoleAssistant, Content: "done"}))
 	}
 
 	require.NoError(t, ctrl.SetModel("primary"))
@@ -48,6 +48,23 @@ func TestModelLifecycle(t *testing.T) {
 	_, err = restarted.Resume(secondID)
 	require.NoError(t, err)
 	assert.Equal(t, "secondary", restarted.ModelName(), "resume must restore only the selected session's model")
+}
+
+func TestAppendUserBashAttributesOutputToActiveSession(t *testing.T) {
+	ctrl := newTestController(t, "http://127.0.0.1:9")
+	oldID := ctrl.SessionID()
+
+	require.NoError(t, ctrl.NewSession())
+	newID := ctrl.SessionID()
+	require.NotEqual(t, oldID, newID)
+
+	require.NoError(t, ctrl.AppendUserBash(oldID, "printf old", "old", 0, false))
+	assert.Empty(t, ctrl.ReplaySnapshot().Messages, "stale bash output must not enter the new session")
+
+	require.NoError(t, ctrl.AppendUserBash(newID, "printf new", "new", 0, false))
+	snapshot := ctrl.ReplaySnapshot()
+	require.Len(t, snapshot.Messages, 1)
+	assert.Equal(t, "new", snapshot.Tools[snapshot.Messages[0].ID].Output)
 }
 
 func TestUnlistedModelUsesPrimaryConnection(t *testing.T) {

@@ -33,12 +33,16 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 	}
 
 	spec := SpecForRole(env.Job.Role)
-	engine, err := r.newEngine(env.Job, spec)
+	sess, err := newJobSession(env.Job)
+	if err != nil {
+		return "", err
+	}
+	engine, err := r.newEngine(env.Job, spec, sess)
 	if err != nil {
 		return "", err
 	}
 
-	env.Log(fmt.Sprintf("sub-agent role=%s session=%s parent=%s", spec.Role, engine.SessionID(), env.Job.ParentID))
+	env.Log(fmt.Sprintf("sub-agent role=%s session=%s parent=%s", spec.Role, sess.ID(), env.Job.ParentID))
 
 	prompt := env.Job.Prompt
 	if env.Job.Description != "" {
@@ -80,7 +84,7 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 		}
 	}
 
-	if path := engine.SessionFile(); path != "" {
+	if path := sess.File(); path != "" {
 		env.Log("session_file=" + path)
 	}
 
@@ -99,12 +103,20 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 	return lastText, nil
 }
 
-func (r EngineRunner) newEngine(meta job.Meta, spec ChildSpec) (*Engine, error) {
+func newJobSession(meta job.Meta) (*Session, error) {
 	cwd := meta.WorkDir
 	if cwd == "" {
 		cwd = "."
 	}
+	return NewSession(
+		WithCwd(cwd),
+		WithSessionDir(filepath.Join(meta.Dir, "session")),
+		WithPersist(true),
+		WithParentID(meta.ParentID),
+	)
+}
 
+func (r EngineRunner) newEngine(meta job.Meta, spec ChildSpec, sess *Session) (*Engine, error) {
 	toolList := r.Tools
 	if toolList == nil {
 		toolList = spec.Tools
@@ -115,15 +127,6 @@ func (r EngineRunner) newEngine(meta job.Meta, spec ChildSpec) (*Engine, error) 
 		cfg = r.ModelFn(meta.Role)
 	}
 
-	sess, err := NewSession(
-		WithCwd(cwd),
-		WithSessionDir(filepath.Join(meta.Dir, "session")),
-		WithPersist(true),
-		WithParentID(meta.ParentID),
-	)
-	if err != nil {
-		return nil, err
-	}
 	return NewEngine(cfg, sess,
 		WithTools(toolList),
 		WithHooks(model.HooksForConfig(cfg)),

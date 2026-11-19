@@ -185,7 +185,10 @@ func TestExecutorMixedBatchStaysSequential(t *testing.T) {
 func TestChildToolReadsRelativeToJobWorkDir(t *testing.T) {
 	workDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(workDir, "child.txt"), []byte("child content"), 0o600))
-	child, err := (EngineRunner{}).newEngine(job.Meta{Dir: t.TempDir(), WorkDir: workDir}, SpecForRole(job.RoleExplore))
+	meta := job.Meta{Dir: t.TempDir(), WorkDir: workDir}
+	sess, err := newJobSession(meta)
+	require.NoError(t, err)
+	child, err := (EngineRunner{}).newEngine(meta, SpecForRole(job.RoleExplore), sess)
 	require.NoError(t, err)
 	msgs := child.executor.Run(t.Context(), []llm.ToolCall{{
 		ID: "child-read", Function: llm.Function{Name: "read", Arguments: `{"path":"child.txt"}`},

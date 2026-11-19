@@ -1,9 +1,9 @@
 package agent
 
 import (
-	"github.com/pulseaiclub/phi/internal/job"
 	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
 	"github.com/pulseaiclub/phi/internal/mcp"
+	"github.com/pulseaiclub/phi/internal/tools/agenttool"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
@@ -20,7 +20,7 @@ func (f EngineConfigOptionFunc) Apply(config EngineConfig) EngineConfig {
 
 type EngineConfig struct {
 	tools []tooldef.Tool
-	jobs  *job.Manager
+	jobs  *agenttool.Binding
 	mcp   *mcp.Pool
 	hooks llmclient.Hooks
 }
@@ -34,10 +34,10 @@ func WithTools(list []tooldef.Tool) EngineConfigOption {
 	})
 }
 
-// WithJobs registers agent_* tools against the given job manager.
-func WithJobs(jobs *job.Manager) EngineConfigOption {
+// WithJobs registers agent_* tools against the given job binding.
+func WithJobs(binding *agenttool.Binding) EngineConfigOption {
 	return EngineConfigOptionFunc(func(c EngineConfig) EngineConfig {
-		c.jobs = jobs
+		c.jobs = binding
 		return c
 	})
 }

@@ -18,13 +18,19 @@ import (
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/project/model"
 	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/pulseaiclub/phi/internal/tools/agenttool"
 )
 
-// EngineController owns agent.Engine lifecycle and stream cancellation.
+// EngineController owns the active session and its agent.Engine lifecycle.
 // It talks to the UI only by publishing Msg values onto the Bus.
 type EngineController struct {
-	engine *agent.Engine
-	proj   *project.Project
+	engine  *agent.Engine
+	session *agent.Session
+	proj    *project.Project
+
+	// Background jobs and bash completions read the active model and session.
+	// Publish them together with the engine on every session switch.
+	sessionMu sync.RWMutex
 
 	streamMu       sync.Mutex
 	streamCancel   context.CancelFunc
@@ -37,7 +43,6 @@ type EngineController struct {
 
 	sessionDir string
 	cwd        string
-	modelMu    sync.RWMutex // Protect model snapshots read by background jobs.
 	modelCfg   llm.ModelConfig
 	// roleModels maps sub-agent role → model name. Empty → inherit modelCfg.
 	roleModels map[job.Role]string
@@ -80,11 +85,12 @@ func NewController(bus *Bus, proj *project.Project) (*EngineController, error) {
 		c.mcpPool = pool
 	}
 
-	eng, _, err := c.openEngine(c.modelCfg, "")
+	eng, sess, _, err := c.openEngine(c.modelCfg, "")
 	if err != nil {
 		return nil, err
 	}
 	c.engine = eng
+	c.session = sess
 	c.startJobProgress()
 	return c, nil
 }
@@ -135,8 +141,10 @@ func (c *EngineController) shouldPublishJobProgress(p job.Progress) bool {
 }
 
 func (c *EngineController) SetAgentsEnabled(v bool) {
+	c.sessionMu.Lock()
+	defer c.sessionMu.Unlock()
 	c.agentsEnabled.Store(v)
-	c.engine.SetJobs(c.engineJobs())
+	c.engine.SetJobs(c.engineJobs(c.session))
 }
 
 // AgentsEnabled reports whether sub-agent (agent_*) tools are registered.
@@ -184,11 +192,11 @@ func (c *EngineController) SetRoleModel(role, name string) error {
 	return nil
 }
 
-func (c *EngineController) engineJobs() *job.Manager {
+func (c *EngineController) engineJobs(sess *agent.Session) *agenttool.Binding {
 	if !c.agentsEnabled.Load() {
 		return nil
 	}
-	return c.jobs
+	return agenttool.Bind(c.jobs, sess.ID(), sess.Cwd())
 }
 
 // SaveDefaultModel changes the global default without rewriting any session.
@@ -206,10 +214,9 @@ func (c *EngineController) SetModel(name string) error {
 	}
 	cfg := resolveModelConfig(c.proj.Config(), name)
 	c.Cancel()
-	c.engine.SetJobs(c.engineJobs())
-	c.modelMu.Lock()
-	defer c.modelMu.Unlock()
-	if err := c.engine.Session().SetModel(name); err != nil {
+	c.sessionMu.Lock()
+	defer c.sessionMu.Unlock()
+	if err := c.session.SetModel(name); err != nil {
 		return err
 	}
 	c.engine.SetModelWithHooks(cfg, model.HooksForConfig(cfg))
@@ -219,8 +226,8 @@ func (c *EngineController) SetModel(name string) error {
 
 // SetThinkLevel changes the thinking level for the current session.
 func (c *EngineController) SetThinkLevel(mode llm.ThinkMode) error {
-	c.modelMu.Lock()
-	defer c.modelMu.Unlock()
+	c.sessionMu.Lock()
+	defer c.sessionMu.Unlock()
 	cfg := c.modelCfg
 	cfg.Think = llm.ThinkConfig{Mode: mode, Enabled: mode != llm.Off}
 	if err := model.ValidateThinking(cfg); err != nil {
@@ -253,8 +260,8 @@ func (c *EngineController) ContextWindow() int {
 }
 
 func (c *EngineController) modelSnapshot() llm.ModelConfig {
-	c.modelMu.RLock()
-	defer c.modelMu.RUnlock()
+	c.sessionMu.RLock()
+	defer c.sessionMu.RUnlock()
 	return c.modelCfg
 }
 
@@ -263,7 +270,9 @@ func (c *EngineController) ImageEnabled() bool {
 }
 
 func (c *EngineController) SessionID() string {
-	return c.engine.SessionID()
+	c.sessionMu.RLock()
+	defer c.sessionMu.RUnlock()
+	return c.session.ID()
 }
 
 // AppendUserBash records a user "!!cmd" run in the current session so the next
@@ -271,11 +280,12 @@ func (c *EngineController) SessionID() string {
 // while the command was running: the output belongs to the old session, not
 // whichever one is open now.
 func (c *EngineController) AppendUserBash(sessionID, command, output string, exitCode int, cancelled bool) error {
-	engine := c.engine
-	if sessionID != "" && engine.SessionID() != sessionID {
+	c.sessionMu.RLock()
+	defer c.sessionMu.RUnlock()
+	if sessionID != "" && c.session.ID() != sessionID {
 		return nil
 	}
-	return engine.Session().AppendBash(command, output, exitCode, cancelled)
+	return c.session.AppendBash(command, output, exitCode, cancelled)
 }
 
 func (c *EngineController) SessionDir() string {
@@ -283,7 +293,9 @@ func (c *EngineController) SessionDir() string {
 }
 
 func (c *EngineController) SessionFile() string {
-	return c.engine.SessionFile()
+	c.sessionMu.RLock()
+	defer c.sessionMu.RUnlock()
+	return c.session.File()
 }
 
 func (c *EngineController) Resume(id string) (cwdWarning string, err error) {
@@ -300,14 +312,14 @@ func (c *EngineController) Resume(id string) (cwdWarning string, err error) {
 	}
 
 	c.Cancel()
-	eng, cfg, err := c.openEngine(cfg, id)
+	eng, sess, cfg, err := c.openEngine(cfg, id)
 	if err != nil {
 		return "", err
 	}
-	if sessCwd := eng.SessionCwd(); sessCwd != "" && c.cwd != "" && sessCwd != c.cwd {
+	if sessCwd := sess.Cwd(); sessCwd != "" && c.cwd != "" && sessCwd != c.cwd {
 		cwdWarning = fmt.Sprintf("cwd %s ≠ %s", filepath.Base(sessCwd), filepath.Base(c.cwd))
 	}
-	c.activateSession(eng, cfg)
+	c.activateSession(eng, sess, cfg)
 	return cwdWarning, nil
 }
 
@@ -322,11 +334,11 @@ func (c *EngineController) NewSession() error {
 		return err
 	}
 	c.Cancel()
-	engine, cfg, err := c.openEngine(cfg, "")
+	engine, sess, cfg, err := c.openEngine(cfg, "")
 	if err != nil {
 		return err
 	}
-	c.activateSession(engine, cfg)
+	c.activateSession(engine, sess, cfg)
 	return nil
 }
 
@@ -336,7 +348,9 @@ func (c *EngineController) ForkSession() (string, error) {
 	if err := c.checkSessionDir(); err != nil {
 		return "", err
 	}
-	forked, err := c.engine.Session().Fork()
+	c.sessionMu.RLock()
+	forked, err := c.session.Fork()
+	c.sessionMu.RUnlock()
 	if err != nil {
 		return "", err
 	}
@@ -351,15 +365,16 @@ func (c *EngineController) ForkSession() (string, error) {
 		return "", err
 	}
 	c.Cancel()
-	c.activateSession(eng, cfg)
+	c.activateSession(eng, forked, cfg)
 	return forked.ID(), nil
 }
 
-func (c *EngineController) activateSession(eng *agent.Engine, cfg llm.ModelConfig) {
-	c.modelMu.Lock()
+func (c *EngineController) activateSession(eng *agent.Engine, sess *agent.Session, cfg llm.ModelConfig) {
+	c.sessionMu.Lock()
 	c.engine = eng
+	c.session = sess
 	c.modelCfg = cfg
-	c.modelMu.Unlock()
+	c.sessionMu.Unlock()
 }
 
 // discardFork drops a fork the controller never switched to, so a failed switch
@@ -399,7 +414,7 @@ func resolveModelConfig(cfg *project.Config, name string) llm.ModelConfig {
 func (c *EngineController) openEngine(
 	cfg llm.ModelConfig,
 	resumeID string,
-) (*agent.Engine, llm.ModelConfig, error) {
+) (*agent.Engine, *agent.Session, llm.ModelConfig, error) {
 	opts := []agent.SessionOption{
 		agent.WithCwd(c.cwd),
 		agent.WithSessionDir(c.sessionDir),
@@ -411,16 +426,16 @@ func (c *EngineController) openEngine(
 	}
 	sess, err := agent.NewSession(opts...)
 	if err != nil {
-		return nil, llm.ModelConfig{}, err
+		return nil, nil, llm.ModelConfig{}, err
 	}
 	if name := sess.ModelName(); resumeID != "" && name != "" {
 		cfg = resolveModelConfig(c.proj.Config(), name)
 	}
 	eng, err := c.newEngine(cfg, sess)
 	if err != nil {
-		return nil, llm.ModelConfig{}, err
+		return nil, nil, llm.ModelConfig{}, err
 	}
-	return eng, cfg, nil
+	return eng, sess, cfg, nil
 }
 
 // newEngine binds a session to a fresh engine on the controller-wide gate,
@@ -428,14 +443,16 @@ func (c *EngineController) openEngine(
 // forked session runs on exactly the wiring of a resumed one.
 func (c *EngineController) newEngine(cfg llm.ModelConfig, sess *agent.Session) (*agent.Engine, error) {
 	return agent.NewEngine(cfg, sess,
-		agent.WithJobs(c.engineJobs()),
+		agent.WithJobs(c.engineJobs(sess)),
 		agent.WithMCP(c.mcpPool),
 		agent.WithHooks(model.HooksForConfig(cfg)),
 	)
 }
 
 func (c *EngineController) ReplaySnapshot() session.Snapshot {
-	return session.ReplaySnapshot(c.engine.Session().PathEntries(), c.engine.ToolDetail)
+	c.sessionMu.RLock()
+	defer c.sessionMu.RUnlock()
+	return session.ReplaySnapshot(c.session.PathEntries(), c.engine.ToolDetail)
 }
 
 func (c *EngineController) StartPrompt(text string, pendingSkills []string, images []llm.Image) {
@@ -459,7 +476,10 @@ func (c *EngineController) startPromptLocked() {
 	c.streamGen++
 	c.retryReady = false
 	c.publish(LoopStartedMsg{Gen: c.streamGen})
-	go c.runLoop(ctx, c.streamGen, c.engine, c.lastPrompt, c.promptAppended)
+	c.sessionMu.RLock()
+	engine := c.engine
+	c.sessionMu.RUnlock()
+	go c.runLoop(ctx, c.streamGen, engine, c.lastPrompt, c.promptAppended)
 }
 
 // RetryLastPrompt resumes a failed turn without appending its user message again.

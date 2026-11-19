@@ -21,6 +21,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/project/model"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/agenttool"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"github.com/pulseaiclub/phi/internal/util"
 )
@@ -115,22 +116,6 @@ func runHeadless(opts runOptions) error {
 	if mcpPool != nil {
 		engineOpts = append(engineOpts, agent.WithMCP(mcpPool))
 	}
-	if bs.Config.Agents.Enabled {
-		parent := primary
-		jobs, jobErr := agent.NewJobManager(bs.Proj.JobsDir(), parent, func(role job.Role) llm.ModelConfig {
-			if cfg, ok := bs.Config.FindModel(bs.Config.Agents.Models.ForRole(role)); ok {
-				return cfg
-			}
-			return parent
-		})
-		if jobErr != nil {
-			fmt.Fprintln(os.Stderr, "phi run:", jobErr)
-			return exitCode(ExitUsage)
-		}
-		defer func() { _ = jobs.Close(context.Background()) }()
-		engineOpts = append(engineOpts, agent.WithJobs(jobs))
-	}
-
 	sessionOpts := []agent.SessionOption{
 		agent.WithCwd(bs.Cwd),
 		agent.WithSessionDir(bs.SessionDir),
@@ -147,14 +132,30 @@ func runHeadless(opts runOptions) error {
 		return exitCode(ExitUsage)
 	}
 
+	if bs.Config.Agents.Enabled {
+		parent := primary
+		jobs, jobErr := agent.NewJobManager(bs.Proj.JobsDir(), parent, func(role job.Role) llm.ModelConfig {
+			if cfg, ok := bs.Config.FindModel(bs.Config.Agents.Models.ForRole(role)); ok {
+				return cfg
+			}
+			return parent
+		})
+		if jobErr != nil {
+			fmt.Fprintln(os.Stderr, "phi run:", jobErr)
+			return exitCode(ExitUsage)
+		}
+		defer func() { _ = jobs.Close(context.Background()) }()
+		engineOpts = append(engineOpts, agent.WithJobs(agenttool.Bind(jobs, sess.ID(), sess.Cwd())))
+	}
+
 	engine, err := agent.NewEngine(primary, sess, engineOpts...)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "phi run:", err)
 		return exitCode(ExitUsage)
 	}
 
-	fmt.Fprintf(os.Stderr, "session: %s\n", engine.SessionID())
-	if f := engine.SessionFile(); f != "" {
+	fmt.Fprintf(os.Stderr, "session: %s\n", sess.ID())
+	if f := sess.File(); f != "" {
 		fmt.Fprintf(os.Stderr, "file: %s\n", f)
 	}
 
@@ -165,12 +166,12 @@ func runHeadless(opts runOptions) error {
 		defer cancel()
 	}
 
-	return exitCode(runLoop(runCtx, engine, opts))
+	return exitCode(runLoop(runCtx, engine, sess, opts))
 }
 
 // runLoop consumes the same engine.Loop the TUI uses — no second loop is
 // implemented here — and maps events to stdout/stderr + exit codes.
-func runLoop(ctx context.Context, engine *agent.Engine, opts runOptions) int {
+func runLoop(ctx context.Context, engine *agent.Engine, sess *agent.Session, opts runOptions) int {
 	enc := &jsonlEncoder{out: os.Stdout, enabled: opts.jsonl}
 
 	exit := ExitOK
@@ -215,7 +216,7 @@ func runLoop(ctx context.Context, engine *agent.Engine, opts runOptions) int {
 		fmt.Fprintln(os.Stdout, finalText)
 	}
 
-	enc.doneEvent(engine.SessionID(), engine.SessionFile(), exit)
+	enc.doneEvent(sess.ID(), sess.File(), exit)
 	return exit
 }
 

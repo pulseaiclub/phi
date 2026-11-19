@@ -23,11 +23,7 @@ func newAgentTestRegistry(t *testing.T, runner job.RunnerFunc) (*job.Manager, to
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
 	workdir := t.TempDir()
-	reg := tooldef.NewRegistry(agenttool.AgentTools(
-		agenttool.WithManager(mgr),
-		agenttool.WithParentID(func() string { return "parent-1" }),
-		agenttool.WithWorkDir(func() string { return workdir }),
-	))
+	reg := tooldef.NewRegistry(agenttool.Bind(mgr, "parent-1", workdir).Tools())
 	return mgr, reg
 }
 
@@ -124,6 +120,12 @@ func TestAgentToolsSpawnRoleWorker(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, waitRes.Content, `"status": "completed"`)
 	assert.Equal(t, "worker: implement x", waitRes.Detail)
+}
+
+func TestBindNilManagerDisablesTools(t *testing.T) {
+	assert.Nil(t, agenttool.Bind(nil, "parent", t.TempDir()))
+	assert.Nil(t, (*agenttool.Binding)(nil).Tools())
+	assert.Zero(t, (*agenttool.Binding)(nil).MaxConcurrent())
 }
 
 func TestAgentSpawnDetailAlwaysIncludesRole(t *testing.T) {

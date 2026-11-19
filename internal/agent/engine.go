@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/agent/prompt"
-	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
 	"github.com/pulseaiclub/phi/internal/llm/skills"
@@ -31,7 +30,7 @@ type Engine struct {
 	executor  *Executor
 	modelCfg  llm.ModelConfig
 	hooks     llmclient.Hooks
-	jobs      *job.Manager
+	jobs      *agenttool.Binding
 	baseTools []tooldef.Tool // nil = DefaultTools; preserved across rebind
 	mcp       *mcp.Pool
 
@@ -73,10 +72,10 @@ func (engine *Engine) SetModelWithHooks(cfg llm.ModelConfig, hooks llmclient.Hoo
 	engine.rebindTools()
 }
 
-// SetJobs attaches or detaches the job manager and rebuilds the tool list.
+// SetJobs attaches or detaches the bound job tools and rebuilds the tool list.
 // Pass nil to unregister agent_* tools (sub-agents disabled).
-func (engine *Engine) SetJobs(jobs *job.Manager) {
-	engine.jobs = jobs
+func (engine *Engine) SetJobs(binding *agenttool.Binding) {
+	engine.jobs = binding
 	engine.rebindTools()
 }
 
@@ -87,11 +86,7 @@ func (engine *Engine) rebindTools() {
 		toolList = tools.DefaultTools(engine.mcp)
 	}
 	if engine.jobs != nil {
-		toolList = slices.Concat(toolList, agenttool.AgentTools(
-			agenttool.WithManager(engine.jobs),
-			agenttool.WithParentID(engine.SessionID),
-			agenttool.WithWorkDir(engine.SessionCwd),
-		))
+		toolList = slices.Concat(toolList, engine.jobs.Tools())
 	}
 	engine.client = llmclient.NewClient(
 		engine.modelCfg,
@@ -100,7 +95,7 @@ func (engine *Engine) rebindTools() {
 		engine.systemPrompt(),
 	)
 	engine.executor = NewExecutor(tooldef.NewRegistry(toolList))
-	engine.executor.cwd = engine.SessionCwd()
+	engine.executor.cwd = engine.session.Cwd()
 }
 
 func (engine *Engine) systemPrompt() string {
@@ -115,7 +110,7 @@ func (engine *Engine) systemPrompt() string {
 	// Build from the session cwd, not the process cwd: a sub-agent spawned with
 	// its own workdir must load that workspace's instructions.
 	return prompt.Build(
-		engine.SessionCwd(),
+		engine.session.Cwd(),
 		engine.modelCfg.SkillPaths,
 		engine.jobs != nil,
 		maxConcurrent,
@@ -127,26 +122,6 @@ func (engine *Engine) systemPrompt() string {
 func (engine *Engine) HasTool(name string) bool {
 	_, ok := engine.executor.registry[name]
 	return ok
-}
-
-// SessionID returns the durable session id.
-func (engine *Engine) SessionID() string {
-	return engine.session.ID()
-}
-
-// SessionFile returns the JSONL path (empty in memory mode).
-func (engine *Engine) SessionFile() string {
-	return engine.session.File()
-}
-
-// SessionCwd returns the cwd recorded on the session header.
-func (engine *Engine) SessionCwd() string {
-	return engine.session.Cwd()
-}
-
-// Session returns the underlying session wrapper (for UI transcript replay).
-func (engine *Engine) Session() *Session {
-	return engine.session
 }
 
 // LoopOpts configures a single agent loop turn.

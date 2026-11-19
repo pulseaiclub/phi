@@ -200,7 +200,7 @@ func retryReady(ctrl *EngineController) bool {
 
 func userMessages(ctrl *EngineController) []llm.Message {
 	var users []llm.Message
-	for _, entry := range ctrl.engine.Session().PathEntries() {
+	for _, entry := range ctrl.session.PathEntries() {
 		message, ok := entry.(session.SessionMessageEntry)
 		if ok && message.Message.Role == llm.RoleUser {
 			users = append(users, message.Message)

@@ -22,6 +22,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/agenttool"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
@@ -207,7 +208,7 @@ func TestSelectedBuiltinToolsStillAppendExternalTools(t *testing.T) {
 		sess,
 		agent.WithTools(selected),
 		agent.WithMCP(pool),
-		agent.WithJobs(jobs),
+		agent.WithJobs(agenttool.Bind(jobs, sess.ID(), sess.Cwd())),
 	)
 	require.NoError(t, err)
 	assert.True(t, engine.HasTool("read"))
@@ -239,7 +240,7 @@ func TestRunLoopTimeoutCancelsLLMRequest(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
-	exit := runLoop(ctx, engine, runOptions{prompt: "wait"})
+	exit := runLoop(ctx, engine, sess, runOptions{prompt: "wait"})
 
 	assert.Equal(t, ExitError, exit)
 	assert.Less(t, time.Since(start), time.Second)

@@ -131,7 +131,7 @@ func TestModelSwitchExplicitHighRequestUnchanged(t *testing.T) {
 			var sessionIDs []string
 			for _, explicitHigh := range []bool{false, true} {
 				ctrl := newThinkingTestController(t, cwd)
-				sessionIDs = append(sessionIDs, ctrl.engine.SessionID())
+				sessionIDs = append(sessionIDs, ctrl.SessionID())
 				// Seed identical history in fresh sessions so the extra setter is the only variable.
 				run(ctrl, "remember this exchange")
 				require.NoError(t, ctrl.SetThinkLevel(llm.Low))

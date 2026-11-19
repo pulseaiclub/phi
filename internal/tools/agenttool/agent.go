@@ -33,55 +33,42 @@ How to use:
 4. Sub-agents cannot spawn further agents. Do not put secrets in the prompt.
 5. Verify before relying on a worker's edits in follow-up work.`
 
-// agentConfig is the resolved wiring of the agent_* tools. ParentID/WorkDir stay
-// callbacks because the session can change under us (/resume).
-type agentConfig struct {
+// Binding is the immutable job context used by the agent tools.
+type Binding struct {
 	manager  *job.Manager
-	parentID func() string
-	workDir  func() string
+	parentID string
+	workDir  string
 }
 
-// AgentOption configures [AgentTools].
-type AgentOption func(*agentConfig)
-
-// WithManager wires the process-level job manager. AgentTools returns no tools
-// without one, so sub-agents stay unregistered.
-func WithManager(manager *job.Manager) AgentOption {
-	return func(cfg *agentConfig) { cfg.manager = manager }
-}
-
-// WithParentID sets the parent session attributed to spawned jobs.
-func WithParentID(parentID func() string) AgentOption {
-	return func(cfg *agentConfig) { cfg.parentID = parentID }
-}
-
-// WithWorkDir sets the session cwd that relative sub-agent workdirs resolve against.
-func WithWorkDir(workDir func() string) AgentOption {
-	return func(cfg *agentConfig) { cfg.workDir = workDir }
-}
-
-// AgentTools returns agent_spawn and agent_wait.
-// Depth is forced to 0; the parent id comes from WithParentID, not model args.
-func AgentTools(opts ...AgentOption) []tooldef.Tool {
-	cfg := agentConfig{
-		parentID: func() string { return "" },
-		workDir:  func() string { return "" },
+// Bind associates a job manager with the parent session and working directory.
+// A nil manager disables sub-agent tools.
+func Bind(manager *job.Manager, parentID, workDir string) *Binding {
+	if manager == nil {
+		return nil
 	}
-	for _, opt := range opts {
-		if opt != nil {
-			opt(&cfg)
-		}
-	}
-	if cfg.manager == nil {
+	return &Binding{manager: manager, parentID: parentID, workDir: workDir}
+}
+
+// Tools returns agent_spawn and agent_wait for this binding.
+func (b *Binding) Tools() []tooldef.Tool {
+	if b == nil {
 		return nil
 	}
 	return []tooldef.Tool{
-		agentSpawnTool(cfg),
-		agentWaitTool(cfg),
+		agentSpawnTool(b),
+		agentWaitTool(b),
 	}
 }
 
-func agentSpawnTool(cfg agentConfig) tooldef.Tool {
+// MaxConcurrent returns the manager's sub-agent concurrency limit.
+func (b *Binding) MaxConcurrent() int {
+	if b == nil {
+		return 0
+	}
+	return b.manager.MaxConcurrent()
+}
+
+func agentSpawnTool(binding *Binding) tooldef.Tool {
 	return tooldef.NewTool(
 		tooldef.WithDefinition(llm.ToolDefinition{
 			Name: "agent_spawn",
@@ -89,7 +76,7 @@ func agentSpawnTool(cfg agentConfig) tooldef.Tool {
 
 Starts asynchronously and returns job_id immediately. Use agent_wait with only job_id for the summary. Best for parallel jobs.
 
-Concurrency cap: at most %d sub-agents run concurrently; spawning more fails (jobs are not queued).`, cfg.manager.MaxConcurrent()),
+Concurrency cap: at most %d sub-agents run concurrently; spawning more fails (jobs are not queued).`, binding.MaxConcurrent()),
 			Params: &llm.FunctionParameters{
 				Type: "object",
 				Properties: llm.Object{
@@ -124,14 +111,14 @@ Concurrency cap: at most %d sub-agents run concurrently; spawning more fails (jo
 			if err != nil {
 				return tooldef.Result{}, err
 			}
-			wd, err := absCleanAt(strings.TrimSpace(in.WorkDir), cfg.workDir())
+			wd, err := absCleanAt(strings.TrimSpace(in.WorkDir), binding.workDir)
 			if err != nil {
 				return tooldef.Result{}, fmt.Errorf("agent_spawn workdir: %w", err)
 			}
 			req := job.SpawnRequest{
 				Prompt:          in.Prompt,
 				Description:     in.Description,
-				ParentID:        cfg.parentID(),
+				ParentID:        binding.parentID,
 				ParentToolUseID: tooldef.ToolCallID(ctx),
 				Depth:           0,
 				Role:            role,
@@ -140,7 +127,7 @@ Concurrency cap: at most %d sub-agents run concurrently; spawning more fails (jo
 			if in.TimeoutSec > 0 {
 				req.Timeout = time.Duration(in.TimeoutSec) * time.Second
 			}
-			info, err := cfg.manager.Spawn(ctx, req)
+			info, err := binding.manager.Spawn(ctx, req)
 			if err != nil {
 				return tooldef.Result{}, err
 			}
@@ -205,7 +192,7 @@ func roleDetail(role, rest string) string {
 	return r + ": " + rest
 }
 
-func agentWaitTool(cfg agentConfig) tooldef.Tool {
+func agentWaitTool(binding *Binding) tooldef.Tool {
 	return tooldef.NewTool(
 		tooldef.WithDefinition(llm.ToolDefinition{
 			Name: "agent_wait",
@@ -233,7 +220,7 @@ A wait timeout or interrupted wait does NOT cancel the job; it keeps running unt
 		}),
 		tooldef.WithDetail(jobIDDetail),
 		tooldef.WithRun(func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
-			res, err := cfg.manager.HandleWait(ctx, input)
+			res, err := binding.manager.HandleWait(ctx, input)
 			if err != nil {
 				return tooldef.Result{}, err
 			}
