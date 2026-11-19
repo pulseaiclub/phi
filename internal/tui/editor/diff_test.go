@@ -13,24 +13,11 @@ import (
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
-	"github.com/pulseaiclub/phi/internal/tui/plugin/composer"
 )
 
 func diffEditor(t *testing.T, dir string) *Editor {
 	t.Helper()
-	e := newShellTestEditor(t, dir)
-	// Keep the real focus/blocking wiring without a terminal redraw callback.
-	e.composer.Wire(composer.WireDeps{
-		Transcript:            e.transcript,
-		Submitter:             e.submitter,
-		Commands:              e.commands,
-		Bus:                   e.bus,
-		DrainBus:              e.drainBus,
-		OverlayBlocksComposer: e.blocksComposer,
-		RequestFocusEditor:    func() { e.App.RequestFocus(e) },
-		RequestFocus:          e.App.RequestFocus,
-	})
-	return e
+	return newShellTestEditor(t, dir)
 }
 
 func diffKey(e *Editor, code xui.KeyCode, r rune) *components.EventContext {

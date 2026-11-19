@@ -57,7 +57,12 @@ type ComposerPane struct {
 	commands      *commands.CommandRegistry
 
 	transcript *transcript.TranscriptPane
-	submitter  BusyChecker
+	// Session state port. The submitter is built after the composer (it takes
+	// the input widget), so these resolve through the root at call time
+	// instead of wiring the composer in a second phase.
+	busy        func() bool
+	runningBash func() bool
+	syncBorder  func(text string)
 
 	bus      *controller.Bus
 	drainBus func()
@@ -80,8 +85,28 @@ type ComposerPane struct {
 	promptHistory PromptHistory
 }
 
-// NewComposerPane builds composer widgets; call Wire before use.
-func NewComposerPane(theme components.Theme, modelLabel, cwd string) *ComposerPane {
+// Option configures the composer at construction. Initial state goes through
+// the constructor, never through a post-construction wire-up method.
+type Option func(*ComposerPane)
+
+// WithDeps supplies the collaborator set the pane needs to run.
+func WithDeps(d Deps) Option { return func(c *ComposerPane) { c.apply(d) } }
+
+// WithBashPredictor installs the "!" completion source.
+func WithBashPredictor(p BashPredictor) Option {
+	return func(c *ComposerPane) { c.SetBashPredictor(p) }
+}
+
+// WithPromptHistory installs (and loads) the per-project recall ring.
+func WithPromptHistory(h PromptHistory) Option {
+	return func(c *ComposerPane) { c.SetPromptHistory(h) }
+}
+
+// NewComposerPane builds a usable composer: widgets, deps, and input hooks all
+// land here, so no caller can hold a half-built pane.
+func NewComposerPane(
+	theme components.Theme, modelLabel, cwd string, opts ...Option,
+) *ComposerPane {
 	c := &ComposerPane{
 		theme: theme,
 		cwd:   cwd,
@@ -106,13 +131,17 @@ func NewComposerPane(theme components.Theme, modelLabel, cwd string) *ComposerPa
 	}
 	c.bash = newBashSuggest(c, theme)
 	c.readImage = clipboard.ReadImageResult
+	for _, opt := range opts {
+		opt(c)
+	}
 	return c
 }
 
-// WireDeps holds the collaborators Wire binds after Editor assembly.
-type WireDeps struct {
+// Deps holds the collaborators the composer needs to run. The root passes
+// them at construction; the session-state port stays a set of narrow funcs
+// because the submitter is built after the composer.
+type Deps struct {
 	Transcript            *transcript.TranscriptPane
-	Submitter             BusyChecker
 	Commands              *commands.CommandRegistry
 	Bus                   *controller.Bus
 	DrainBus              func()
@@ -124,13 +153,22 @@ type WireDeps struct {
 	RequestFocusEditor    func()
 	RequestFocus          func(components.Widget)
 	CtrlClose             func()
+	// Session state, resolved through the root at call time.
+	Busy        func() bool
+	RunningBash func() bool
+	SyncBorder  func(text string)
+	// OnPaletteOpen refreshes root commands before the palette opens.
+	OnPaletteOpen func()
 }
 
-// Wire binds bus, transcript, and editor overlay hooks after Editor assembly.
-func (c *ComposerPane) Wire(deps WireDeps) {
+// apply installs the deps and the input hooks they drive.
+func (c *ComposerPane) apply(deps Deps) {
 	c.commands = deps.Commands
 	c.transcript = deps.Transcript
-	c.submitter = deps.Submitter
+	c.busy = deps.Busy
+	c.runningBash = deps.RunningBash
+	c.syncBorder = deps.SyncBorder
+	c.OnPaletteOpen = deps.OnPaletteOpen
 	c.bus = deps.Bus
 	c.drainBus = deps.DrainBus
 	c.onRedraw = deps.OnRedraw
@@ -389,9 +427,17 @@ func (c *ComposerPane) ClearPendingRefs() {
 
 // SyncBashBorder updates composer chrome for "!cmd" prefix.
 func (c *ComposerPane) SyncBashBorder(text string) {
-	if c.submitter != nil {
-		c.submitter.SyncBashBorder(text)
+	if c.syncBorder != nil {
+		c.syncBorder(text)
 	}
+}
+
+// flowBusy reports whether a stream or a running "!" job owns the session.
+func (c *ComposerPane) flowBusy() bool {
+	if c.runningBash != nil && c.runningBash() {
+		return true
+	}
+	return c.busy != nil && c.busy()
 }
 
 // SetBashBorderActive toggles bash-mode border styling.
@@ -808,7 +854,7 @@ func (c *ComposerPane) handleEscape(ctx *components.EventContext) bool {
 		ctx.ConsumeAndRedraw()
 		return true
 	}
-	if c.submitter != nil && (c.submitter.RunningBash() || c.submitter.IsBusy()) {
+	if c.flowBusy() {
 		c.bus.Publish(controller.CancelStreamMsg{})
 		if c.drainBus != nil {
 			c.drainBus()

@@ -44,13 +44,6 @@ type PromptHistory interface {
 	Append(text string) error
 }
 
-// BusyChecker is the submit side of ComposerPane wiring (avoids composer→submit import).
-type BusyChecker interface {
-	RunningBash() bool
-	IsBusy() bool
-	SyncBashBorder(text string)
-}
-
 // OverlayComposer is the composer surface modal overlays need.
 type OverlayComposer interface {
 	HideCompleters()

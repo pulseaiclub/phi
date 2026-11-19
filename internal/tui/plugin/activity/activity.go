@@ -45,9 +45,14 @@ type Plugin struct {
 	spinTick int
 }
 
-// New builds the activity plugin around the shell's shared spinner.
+// New builds the activity plugin around the shell's shared spinner and seeds
+// the status slot, so the first frame already shows the current activity.
 func New(theme components.Theme, spin *status.Spinner, deps Deps) *Plugin {
-	return &Plugin{theme: theme, spin: spin, deps: deps}
+	p := &Plugin{theme: theme, spin: spin, deps: deps}
+	if deps.Snapshot != nil && deps.ContextWindow != nil && deps.Labels != nil {
+		p.SyncStatusSlot()
+	}
+	return p
 }
 
 // Register wires the plugin into the runtime: FooterMsg activity updates,

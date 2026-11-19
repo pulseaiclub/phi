@@ -109,11 +109,10 @@ func branchEditor(t *testing.T) *Editor {
 	dir := gitFixtureRepo(t)
 	bus := controller.NewBus(nil)
 	e := &Editor{
-		composer: composer.NewComposerPane(components.DefaultTheme(), "m", dir),
+		composer: composer.NewComposerPane(components.DefaultTheme(), "m", dir, composer.WithDeps(composer.Deps{})),
 		bus:      bus,
 		cwd:      dir,
 	}
-	e.composer.Wire(composer.WireDeps{})
 
 	e.commands = commands.NewCommandRegistry()
 	e.branches = branchesplugin.New(e.commands, branchesplugin.BranchCommands{

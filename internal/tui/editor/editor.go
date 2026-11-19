@@ -96,34 +96,64 @@ func NewEditor(
 	modelNames []string,
 ) *Editor {
 	e := &Editor{
-		vx:          vx,
-		App:         application,
-		theme:       theme,
-		cwd:         cwd,
-		bus:         bus,
-		ctrl:        ctrl,
-		rt:          runtime.New(),
-		toastPlugin: toastplugin.New(theme),
-		composer:    composer.NewComposerPane(theme, modelLabel, cwd),
-		footer:      footer.NewFooterChrome(theme),
-		spin:        status.NewSpinner(theme.ToolName),
+		vx:    vx,
+		App:   application,
+		theme: theme,
+		cwd:   cwd,
+		bus:   bus,
+		ctrl:  ctrl,
+		rt:    runtime.New(),
+		spin:  status.NewSpinner(theme.ToolName),
 	}
-	e.rt.Register(e.composer)
-	e.rt.Register(e.toastPlugin)
-	e.composer.SetBashPredictor(composer.NewBashPredictor(cwd))
+
+	// Transcript first: the composer takes it for copy keys, and the activity
+	// plugin reads its snapshot. Every pane below is constructed complete —
+	// no post-construction setter runs to finish initialization.
+	e.transcript = transcript.NewTranscriptPane(
+		theme, e.spin, "Phi "+version.Version,
+		transcript.WithCopyHandlers(e.bus, e.copyToClipboard),
+	)
+
+	registry := commands.NewCommandRegistry()
+	e.commands = registry
+
+	composerOpts := []composer.Option{
+		composer.WithDeps(composer.Deps{
+			Transcript:            e.transcript,
+			Commands:              registry,
+			Bus:                   e.bus,
+			DrainBus:              e.drainBus,
+			OnRedraw:              e.queueRefresh,
+			ImageEnabled:          e.ctrl.ImageEnabled,
+			OverlayBlocksComposer: e.blocksComposer,
+			HandleOverlayKey:      e.handleOverlayKey,
+			HandleCopyKey:         e.handleCopyKey,
+			RequestFocusEditor:    e.focusSelf,
+			RequestFocus:          e.App.RequestFocus,
+			CtrlClose:             e.ctrl.Close,
+			Busy:                  e.sessionBusy,
+			RunningBash:           e.bashRunning,
+			SyncBorder:            e.syncBashBorder,
+			OnPaletteOpen:         e.refreshPalette,
+		}),
+		composer.WithBashPredictor(composer.NewBashPredictor(cwd)),
+	}
 	// Prompt recall is opt-in: it persists what the user typed under the home
 	// directory, so it stays off until PHI_PROMPT_HISTORY turns it on.
-	if dir := ctrl.SessionDir(); dir != "" && shellhist.PromptsEnabled() {
-		e.composer.SetPromptHistory(shellhist.NewPromptHistory(dir))
+	if dir := e.ctrl.SessionDir(); dir != "" && shellhist.PromptsEnabled() {
+		composerOpts = append(composerOpts, composer.WithPromptHistory(shellhist.NewPromptHistory(dir)))
 	}
-	e.transcript = transcript.NewTranscriptPane(theme, e.spin, "Phi "+version.Version)
+	e.composer = composer.NewComposerPane(theme, modelLabel, cwd, composerOpts...)
+	e.toastPlugin = toastplugin.New(theme)
+	e.footer = footer.NewFooterChrome(theme)
+	e.rt.Register(e.composer)
+	e.rt.Register(e.toastPlugin)
 	e.activityPlugin = activityplugin.New(theme, e.spin, activityplugin.Deps{
 		Snapshot:      e.transcript.Snapshot,
 		ContextWindow: e.ctrl.ContextWindow,
 		Labels:        e.composer,
 	})
 	e.rt.Register(e.activityPlugin)
-	e.activityPlugin.SyncStatusSlot()
 	e.overlayPlugin = overlay.New(overlay.Deps{
 		Theme:       theme,
 		Activity:    e.activityPlugin,
@@ -135,7 +165,6 @@ func NewEditor(
 		Toast:       e.toastPlugin,
 	})
 	e.rt.Register(e.overlayPlugin)
-	e.transcript.SetCopyHandlers(e.bus, e.copyToClipboard)
 	e.bashPlugin = bash.New(e.transcript, e.composer, e.bus, e.ctrl)
 	e.rt.Register(e.bashPlugin)
 	e.sessionPlugin = sessionplugin.New(sessionplugin.Deps{
@@ -154,12 +183,8 @@ func NewEditor(
 	e.rt.Msgs.OnBatchEnd(e.activityPlugin.SyncStatusSlot)
 	e.rt.Msgs.OnBatchEnd(e.sessionPlugin.PostStick)
 
-	registry := commands.NewCommandRegistry()
-	e.commands = registry
-
 	cmdCtx := commands.NewContext(e.bus, e.composer.PushPalette)
 	e.commandCtx = cmdCtx
-	e.composer.OnPaletteOpen = e.refreshPalette
 	e.submitter = submit.NewSubmitter(
 		e.ctrl,
 		e.commands,
@@ -232,27 +257,35 @@ func NewEditor(
 		ModelNames: modelNames,
 	})
 
-	e.composer.Wire(composer.WireDeps{
-		Transcript:            e.transcript,
-		Submitter:             e.submitter,
-		Commands:              e.commands,
-		Bus:                   e.bus,
-		DrainBus:              e.drainBus,
-		OnRedraw:              e.vx.QueueRefresh,
-		ImageEnabled:          e.ctrl.ImageEnabled,
-		OverlayBlocksComposer: e.blocksComposer,
-		HandleOverlayKey:      e.handleOverlayKey,
-		HandleCopyKey:         e.handleCopyKey,
-		RequestFocusEditor:    e.focusSelf,
-		RequestFocus:          e.App.RequestFocus,
-		CtrlClose:             e.ctrl.Close,
-	})
 	// The palette draws inside the transcript area, so the draft below stays
 	// clickable; keep it from taking the keyboard while the palette is open.
 	e.App.ModalInput = e.composer.PaletteOpen
 
 	e.refreshPalette()
 	return e
+}
+
+// queueRefresh asks the terminal to redraw; nil vx (headless tests) drops it.
+func (e *Editor) queueRefresh() {
+	if e.vx != nil {
+		e.vx.QueueRefresh()
+	}
+}
+
+// sessionBusy reports whether a stream, "!" job, or pending turn owns the
+// session. The composer is built before the submitter, so the port resolves
+// through the Editor at call time; the nil guard covers assembly only.
+func (e *Editor) sessionBusy() bool { return e.submitter != nil && e.submitter.IsBusy() }
+
+// bashRunning reports a live "!" job for the composer's cancel path.
+func (e *Editor) bashRunning() bool { return e.bashPlugin != nil && e.bashPlugin.Running() }
+
+// syncBashBorder mirrors "!cmd" chrome into the composer; same assembly
+// window as sessionBusy.
+func (e *Editor) syncBashBorder(text string) {
+	if e.bashPlugin != nil {
+		e.bashPlugin.SyncBorder(text)
+	}
 }
 
 // Publish sends a message onto the bus from any goroutine / widget callback.
