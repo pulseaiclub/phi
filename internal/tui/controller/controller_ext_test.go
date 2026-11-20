@@ -143,7 +143,7 @@ func main() {
 	assert.Same(t, outgoing, ctrl.Extensions())
 	require.Len(t, outgoing.Loaded(), 1)
 
-	target, err := ctrl.engine.Session().Fork()
+	target, err := ctrl.sess.Fork()
 	require.NoError(t, err)
 	_, err = ctrl.Resume(target.ID())
 	require.NoError(t, err)
