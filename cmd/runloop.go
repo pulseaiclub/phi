@@ -119,13 +119,17 @@ func runHeadless(opts runOptions) error {
 	// Jobs share the runner, so drain them before closing it.
 	defer func() { extRunner.Close() }()
 	if bs.Config.Agents.Enabled {
-		parent := primary
-		jobs, jobErr := agent.NewJobManager(bs.Proj.JobsDir(), parent, func(role job.Role) llm.ModelConfig {
-			if cfg, ok := bs.Config.FindModel(bs.Config.Agents.Models.ForRole(role)); ok {
-				return cfg
+		roleModels := make(map[job.Role]llm.ModelConfig, 3)
+		for _, role := range []job.Role{job.RoleExplore, job.RoleReview, job.RoleWorker} {
+			cfg := primary
+			if name := bs.Config.Agents.Models.ForRole(role); name != "" {
+				if configured, ok := bs.Config.FindModel(name); ok {
+					cfg = configured
+				}
 			}
-			return parent
-		}, func() *extension.Runner {
+			roleModels[role] = cfg
+		}
+		jobs, jobErr := agent.NewJobManager(bs.Proj.JobsDir(), roleModels, func() *extension.Runner {
 			return extRunner
 		})
 		if jobErr != nil {
