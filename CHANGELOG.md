@@ -26,6 +26,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the panel width and column positions; the panel height follows the result
   count, so the panel re-centers vertically as it shrinks. Panels use quiet
   square borders, separate titles, and a gap above the list.
+- Extensions receive the active session ID and working directory in their initial handshake,
+  including when resuming a session or using `phi run`.
 - Bash commands now get shell syntax highlighting in the transcript — the
   `$ command` title row and bash rows inside the agent tool tree — with token
   colors mapped to the active theme.

@@ -10,6 +10,9 @@ import (
 // FiberState live in core, mirroring cordis's single core package.
 
 type (
+	// HostConfig describes the host state installed before extensions start.
+	HostConfig = core.HostConfig
+
 	// Fiber is one extension's lifecycle state machine.
 	Fiber = core.Fiber
 
