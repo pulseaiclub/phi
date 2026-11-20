@@ -23,7 +23,37 @@ import (
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/project/model"
 	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
+
+// ExtRunner is the controller's handle on the extension host: the management
+// surface the TUI drives, the models and slash commands it consults, and the
+// engine-facing dispatch surface handed to agent.EngineConfig. The
+// production implementation is *extension.Runner.
+type ExtRunner interface {
+	agent.Extensions
+
+	// Lifecycle management.
+	Loaded() []loader.Discovered
+	ListExtensions() map[string]extension.FiberState
+	UnloadExtension(name string) error
+	ReloadExtension(name string) error
+	Close()
+
+	// Engine wiring.
+	SetBaseTools(base []tooldef.Tool)
+	SetMeta(sessionID, cwd string)
+
+	// Models and slash commands.
+	ExtensionModels() []extension.ModelRoute
+	CommandEntries() []ext.CommandEntry
+	RunCommand(name, args string) (extension.CommandOutcome, error)
+
+	// Session lifecycle events.
+	EmitSessionStart(ev ext.SessionStartEvent) ext.SessionEffects
+	EmitSessionShutdown(ev ext.SessionShutdownEvent) ext.SessionEffects
+	EmitSessionBeforeSwitch(ev ext.SessionBeforeSwitchEvent) ext.SessionEffects
+}
 
 const defaultAskTimeoutSec = 120
 
@@ -258,8 +288,16 @@ func (c *EngineController) engineJobs() *job.Manager {
 	return c.jobs
 }
 
-func (c *EngineController) Extensions() *extension.Runner {
+// Extensions returns the runner handle. The value is never a nil interface —
+// the disabled state is a nil *extension.Runner behind ExtRunner, whose
+// methods are nil-receiver no-ops. Use HasExtensions for the presence check.
+func (c *EngineController) Extensions() ExtRunner {
 	return c.extRunner.Load()
+}
+
+// HasExtensions reports whether a runner is actually loaded.
+func (c *EngineController) HasExtensions() bool {
+	return c.extRunner.Load() != nil
 }
 
 func (c *EngineController) ReloadExtensions() (loaded int, warns []loader.Warning, err error) {
@@ -456,7 +494,7 @@ func (c *EngineController) SetModel(name string) error {
 	r, _, loadErr := c.loadExtensions(sess)
 	if loadErr != nil {
 		debuglog.Logf("extension: reload on SetModel: %v", loadErr)
-		r = c.Extensions()
+		r = c.extRunner.Load()
 	}
 	cfg, err := resolveModelConfig(c.proj.Config(), r, name)
 	var eng *agent.Engine
@@ -731,13 +769,13 @@ func (c *EngineController) openSession(cfg llm.ModelConfig, resumeID string) (*a
 // here, so a forked session runs on exactly the wiring of a resumed one.
 func (c *EngineController) newEngine(
 	cfg llm.ModelConfig,
-	extRunner *extension.Runner,
+	extRunner agent.Extensions,
 	sess *agent.Session,
 ) (*agent.Engine, error) {
 	return c.engineConfig(cfg, extRunner).NewEngine(cfg, sess)
 }
 
-func (c *EngineController) engineConfig(cfg llm.ModelConfig, r *extension.Runner) agent.EngineConfig {
+func (c *EngineController) engineConfig(cfg llm.ModelConfig, r agent.Extensions) agent.EngineConfig {
 	return agent.EngineConfig{Jobs: c.engineJobs(), Extensions: r, MCP: c.mcpPool, Hooks: model.HooksForConfig(cfg)}
 }
 
@@ -882,33 +920,30 @@ func (c *EngineController) Close() {
 }
 
 func (c *EngineController) sessionBeforeSwitch(reason, targetID string) ext.SessionEffects {
-	r := c.Extensions()
-	if r == nil {
+	if !c.HasExtensions() {
 		return ext.SessionEffects{}
 	}
-	return r.EmitSessionBeforeSwitch(ext.SessionBeforeSwitchEvent{
+	return c.Extensions().EmitSessionBeforeSwitch(ext.SessionBeforeSwitchEvent{
 		Reason:          reason,
 		TargetSessionID: targetID,
 	})
 }
 
 func (c *EngineController) sessionShutdown(reason, targetID string) {
-	r := c.Extensions()
-	if r == nil {
+	if !c.HasExtensions() {
 		return
 	}
-	c.publishSessionEffects(r.EmitSessionShutdown(ext.SessionShutdownEvent{
+	c.publishSessionEffects(c.Extensions().EmitSessionShutdown(ext.SessionShutdownEvent{
 		Reason:          reason,
 		TargetSessionID: targetID,
 	}))
 }
 
 func (c *EngineController) emitSessionStart(reason, previousID string) {
-	r := c.Extensions()
-	if r == nil {
+	if !c.HasExtensions() {
 		return
 	}
-	c.publishSessionEffects(r.EmitSessionStart(ext.SessionStartEvent{
+	c.publishSessionEffects(c.Extensions().EmitSessionStart(ext.SessionStartEvent{
 		Reason:            reason,
 		PreviousSessionID: previousID,
 	}))

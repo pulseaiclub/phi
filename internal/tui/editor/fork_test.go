@@ -56,7 +56,7 @@ func TestQueuedExtensionPromptStaysWithRunnerAndSession(t *testing.T) {
 	api := ext.NewAPI()
 	f := core.NewFiber("sender", loader.Discovered{})
 	f.Attach(api, core.FiberActive)
-	e.ctrl.Extensions().AddFiberInitial(f)
+	e.ctrl.Extensions().(*core.Runner).AddFiberInitial(f)
 
 	checkDelivery := func(wantStart bool) {
 		t.Helper()
