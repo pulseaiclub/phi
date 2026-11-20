@@ -168,11 +168,9 @@ func TestRunCompactUsesModelOutputLimit(t *testing.T) {
 			}
 			engine := newHTTPLoopEngine(t, cfg, sess)
 
-			did, err := engine.runCompact(
+			did, err := engine.compactNow(
 				t.Context(),
 				func(session.Event, error) bool { return true },
-				0,
-				true,
 				CompactAuto,
 			)
 			require.NoError(t, err)
@@ -598,13 +596,13 @@ func runCompactWith(
 		return nil
 	}}
 	engine := newLoopEngine(t, llm.ModelConfig{Name: "fake", ContextWindow: 200_000}, sess, client)
-	did, err = engine.runCompact(ctx, func(ev session.Event, _ error) bool {
+	did, err = engine.compactNow(ctx, func(ev session.Event, _ error) bool {
 		if c, ok := ev.(session.CompactionComplete); ok {
 			complete = c
 			failed = c.Failed
 		}
 		return true
-	}, 0, true, CompactAuto)
+	}, CompactAuto)
 	return sess, did, failed, complete, err
 }
 
