@@ -43,7 +43,7 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 		return "", err
 	}
 
-	env.Log(fmt.Sprintf("sub-agent role=%s session=%s parent=%s", spec.Role, engine.SessionID(), env.Job.ParentID))
+	env.Log(fmt.Sprintf("sub-agent role=%s session=%s parent=%s", spec.Role, engine.session.ID(), env.Job.ParentID))
 
 	prompt := env.Job.Prompt
 	if env.Job.Description != "" {
@@ -85,7 +85,7 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 		}
 	}
 
-	if path := engine.SessionFile(); path != "" {
+	if path := engine.session.File(); path != "" {
 		env.Log("session_file=" + path)
 	}
 

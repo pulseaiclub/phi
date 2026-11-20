@@ -1028,7 +1028,7 @@ func TestEngineConfigRegistersJobs(t *testing.T) {
 		sess,
 	)
 	require.NoError(t, err)
-	assert.True(t, eng.HasTool("agent_spawn"))
+	assert.Contains(t, eng.executor.registry, "agent_spawn")
 }
 
 func TestEngineConfigCoreToolsDoesNotMutateInputs(t *testing.T) {
@@ -1083,15 +1083,15 @@ func TestEngineMCPAddsNoTools(t *testing.T) {
 	eng, err := (EngineConfig{MCP: pool}).NewEngine(testModel, sess)
 	require.NoError(t, err)
 	for _, name := range []string{"ls", "read", "write", "bash"} {
-		assert.True(t, eng.HasTool(name), "missing tool %s", name)
+		assert.Contains(t, eng.executor.registry, name, "missing tool %s", name)
 	}
 	for _, name := range []string{"mcp_list", "mcp_inspect", "mcp_call"} {
-		assert.False(t, eng.HasTool(name), "meta tool %s should no longer exist", name)
+		assert.NotContains(t, eng.executor.registry, name, "meta tool %s should no longer exist", name)
 	}
 
 	sess2, err := NewSession(WithCwd(t.TempDir()))
 	require.NoError(t, err)
 	eng2, err := (EngineConfig{Tools: SpecForRole(job.RoleExplore).Tools}).NewEngine(testModel, sess2)
 	require.NoError(t, err)
-	assert.False(t, eng2.HasTool("mcp_list"))
+	assert.NotContains(t, eng2.executor.registry, "mcp_list")
 }

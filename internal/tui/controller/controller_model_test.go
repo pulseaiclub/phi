@@ -47,8 +47,8 @@ func TestModelLifecycle(t *testing.T) {
 	ctrl := newTestController(t, "http://127.0.0.1:9")
 	cwd := ctrl.cwd
 	flush := func() {
-		require.NoError(t, ctrl.engine.Session().Append(llm.Message{Role: llm.RoleUser, Content: "hello"}))
-		require.NoError(t, ctrl.engine.Session().Append(llm.Message{Role: llm.RoleAssistant, Content: "done"}))
+		require.NoError(t, ctrl.sess.Append(llm.Message{Role: llm.RoleUser, Content: "hello"}))
+		require.NoError(t, ctrl.sess.Append(llm.Message{Role: llm.RoleAssistant, Content: "done"}))
 	}
 
 	require.NoError(t, ctrl.SetModel("primary"))
@@ -83,12 +83,23 @@ func TestModelLifecycle(t *testing.T) {
 func TestAgentToolsFollowSettingsAcrossModelSwitch(t *testing.T) {
 	ctrl := newTestController(t, "http://127.0.0.1:9")
 	id := ctrl.SessionID()
+	// The installed engine is built from exactly this config, so its CoreTools
+	// are the base and agent_* tools that engine actually registers.
+	toolNames := func() []string {
+		cfg := ctrl.engineConfig(ctrl.modelSnapshot(), ctrl.Extensions())
+		list := cfg.CoreTools(ctrl.sess)
+		names := make([]string, 0, len(list))
+		for _, tool := range list {
+			names = append(names, tool.Definition.Name)
+		}
+		return names
+	}
 	require.NoError(t, ctrl.SetAgentsEnabled(true))
 	require.NoError(t, ctrl.SetModel("secondary"))
-	assert.True(t, ctrl.engine.HasTool("agent_spawn"))
+	assert.Contains(t, toolNames(), "agent_spawn")
 	require.NoError(t, ctrl.SetAgentsEnabled(false))
-	assert.False(t, ctrl.engine.HasTool("agent_spawn"))
-	assert.True(t, ctrl.engine.HasTool("bash"))
+	assert.NotContains(t, toolNames(), "agent_spawn")
+	assert.Contains(t, toolNames(), "bash")
 	assert.Equal(t, id, ctrl.SessionID())
 }
 
@@ -235,7 +246,7 @@ func TestModelSwitchExplicitHighRequestUnchanged(t *testing.T) {
 			var sessionIDs []string
 			for _, explicitHigh := range []bool{false, true} {
 				ctrl := newThinkingTestController(t, cwd)
-				sessionIDs = append(sessionIDs, ctrl.engine.SessionID())
+				sessionIDs = append(sessionIDs, ctrl.sess.ID())
 				// Seed identical history in fresh sessions so the extra setter is the only variable.
 				run(ctrl, "remember this exchange")
 				require.NoError(t, ctrl.SetThinkLevel(llm.Low))
