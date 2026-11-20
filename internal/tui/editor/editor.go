@@ -6,22 +6,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pulseaiclub/sev/commitmsg"
 	"github.com/pulseaiclub/xui"
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/components/chat"
 	"github.com/pulseaiclub/phi/internal/components/listpicker"
+	"github.com/pulseaiclub/phi/internal/components/pane"
 	"github.com/pulseaiclub/phi/internal/components/status"
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/session/shellhist"
-	"github.com/pulseaiclub/phi/internal/tui/codepane"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/composer"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
-	"github.com/pulseaiclub/phi/internal/tui/diffpane"
 	"github.com/pulseaiclub/phi/internal/tui/footer"
 	"github.com/pulseaiclub/phi/internal/tui/overlays"
 	"github.com/pulseaiclub/phi/internal/tui/pathutil"
@@ -55,8 +53,8 @@ type Editor struct {
 	footer     *footer.FooterChrome
 	overlays   *overlays.Overlays
 	toast      toast.Toast
-	diff       *diffpane.Pane
-	code       *codepane.Pane
+	diff       *pane.Diff
+	code       *pane.Code
 	diffList   listpicker.State
 
 	// The TUI redraws at 60fps; the flowing status highlight moves every fourth
@@ -105,8 +103,7 @@ func NewEditor(
 		activity: controller.NewActivityHandler(),
 	}
 	e.activity.SetOnChange(e.onActivityChange)
-	commitMessages := commitmsg.New(ctrl.GenerateCommitMessage)
-	e.composer.SetBashPredictor(composer.NewBashPredictor(cwd, commitMessages.Complete))
+	e.composer.SetBashPredictor(composer.NewBashPredictor(cwd))
 	// Prompt recall is opt-in: it persists what the user typed under the home
 	// directory, so it stays off until PHI_PROMPT_HISTORY turns it on.
 	if dir := ctrl.SessionDir(); dir != "" && shellhist.PromptsEnabled() {
@@ -123,13 +120,13 @@ func NewEditor(
 		e.handleErrorReply,
 	)
 	e.transcript.SetCopyHandlers(e.bus, e.copyToClipboard)
-	e.diff = diffpane.New(e.theme, cwd,
+	e.diff = pane.NewDiff(e.theme, cwd,
 		e.publishSubmit,
 		e.copyToClipboard,
 		e.publishToast,
 	)
 
-	e.code = codepane.New(e.theme, cwd,
+	e.code = pane.NewCode(e.theme, cwd,
 		e.addPendingRef,
 		e.publishToast,
 	)
