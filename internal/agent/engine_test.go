@@ -15,8 +15,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
+	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
@@ -923,4 +925,173 @@ func TestLoopCompactsMidTurnBeforeNextRequest(t *testing.T) {
 	require.NotContains(t, second, strings.Repeat("b", 32))
 	require.Contains(t, second, strings.Repeat("c", 32))
 	require.Contains(t, second, strings.Repeat("d", 32))
+}
+
+func TestLoopStopsDuringCompaction(t *testing.T) {
+	for _, stopAtStart := range []bool{true, false} {
+		name := "failed completion"
+		if stopAtStart {
+			name = "start"
+		}
+		t.Run(name, func(t *testing.T) {
+			sess, err := NewSession(WithCwd(t.TempDir()))
+			require.NoError(t, err)
+			require.NoError(t, sess.Append(
+				llm.Message{Role: llm.RoleUser, Content: compactionSeed},
+				llm.Message{Role: llm.RoleAssistant, Content: compactionSeed},
+				llm.Message{Role: llm.RoleUser, Content: compactionSeed},
+			))
+			var compacts int
+			client := fakeCompactClient{compact: func(context.Context) error {
+				compacts++
+				return errors.New("summary failed")
+			}}
+			engine, err := NewEngine(llm.ModelConfig{Name: "stub", ContextWindow: 40_000}, sess, client,
+				NewExecutor(tooldef.NewRegistry(nil), sess.Cwd(), nil))
+			require.NoError(t, err)
+			var events int
+			for event, err := range engine.Loop(t.Context(), "go", LoopOpts{}) {
+				require.NoError(t, err)
+				events++
+				if stopAtStart {
+					require.IsType(t, session.CompactionStarted{}, event)
+					break
+				}
+				if complete, ok := event.(session.CompactionComplete); ok {
+					require.True(t, complete.Failed)
+					break
+				}
+			}
+			if stopAtStart {
+				require.Equal(t, 1, events)
+				require.Zero(t, compacts)
+			} else {
+				require.Equal(t, 2, events)
+				require.Equal(t, 1, compacts)
+			}
+			requireNoCompactionEntry(t, sess)
+		})
+	}
+}
+
+func TestLoopStopsToolBatchWithoutRunningTools(t *testing.T) {
+	for _, readable := range []bool{false, true} {
+		name := "sequential"
+		if readable {
+			name = "concurrent"
+		}
+		t.Run(name, func(t *testing.T) {
+			sess, err := NewSession(WithCwd(t.TempDir()))
+			require.NoError(t, err)
+			var runs atomic.Int32
+			tool := countingTool(&runs)
+			tool.Definition.Readable = readable
+			client := &stubChatClient{streams: []func(context.Context, []llm.Message) iter.Seq2[llm.StreamEvent, error]{
+				stubMessageStream(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+					{ID: "first", Type: "function", Function: llm.Function{Name: "count", Arguments: `{}`}},
+					{ID: "second", Type: "function", Function: llm.Function{Name: "count", Arguments: `{}`}},
+				}}),
+			}}
+			engine, err := NewEngine(llm.ModelConfig{Name: "stub"}, sess, client,
+				NewExecutor(tooldef.NewRegistry([]tooldef.Tool{tool}), sess.Cwd(), nil))
+			require.NoError(t, err)
+			var toolEvents int
+			for event, err := range engine.Loop(t.Context(), "go", LoopOpts{}) {
+				require.NoError(t, err)
+				if _, ok := event.(session.ToolData); ok {
+					toolEvents++
+					break
+				}
+			}
+			require.Equal(t, 1, toolEvents)
+			require.Zero(t, runs.Load())
+			require.Len(t, client.calls, 1)
+			require.NoError(t, t.Context().Err(), "stopping a consumer must not cancel its parent")
+		})
+	}
+}
+
+func TestEngineConfigRegistersJobs(t *testing.T) {
+	mgr, err := job.New(job.Options{
+		Root: t.TempDir(),
+		Runner: job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
+			return "ok", nil
+		}),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
+
+	sess, err := NewSession(WithCwd(t.TempDir()))
+	require.NoError(t, err)
+	eng, err := (EngineConfig{Jobs: mgr}).NewEngine(
+		llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
+		sess,
+	)
+	require.NoError(t, err)
+	assert.True(t, eng.HasTool("agent_spawn"))
+}
+
+func TestEngineConfigCoreToolsDoesNotMutateInputs(t *testing.T) {
+	mgr, err := job.New(job.Options{
+		Root: t.TempDir(),
+		Runner: job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
+			return "ok", nil
+		}),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
+
+	sess, err := NewSession(WithCwd(t.TempDir()))
+	require.NoError(t, err)
+	base := SpecForRole(job.RoleExplore).Tools
+	cfg := EngineConfig{Tools: base, Jobs: mgr}
+	got := cfg.CoreTools(sess)
+	assert.Len(t, base, len(SpecForRole(job.RoleExplore).Tools))
+	assert.Greater(t, len(got), len(base))
+	assert.NotNil(t, cfg.Jobs)
+}
+
+func TestChildToolsHaveNoAgent(t *testing.T) {
+	for _, tool := range SpecForRole(job.RoleExplore).Tools {
+		assert.NotContains(t, tool.Definition.Name, "agent_")
+	}
+}
+
+func TestChildToolsAreReadonly(t *testing.T) {
+	names := map[string]bool{}
+	for _, tool := range SpecForRole(job.RoleExplore).Tools {
+		names[tool.Definition.Name] = true
+	}
+	assert.True(t, names["read"])
+	assert.True(t, names["grep"])
+	assert.True(t, names["bash"])
+	assert.False(t, names["write"])
+	assert.False(t, names["edit"])
+}
+
+var testModel = llm.ModelConfig{Name: "test", APIKey: "x", BaseURL: "http://127.0.0.1:9"}
+
+// MCP adds no tools: ls/read/write resolve mcp:// URLs through the executor's
+// pool, so the registry stays identical with and without a pool.
+func TestEngineMCPAddsNoTools(t *testing.T) {
+	pool := mcp.NewPool(map[string]mcp.ServerConfig{
+		"echo": {Command: []string{"true"}},
+	})
+
+	sess, err := NewSession(WithCwd(t.TempDir()))
+	require.NoError(t, err)
+	eng, err := (EngineConfig{MCP: pool}).NewEngine(testModel, sess)
+	require.NoError(t, err)
+	for _, name := range []string{"ls", "read", "write", "bash"} {
+		assert.True(t, eng.HasTool(name), "missing tool %s", name)
+	}
+	for _, name := range []string{"mcp_list", "mcp_inspect", "mcp_call"} {
+		assert.False(t, eng.HasTool(name), "meta tool %s should no longer exist", name)
+	}
+
+	sess2, err := NewSession(WithCwd(t.TempDir()))
+	require.NoError(t, err)
+	eng2, err := (EngineConfig{Tools: SpecForRole(job.RoleExplore).Tools}).NewEngine(testModel, sess2)
+	require.NoError(t, err)
+	assert.False(t, eng2.HasTool("mcp_list"))
 }
