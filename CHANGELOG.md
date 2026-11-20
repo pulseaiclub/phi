@@ -15,6 +15,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- The code-file picker now lives in `editor.go` instead of its own file; its tests moved into `editor_test.go`. No behaviour change.
 - Command Palette now uses the shared list picker with a dedicated command-list
   style: stable width, left-aligned rows, visible secondary descriptions, a
   full-row selection bar, and centered placement in the transcript area.
