@@ -26,6 +26,9 @@ type (
 	// ModelRoute is one extension-registered model and the extension serving it.
 	ModelRoute = core.ModelRoute
 
+	// CommandOutcome is the host-visible effect of an extension slash command.
+	CommandOutcome = core.CommandOutcome
+
 	// BusUI publishes extension UI effects onto host callbacks.
 	BusUI = ui.BusUI
 )

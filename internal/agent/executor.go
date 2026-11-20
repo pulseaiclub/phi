@@ -8,7 +8,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
@@ -25,12 +24,15 @@ const (
 // Executor runs model tool_calls against a tool registry and emits ToolData for the UI.
 type Executor struct {
 	registry tooldef.Registry
-	ext      *extension.Runner // nil = disabled; methods are nil-safe no-ops
+	ext      Extensions // nil-receiver-safe: every method no-ops when disabled
 	cwd      string
 }
 
 // NewExecutor builds an executor. extRunner may be nil.
-func NewExecutor(registry tooldef.Registry, cwd string, extRunner *extension.Runner) *Executor {
+func NewExecutor(registry tooldef.Registry, cwd string, extRunner Extensions) *Executor {
+	if extRunner == nil {
+		extRunner = disabledExtensions()
+	}
 	return &Executor{registry: registry, cwd: cwd, ext: extRunner}
 }
 
