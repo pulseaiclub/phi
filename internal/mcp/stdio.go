@@ -305,7 +305,7 @@ type desynchronizedError struct {
 
 func (e desynchronizedError) Error() string { return e.err.Error() }
 func (e desynchronizedError) Unwrap() error { return e.err }
-func (e desynchronizedError) Is(target error) bool {
+func (desynchronizedError) Is(target error) bool {
 	return target == errTransportDesynchronized
 }
 
