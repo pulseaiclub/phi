@@ -19,13 +19,11 @@ type SevBashPredictor struct {
 
 // NewBashPredictor defers loading command specs until the first query, so engine
 // initialization errors travel through Predict without blocking editor startup.
-func NewBashPredictor(cwd string, hook sev.CompletionHook) *SevBashPredictor {
+func NewBashPredictor(cwd string) *SevBashPredictor {
 	return &SevBashPredictor{
 		cwd: cwd,
 		engine: sync.OnceValues(func() (*sev.Engine, error) {
-			return sev.New(sev.Options{
-				Limit: bashSuggestVisible, DisableHistory: true, CompletionHook: hook,
-			})
+			return sev.New(sev.Options{Limit: bashSuggestVisible, DisableHistory: true})
 		}),
 	}
 }

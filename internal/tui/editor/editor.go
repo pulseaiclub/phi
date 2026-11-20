@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pulseaiclub/sev/commitmsg"
 	"github.com/pulseaiclub/xui"
 
 	"github.com/pulseaiclub/phi/internal/components"
@@ -105,8 +104,7 @@ func NewEditor(
 		activity: controller.NewActivityHandler(),
 	}
 	e.activity.SetOnChange(e.onActivityChange)
-	commitMessages := commitmsg.New(ctrl.GenerateCommitMessage)
-	e.composer.SetBashPredictor(composer.NewBashPredictor(cwd, commitMessages.Complete))
+	e.composer.SetBashPredictor(composer.NewBashPredictor(cwd))
 	// Prompt recall is opt-in: it persists what the user typed under the home
 	// directory, so it stays off until PHI_PROMPT_HISTORY turns it on.
 	if dir := ctrl.SessionDir(); dir != "" && shellhist.PromptsEnabled() {

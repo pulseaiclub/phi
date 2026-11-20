@@ -10,6 +10,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Removed
 
+- `!git commit -m` no longer sends changes to the model to suggest a commit
+  message. Local shell completions are unchanged.
+
 ### Changed
 
 - Command Palette now uses the shared list picker with a dedicated command-list
