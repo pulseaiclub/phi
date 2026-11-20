@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/project/model"
@@ -27,8 +26,8 @@ import (
 // into child engines. ExtensionsFn wins when set (live reload).
 type EngineRunner struct {
 	Tools        []tooldef.Tool // nil → SpecForRole(job.Role).Tools
-	Extensions   *extension.Runner
-	ExtensionsFn func() *extension.Runner
+	Extensions   Extensions
+	ExtensionsFn func() Extensions
 }
 
 // Run implements [job.Runner].

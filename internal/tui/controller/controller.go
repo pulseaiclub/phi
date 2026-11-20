@@ -84,7 +84,9 @@ func NewController(bus *Bus, proj *project.Project) (*EngineController, error) {
 		return nil, err
 	}
 
-	jobs, err := agent.NewJobManager(proj.JobsDir(), nil, c.Extensions)
+	jobs, err := agent.NewJobManager(proj.JobsDir(), nil, func() agent.Extensions {
+		return c.Extensions()
+	})
 	if err != nil {
 		return nil, err
 	}
