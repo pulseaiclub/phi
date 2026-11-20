@@ -22,8 +22,12 @@ import (
 
 const defaultTimeout = 60 * time.Second
 
-// errResponseIDMismatch marks a response whose ID differs from the pending request.
-var errResponseIDMismatch = errors.New("response id mismatch")
+var (
+	// errResponseIDMismatch marks a response whose ID differs from the pending request.
+	errResponseIDMismatch = errors.New("response id mismatch")
+	// errTransportDesynchronized marks a connection with an abandoned reader.
+	errTransportDesynchronized = errors.New("transport desynchronized")
+)
 
 // stdioTransport speaks newline-delimited JSON-RPC over a subprocess.
 type stdioTransport struct {
@@ -89,9 +93,11 @@ func (t *stdioTransport) call(ctx context.Context, method string, params map[str
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return nil, desynchronizedError{err: ctx.Err()}
 	case <-timer.C:
-		return nil, fmt.Errorf("mcp %s: timeout after %s", method, deadline)
+		return nil, desynchronizedError{
+			err: fmt.Errorf("mcp %s: timeout after %s", method, deadline),
+		}
 	case out := <-ch:
 		return out.raw, out.err
 	}
@@ -210,6 +216,12 @@ func readResponse(stdout *bufio.Reader, stdin io.Writer, id int64) (jsonRPCRespo
 				util.TruncateBytes(string(line), 200, "…"),
 			)
 		}
+		if err := dec.Decode(new(any)); err != io.EOF {
+			return jsonRPCResponse{}, fmt.Errorf(
+				"parse response: trailing data; raw=%q",
+				util.TruncateBytes(string(line), 200, "…"),
+			)
+		}
 		if rpc.Method != "" {
 			if rpc.ID != nil {
 				_ = replyServerRequest(stdin, rpc.ID, rpc.Method)
@@ -285,6 +297,16 @@ func responseID(value any) (int64, bool) {
 	default:
 		return 0, false
 	}
+}
+
+type desynchronizedError struct {
+	err error
+}
+
+func (e desynchronizedError) Error() string { return e.err.Error() }
+func (e desynchronizedError) Unwrap() error { return e.err }
+func (e desynchronizedError) Is(target error) bool {
+	return target == errTransportDesynchronized
 }
 
 func (t *stdioTransport) requestDeadline(ctx context.Context) time.Duration {

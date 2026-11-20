@@ -85,6 +85,15 @@ func TestReadResponseSurfacesParseError(t *testing.T) {
 	require.Equal(t, -32700, rpc.Error.Code)
 }
 
+func TestReadResponseRejectsTrailingData(t *testing.T) {
+	for _, suffix := range []string{" trailing-junk", ` {"jsonrpc":"2.0","id":7,"result":{}}`} {
+		tr := streamTransport(`{"jsonrpc":"2.0","id":7,"result":{}}` + suffix)
+
+		_, err := readResponse(tr.stdout, tr.stdin, 7)
+		require.ErrorContains(t, err, "parse response")
+	}
+}
+
 func TestReadResponseReportsClosedStream(t *testing.T) {
 	tr := &stdioTransport{name: "test", stdout: bufio.NewReader(strings.NewReader(""))}
 
@@ -132,6 +141,7 @@ const (
 	helperMarkerEnv = "PHI_MCP_STDIO_HELPER_MARKER"
 
 	helperStaleID    = "stale-id"
+	helperLateReply  = "late-reply"
 	helperHoldStdout = "hold-stdout"
 	helperDescendant = "descendant"
 )
@@ -149,6 +159,8 @@ func TestStdioHelperProcess(t *testing.T) {
 		return
 	case helperStaleID:
 		serveStaleID(os.Getenv(helperMarkerEnv))
+	case helperLateReply:
+		serveLateReply(os.Getenv(helperMarkerEnv))
 	case helperHoldStdout:
 		serveHoldingStdout(t, os.Getenv(helperMarkerEnv))
 	}
@@ -221,6 +233,25 @@ func serveStaleID(marker string) {
 	})
 }
 
+// serveLateReply answers the first tools/call after a short delay. A retry
+// before that delay must use a fresh transport rather than share its reader.
+func serveLateReply(marker string) {
+	forEachRequest(func(id, method string) {
+		switch method {
+		case "initialize":
+			writeInitializeResult(id)
+		case "tools/call":
+			if _, err := os.Stat(marker); err == nil {
+				writeStdioFrame(`{"jsonrpc":"2.0","id":` + id + `,"result":{"content":[{"type":"text","text":"ok"}]}}`)
+				return
+			}
+			_ = os.WriteFile(marker, []byte("1"), 0o600)
+			time.Sleep(250 * time.Millisecond)
+			writeStdioFrame(`{"jsonrpc":"2.0","id":` + id + `,"result":{"content":[{"type":"text","text":"late"}]}}`)
+		}
+	})
+}
+
 // serveHoldingStdout starts a descendant that inherits the transport's stdout
 // pipe, then records the call and never answers it, so only Close can end it.
 func serveHoldingStdout(t *testing.T, marker string) {
@@ -254,6 +285,57 @@ func TestSessionResetsAfterResponseIDMismatch(t *testing.T) {
 
 	_, err = sess.CallTool(t.Context(), "echo", nil)
 	require.ErrorIs(t, err, errResponseIDMismatch)
+
+	out, err := sess.CallTool(t.Context(), "echo", nil)
+	require.NoError(t, err)
+	require.Equal(t, "ok", out)
+}
+
+func TestSessionRestartsAfterCallTimeout(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_STATE_HOME", tmp)
+
+	tr, err := newStdioTransport("test", stdioHelper(helperLateReply, filepath.Join(tmp, "late")))
+	require.NoError(t, err)
+	tr.timeout = time.Second
+	sess := newSession("test", tr)
+	defer func() { _ = sess.Close() }()
+	require.NoError(t, sess.Initialize(t.Context()))
+
+	tr.timeout = 30 * time.Millisecond
+	_, err = sess.CallTool(t.Context(), "echo", nil)
+	require.EqualError(t, err, "mcp tools/call: timeout after 30ms")
+
+	tr.timeout = time.Second
+	out, err := sess.CallTool(t.Context(), "echo", nil)
+	require.NoError(t, err)
+	require.Equal(t, "ok", out)
+}
+
+func TestSessionRestartsAfterCallCancellation(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_STATE_HOME", tmp)
+
+	tr, err := newStdioTransport("test", stdioHelper(helperLateReply, filepath.Join(tmp, "late")))
+	require.NoError(t, err)
+	sess := newSession("test", tr)
+	defer func() { _ = sess.Close() }()
+	require.NoError(t, sess.Initialize(t.Context()))
+
+	ctx, cancel := context.WithCancel(t.Context())
+	callDone := make(chan error, 1)
+	go func() {
+		_, callErr := sess.CallTool(ctx, "echo", nil)
+		callDone <- callErr
+	}()
+	require.Eventually(t, func() bool {
+		_, statErr := os.Stat(filepath.Join(tmp, "late"))
+		return statErr == nil
+	}, 3*time.Second, 5*time.Millisecond)
+	cancel()
+	require.EqualError(t, <-callDone, context.Canceled.Error())
 
 	out, err := sess.CallTool(t.Context(), "echo", nil)
 	require.NoError(t, err)
