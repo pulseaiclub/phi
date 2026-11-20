@@ -6,235 +6,232 @@ import (
 
 	"github.com/pulseaiclub/xui"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/components"
+	"github.com/pulseaiclub/phi/internal/components/chrome"
+	"github.com/pulseaiclub/phi/internal/components/listpicker"
 )
 
-func TestCommandPaletteFilterAndAccept(t *testing.T) {
+func TestCommandPaletteUsesSharedPicker(t *testing.T) {
 	accepted := ""
-	p := &CommandPalette{
-		Theme: components.DefaultTheme(),
-		Commands: []PaletteCommand{
-			{ID: "1", Noun: "mode", Verb: "use boost"},
-			{ID: "2", Noun: "app", Verb: "help"},
-			{ID: "3", Noun: "session", Verb: "switch", Shortcut: "Ctrl t"},
-		},
-		OnAccept: func(c PaletteCommand) { accepted = c.ID },
-	}
+	p := &CommandPalette{Root: []PaletteCommand{
+		{ID: "1", Noun: "settings", Verb: "theme", Description: "Change the color theme"},
+		{ID: "2", Noun: "app", Verb: "help", Description: "Show help", Run: func() { accepted = "2" }},
+	}}
 	p.Show()
-	require.True(t, p.Open && len(p.filtered) == 3, "open=%v filtered=%d", p.Open, len(p.filtered))
+	require.True(t, p.Picker.Open)
 
-	ctx := &components.EventContext{}
-	for _, r := range "help" {
-		p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: r, Press: true})
-	}
-	require.Len(t, p.filtered, 1)
-	require.Equal(t, "2", p.Commands[p.filtered[0]].ID)
-	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
-	require.Equal(t, "2", accepted)
-	require.False(t, p.Open)
-}
-
-func TestCommandPaletteDraw(t *testing.T) {
-	p := &CommandPalette{
-		Theme: components.DefaultTheme(),
-		Commands: []PaletteCommand{
-			{ID: "1", Noun: "settings", Verb: "theme"},
-			{ID: "2", Noun: "plugins", Verb: "reload"},
-		},
-	}
-	p.Show()
-	s := p.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 24}, Method: xui.WidthUnicode})
+	s := p.Picker.Draw(components.DrawContext{
+		Max: components.Size{Width: 80, Height: 24}, Method: xui.WidthUnicode,
+	})
 	require.Len(t, s.Children, 1)
+	assert.Equal(t, components.Point{X: 2, Y: 8}, s.Children[0].Origin)
+	assert.IsType(t, &listpicker.Picker{}, s.Children[0].Surface.Widget)
+	assert.Equal(t, p.Picker.Items, s.Children[0].Surface.Widget.(*listpicker.Picker).Items)
+	text := components.SurfaceText(s.Children[0].Surface)
+	assert.Contains(t, text, "Command Palette")
+	assert.Contains(t, text, "theme  Change the color theme")
+	assert.Contains(t, text, "help   Show help")
 	panel := s.Children[0].Surface
-	var b strings.Builder
-	for x := 0; x < panel.Size.Width; x++ {
-		ch := panel.Buffer[x].Char
-		if ch == "" {
-			ch = " "
-		}
-		b.WriteString(ch)
+	assert.GreaterOrEqual(t, panel.Size.Width, 56, "the command palette keeps a readable working width")
+	row := panel.Buffer[4*panel.Size.Width : 5*panel.Size.Width]
+	assert.Equal(t, "t", row[4].Char)
+	assert.Equal(t, components.DefaultTheme().SelectionFg.Fg, row[11].Style.Fg)
+	p.Picker.Selected = 1
+	s = p.Picker.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 24}, Method: xui.WidthUnicode})
+	panel = s.Children[0].Surface
+	assert.Equal(t, components.DefaultTheme().Muted.Fg, panel.Buffer[4*panel.Size.Width+11].Style.Fg)
+
+	for _, r := range "help" {
+		p.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyRune, Rune: r, Press: true})
 	}
-	top := b.String()
-	require.Contains(t, top, "Command Palette")
+	p.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
+	assert.Equal(t, "2", accepted)
+	assert.False(t, p.Picker.Open)
 }
 
-func TestFuzzyMatch(t *testing.T) {
-	ok, _ := fuzzyMatch("", "mode use boost")
-	require.True(t, ok, "empty query should match")
-	ok, score := fuzzyMatch("boost", "mode use boost")
-	require.True(t, ok && score >= 0.15, "boost score=%v", score)
-	ok, _ = fuzzyMatch("zzz", "mode use boost")
-	require.False(t, ok, "zzz should not match")
+func TestCommandPaletteNestedSubmenu(t *testing.T) {
+	picked := ""
+	p := &CommandPalette{Root: []PaletteCommand{
+		{
+			ID: "settings-theme", Noun: "settings", Verb: "theme", SubmenuTitle: "Select Theme",
+			Submenu: []PaletteCommand{
+				{ID: "dark", Verb: chrome.CurrentMarker(true) + "Dark (builtin)", Run: func() { picked = "dark" }},
+				{ID: "light", Verb: "Light (builtin)", Run: func() { picked = "light" }},
+			},
+		},
+		{ID: "other", Noun: "app", Verb: "help", Run: func() { picked = "help" }},
+	}}
+	p.Show()
+	for _, r := range "theme" {
+		p.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyRune, Rune: r, Press: true})
+	}
+	p.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
+	require.True(t, p.Picker.Open)
+	assert.Equal(t, "Select Theme", p.Title)
+	require.Len(t, p.Picker.Items, 2)
+	assert.GreaterOrEqual(
+		t,
+		p.Picker.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 24}, Method: xui.WidthUnicode}).Children[0].Surface.Size.Width,
+		56,
+	)
+	assert.Empty(t, p.Picker.Items[0].Leading)
+	assert.True(t, p.Picker.Items[0].Current)
+	assert.Equal(t, "Dark (builtin)", p.Picker.Items[0].Primary)
+
+	p.Picker.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyEscape, Press: true})
+	require.True(t, p.Picker.Open)
+	assert.Equal(t, "Command Palette", p.Title)
+	assert.Equal(t, "theme", p.Picker.Items[0].Primary)
+
+	p.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
+	p.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
+	assert.Equal(t, "dark", picked)
+	assert.False(t, p.Picker.Open)
 }
 
-func TestCommandPaletteSaveFilteredSelection(t *testing.T) {
+func TestCommandPaletteDisabledRowDoesNotRun(t *testing.T) {
+	ran := false
+	p := &CommandPalette{Root: []PaletteCommand{
+		{ID: "disabled", Verb: "unavailable", Disabled: true, Run: func() { ran = true }},
+	}}
+	p.Show()
+	p.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
+	assert.True(t, p.Picker.Open)
+	assert.False(t, ran)
+}
+
+func TestCommandPaletteSaveUsesSharedConfirmation(t *testing.T) {
 	saved := ""
 	success := false
-	p := &CommandPalette{Commands: []PaletteCommand{
+	attempts := 0
+	p := &CommandPalette{Root: []PaletteCommand{
 		{ID: "other", Verb: "other", OnSave: func() bool { saved = "other"; return true }},
-		{ID: "target", Verb: "target", OnSave: func() bool { saved = "target"; return success }},
+		{ID: "target", Verb: "target", OnSave: func() bool {
+			attempts++
+			saved = "target"
+			return success
+		}},
 	}}
 	p.Show()
 	for _, r := range "target" {
 		p.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyRune, Rune: r, Press: true})
 	}
-	require.Len(t, p.filtered, 1)
 	ctx := &components.EventContext{}
 	saveKey := xui.KeyEvent{Code: xui.KeyRune, Rune: 's', Mods: xui.ModCtrl, Press: true}
+	draw := func(width int) string {
+		t.Helper()
+		s := p.Picker.Draw(components.DrawContext{
+			Max: components.Size{Width: width, Height: 24}, Method: xui.WidthUnicode,
+		})
+		require.Len(t, s.Children, 1)
+		return components.SurfaceText(s.Children[0].Surface)
+	}
+	text := draw(100)
+	assert.Equal(t, 1, strings.Count(text, "ctrl+s save default"))
+	assert.Contains(t, draw(32), "ctrl+s save default",
+		"the save shortcut survives the narrow fallback")
 	p.Handle(ctx, saveKey)
-	require.Empty(t, saved, "Ctrl+S should ask before saving")
-	require.True(t, p.Open)
-	require.True(t, ctx.Consume)
+	assert.True(t, p.Picker.IsConfirming())
+	assert.Empty(t, saved, "Ctrl+S asks before saving")
+	text = draw(100)
+	assert.Contains(t, text, "Apply this model and save as global default?")
+	assert.Contains(t, text, "y/enter save")
+	assert.Contains(t, draw(32), "y save · n cancel")
+	p.Handle(ctx, xui.PasteEvent{Text: "other"})
+	assert.Equal(t, "target", p.Picker.Query(), "confirmation freezes the filter")
+	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEscape, Press: true})
+	assert.False(t, p.Picker.IsConfirming())
+	assert.True(t, p.Picker.Open)
+	assert.Zero(t, attempts, "Esc must not have saved")
+
+	p.Handle(ctx, saveKey)
 	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: 'y', Press: true})
-	require.Equal(t, "target", saved)
-	require.True(t, p.Open, "failed saves must leave the selection available for retry")
+	assert.Equal(t, 1, attempts)
+	assert.Equal(t, "target", saved)
+	assert.True(t, p.Picker.Open, "failed saves leave the selection available for retry")
 	success = true
 	p.Handle(ctx, saveKey)
-	require.True(t, p.Open, "Ctrl+S should arm confirmation again")
 	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
-	require.False(t, p.Open)
+	assert.Equal(t, 2, attempts, "the retry really saves")
+	assert.False(t, p.Picker.Open)
 }
 
-func TestCommandPaletteSaveIgnoresUnavailableActions(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		commands []PaletteCommand
-	}{
-		{"empty", nil},
-		{"ordinary command", []PaletteCommand{{ID: "theme", Verb: "theme"}}},
-		{"disabled", []PaletteCommand{{ID: "disabled", Disabled: true, OnSave: func() bool {
-			require.Fail(t, "disabled save must not run")
-			return true
-		}}}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			p := &CommandPalette{Commands: tc.commands}
-			p.Show()
-			p.Handle(&components.EventContext{}, xui.KeyEvent{
-				Code: xui.KeyRune, Rune: 's', Mods: xui.ModCtrl, Press: true,
-			})
-			require.True(t, p.Open)
-			require.Empty(t, p.Query())
-			require.False(t, p.saveConfirming)
-		})
-	}
-}
-
-func TestCommandPaletteSaveConfirmFreezesSelection(t *testing.T) {
-	saved := ""
-	p := &CommandPalette{Commands: []PaletteCommand{
-		{Verb: "first", OnSave: func() bool { saved = "first"; return true }},
-		{Verb: "second", OnSave: func() bool { saved = "second"; return true }},
-	}}
-	p.Show()
-	ctx := &components.EventContext{}
-	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: 's', Mods: xui.ModCtrl, Press: true})
-	for _, ev := range []xui.Event{
-		xui.KeyEvent{Code: xui.KeyDown, Press: true},
-		xui.KeyEvent{Code: xui.KeyRune, Rune: 'q', Press: true},
-		xui.KeyEvent{Code: xui.KeyRune, Rune: 'y', Mods: xui.ModCtrl, Press: true},
-		xui.PasteEvent{Text: "second"},
-	} {
-		p.Handle(ctx, ev)
-	}
-	require.Empty(t, p.Query())
-	require.Zero(t, p.Selected)
-	require.Empty(t, saved)
-	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
-	require.Equal(t, "first", saved)
-}
-
-func TestCommandPaletteSaveHintAndConfirmationDraw(t *testing.T) {
-	p := &CommandPalette{Title: "Select Model", Commands: []PaletteCommand{
-		{Verb: "first", OnSave: func() bool { return true }},
-		{Verb: "second", OnSave: func() bool { return true }},
-	}}
-	p.Show()
-	draw := func(width int) components.Surface {
-		t.Helper()
-		s := p.Draw(components.DrawContext{Max: components.Size{Width: width, Height: 24}, Method: xui.WidthUnicode})
-		require.Len(t, s.Children, 1)
-		return s.Children[0].Surface
-	}
-	panel := draw(100)
-	text := components.SurfaceText(panel)
-	require.Equal(t, 1, strings.Count(text, "ctrl+s save default"))
-	require.Contains(t, text, "⏎ switch")
-	require.Equal(t, 5, panel.Size.Height, "hint belongs on the border without an extra row")
-	require.NotNil(t, panel.Cursor)
-	p.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyRune, Rune: 's', Mods: xui.ModCtrl, Press: true})
-	panel = draw(100)
-	text = components.SurfaceText(panel)
-	require.Contains(t, text, "Apply this model and save as global default?")
-	require.Contains(t, text, "y/enter save · n/esc cancel")
-	require.Nil(t, panel.Cursor)
-	require.Contains(t, components.SurfaceText(draw(32)), "y save · n cancel")
-	p.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyRune, Rune: 'n', Press: true})
-	require.True(t, p.Open)
-	require.False(t, p.saveConfirming)
-	require.Contains(t, components.SurfaceText(draw(32)), "ctrl+s save default")
-}
-
-func TestCommandPaletteSaveCancelKeepsPickerUsable(t *testing.T) {
-	saved := false
-	p := &CommandPalette{Commands: []PaletteCommand{
-		{ID: "model", Verb: "model", OnSave: func() bool { saved = true; return true }},
-	}}
-	p.Show()
-	ctx := &components.EventContext{}
-	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: 's', Mods: xui.ModCtrl, Press: true})
-	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEscape, Press: true})
-	require.False(t, saved)
-	require.True(t, p.Open)
-	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
-	require.False(t, p.Open, "after cancel, enter should return to normal selection")
-	require.False(t, saved, "Enter after cancel must not save the default")
-}
-
-func TestCommandPaletteNestedSubmenu(t *testing.T) {
-	picked := ""
-	p := &CommandPalette{
-		Theme: components.DefaultTheme(),
-		Commands: []PaletteCommand{
-			{
-				ID:           "settings-theme",
-				Noun:         "settings",
-				Verb:         "theme",
-				SubmenuTitle: "Select Theme",
-				Submenu: []PaletteCommand{
-					{ID: "dark", Verb: "Dark (builtin)", Run: func() { picked = "dark" }},
-					{ID: "light", Verb: "Light (builtin)", Run: func() { picked = "light" }},
-				},
-			},
-			{ID: "other", Noun: "app", Verb: "help", Run: func() { picked = "help" }},
+// An extension sync replaces the root registry while a submenu page is on
+// screen. The page's rows must keep resolving against the snapshot they came
+// from — Enter silently canceling was the old registry-stomp behavior.
+func TestSyncUnderOpenSubmenuKeepsPageRowsWorking(t *testing.T) {
+	ran := ""
+	p := &CommandPalette{Root: []PaletteCommand{{
+		ID:   "extensions",
+		Verb: "manage",
+		Submenu: []PaletteCommand{
+			{ID: "extensions-list", Verb: "list", Run: func() { ran = "list" }},
+			{ID: "extensions-reload", Verb: "reload all"},
 		},
-	}
+	}}}
+	ctx := &components.EventContext{}
+	enter := xui.KeyEvent{Code: xui.KeyEnter, Press: true}
+	p.Show()
+	p.Handle(ctx, enter) // pushes the Extensions page
+	require.True(t, p.Picker.Open)
+
+	p.SetRoot([]PaletteCommand{{ID: "extensions", Verb: "manage"}})
+	p.Handle(ctx, enter)
+	assert.Equal(t, "list", ran, "the page snapshot keeps accepting after a root sync")
+
+	// Popping back lands on the root page the sync refreshed.
+	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEscape, Press: true})
+	require.True(t, p.Picker.Open)
+	ran = ""
+	p.Handle(ctx, enter) // reload all has no Run here; acceptance closes
+	assert.True(t, p.Picker.Open, "a row without Run stays put")
+}
+
+// A sync that lands while the root page itself is open refreshes its rows in
+// place instead of waiting for a reopen.
+func TestSetRootRefreshesOpenRootPage(t *testing.T) {
+	p := &CommandPalette{Root: []PaletteCommand{{ID: "alpha", Verb: "alpha"}}}
 	p.Show()
 	ctx := &components.EventContext{}
-	// Filter to theme command
-	for _, r := range "theme" {
+	for _, r := range "alp" {
+		p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: r, Press: true})
+	}
+
+	ran := ""
+	p.SetRoot([]PaletteCommand{
+		{ID: "alpha", Verb: "alpha", Run: func() { ran = "alpha" }},
+		{ID: "beta", Verb: "beta"},
+	})
+	assert.Equal(t, "alp", p.Picker.Query(), "an in-place refresh keeps the query")
+	ids := make([]string, 0, len(p.Picker.Items))
+	for _, item := range p.Picker.Items {
+		ids = append(ids, item.ID)
+	}
+	assert.Contains(t, ids, "beta", "the refreshed registry reaches the open page")
+	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
+	assert.Equal(t, "alpha", ran)
+}
+
+// The palette opts into subsequence search: "thm" must still reach the theme
+// submenu, as it did before the shared picker.
+func TestPaletteSearchStaysForgiving(t *testing.T) {
+	p := &CommandPalette{Root: []PaletteCommand{
+		{ID: "settings-theme", Verb: "theme", Submenu: []PaletteCommand{
+			{ID: "theme-dark", Verb: "Dark (builtin)", Keywords: []string{"theme", "dark"}},
+		}},
+		{ID: "app-help", Verb: "help"},
+	}}
+	p.Show()
+	ctx := &components.EventContext{}
+	for _, r := range "thm" {
 		p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: r, Press: true})
 	}
 	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
-	require.True(t, p.Open, "expected nested open title=%q stack=%d open=%v", p.Title, len(p.stack), p.Open)
-	require.Equal(t, "Select Theme", p.Title)
-	require.Len(t, p.stack, 1)
-	// Esc pops back
-	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEscape, Press: true})
-	require.True(t, p.Open, "pop failed title=%q stack=%d", p.Title, len(p.stack))
-	require.Equal(t, "Command Palette", p.Title)
-	require.Empty(t, p.stack)
-	// Enter submenu again and pick Dark
-	p.SetQuery("")
-	p.Selected = 0
-	p.refilter()
-	for _, r := range "theme" {
-		p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: r, Press: true})
-	}
-	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
-	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true}) // first theme
-	require.Equal(t, "dark", picked)
-	require.False(t, p.Open)
+	require.True(t, p.Picker.Open)
+	assert.Equal(t, "theme", p.Title, "thm still resolves to the theme submenu")
+	require.Len(t, p.Commands, 1)
+	assert.Equal(t, "theme-dark", p.Commands[0].ID)
 }

@@ -6,8 +6,8 @@ import (
 	"github.com/pulseaiclub/phi/internal/util/gitx"
 )
 
-// branchColumn leaves room for the commit subject on an 80-column terminal.
-// Longer names elide; typing three characters filters them back into view.
+// Cap the name column: one unusually long ref must not push every commit
+// subject to the far edge. Filtering still finds the elided tail.
 const branchColumn = 30
 
 // BranchConfig returns chrome copy for the branch picker.
@@ -19,14 +19,13 @@ func BranchConfig() listpicker.ShowConfig {
 		EmptyFilter:    "No branches match %q",
 		Hint:           chrome.ListHintExtra("switch", "ctrl+x delete"),
 		ConfirmMessage: "Delete this local branch?",
-		LeadingWidth:   2,
 		PrimaryWidth:   branchColumn,
 	}
 }
 
 // BranchItems orders branches for display and maps each one to a row.
-// A row is two columns — branch name, last commit — plus a dot for the branch
-// HEAD is on. Ordering is the product decision here: where you are, where you
+// A row is two columns — branch name, last commit — with the current branch
+// highlighted by color. Ordering is the product decision here: where you are, where you
 // came from, the local rest, then remotes.
 // recent holds branch names in most-recently-checked-out order; names not in
 // branches are ignored.
@@ -72,19 +71,9 @@ func branchRow(b gitx.Branch) listpicker.Item {
 		// The row's own ref is its identity: origin/feat and feat are different
 		// branches, and a delete must never land on the local namesake.
 		ID:       b.Name,
-		Leading:  currentMarker(b),
 		Primary:  b.Name,
 		Detail:   b.Subject,
 		Keywords: b.Name + " " + b.Subject,
+		Current:  b.Current,
 	}
-}
-
-// currentMarker keeps the one thing the list cannot be read without: which
-// branch HEAD is on. Upstream state, ahead/behind counts, and badges stay out of
-// the row — the list is for picking, not for auditing.
-func currentMarker(b gitx.Branch) string {
-	if b.Current {
-		return "●"
-	}
-	return ""
 }

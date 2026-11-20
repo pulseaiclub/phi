@@ -17,19 +17,24 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/textfield"
 )
 
-// Item is one row. Callers own domain mapping (sessions, extensions, …).
+// Item supplies the two display columns, Primary and Detail. Callers own
+// domain mapping; column sizing and row styling belong to the picker.
 type Item struct {
 	ID       string // value returned on accept
-	Leading  string // left column (e.g. relative time)
-	Primary  string // bold column (e.g. short id)
-	Detail   string // remaining text
-	Badge    string // optional tag after primary (e.g. "current")
+	Leading  string // optional marker slot, reserved for the current branch
+	Primary  string // bold name column
+	Detail   string // core description column
 	Keywords string // extra filter haystack (full id, aliases, …)
+	Current  bool   // highlight the row as the active choice, without a glyph
 }
 
 // CommandPrefix opens the command line: a filter query that starts with it is
 // matched against Commands instead of Items.
-const CommandPrefix = "!"
+const (
+	CommandPrefix = "!"
+	columnGap     = 2
+	markerWidth   = 2
+)
 
 // Command is one `!name` action reachable from the filter line. Domains keep
 // their own vocabulary; the picker only offers, filters, and dispatches these.
@@ -55,14 +60,27 @@ type ShowConfig struct {
 	Empty          string // no items at all
 	EmptyFilter    string // no matches; may contain %q for the query
 	Hint           string // bottom border caption
+	HintShort      string // compact Hint for narrow panels; default chrome.ListHintShort("select")
 	ConfirmMessage string // replaces the filter prompt while confirming a delete
 	ConfirmHint    string // bottom border caption while confirming; default " y/enter delete · n/esc cancel "
+	ConfirmShort   string // narrow-screen confirmation caption; optional
 	CommandTitle   string // title while the filter line holds a command; default "Commands"
 	CommandHint    string // bottom caption in command mode; default chrome.ListHintExtra("run")
 	EmptyCommand   string // no command matches; may contain %q for the typed name
-	LeadingWidth   int    // fixed leading column; 0 = auto from content / 10
-	PrimaryWidth   int    // fixed primary column; 0 = 8
+	PrimaryWidth   int    // maximum name width; 0 = widest name in the list
+	TabNavigates   bool   // Tab/Shift+Tab move the highlight; default Tab accepts
+	Fuzzy          bool   // name fields also match as a subsequence ("thm" → theme)
+	Style          Style
 }
+
+// Style controls the visual treatment of a picker without changing its input
+// and selection behavior.
+type Style uint8
+
+const (
+	StyleDefault Style = iota
+	StyleCommand
+)
 
 // Picker is a filterable list overlay. Enter accepts the selection.
 // Ctrl+X arms deletion of the selected row; Y/Enter fires OnDelete, N/Esc
@@ -87,18 +105,26 @@ type Picker struct {
 	// before the user types; the rows are rebuilt on every filter change.
 	Commands []Command
 
-	OnAccept    func(Item)
-	OnDelete    func(Item)
+	OnAccept func(Item)
+	OnDelete func(Item)
+	// OnSave arms the same confirmation path as delete and returns whether the
+	// save succeeded. A successful save closes; failure keeps the row selected.
+	OnSave      func(Item) bool
+	CanSave     func(Item) bool // optional per-row guard before confirmation
+	OnEscape    func() bool     // return true to keep the picker open
 	OnClose     func()
 	FocusReturn components.Widget
 
-	cfg         ShowConfig
-	filtered    []hit
-	cmdItems    []Item
-	scroll      int
-	confirming  bool
-	commandMode bool // Query opens with CommandPrefix and Commands is non-empty
-	hintSet     bool // caller supplied ShowConfig.Hint; keep the command advert out
+	cfg          ShowConfig
+	filtered     []hit
+	cmdItems     []Item
+	scroll       int
+	confirming   bool
+	saveConfirm  bool
+	confirmID    string // row the pending confirmation was armed on
+	cancelAccept bool
+	commandMode  bool // Query opens with CommandPrefix and Commands is non-empty
+	hintSet      bool // caller supplied ShowConfig.Hint; keep the command advert out
 }
 
 func (p *Picker) theme() components.Theme {
@@ -131,8 +157,11 @@ func (p *Picker) Show(items []Item, cfg ShowConfig) {
 	p.Selected = 0
 
 	p.scroll = 0
+	p.confirming = false
+	p.saveConfirm = false
+	p.confirmID = ""
+	p.cancelAccept = false
 	p.refilter()
-	p.selectPreferred()
 }
 
 func normalizeConfig(cfg ShowConfig) ShowConfig {
@@ -166,12 +195,6 @@ func normalizeConfig(cfg ShowConfig) ShowConfig {
 	if cfg.EmptyCommand == "" {
 		cfg.EmptyCommand = "No command matches %q"
 	}
-	if cfg.LeadingWidth <= 0 {
-		cfg.LeadingWidth = 10
-	}
-	if cfg.PrimaryWidth <= 0 {
-		cfg.PrimaryWidth = 8
-	}
 	return cfg
 }
 
@@ -183,6 +206,9 @@ func (p *Picker) Hide() {
 
 	p.commandMode = false
 	p.confirming = false
+	p.saveConfirm = false
+	p.confirmID = ""
+	p.cancelAccept = false
 	if p.OnClose != nil {
 		p.OnClose()
 	}
@@ -239,13 +265,14 @@ type matchTier int
 
 const (
 	tierNone     matchTier = iota // no hit at all
-	tierText                      // only Detail / Keywords / Badge matched
+	tierText                      // only Detail / Keywords matched
+	tierSubseq                    // name fields match as a subsequence (fuzzy)
 	tierContains                  // Primary or ID contains the query
 	tierPrefix                    // Primary or ID starts with it
 	tierExact                     // Primary or ID is exactly the query
 )
 
-func matchTierOf(item Item, q string) matchTier {
+func matchTierOf(item Item, q string, fuzzy bool) matchTier {
 	primary, id := strings.ToLower(item.Primary), strings.ToLower(item.ID)
 	switch {
 	case primary == q || id == q:
@@ -254,10 +281,27 @@ func matchTierOf(item Item, q string) matchTier {
 		return tierPrefix
 	case strings.Contains(primary, q) || strings.Contains(id, q):
 		return tierContains
+	case fuzzy && nameSubseq(item, q):
+		return tierSubseq
 	case itemMatches(item, q):
 		return tierText
 	}
 	return tierNone
+}
+
+// nameSubseq reports whether q appears in order across the row's name fields:
+// "thm" finds "theme". A name-shaped guess outranks a literal match in free
+// text, which is what made palette search forgiving before the shared picker.
+func nameSubseq(item Item, q string) bool {
+	hay := strings.ToLower(item.Primary + " " + item.ID + " " + item.Keywords)
+	target := []rune(q)
+	i := 0
+	for _, r := range hay {
+		if i < len(target) && r == target[i] {
+			i++
+		}
+	}
+	return i == len(target)
 }
 
 func (p *Picker) refilter() {
@@ -277,7 +321,7 @@ func (p *Picker) refilter() {
 	for i, item := range p.rows() {
 		tier := tierText // no query: every row stays, in the caller's order
 		if q != "" {
-			tier = matchTierOf(item, q)
+			tier = matchTierOf(item, q, p.cfg.Fuzzy)
 		}
 		if tier > tierNone {
 			p.filtered = append(p.filtered, hit{index: i, tier: tier})
@@ -298,37 +342,9 @@ func (p *Picker) refilter() {
 
 func itemMatches(item Item, q string) bool {
 	hay := strings.ToLower(strings.Join([]string{
-		item.ID, item.Leading, item.Primary, item.Detail, item.Badge, item.Keywords,
+		item.ID, item.Leading, item.Primary, item.Detail, item.Keywords,
 	}, " "))
 	return strings.Contains(hay, q)
-}
-
-// leadingWidth is the leading-column width the current rows actually need.
-// Rows carrying no leading content would still pay the gutter — a blank
-// margin ahead of every name (skills have no marker) — so the column
-// collapses to zero. Lists that mix content with blanks, like a branch list's
-// ●, keep it so the marked row stays aligned with the rest.
-func (p *Picker) leadingWidth() int {
-	if p.commandMode {
-		return 0
-	}
-	for _, item := range p.rows() {
-		if item.Leading != "" {
-			return p.cfg.LeadingWidth
-		}
-	}
-	return 0
-}
-
-// commandWidth sizes the primary column for the offered commands: the name is
-// what the user types and what Run receives, so cutting it at the item width
-// would misreport what Enter does.
-func (p *Picker) commandWidth(method xui.WidthMethod) int {
-	w := 0
-	for _, c := range p.Commands {
-		w = max(w, xui.StringWidth(CommandPrefix+strings.TrimSpace(c.Name), method))
-	}
-	return w
 }
 
 // rows is what the filter line is searching right now: the caller's Items, or
@@ -394,18 +410,12 @@ func (p *Picker) clearQuery() {
 	p.refilter()
 }
 
-func (p *Picker) selectPreferred() {
-	if strings.TrimSpace(p.Query()) != "" {
-		return
-	}
-	rows := p.rows()
-	for i, fi := range p.filtered {
-		if rows[fi.index].Badge != "" {
-			p.Selected = i
-			return
-		}
-	}
-}
+// IsConfirming reports whether an action is waiting for confirmation.
+func (p *Picker) IsConfirming() bool { return p.confirming }
+
+// CancelAccept keeps the picker open when an adapter opens a nested page or
+// rejects a disabled row.
+func (p *Picker) CancelAccept() { p.cancelAccept = true }
 
 func (p *Picker) selectedItem() (Item, bool) {
 	if p.Selected < 0 || p.Selected >= len(p.filtered) {
@@ -430,8 +440,12 @@ func (p *Picker) accept() {
 		}
 		return
 	}
+	p.cancelAccept = false
 	if p.OnAccept != nil {
 		p.OnAccept(item)
+	}
+	if p.cancelAccept {
+		return
 	}
 	p.Hide()
 }
@@ -472,7 +486,9 @@ func (p *Picker) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 		p.handleKey(ctx, e)
 	case xui.PasteEvent:
-		p.insert(e.Text)
+		if !p.confirming {
+			p.insert(e.Text)
+		}
 		ctx.ConsumeAndRedraw()
 
 	case xui.MouseEvent:
@@ -489,14 +505,39 @@ func (p *Picker) handleKey(ctx *components.EventContext, e xui.KeyEvent) {
 	}
 	switch e.Code {
 	case xui.KeyEscape:
+		if p.OnEscape != nil && p.OnEscape() {
+			ctx.ConsumeAndRedraw()
+			return
+		}
 		p.Hide()
 		p.returnFocus(ctx)
 		ctx.ConsumeAndRedraw()
-	case xui.KeyEnter, xui.KeyTab:
-		// Tab picks the highlighted row, like Enter. There is no composer text to
-		// complete here, and Up / Down / Ctrl+P / Ctrl+N already navigate.
+	case xui.KeyEnter:
 		p.accept()
-		p.returnFocus(ctx)
+		if !p.Open {
+			p.returnFocus(ctx)
+		}
+		ctx.ConsumeAndRedraw()
+	case xui.KeyTab:
+		if !p.cfg.TabNavigates {
+			// Tab picks the highlighted row, like Enter. There is no composer text
+			// to complete here, and Up / Down / Ctrl+P / Ctrl+N already navigate.
+			p.accept()
+			if !p.Open {
+				p.returnFocus(ctx)
+			}
+			ctx.ConsumeAndRedraw()
+			return
+		}
+		// Enter is the action key here; Tab shifts the highlight, so a stray Tab
+		// can never fire the row under the cursor (e.g. an extension unload).
+		if e.Mods.Has(xui.ModShift) {
+			if p.Selected > 0 {
+				p.Selected--
+			}
+		} else if p.Selected < len(p.filtered)-1 {
+			p.Selected++
+		}
 		ctx.ConsumeAndRedraw()
 	case xui.KeyUp:
 		if p.Selected > 0 {
@@ -544,8 +585,19 @@ func (p *Picker) handleKey(ctx *components.EventContext, e xui.KeyEvent) {
 				// Arm delete-confirm only for callers that own a delete path;
 				// picker domains without one keep Ctrl+X inert. Never while the
 				// line holds a command: the selected row is not theirs.
-				if p.OnDelete != nil && !p.commandMode {
+				if item, ok := p.selectedItem(); p.OnDelete != nil && !p.commandMode && ok {
 					p.confirming = true
+					p.saveConfirm = false
+					p.confirmID = item.ID
+					ctx.ConsumeAndRedraw()
+				}
+			case 's', 'S':
+				item, selected := p.selectedItem()
+				if p.OnSave != nil && !p.commandMode && selected &&
+					(p.CanSave == nil || p.CanSave(item)) {
+					p.confirming = true
+					p.saveConfirm = true
+					p.confirmID = item.ID
 					ctx.ConsumeAndRedraw()
 				}
 			}
@@ -575,7 +627,20 @@ func (p *Picker) handleConfirmKey(ctx *components.EventContext, e xui.KeyEvent) 
 	switch {
 	case confirm:
 		p.confirming = false
-		if item, ok := p.selectedItem(); ok && p.OnDelete != nil {
+		// The confirmation names one row. A refresh that moved another row
+		// into place (or a CanSave flip) must not act on the wrong item.
+		item, ok := p.selectedItem()
+		if !ok || item.ID != p.confirmID {
+			break
+		}
+		if p.saveConfirm {
+			if p.OnSave != nil && (p.CanSave == nil || p.CanSave(item)) && p.OnSave(item) {
+				p.Hide()
+				p.returnFocus(ctx)
+			}
+			break
+		}
+		if p.OnDelete != nil {
 			p.OnDelete(item)
 		}
 	case cancel:
@@ -613,14 +678,18 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 			panel.SetCell(x, y, xui.Cell{Char: " ", Width: 1, Style: fillStyle})
 		}
 	}
-	borderSt := th.Border
+	borderSt := th.Muted
+	borderSt.Dim = true
 	titleSt := chrome.PanelTitle(th)
 	if p.confirming {
 		borderSt = th.Destructive
+		if p.saveConfirm {
+			borderSt = chrome.ModalBorder(th)
+		}
 		titleSt.Fg = th.Destructive.Fg
 		titleSt.Bold = true
 	}
-	layout.DrawRoundedBorder(&panel, layout.BorderRounded, borderSt, nil, nil, nil, nil, ctx.Method)
+	layout.DrawRoundedBorder(&panel, layout.BorderSquare, borderSt, nil, nil, nil, nil, ctx.Method)
 
 	label, total := p.cfg.Title, len(p.rows())
 	if p.commandMode {
@@ -630,18 +699,21 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 	if n := len(p.filtered); n != total {
 		count = strconv.Itoa(n) + "/" + strconv.Itoa(total)
 	}
-	title := " " + label + " · " + count + " "
-	tw := xui.StringWidth(title, ctx.Method)
-	tx := max((boxW-tw)/2, 1)
-	panel.Print(tx, 0, title, titleSt, ctx.Method)
+	if boxH >= 7 {
+		title := components.TruncateToWidth(label+" · "+count, boxW-2, ctx.Method)
+		tx := max((boxW-xui.StringWidth(title, ctx.Method))/2, 1)
+		panel.Print(tx, 1, title, titleSt, ctx.Method)
+	}
 
 	p.drawPrompt(&panel, ctx, th, boxW)
-	p.drawSeparator(&panel, th, boxW)
 	p.drawRows(&panel, ctx, th, boxW, visible)
 	p.drawHint(&panel, ctx, th, boxW, boxH)
 
 	ox := max((maxW-boxW)/2, 0)
-	oy := max((maxH-boxH)/3, 1)
+	oy := min(max((maxH-boxH)/3, 1), maxH-boxH)
+	if p.cfg.Style == StyleCommand {
+		oy = max((maxH-boxH)/2, 0)
+	}
 	out.Children = []components.SubSurface{{
 		Origin:  components.Point{X: ox, Y: oy},
 		Surface: panel,
@@ -652,6 +724,10 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 
 func (p *Picker) panelWidth(maxW int) int {
 	boxW := p.Width
+	if boxW <= 0 && p.cfg.Style == StyleCommand {
+		boxW = min(maxW-2, 76)
+		boxW = max(boxW, min(maxW, 56))
+	}
 	if boxW <= 0 {
 		// Session previews need room; prefer ~90% of the terminal up to a soft cap.
 		boxW = maxW * 9 / 10
@@ -670,23 +746,12 @@ func (p *Picker) panelWidth(maxW int) int {
 }
 
 func (p *Picker) panelHeight(maxH int) (visible, boxH int) {
-	maxVisible := p.maxItems()
-	avail := max(maxH-6, 3)
-	if maxVisible > avail {
-		maxVisible = avail
+	if maxH < 7 {
+		return max(maxH-3, 0), maxH
 	}
-	n := max(len(p.filtered), 1)
-	visible = min(n, maxVisible)
-	boxH = visible + 4
-	if boxH > maxH-2 {
-		boxH = maxH - 2
-		visible = boxH - 4
-		if visible < 1 {
-			visible = 1
-			boxH = 5
-		}
-	}
-	return visible, boxH
+	rows := max(len(p.filtered), 1) // one empty-state row
+	boxH = min(min(rows, p.maxItems())+6, max(maxH-2, 7))
+	return boxH - 6, boxH
 }
 
 func (p *Picker) syncScroll(visible int) {
@@ -706,7 +771,13 @@ func (p *Picker) syncScroll(visible int) {
 }
 
 func (p *Picker) drawPrompt(panel *components.Surface, ctx components.DrawContext, th components.Theme, boxW int) {
-	const y = 1
+	if panel.Size.Height < 4 || boxW < 6 {
+		return
+	}
+	y := 2
+	if panel.Size.Height < 7 {
+		y = 1
+	}
 	if p.confirming {
 		// The filter is frozen while a delete is pending; its line becomes the
 		// destructive question so no extra row is needed in the box layout.
@@ -739,10 +810,34 @@ func (p *Picker) drawPrompt(panel *components.Surface, ctx components.DrawContex
 	}
 }
 
-func (*Picker) drawSeparator(panel *components.Surface, th components.Theme, boxW int) {
-	for x := 1; x < boxW-1; x++ {
-		panel.SetCell(x, 2, xui.Cell{Char: "─", Width: 1, Style: th.Border})
+type rowColumns struct {
+	primaryX, primaryWidth, detailWidth int
+}
+
+// Measure the whole list, not the filtered page, so typing and scrolling keep
+// both columns in place. A page with no descriptions is a single centered
+// column; two-column pages keep fixed left edges instead.
+func (p *Picker) columns(boxW int, method xui.WidthMethod) rowColumns {
+	primaryW, detailW := 0, 0
+	for _, item := range p.rows() {
+		primaryW = max(primaryW, xui.StringWidth(strings.TrimSpace(item.Primary), method))
+		detailW = max(detailW, xui.StringWidth(strings.TrimSpace(item.Detail), method))
 	}
+	if p.cfg.PrimaryWidth > 0 {
+		primaryW = min(primaryW, p.cfg.PrimaryWidth)
+	}
+	if detailW == 0 {
+		primaryW = min(primaryW, max(boxW-2*(2+markerWidth), 0))
+		primaryX := max((boxW-primaryW)/2, 2+markerWidth)
+		if p.cfg.Style == StyleCommand {
+			primaryX = 4
+		}
+		return rowColumns{primaryX: primaryX, primaryWidth: primaryW}
+	}
+	budget := max(boxW-2*(2+markerWidth)-columnGap, 0)
+	primaryW = min(primaryW, budget-min(detailW, 8, budget/2))
+	detailW = min(detailW, budget-primaryW)
+	return rowColumns{primaryX: 2 + markerWidth, primaryWidth: primaryW, detailWidth: detailW}
 }
 
 func (p *Picker) drawRows(
@@ -751,7 +846,13 @@ func (p *Picker) drawRows(
 	th components.Theme,
 	boxW, visible int,
 ) {
-	const listY = 3
+	if visible == 0 {
+		return
+	}
+	listY := 4
+	if panel.Size.Height < 7 {
+		listY = 2
+	}
 	if len(p.filtered) == 0 {
 		msg := p.cfg.Empty
 		if q := strings.TrimSpace(p.Query()); q != "" {
@@ -764,13 +865,13 @@ func (p *Picker) drawRows(
 		panel.Print(2, listY, components.TruncateToWidth(msg, boxW-3, ctx.Method), th.Muted, ctx.Method)
 		return
 	}
-	leadW := p.leadingWidth()
+	columns := p.columns(boxW, ctx.Method)
 	for i := range visible {
 		ri := i + p.scroll
 		if ri < 0 || ri >= len(p.filtered) {
 			break
 		}
-		p.drawRow(panel, ctx, th, boxW, listY+i, ri, leadW)
+		p.drawRow(panel, ctx, th, boxW, listY+i, ri, columns)
 	}
 }
 
@@ -778,7 +879,8 @@ func (p *Picker) drawRow(
 	panel *components.Surface,
 	ctx components.DrawContext,
 	th components.Theme,
-	boxW, y, ri, leadW int,
+	boxW, y, ri int,
+	columns rowColumns,
 ) {
 	item := p.rows()[p.filtered[ri].index]
 	sel := ri == p.Selected
@@ -795,42 +897,28 @@ func (p *Picker) drawRow(
 		muted = fg
 	}
 
-	primW := p.cfg.PrimaryWidth
-	if p.commandMode {
-		// The primary column widens to the names (see commandWidth) so none is
-		// cut short; leadingWidth already dropped the empty gutter.
-		primW = p.commandWidth(ctx.Method)
+	if item.Current {
+		// The current row keeps its hue on top of the selection bar: the
+		// selected branch must still say it is where you are.
+		base.Fg = th.Success.Fg
+		muted.Fg = th.Success.Fg
 	}
-
-	x := 2
+	primary := components.TruncateToWidthSuffix(strings.TrimSpace(item.Primary), columns.primaryWidth, "…", ctx.Method)
+	detail := components.TruncateToWidthSuffix(strings.TrimSpace(item.Detail), columns.detailWidth, "…", ctx.Method)
 	if item.Leading != "" {
-		panel.Print(x, y, components.TruncateToWidth(item.Leading, leadW, ctx.Method), muted, ctx.Method)
+		panel.Print(2, y, components.TruncateToWidth(item.Leading, 1, ctx.Method), muted, ctx.Method)
 	}
-	x += leadW
-
 	idSt := base
 	idSt.Bold = true
-	panel.Print(x, y, components.TruncateToWidth(item.Primary, primW, ctx.Method), idSt, ctx.Method)
-	x += primW + 2
-
-	if item.Badge != "" {
-		tag := "· " + item.Badge + "  "
-		tagSt := th.Success
-		if sel {
-			tagSt = base
-			tagSt.Bold = true
+	panel.Print(columns.primaryX, y, primary, idSt, ctx.Method)
+	if columns.detailWidth > 0 {
+		detailStyle := base
+		if p.cfg.Style == StyleCommand && !sel {
+			detailStyle = th.Muted
+			detailStyle.Dim = false
 		}
-		panel.Print(x, y, tag, tagSt, ctx.Method)
-		x += xui.StringWidth(tag, ctx.Method)
+		panel.Print(columns.primaryX+columns.primaryWidth+columnGap, y, detail, detailStyle, ctx.Method)
 	}
-	detail := strings.TrimSpace(item.Detail)
-	if detail == "" {
-		detail = "—"
-	}
-	avail := max(boxW-1-x, 1)
-	// A visible ellipsis, so a long description reads as elided rather than
-	// clipped by a rendering bug.
-	panel.Print(x, y, components.TruncateToWidthSuffix(detail, avail, "…", ctx.Method), base, ctx.Method)
 }
 
 func (p *Picker) drawHint(
@@ -839,10 +927,19 @@ func (p *Picker) drawHint(
 	th components.Theme,
 	boxW, boxH int,
 ) {
+	if boxH < 4 || boxW < 4 {
+		return
+	}
 	hint, short := p.cfg.Hint, chrome.ListHintShort("select")
+	if p.cfg.HintShort != "" {
+		short = p.cfg.HintShort
+	}
 	switch {
 	case p.confirming:
 		hint = p.cfg.ConfirmHint
+		if p.cfg.ConfirmShort != "" {
+			short = p.cfg.ConfirmShort
+		}
 	case p.commandMode:
 		hint, short = p.cfg.CommandHint, chrome.ListHintShort("run")
 	case !p.hintSet && len(p.Commands) > 0:

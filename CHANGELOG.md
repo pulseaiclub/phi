@@ -10,21 +10,58 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Removed
 
+- `!git commit -m` no longer sends changes to the model to suggest a commit
+  message. Local shell completions are unchanged.
+
 ### Changed
 
+- Command Palette now uses the shared list picker with a dedicated command-list
+  style: stable width, left-aligned rows, visible secondary descriptions, a
+  full-row selection bar, and centered placement in the transcript area.
+  Nested commands, disabled entries, and save confirmation remain supported.
+  List pickers share two common fields (name and core description) with a fixed
+  two-cell column gap. Column widths are measured across the whole list; both
+  columns align left within a twelve-row list area. Branch names are capped at
+  thirty columns so long refs cannot displace commit subjects. Filtering keeps
+  the panel width and column positions; the panel height follows the result
+  count, so the panel re-centers vertically as it shrinks. Panels use quiet
+  square borders, separate titles, and a gap above the list.
+- Extensions receive the active session ID and working directory in their initial handshake,
+  including when resuming a session or using `phi run`.
 - Bash commands now get shell syntax highlighting in the transcript — the
   `$ command` title row and bash rows inside the agent tool tree — with token
   colors mapped to the active theme.
+- docs: the zh-CN README matches the English one again for the `/diff` table, the
+  commands table, the keyboard shortcuts, the extension SDK list and the
+  `agents.models` paragraph.
+- docs: the zh-CN README's resource table and its measurement note now match the
+  English README: 54k lines (49k non-blank) in 345 files, 84 packages, 8 direct
+  dependencies.
 
 ### Added
 
 ### Fixed
 
+- Command Palette: `thm` finds `theme` again (subsequence search), Tab moves
+  the highlight instead of firing the highlighted row, submenu rows keep
+  working across an extension sync, the save shortcut stays visible on narrow
+  terminals, the selected branch keeps its current-row hue, a short terminal
+  can no longer collapse the open palette to an empty box, and clicking the
+  draft below an open palette can no longer take the keyboard.
+- List picker: a save or delete confirmation no longer fires on a different
+  row when a refresh swaps the list mid-confirmation, and rechecks its
+  per-row guard before saving.
+- Sub-agents palette: a configured model named `inherit` no longer collides
+  with the synthetic `(inherit parent)` row.
 - Updated the Go, Rust, and TypeScript SDK comments to describe tool-call
   interception before execution without referring to the removed permission gate.
 - MCP: match a stdio response to its request id. A server-initiated request
   or a late reply to a timed-out call is no longer returned as the current
   call's result.
+- `find` no longer reports "results limit reached" when the total number of
+  matching files equals the requested limit.
+- `find` caps `limit` at 10000, so a huge value can no longer reach fd as a
+  negative `--max-results`.
 
 ### Security
 

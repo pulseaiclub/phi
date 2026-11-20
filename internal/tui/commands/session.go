@@ -20,7 +20,7 @@ type SessionCommands struct {
 	// OpenPicker opens the session list overlay (wired by Builtin.Bind).
 	OpenPicker func(items []session.SessionMeta, currentID string)
 	// RefreshPicker swaps rows into the open overlay (wired by Builtin.Bind).
-	RefreshPicker func(items []session.SessionMeta, currentID string)
+	RefreshPicker func(items []session.SessionMeta)
 	// StreamActive reports whether session changes should be blocked.
 	StreamActive func() bool
 	// SessionDir / SessionID override Ctrl for tests when set.
@@ -160,12 +160,12 @@ func (s *SessionCommands) refreshPicker() {
 	if s.RefreshPicker == nil {
 		return
 	}
-	dir, currentID := s.dirAndID()
+	dir, _ := s.dirAndID()
 	list, err := session.ListSessions(dir)
 	if err != nil {
 		return // listing worked moments ago; keep the rows already on screen
 	}
-	s.RefreshPicker(list, currentID)
+	s.RefreshPicker(list)
 }
 
 // NewSession starts a new empty session. Blocks while a stream or extension command is active.

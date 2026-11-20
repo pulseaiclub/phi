@@ -113,22 +113,17 @@ func TestSessionCommands_DeleteRemovesAndRefreshes(t *testing.T) {
 
 	bus := controller.NewBus(nil)
 	var refreshed []session.SessionMeta
-	var refreshCurrent string
 	s := &SessionCommands{
-		Bus:        bus,
-		SessionDir: func() string { return dir },
-		SessionID:  func() string { return current.ID() },
-		RefreshPicker: func(items []session.SessionMeta, currentID string) {
-			refreshed = items
-			refreshCurrent = currentID
-		},
+		Bus:           bus,
+		SessionDir:    func() string { return dir },
+		SessionID:     func() string { return current.ID() },
+		RefreshPicker: func(items []session.SessionMeta) { refreshed = items },
 	}
 	s.Delete(other.ID())
 
 	assert.Contains(t, drainToast(t, bus), "Deleted")
 	require.Len(t, refreshed, 1)
 	assert.Equal(t, current.ID(), refreshed[0].ID, "deleted session is gone from the refreshed list")
-	assert.Equal(t, current.ID(), refreshCurrent)
 	list, err := session.ListSessions(dir)
 	require.NoError(t, err)
 	require.Len(t, list, 1)
@@ -161,7 +156,7 @@ func TestSessionCommands_DeleteUnknownIdToastsAndKeepsList(t *testing.T) {
 		Bus:           bus,
 		SessionDir:    func() string { return dir },
 		SessionID:     func() string { return m.ID() },
-		RefreshPicker: func([]session.SessionMeta, string) { refreshed = true },
+		RefreshPicker: func([]session.SessionMeta) { refreshed = true },
 	}
 	s.Delete("nosuchsession")
 	assert.Contains(t, drainToast(t, bus), "not found")

@@ -213,6 +213,7 @@ func ExtensionsPalette(
 		ID:           "extensions",
 		Noun:         "extensions",
 		Verb:         "manage",
+		Description:  "List or reload extensions",
 		Keywords:     []string{"extension", "plugin", "pxb", "reload", "list"},
 		SubmenuTitle: "Extensions",
 		Submenu: []palette.PaletteCommand{

@@ -148,10 +148,19 @@ TUI 给模型提供四个核心工具——`read`、`write`、`edit` 和 `bash`�
 | 首帧时间 | **约 31 ms**（26–49 ms） |
 | 冷 `go build`（空 `GOCACHE`） | **约 5.5 s** |
 | 热重建 | **约 0.7 s** |
-| Go 源码（不含测试） | **约 22k 行** / 107 个文件 |
-| Go 包数量 | **32** |
-| 直接模块依赖 | **6**（共 15 个模块） |
+| Go 源码（不含测试） | **约 54k 行**（约 49k 非空行）/ 345 个文件 |
+| Go 包数量 | **84** |
+| 直接模块依赖 | **8** |
 | 链接运行时 | 仅系统库（无 Node / Electron / Python） |
+
+上表中的计时、内存和体积行是在上述 macOS arm64 环境测得，首次发布后未再重测。源码、包数量
+和依赖三行于 2026 年 11 月（2026-11-11）针对 main 分支重新测量：
+
+- 源码：根模块中由 git 跟踪的非测试 `*.go` 文件（不含 `ext/`），用 `wc -l` 统计行数、
+  用 `grep -cv '^\s*$'` 统计非空行，因为当时没有 `cloc` 和 `tokei`。
+- 包数量：根模块中包含 `.go` 文件的目录（不含 `ext/`，它是独立模块），等价于
+  `go list ./...`。
+- 直接依赖：`go.mod` 的 `require` 块中不带 `// indirect` 的条目。
 
 ## 配置
 
@@ -252,6 +261,8 @@ agents:
 | `Ctrl+A` | 光标跳到行首 |
 | `Ctrl+E` | 光标跳到行尾 |
 | `Ctrl+U` | 清空输入框（含图片和技能） |
+| `Ctrl+V` | 粘贴文本，或从剪贴板附加图片 |
+| `Shift+Enter` | 在输入框内换行 |
 | `Ctrl+Shift+C` | 复制选中的对话文本 |
 
 主题：`Dark`（默认）、`Darcula`、`Pink` 和 `Terminal`，可在面板的
@@ -267,6 +278,12 @@ agents:
 | `/diff` | 工作区（`git diff`） |
 | `/diff staged` | 暂存区 |
 | `/diff HEAD` | 最近一次提交（`git show`） |
+| `/diff @path` | 仅该文件——`@` 来自文件补全，`--` 分隔符会自动补上 |
+| `/diff staged @a.go @b.go` | 两个文件的暂存区改动 |
+| `/diff HEAD @path` | 该文件相对 `HEAD` 的改动 |
+| `/diff main..feat @path` | 该文件跨区间的改动 |
+
+`/diff -- <argv>` 执行给定的 git 命令，而不是展示 diff——例如 `/diff -- git show HEAD~1`。
 
 斜杠选择器里回车会把 `/diff` 连同一个空格填进输入框；再提交才打开。
 审阅层内：`j`/`k` 移动，`s` 左右对照，`i` 添加/编辑批注，`x` 删除，`a` 发给代理，
@@ -311,6 +328,9 @@ HEAD 新建一个。敲名字本身就是「新建分支」的全部流程，比
 | `phi sessions` | 列出当前目录的持久化会话 |
 | `phi sessions fork <id>` | 在当前点复制会话并打印新 id |
 | `phi sessions remove <id>` | 删除当前目录的持久化会话（别名 `rm`；唯一 id 前缀即可） |
+| `phi mcp …` | 管理 MCP server（列表、添加、删除、调用、doctor）— 见 [MCP](#mcp) |
+| `phi plugin …` | 管理扩展（安装、列表、更新、删除）— 见 [Extensions（扩展）](#extensions扩展) |
+| `phi config` | 在终端 UI 里编辑主配置 — 见 [配置](#配置) |
 | `/sessions` | 列出当前目录的会话（TUI 内） |
 | `/branch` | 切换工作分支 — 见 [切换分支](#切换分支) |
 | `/new` | 开启一个全新的空会话（TUI 内） |
@@ -318,6 +338,7 @@ HEAD 新建一个。敲名字本身就是「新建分支」的全部流程，比
 | `/diff` | 全屏 git 审阅 — 见 [Diff 审阅](#diff-审阅) |
 | `/code` | 全屏源码查看器 — 见 [代码查看器](#代码查看器) |
 | `!command` | 在本地运行 shell 命令，把输出流式写入对话记录；`Esc` 取消 |
+| `!!command` | 与 `!command` 相同，并把输出一并加入模型上下文 |
 
 在 TUI 中，`!command` 通过 `bash -c` 在本地运行——在代理循环之外。它不计入
 代理忙碌状态，运行中的命令可以用 `Esc` 取消，且不影响正在进行的代理回合。
@@ -403,7 +424,7 @@ Instructions the agent should follow when this skill is relevant.
 
 ## Extensions（扩展）
 
-扩展是讲 **PXB** 二进制协议的原生进程（作者 SDK：Go `github.com/pulseaiclub/phi/ext/go/phi` 和 Rust [`ext/rust`](ext/rust) `phi-ext`）：订阅工具/会话事件、注册 LLM 工具、添加斜杠命令。
+扩展是讲 **PXB** 二进制协议的原生进程（作者 SDK：Go `github.com/pulseaiclub/phi/ext/go/phi`、Rust [`ext/rust`](ext/rust) `phi-ext` 和 TypeScript [`ext/ts`](ext/ts) `@pulseaiclub/phi-ext`）：订阅工具/会话事件、注册 LLM 工具、添加斜杠命令。
 
 ```bash
 go get github.com/pulseaiclub/phi/ext/go@v0.25.6
@@ -481,6 +502,8 @@ agents:
 ```
 
 也可以在当前会话中通过面板切换：设置 → 代理。禁用后这些工具不会注册，模型无法派发任务给子代理。
+
+每个角色的默认模型（可选）写在 `agents.models` 下，指定派发时每个角色使用哪个已配置的模型名；省略的角色继承父会话的模型。只在当前会话临时切换：设置 → 代理 → 模型 → explore|review|worker（与设置 → 模型里按回车一样，只对当前会话生效，不写入 `config.yaml`）。在模型选择器里按 `Ctrl+S` 再按 `Y`/回车，也会把高亮的模型保存为全局默认。
 
 子代理本身使用一种 **role**（`explore` 默认 | `review` | `worker`）：
 

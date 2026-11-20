@@ -299,6 +299,17 @@ func TestEscapeUnclaimedWhenIdle(t *testing.T) {
 	assert.False(t, c.handleEscape(&components.EventContext{}))
 }
 
+func TestSessionPickerKeepsCurrentSelectionWithoutBadge(t *testing.T) {
+	c := NewComposerPane(components.DefaultTheme(), "m", "/repo")
+	var accepted string
+	c.ShowSessionList([]session.SessionMeta{
+		{ID: "newest", Preview: "recent conversation"},
+		{ID: "active", Preview: "current conversation"},
+	}, "active", func(id string) { accepted = id }, nil)
+	c.listPicker.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyEnter})
+	assert.Equal(t, "active", accepted)
+}
+
 func TestListAcceptHandlerIsNotSharedBetweenDomains(t *testing.T) {
 	c := NewComposerPane(components.DefaultTheme(), "m", "/repo")
 	var sessions, branches []string
@@ -307,7 +318,7 @@ func TestListAcceptHandlerIsNotSharedBetweenDomains(t *testing.T) {
 		branches = append(branches, name)
 	}, nil)
 
-	c.listPicker.Items = []listpicker.Item{{ID: "main", Badge: "current"}}
+	c.listPicker.Items = []listpicker.Item{{ID: "main"}}
 	c.listPicker.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyEnter})
 
 	assert.Equal(t, []string{"main"}, branches)
@@ -386,7 +397,7 @@ func TestRefreshSessionListKeepsOpenPickerInPlace(t *testing.T) {
 	c.ShowSessionList([]session.SessionMeta{{ID: "a"}, {ID: "b"}}, "", nil, nil)
 	c.listPicker.SetQuery("a")
 
-	c.RefreshSessionList([]session.SessionMeta{{ID: "b"}}, "b")
+	c.RefreshSessionList([]session.SessionMeta{{ID: "b"}})
 	assert.True(t, c.listPicker.Open)
 	assert.Equal(t, "a", c.listPicker.Query(), "refresh keeps the filter")
 	require.Len(t, c.listPicker.Items, 1)
@@ -394,7 +405,7 @@ func TestRefreshSessionListKeepsOpenPickerInPlace(t *testing.T) {
 
 	// Closed picker: refresh is a no-op, not a reopen.
 	c.listPicker.Hide()
-	c.RefreshSessionList([]session.SessionMeta{{ID: "a"}}, "")
+	c.RefreshSessionList([]session.SessionMeta{{ID: "a"}})
 	assert.False(t, c.listPicker.Open)
 }
 

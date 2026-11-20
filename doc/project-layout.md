@@ -21,8 +21,7 @@
 | `internal/tui/composer/` | Chat input, `/` `?` `@` `!` pickers, palette |
 | `internal/tui/footer/`   | Activity spinner, token labels, update hint |
 | `internal/tui/overlays/` | Extension confirmation / error panels |
-| `internal/tui/diffpane/` | Git diff review overlay (`/diff`) |
-| `internal/tui/codepane/` | Source viewer overlay (`/code`) |
+| `internal/components/pane/` | Full-screen Git diff review (`/diff`) and source viewer (`/code`) |
 | `internal/tui/submit/`   | Submit, cancel, slash dispatch, bash runner |
 | `internal/tui/commands/` | Slash/palette registry, session/extension commands |
 | `internal/tui/pathutil/` | Cwd + git branch path labels |

@@ -31,9 +31,7 @@ func TestSwapExtensionRunner_ClosesPrevious(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, proj.LoadConfig())
 
-	extRunner, _, err := extension.Load(proj.Global().ExtensionsDir(), proj.ExtensionsDir())
-	require.NoError(t, err)
-	ctrl, err := NewController(NewBus(nil), proj, extRunner)
+	ctrl, err := NewController(NewBus(nil), proj)
 	require.NoError(t, err)
 
 	first, _, err := extension.Load(t.TempDir(), "")
@@ -105,9 +103,7 @@ func main() {
 
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
-	extRunner, _, err := extension.Load(proj.Global().ExtensionsDir(), proj.ExtensionsDir())
-	require.NoError(t, err)
-	ctrl, err := NewController(NewBus(nil), proj, extRunner)
+	ctrl, err := NewController(NewBus(nil), proj)
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 
@@ -140,6 +136,12 @@ func main() {
 		}
 		return false
 	}, 5*time.Second, 10*time.Millisecond)
+
+	outgoing := ctrl.Extensions()
+	_, err = ctrl.Resume("missing-session")
+	require.Error(t, err)
+	assert.Same(t, outgoing, ctrl.Extensions())
+	require.Len(t, outgoing.Loaded(), 1)
 
 	target, err := ctrl.engine.Session().Fork()
 	require.NoError(t, err)

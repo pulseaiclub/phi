@@ -1,4 +1,4 @@
-package codepane
+package pane
 
 import (
 	"os"
@@ -16,7 +16,7 @@ import (
 
 // harness collects the pane's side effects so tests can assert on them.
 type harness struct {
-	pane   *Pane
+	pane   *Code
 	toasts []string
 	refs   []chat.Ref
 }
@@ -30,7 +30,7 @@ func newHarness(t *testing.T, files map[string]string) *harness {
 		require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
 	}
 	h := &harness{}
-	h.pane = New(
+	h.pane = NewCode(
 		components.DefaultTheme(),
 		cwd,
 		func(ref chat.Ref) { h.refs = append(h.refs, ref) },

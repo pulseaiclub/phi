@@ -47,7 +47,7 @@ func TestSetModelUpdatesFooterContextWindow(t *testing.T) {
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
 	bus := controller.NewBus(nil)
-	ctrl, err := controller.NewController(bus, proj, nil)
+	ctrl, err := controller.NewController(bus, proj)
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 	require.Equal(t, 192000, ctrl.ContextWindow())
@@ -91,7 +91,7 @@ func TestSettingsPaletteMarksCurrentValues(t *testing.T) {
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
 	bus := controller.NewBus(nil)
-	ctrl, err := controller.NewController(bus, proj, nil)
+	ctrl, err := controller.NewController(bus, proj)
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 
@@ -120,4 +120,27 @@ func TestSettingsPaletteMarksCurrentValues(t *testing.T) {
 	explore := agents.Submenu[2].Submenu[0]
 	require.NotEmpty(t, explore.Submenu)
 	assert.Equal(t, chrome.CurrentMarker(true)+"(inherit parent)", explore.Submenu[0].Verb)
+}
+
+// A configured model named "inherit" must not share the synthetic row's ID:
+// the palette resolves by ID with first-match wins, so a collision would run
+// the inherit callback and clear the override instead of setting the model.
+func TestAgentsModelNamedInheritKeepsItsOwnRow(t *testing.T) {
+	var gotRole, gotModel string
+	cmd := buildAgentsPalette(nil,
+		func(role, name string) { gotRole, gotModel = role, name },
+		[]string{"inherit"}, true, nil)
+
+	explore := cmd.Submenu[2].Submenu[0] // roles live under the models node
+	require.Len(t, explore.Submenu, 2)
+	synthetic, configured := explore.Submenu[0], explore.Submenu[1]
+	assert.NotEqual(t, synthetic.ID, configured.ID)
+
+	synthetic.Run()
+	assert.Equal(t, "explore", gotRole)
+	assert.Empty(t, gotModel, "the synthetic row clears the override")
+
+	configured.Run()
+	assert.Equal(t, "explore", gotRole)
+	assert.Equal(t, "inherit", gotModel, "the configured row sets the model")
 }

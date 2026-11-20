@@ -202,13 +202,8 @@ func TestSelectedBuiltinToolsStillAppendExternalTools(t *testing.T) {
 
 	sess, err := agent.NewSession(agent.WithCwd(t.TempDir()))
 	require.NoError(t, err)
-	engine, err := agent.NewEngine(
-		llm.ModelConfig{Name: "test", APIKey: "x", BaseURL: "http://127.0.0.1:9"},
-		sess,
-		agent.WithTools(selected),
-		agent.WithMCP(pool),
-		agent.WithJobs(jobs),
-	)
+	cfg := agent.EngineConfig{Tools: selected, MCP: pool, Jobs: jobs}
+	engine, err := cfg.NewEngine(llm.ModelConfig{Name: "test", APIKey: "x", BaseURL: "http://127.0.0.1:9"}, sess)
 	require.NoError(t, err)
 	assert.True(t, engine.HasTool("read"))
 	assert.False(t, engine.HasTool("bash"))
@@ -225,7 +220,7 @@ func TestRunLoopTimeoutCancelsLLMRequest(t *testing.T) {
 
 	sess, err := agent.NewSession(agent.WithCwd(t.TempDir()))
 	require.NoError(t, err)
-	engine, err := agent.NewEngine(
+	engine, err := (agent.EngineConfig{}).NewEngine(
 		llm.ModelConfig{
 			Name:    "fake",
 			BaseURL: server.URL,

@@ -31,7 +31,6 @@ Do the work.
 	assert.Equal(t, "extract-and-distill", items[0].Primary)
 	assert.Equal(t, "Distill ideas from source material", items[0].Detail)
 	assert.Contains(t, items[0].Keywords, "extract-and-distill")
-	assert.Empty(t, items[0].Badge, "no current-row concept for skills")
 }
 
 // A skill with no frontmatter name falls back to its directory basename; the
@@ -58,6 +57,4 @@ func TestSkillConfig(t *testing.T) {
 	assert.Contains(t, cfg.Hint, "attach")
 	assert.NotEmpty(t, cfg.Empty)
 	assert.Empty(t, cfg.ConfirmMessage, "no delete path means no confirm copy")
-	assert.GreaterOrEqual(t, cfg.PrimaryWidth, len("incremental-implementation"),
-		"the name column fits the longest builtin skill name")
 }
