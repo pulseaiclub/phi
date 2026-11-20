@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -81,7 +82,7 @@ func NewController(bus *Bus, proj *project.Project, extRunner *extension.Runner)
 	c.extRunner.Store(extRunner)
 	c.bindExtensionHost(extRunner)
 
-	jobs, err := agent.NewJobManager(proj.JobsDir(), c.modelCfg, c.modelForRole, c.Extensions)
+	jobs, err := agent.NewJobManager(proj.JobsDir(), c.roleModelConfigs(c.modelCfg, c.roleModels), c.Extensions)
 	if err != nil {
 		return nil, err
 	}
@@ -156,25 +157,31 @@ func (c *EngineController) SetAgentsEnabled(v bool) {
 // AgentsEnabled reports whether sub-agent (agent_*) tools are registered.
 func (c *EngineController) AgentsEnabled() bool { return c.agentsEnabled.Load() }
 
-func (c *EngineController) modelForRole(role job.Role) llm.ModelConfig {
-	role = job.NormalizeRole(string(role))
-	name := c.roleModels[role]
-	if name == "" {
-		return c.modelSnapshot()
+func (c *EngineController) roleModelConfigs(
+	parent llm.ModelConfig,
+	roleModels map[job.Role]string,
+) map[job.Role]llm.ModelConfig {
+	models := map[job.Role]llm.ModelConfig{
+		job.RoleExplore: parent,
+		job.RoleReview:  parent,
+		job.RoleWorker:  parent,
 	}
-	if route, ok := c.Extensions().LookupModel(name); ok {
-		m, err := extensionModelConfig(route, c.proj.Config())
-		if err != nil {
+	for role, name := range roleModels {
+		if route, ok := c.Extensions().LookupModel(name); ok {
+			m, err := extensionModelConfig(route, c.proj.Config())
+			if err == nil {
+				models[role] = m
+				continue
+			}
 			debuglog.Logf("agents: extension role model %q: %v; using parent", name, err)
-			return c.modelSnapshot()
+		} else if m, ok := c.proj.Config().FindModel(name); ok {
+			models[role] = m
+			continue
+		} else {
+			debuglog.Logf("agents: unknown role model %q for %s; using parent", name, role)
 		}
-		return m
 	}
-	if m, ok := c.proj.Config().FindModel(name); ok {
-		return m
-	}
-	debuglog.Logf("agents: unknown role model %q for %s; using parent", name, role)
-	return c.modelSnapshot()
+	return models
 }
 
 // RoleModel returns the session-only model name for a sub-agent role.
@@ -184,6 +191,8 @@ func (c *EngineController) RoleModel(role string) string {
 	if err != nil {
 		return ""
 	}
+	c.modelMu.RLock()
+	defer c.modelMu.RUnlock()
 	return c.roleModels[r]
 }
 
@@ -195,17 +204,30 @@ func (c *EngineController) SetRoleModel(role, name string) error {
 		return err
 	}
 	name = strings.TrimSpace(name)
-	if name == "" {
-		delete(c.roleModels, r)
-		return nil
-	}
-	if _, ok := c.proj.Config().FindModel(name); !ok {
-		if _, ok := c.Extensions().LookupModel(name); !ok {
-			return fmt.Errorf("unknown model %q", name)
+	if name != "" {
+		if _, ok := c.proj.Config().FindModel(name); !ok {
+			if _, ok := c.Extensions().LookupModel(name); !ok {
+				return fmt.Errorf("unknown model %q", name)
+			}
 		}
 	}
-	c.roleModels[r] = name
+	c.modelMu.Lock()
+	defer c.modelMu.Unlock()
+	if name == "" {
+		delete(c.roleModels, r)
+	} else {
+		c.roleModels[r] = name
+	}
+	c.jobs.SetRoleModels(c.roleModelConfigs(c.modelCfg, c.roleModels))
 	return nil
+}
+
+func (c *EngineController) refreshJobRoleModels() {
+	c.modelMu.RLock()
+	parent := c.modelCfg
+	roleModels := maps.Clone(c.roleModels)
+	c.modelMu.RUnlock()
+	c.jobs.SetRoleModels(c.roleModelConfigs(parent, roleModels))
 }
 
 func (c *EngineController) engineJobs() *job.Manager {
@@ -226,6 +248,7 @@ func (c *EngineController) ReloadExtensions() (loaded int, warns []loader.Warnin
 	}
 	logExtensionWarnings(warns)
 	c.swapExtensionRunner(r)
+	c.refreshJobRoleModels()
 	c.engine.SetExtensions(r)
 	if r == nil {
 		return 0, warns, nil
@@ -252,7 +275,9 @@ func (c *EngineController) ReloadExtension(name string) error {
 	if r == nil {
 		return errors.New("no extension runner loaded")
 	}
-	return r.ReloadExtension(name)
+	err := r.ReloadExtension(name)
+	c.refreshJobRoleModels()
+	return err
 }
 
 // UnloadExtension unloads a single extension by name.
@@ -261,7 +286,9 @@ func (c *EngineController) UnloadExtension(name string) error {
 	if r == nil {
 		return errors.New("no extension runner loaded")
 	}
-	return r.UnloadExtension(name)
+	err := r.UnloadExtension(name)
+	c.refreshJobRoleModels()
+	return err
 }
 
 // ListExtensionStates returns all extension states.
@@ -358,6 +385,7 @@ func (c *EngineController) SyncExtensionTools() {
 		return
 	}
 	c.engine.SetExtensions(c.Extensions())
+	c.refreshJobRoleModels()
 }
 
 func (c *EngineController) askTimeout() time.Duration {
@@ -429,6 +457,7 @@ func (c *EngineController) SetModel(name string) error {
 	}
 	c.engine.SetModelWithHooks(cfg, model.HooksForConfig(cfg))
 	c.modelCfg = cfg
+	c.jobs.SetRoleModels(c.roleModelConfigs(cfg, c.roleModels))
 	return nil
 }
 
@@ -443,6 +472,7 @@ func (c *EngineController) SetThinkLevel(mode llm.ThinkMode) error {
 	}
 	c.engine.SetModel(cfg)
 	c.modelCfg = cfg
+	c.jobs.SetRoleModels(c.roleModelConfigs(cfg, c.roleModels))
 	return nil
 }
 
@@ -583,6 +613,7 @@ func (c *EngineController) activateSession(eng *agent.Engine, cfg llm.ModelConfi
 	c.modelMu.Lock()
 	c.engine = eng
 	c.modelCfg = cfg
+	c.jobs.SetRoleModels(c.roleModelConfigs(cfg, c.roleModels))
 	c.modelMu.Unlock()
 	c.emitSessionStart(reason, eng.SessionID(), prevID)
 }

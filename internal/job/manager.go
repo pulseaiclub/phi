@@ -4,17 +4,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sync"
 	"time"
+
+	"github.com/pulseaiclub/phi/internal/llm"
 )
 
 // Options configures a [Manager].
 type Options struct {
-	Root          string // required: jobs directory
-	Runner        Runner // required
-	MaxConcurrent int    // default 4; Spawn returns [ErrBusy] when full (no queue)
-	MaxDepth      int    // default 1 (children cannot spawn further)
+	Root          string                   // required: jobs directory
+	Runner        Runner                   // required
+	MaxConcurrent int                      // default 4; Spawn returns [ErrBusy] when full (no queue)
+	MaxDepth      int                      // default 1 (children cannot spawn further)
+	RoleModels    map[Role]llm.ModelConfig // initial models for child jobs
 	Recovery      RecoveryMode
 	// OnStoreError is called when a disk write fails after the job is live.
 	// Create/Spawn still return the create error directly.
@@ -29,17 +33,19 @@ type Manager struct {
 	maxDepth      int
 	onStoreError  func(op, jobID string, err error)
 
-	mu     sync.Mutex
-	closed bool
-	slots  chan struct{}
-	jobs   map[string]*liveJob
-	subs   []*subscriber
+	mu         sync.Mutex
+	roleModels map[Role]llm.ModelConfig
+	closed     bool
+	slots      chan struct{}
+	jobs       map[string]*liveJob
+	subs       []*subscriber
 }
 
 type liveJob struct {
 	meta            Meta
 	parentToolUseID string
 	parentContext   ParentContext
+	model           llm.ModelConfig
 	cancel          context.CancelFunc
 	done            chan struct{}
 }
@@ -78,6 +84,7 @@ func New(opts Options) (*Manager, error) {
 		maxConcurrent: maxC,
 		maxDepth:      maxD,
 		onStoreError:  opts.OnStoreError,
+		roleModels:    maps.Clone(opts.RoleModels),
 		slots:         make(chan struct{}, maxC),
 		jobs:          make(map[string]*liveJob),
 	}
@@ -136,6 +143,14 @@ func (m *Manager) persistEvent(meta Meta, msg string) {
 	}
 }
 
+// SetRoleModels replaces the models used by future jobs.
+// Configs and their nested values must be treated as immutable after this call.
+func (m *Manager) SetRoleModels(models map[Role]llm.ModelConfig) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.roleModels = maps.Clone(models)
+}
+
 // Spawn starts a job asynchronously. The returned Info reflects starting state.
 //
 // Concurrency: if MaxConcurrent slots are full, Spawn returns [ErrBusy]
@@ -159,6 +174,7 @@ func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (Info, error) {
 		m.mu.Unlock()
 		return Info{}, ErrBusy
 	}
+	model := m.roleModels[NormalizeRole(string(req.Role))]
 	m.mu.Unlock()
 
 	id, err := newJobID()
@@ -204,6 +220,7 @@ func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (Info, error) {
 		meta:            meta,
 		parentToolUseID: req.ParentToolUseID,
 		parentContext:   req.ParentContext,
+		model:           model,
 		cancel:          cancel,
 		done:            make(chan struct{}),
 	}
@@ -229,6 +246,7 @@ func (m *Manager) run(ctx context.Context, lj *liveJob) {
 	env := RunEnv{
 		Job:           meta,
 		ParentContext: lj.parentContext,
+		Model:         lj.model,
 		Log: func(message string) {
 			m.persistEvent(meta, message)
 		},
