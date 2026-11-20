@@ -42,13 +42,25 @@ func TestModelLifecycle(t *testing.T) {
 	ctrl.Close()
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
-	restarted, err := NewController(NewBus(nil), proj, nil)
+	restarted, err := NewController(NewBus(nil), proj)
 	require.NoError(t, err)
 	defer restarted.Close()
 	assert.Equal(t, "primary", restarted.ModelName(), "startup must use the configured default")
 	_, err = restarted.Resume(secondID)
 	require.NoError(t, err)
 	assert.Equal(t, "secondary", restarted.ModelName(), "resume must restore only the selected session's model")
+}
+
+func TestAgentToolsFollowSettingsAcrossModelSwitch(t *testing.T) {
+	ctrl := newTestController(t, "http://127.0.0.1:9")
+	id := ctrl.SessionID()
+	require.NoError(t, ctrl.SetAgentsEnabled(true))
+	require.NoError(t, ctrl.SetModel("secondary"))
+	assert.True(t, ctrl.engine.HasTool("agent_spawn"))
+	require.NoError(t, ctrl.SetAgentsEnabled(false))
+	assert.False(t, ctrl.engine.HasTool("agent_spawn"))
+	assert.True(t, ctrl.engine.HasTool("bash"))
+	assert.Equal(t, id, ctrl.SessionID())
 }
 
 func newTestController(t *testing.T, baseURL string) *EngineController {
@@ -75,7 +87,7 @@ func newTestController(t *testing.T, baseURL string) *EngineController {
 	cwd := t.TempDir()
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
-	ctrl, err := NewController(NewBus(nil), proj, nil)
+	ctrl, err := NewController(NewBus(nil), proj)
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 	return ctrl

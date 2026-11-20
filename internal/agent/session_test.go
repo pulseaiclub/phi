@@ -55,43 +55,6 @@ func TestSessionPersistFalseNoDisk(t *testing.T) {
 	assert.Empty(t, sess.File())
 }
 
-func TestEngineSetModelKeepsSession(t *testing.T) {
-	dir := t.TempDir()
-	sess, err := NewSession(
-		WithCwd(dir),
-		WithSessionDir(dir),
-		WithPersist(true),
-	)
-	require.NoError(t, err)
-	eng, err := NewEngine(
-		llm.ModelConfig{Name: "model-a", APIKey: "k", BaseURL: "http://example"},
-		sess,
-	)
-	require.NoError(t, err)
-
-	id := eng.SessionID()
-	file := eng.SessionFile()
-	require.NotEmpty(t, id)
-	require.NotEmpty(t, file)
-
-	require.NoError(t, eng.session.Append(llm.Message{Role: llm.RoleUser, Content: "keep me"}))
-	require.NoError(t, eng.session.Append(llm.Message{Role: llm.RoleAssistant, Content: "ok"}))
-	n := eng.session.Len()
-
-	eng.SetModel(llm.ModelConfig{
-		Name:          "model-b",
-		APIKey:        "k",
-		BaseURL:       "http://example",
-		ContextWindow: 8192,
-		SkillPaths:    []string{dir},
-	})
-	assert.Equal(t, id, eng.SessionID())
-	assert.Equal(t, file, eng.SessionFile())
-	assert.Equal(t, n, eng.session.Len())
-	assert.Equal(t, 8192, eng.modelCfg.ContextWindow)
-	assert.Equal(t, []string{dir}, eng.modelCfg.SkillPaths)
-}
-
 func TestSessionBuildContextLabelsCompactionSummary(t *testing.T) {
 	dir := t.TempDir()
 	sess, err := NewSession(WithCwd(dir), WithSessionDir(dir))

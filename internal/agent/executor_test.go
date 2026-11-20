@@ -21,12 +21,12 @@ import (
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
-func loadExt(t *testing.T, mainGo string) *extension.Runner {
+func loadExt(t *testing.T, host extension.HostConfig, mainGo string) *extension.Runner {
 	t.Helper()
 	root := t.TempDir()
 	extDir := filepath.Join(root, "test")
 	require.NoError(t, create.Materialize(t.Context(), extDir, "test", "0.0.1", mainGo))
-	r, warns, err := extension.Load(root, "")
+	r, warns, err := extension.LoadWithHost(root, "", host)
 	require.NoError(t, err)
 	require.Empty(t, warns, "unexpected warnings: %v", warns)
 	t.Cleanup(r.Close)
@@ -42,7 +42,7 @@ func TestExecutorEmitsToolName(t *testing.T) {
 			},
 		},
 	}
-	ex := NewExecutor(reg, nil)
+	ex := NewExecutor(reg, "", nil)
 	var names []string
 	_, _, _ = ex.Run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
@@ -68,7 +68,7 @@ func TestExecutorExtensionCanBlockTool(t *testing.T) {
 			},
 		},
 	}
-	r := loadExt(t, `package main
+	r := loadExt(t, extension.HostConfig{}, `package main
 import (
   "github.com/pulseaiclub/phi/ext/go"
   "github.com/pulseaiclub/phi/ext/go/phi"
@@ -84,7 +84,7 @@ func main() {
   _ = m.Run()
 }
 `)
-	ex := NewExecutor(reg, r)
+	ex := NewExecutor(reg, "", r)
 	var statuses []session.ToolStatus
 	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
@@ -108,7 +108,7 @@ func TestExecutorExtPostContextOnModelOnly(t *testing.T) {
 			},
 		},
 	}
-	r := loadExt(t, `package main
+	r := loadExt(t, extension.HostConfig{}, `package main
 import (
   "github.com/pulseaiclub/phi/ext/go"
   "github.com/pulseaiclub/phi/ext/go/phi"
@@ -121,7 +121,7 @@ func main() {
   _ = m.Run()
 }
 `)
-	ex := NewExecutor(reg, r)
+	ex := NewExecutor(reg, "", r)
 	var uiOut string
 	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
@@ -157,7 +157,7 @@ func TestExecutorToolErrorKeepsOutputEmptyForUI(t *testing.T) {
 		},
 	}
 
-	ex := NewExecutor(reg, nil)
+	ex := NewExecutor(reg, "", nil)
 	var last session.ToolRun
 	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{
 		{
@@ -206,7 +206,7 @@ func TestExecutorRunsReadableBatchConcurrently(t *testing.T) {
 			},
 		},
 	}
-	ex := NewExecutor(reg, nil)
+	ex := NewExecutor(reg, "", nil)
 	done := make(chan struct{})
 	var msgs []llm.Message
 	go func() {
@@ -254,7 +254,7 @@ func TestExecutorMixedBatchStaysSequential(t *testing.T) {
 			},
 		},
 	}
-	ex := NewExecutor(reg, nil)
+	ex := NewExecutor(reg, "", nil)
 	done := make(chan struct{})
 	var msgs []llm.Message
 	go func() {
@@ -292,7 +292,12 @@ func TestExecutorMixedBatchStaysSequential(t *testing.T) {
 }
 
 func TestChildEnginePreservesExtensionHostState(t *testing.T) {
-	r := loadExt(t, `package main
+	parent, err := NewSession(WithCwd(t.TempDir()))
+	require.NoError(t, err)
+	r := loadExt(t, extension.HostConfig{
+		Host:      ext.HostOpts{SessionID: parent.ID(), Cwd: parent.Cwd()},
+		BaseTools: (EngineConfig{}).CoreTools(parent),
+	}, `package main
 import (
   "github.com/pulseaiclub/phi/ext/go"
   "github.com/pulseaiclub/phi/ext/go/phi"
@@ -306,11 +311,6 @@ func main() {
   _ = m.Run()
 }
 `)
-	r.Bind(ext.HostOpts{})
-	parentSession, err := NewSession(WithCwd(t.TempDir()))
-	require.NoError(t, err)
-	_, err = NewEngine(llm.ModelConfig{Name: "test"}, parentSession, WithExtensions(r))
-	require.NoError(t, err)
 	api := r.Fiber("test").API()
 	parentTools := api.GetAllTools()
 	require.NotEmpty(t, parentTools)
@@ -318,21 +318,17 @@ func main() {
 	childSession, err := NewSession(WithCwd(t.TempDir()))
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(childSession.Cwd(), "child.txt"), []byte("child content"), 0o600))
-	child, err := NewEngine(llm.ModelConfig{Name: "test"}, childSession,
-		WithExtensions(r), WithOmitExtensionTools(true), WithTools(SpecForRole(job.RoleExplore).Tools))
+	child, err := (EngineConfig{
+		Extensions:         r,
+		OmitExtensionTools: true,
+		Tools:              SpecForRole(job.RoleExplore).Tools,
+	}).NewEngine(llm.ModelConfig{Name: "test"}, childSession)
 	require.NoError(t, err)
-	for _, phase := range []string{"construction", "rebind"} {
-		t.Run(phase, func(t *testing.T) {
-			if phase == "rebind" {
-				child.SetExtensions(r)
-			}
-			assert.Equal(t, parentTools, api.GetAllTools())
-			msgs, _, _ := child.executor.Run(t.Context(), []llm.ToolCall{{
-				ID: "child-read", Function: llm.Function{Name: "read", Arguments: `{"path":"child.txt"}`},
-			}}, func(session.ToolData) bool { return true })
-			require.Len(t, msgs, 1)
-			assert.Contains(t, msgs[0].Content, parentSession.ID()+"|"+parentSession.Cwd())
-			assert.Contains(t, msgs[0].Content, "child content")
-		})
-	}
+	assert.Equal(t, parentTools, api.GetAllTools())
+	msgs, _, _ := child.executor.Run(t.Context(), []llm.ToolCall{{
+		ID: "child-read", Function: llm.Function{Name: "read", Arguments: `{"path":"child.txt"}`},
+	}}, func(session.ToolData) bool { return true })
+	require.Len(t, msgs, 1)
+	assert.Contains(t, msgs[0].Content, parent.ID()+"|"+parent.Cwd())
+	assert.Contains(t, msgs[0].Content, "child content")
 }

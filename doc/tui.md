@@ -72,10 +72,10 @@ Dumb rendering widgets stay in `internal/components/` (chat, input, palette, men
 ```text
 proj.LoadConfig()
 vx, theme, cwd
-extRunner := loadExtensions(proj)
 redraw := controller.NewRedrawRelay()
 bus    := controller.NewBus(redraw.Fire)
-ctrl   := controller.NewController(bus, proj, extRunner)
+ctrl   := controller.NewController(bus, proj)
+modelNames include ctrl.Extensions().ExtensionModels()
 ui     := editor.NewEditor(app, bus, ctrl, vx, theme, cwd, model, skillPaths, contextWindow, modelNames)
 redraw.Bind(ui.RequestRedraw)
 ui.StartUpdateCheck(...)
