@@ -169,7 +169,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			// first. A repeat attempt is cheap — the cut has nothing left to
 			// summarize once the kept tail is all that remains — so this needs no
 			// "already tried" bookkeeping.
-			did, err := engine.runCompact(ctx, yield, engine.estimateContextTokens(), false)
+			did, err := engine.compactIfNeeded(ctx, yield, engine.estimateContextTokens())
 			if err != nil {
 				yield(nil, err)
 				return
@@ -185,7 +185,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			msg, completeEvent, err := engine.streamTurn(ctx, yield, msgs)
 			if err != nil {
 				if !overflowRecovered && llm.IsContextOverflow(err) {
-					did, cerr := engine.runCompact(ctx, yield, 0, true)
+					did, cerr := engine.compactNow(ctx, yield, CompactAuto)
 					if cerr == nil && did {
 						overflowRecovered = true
 						continue
@@ -215,7 +215,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 				engine.executor.ext.EmitTurnEnd(toolRounds)
 				// Turn finished — compact using this assistant's usage. The
 				// threshold reads context size the same way the composer does.
-				if _, err := engine.runCompact(ctx, yield, msg.Usage.ContextTokens(), false); err != nil {
+				if _, err := engine.compactIfNeeded(ctx, yield, msg.Usage.ContextTokens()); err != nil {
 					yield(nil, err)
 				}
 				return
@@ -247,40 +247,91 @@ func (engine *Engine) estimateContextTokens() int {
 	return compaction.EstimateContextTokens(engine.session.PathEntries())
 }
 
-// runCompact prepares and persists a compaction entry.
-// When force is false, it no-ops unless usage crosses the window threshold.
-// When force is true (overflow recovery), it skips the threshold check but
-// still no-ops when there is nothing useful to summarize (avoids burning the
-// single overflow retry on a no-op compact).
-// did is true only when a compaction entry was appended.
-func (engine *Engine) runCompact(
+// Compaction reasons reported to session_compact extension handlers.
+const (
+	CompactAuto   = "auto"
+	CompactManual = "manual"
+)
+
+// compactIfNeeded compacts only when usage crosses the context-window threshold.
+func (engine *Engine) compactIfNeeded(
 	ctx context.Context,
 	yield func(session.Event, error) bool,
 	usage int,
-	force bool,
-) (did bool, err error) {
+) (bool, error) {
 	settings := compaction.DefaultSettings()
+	if engine.client == nil || !compaction.ShouldCompact(usage, engine.modelCfg.ContextWindow, settings) {
+		return false, nil
+	}
+	prep, err := engine.prepareCompaction(settings)
+	if err != nil || prep.FirstKeptEntryId == "" {
+		return false, err
+	}
+	return engine.runCompact(ctx, yield, CompactAuto, prep)
+}
+
+// Compact compacts the session on demand, bypassing the context-window
+// threshold. It is the manual entry point behind /compact and reuses the
+// automatic path (PrepareCompact → Compact → AppendCompaction), so both
+// produce the same tree node and differ only in the reported reason.
+//
+// did is false when there is nothing worth summarizing (already compacted, or
+// no history outside the retained tail). Callers must report that state: a
+// silent success would read as "context was reclaimed" when it was not.
+func (engine *Engine) Compact(
+	ctx context.Context,
+	notify func(session.Event) bool,
+) (did bool, err error) {
+	if notify == nil {
+		notify = func(session.Event) bool { return true }
+	}
+	return engine.compactNow(ctx, func(ev session.Event, err error) bool {
+		return err == nil && notify(ev)
+	}, CompactManual)
+}
+
+// compactNow compacts without consulting the context-window threshold. Overflow
+// recovery and the manual command both use this entry point.
+func (engine *Engine) compactNow(
+	ctx context.Context,
+	yield func(session.Event, error) bool,
+	reason string,
+) (bool, error) {
 	if engine.client == nil {
 		return false, nil
 	}
-	if !force && !compaction.ShouldCompact(usage, engine.modelCfg.ContextWindow, settings) {
-		return false, nil
-	}
-	prep, err := compaction.PrepareCompact(engine.session.PathEntries(), settings)
+	prep, err := engine.prepareCompaction(compaction.DefaultSettings())
 	if err != nil {
 		return false, err
 	}
-	if prep.FirstKeptEntryId == "" {
+	// A no-op must not burn the single overflow retry or emit a manual success.
+	if prep.FirstKeptEntryId == "" ||
+		(len(prep.MessagesToSummarize) == 0 && len(prep.TurnPrefixMessages) == 0) {
 		return false, nil
+	}
+	return engine.runCompact(ctx, yield, reason, prep)
+}
+
+func (engine *Engine) prepareCompaction(settings compaction.Settings) (*compaction.CompactionPreparation, error) {
+	prep, err := compaction.PrepareCompact(engine.session.PathEntries(), settings)
+	if err != nil {
+		return nil, err
 	}
 	prep.Limits = compaction.OutputLimits{
 		MaxTokens:     engine.modelCfg.MaxTokens,
 		ContextWindow: engine.modelCfg.ContextWindow,
 	}
-	if force && len(prep.MessagesToSummarize) == 0 && len(prep.TurnPrefixMessages) == 0 {
-		return false, nil
-	}
+	return prep, nil
+}
 
+// runCompact persists a prepared compaction entry. reason is event metadata for
+// extensions; all execution decisions have already been made by the caller.
+func (engine *Engine) runCompact(
+	ctx context.Context,
+	yield func(session.Event, error) bool,
+	reason string,
+	prep *compaction.CompactionPreparation,
+) (did bool, err error) {
 	id := fmt.Sprintf("compaction-%d", time.Now().UnixNano())
 	if !yield(session.CompactionStarted{}, nil) {
 		return false, context.Canceled
@@ -313,7 +364,7 @@ func (engine *Engine) runCompact(
 	if !yield(complete, nil) {
 		return false, context.Canceled
 	}
-	engine.executor.ext.EmitSessionCompact("auto")
+	engine.executor.ext.EmitSessionCompact(reason)
 	return true, nil
 }
 

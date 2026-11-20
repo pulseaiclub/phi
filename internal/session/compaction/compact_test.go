@@ -48,6 +48,18 @@ func editEntry(id, path string) session.MessageEntry {
 	}
 }
 
+// A fresh session has no entries: manual /compact must report "nothing to
+// summarize" instead of indexing an empty slice.
+func TestPrepareCompact_EmptySession_ReturnsEmptyPreparation(t *testing.T) {
+	prep, err := PrepareCompact(nil, Settings{keepRecentTokens: 100})
+
+	// require: every assertion below dereferences prep.
+	require.NoError(t, err)
+	require.NotNil(t, prep)
+	assert.Empty(t, prep.FirstKeptEntryId)
+	assert.Nil(t, prep.MessagesToSummarize)
+}
+
 func TestPrepareCompact_AlreadyCompacted_ReturnsEmptyPreparation(t *testing.T) {
 	entries := []session.MessageEntry{
 		msgEntry("e1", llm.RoleUser, 10, 0),
@@ -62,8 +74,8 @@ func TestPrepareCompact_AlreadyCompacted_ReturnsEmptyPreparation(t *testing.T) {
 
 	prep, err := PrepareCompact(entries, settings)
 
-	assert.NoError(t, err)
-	assert.NotNil(t, prep)
+	require.NoError(t, err)
+	require.NotNil(t, prep)
 	assert.Empty(t, prep.FirstKeptEntryId)
 	assert.Nil(t, prep.MessagesToSummarize)
 }
@@ -95,8 +107,8 @@ func TestPrepareCompact_NoPreviousCompaction_SplitsByKeepRecentTokens(t *testing
 
 	prep, err := PrepareCompact(entries, settings)
 
-	assert.NoError(t, err)
-	assert.NotNil(t, prep)
+	require.NoError(t, err)
+	require.NotNil(t, prep)
 	assert.Equal(t, "e3", prep.FirstKeptEntryId)
 	assert.False(t, prep.IsMidTurnCut)
 	assert.Len(t, prep.MessagesToSummarize, 2)
@@ -121,8 +133,8 @@ func TestPrepareCompact_UnderTokenLimit_ReturnsEmptyPreparation(t *testing.T) {
 
 	prep, err := PrepareCompact(entries, settings)
 
-	assert.NoError(t, err)
-	assert.NotNil(t, prep)
+	require.NoError(t, err)
+	require.NotNil(t, prep)
 	assert.Empty(t, prep.FirstKeptEntryId)
 	assert.Empty(t, prep.MessagesToSummarize)
 	assert.Empty(t, prep.TurnPrefixMessages)
@@ -148,8 +160,8 @@ func TestPrepareCompact_WithPreviousCompaction_SetsSummaryAndPreserveData(t *tes
 
 	prep, err := PrepareCompact(entries, settings)
 
-	assert.NoError(t, err)
-	assert.NotNil(t, prep)
+	require.NoError(t, err)
+	require.NotNil(t, prep)
 	assert.Equal(t, "old summary", prep.PreviousSummary)
 	assert.Equal(t, map[string]any{"k": "v"}, prep.PreviousPreserveData)
 	assert.Equal(t, "e3", prep.FirstKeptEntryId)
@@ -168,8 +180,8 @@ func TestPrepareCompact_MidTurnCut_SplitsTurnPrefix(t *testing.T) {
 
 	prep, err := PrepareCompact(entries, settings)
 
-	assert.NoError(t, err)
-	assert.NotNil(t, prep)
+	require.NoError(t, err)
+	require.NotNil(t, prep)
 	// The budget is reached on the newest assistant message, which is not a
 	// turn start: the user message opening that turn lands in the prefix bucket
 	// and everything before it is summarized.
@@ -348,11 +360,11 @@ func TestCompact_PreservesDataAcrossRounds(t *testing.T) {
 
 	// Round 1
 	prep1, err := PrepareCompact(entries, settings)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, preserveData, prep1.PreviousPreserveData)
 
 	comp1, err := Compact(t.Context(), *prep1, compactor)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, preserveData, comp1.PreserveData, "round 1 compaction must preserve data")
 
 	// Round 2: append comp1 and more messages to entries
@@ -369,10 +381,10 @@ func TestCompact_PreservesDataAcrossRounds(t *testing.T) {
 
 	compactor2 := &captureCompactor{text: "round 2 summary"}
 	prep2, err := PrepareCompact(round2Entries, settings)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, preserveData, prep2.PreviousPreserveData, "round 2 preparation must see previous preserve data")
 
 	comp2, err := Compact(t.Context(), *prep2, compactor2)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, preserveData, comp2.PreserveData, "round 2 compaction must preserve data across rounds")
 }

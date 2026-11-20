@@ -168,7 +168,11 @@ func TestRunCompactUsesModelOutputLimit(t *testing.T) {
 			}
 			engine := newHTTPLoopEngine(t, cfg, sess)
 
-			did, err := engine.runCompact(t.Context(), func(session.Event, error) bool { return true }, 0, true)
+			did, err := engine.compactNow(
+				t.Context(),
+				func(session.Event, error) bool { return true },
+				CompactAuto,
+			)
 			require.NoError(t, err)
 			require.True(t, did)
 			if tc.wantExact {
@@ -592,13 +596,13 @@ func runCompactWith(
 		return nil
 	}}
 	engine := newLoopEngine(t, llm.ModelConfig{Name: "fake", ContextWindow: 200_000}, sess, client)
-	did, err = engine.runCompact(ctx, func(ev session.Event, _ error) bool {
+	did, err = engine.compactNow(ctx, func(ev session.Event, _ error) bool {
 		if c, ok := ev.(session.CompactionComplete); ok {
 			complete = c
 			failed = c.Failed
 		}
 		return true
-	}, 0, true)
+	}, CompactAuto)
 	return sess, did, failed, complete, err
 }
 
@@ -644,6 +648,141 @@ func TestRunCompactReportsSummaryAndEntryID(t *testing.T) {
 	persisted := entries[0].(session.CompactionEntry).Compaction
 	require.Equal(t, entries[0].GetID(), complete.ID, "marker must point at the persisted entry")
 	require.Equal(t, persisted.Summary, complete.Summary, "marker must show what the model reads")
+}
+
+// /compact goes through Compact, which must ignore the window threshold and
+// persist the same checkpoint the automatic path would.
+func TestCompactIgnoresThreshold(t *testing.T) {
+	sess, err := NewSession(WithCwd(t.TempDir()))
+	require.NoError(t, err)
+	require.NoError(t, sess.Append(
+		llm.Message{Role: llm.RoleUser, Content: compactionSeed},
+		llm.Message{Role: llm.RoleAssistant, Content: compactionSeed},
+		llm.Message{Role: llm.RoleUser, Content: compactionSeed},
+	))
+	engine, err := NewEngine(
+		// A 1M window is far from the threshold: only a forced run compacts here.
+		llm.ModelConfig{Name: "fake", BaseURL: "http://unused.test", ContextWindow: 1_000_000},
+		sess,
+		fakeCompactClient{},
+		NewExecutor(tooldef.NewRegistry(nil), sess.Cwd(), nil),
+	)
+	require.NoError(t, err)
+
+	// The footer's busy marker has to reach the UI before the provider call, or
+	// a slow summary looks like a hang. Record what the provider saw.
+	var started, completed, startedAtProvider bool
+	engine.client = fakeCompactClient{compact: func(context.Context) error {
+		startedAtProvider = started
+		return nil
+	}}
+
+	did, err := engine.Compact(t.Context(), func(ev session.Event) bool {
+		switch e := ev.(type) {
+		case session.CompactionStarted:
+			started = true
+		case session.CompactionComplete:
+			completed = !e.Failed
+		}
+		return true
+	})
+	require.NoError(t, err)
+	require.True(t, did)
+	require.True(t, started, "the UI needs the busy marker before the summary call")
+	require.True(t, startedAtProvider, "CompactionStarted must be emitted before the provider request")
+	require.True(t, completed)
+
+	entries := sess.PathEntries()
+	require.Equal(t, session.EntryCompaction, entries[0].GetType())
+}
+
+// Esc during a manual compaction cancels it through the public contract: the
+// provider may still answer, but a cancelled run must report did=false, a
+// cancellation error, a failed completion, and no checkpoint. Exercising it via
+// Compact (not runCompact) pins the notification contract the UI reads.
+func TestCompactDropsSummaryAfterCancel(t *testing.T) {
+	sess, err := NewSession(WithCwd(t.TempDir()))
+	require.NoError(t, err)
+	require.NoError(t, sess.Append(
+		llm.Message{Role: llm.RoleUser, Content: compactionSeed},
+		llm.Message{Role: llm.RoleAssistant, Content: compactionSeed},
+		llm.Message{Role: llm.RoleUser, Content: compactionSeed},
+	))
+	engine, err := NewEngine(
+		llm.ModelConfig{Name: "fake", BaseURL: "http://unused.test", ContextWindow: 1_000_000},
+		sess,
+		fakeCompactClient{},
+		NewExecutor(tooldef.NewRegistry(nil), sess.Cwd(), nil),
+	)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	var failed bool
+	engine.client = fakeCompactClient{compact: func(context.Context) error {
+		// The user hits Esc while the provider is thinking, and it answers
+		// anyway: the summary that lands afterwards must not become the leaf.
+		cancel()
+		return nil
+	}}
+
+	did, err := engine.Compact(ctx, func(ev session.Event) bool {
+		if done, ok := ev.(session.CompactionComplete); ok {
+			failed = done.Failed
+		}
+		return true
+	})
+	require.ErrorIs(t, err, context.Canceled)
+	require.False(t, did)
+	require.True(t, failed, "the marker must clear the busy state")
+	requireNoCompactionEntry(t, sess)
+}
+
+// Nothing outside the retained tail means no summary: the caller reports
+// "nothing to compact" rather than a success that reclaimed nothing.
+func TestCompactReportsNothingToCompact(t *testing.T) {
+	sess, err := NewSession(WithCwd(t.TempDir()))
+	require.NoError(t, err)
+	require.NoError(t, sess.Append(llm.Message{Role: llm.RoleUser, Content: "hi"}))
+
+	engine, err := NewEngine(
+		llm.ModelConfig{Name: "fake", BaseURL: "http://unused.test", ContextWindow: 1_000_000},
+		sess,
+		fakeCompactClient{},
+		NewExecutor(tooldef.NewRegistry(nil), sess.Cwd(), nil),
+	)
+	require.NoError(t, err)
+	var compacted bool
+	engine.client = fakeCompactClient{compact: func(context.Context) error {
+		compacted = true
+		return nil
+	}}
+
+	did, err := engine.Compact(t.Context(), func(session.Event) bool { return true })
+	require.NoError(t, err)
+	require.False(t, did)
+	require.False(t, compacted, "no summary request when the history already fits")
+	requireNoCompactionEntry(t, sess)
+}
+
+// An empty session is the state /compact hits on a fresh start; it must
+// report nothing to compact instead of panicking in the cut planner.
+func TestCompactEmptySessionDoesNotPanic(t *testing.T) {
+	sess, err := NewSession(WithCwd(t.TempDir()))
+	require.NoError(t, err)
+	engine, err := NewEngine(
+		llm.ModelConfig{Name: "fake", BaseURL: "http://unused.test", ContextWindow: 1_000_000},
+		sess,
+		fakeCompactClient{},
+		NewExecutor(tooldef.NewRegistry(nil), sess.Cwd(), nil),
+	)
+	require.NoError(t, err)
+	engine.client = fakeCompactClient{compact: func(context.Context) error { return nil }}
+
+	did, err := engine.Compact(t.Context(), nil)
+	require.NoError(t, err)
+	require.False(t, did)
+	requireNoCompactionEntry(t, sess)
 }
 
 func TestLoopNonOverflowErrorDoesNotCompact(t *testing.T) {

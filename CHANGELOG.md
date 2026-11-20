@@ -40,6 +40,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `/compact` compacts the session context on demand instead of waiting for the
+  automatic threshold, and reports the outcome (compacted, nothing to compact,
+  failed) as a toast. Extension `session_compact` handlers see `reason: manual`
+  for it.
+
 ### Fixed
 
 - Command Palette: `thm` finds `theme` again (subsequence search), Tab moves
@@ -62,6 +67,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   matching files equals the requested limit.
 - `find` caps `limit` at 10000, so a huge value can no longer reach fd as a
   negative `--max-results`.
+- Compaction preparation no longer indexes an empty session path. Manual
+  compaction can reach a fresh session, where a cut on an empty entry list
+  panicked.
 
 ### Security
 

@@ -1,12 +1,16 @@
 package editor
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/pulseaiclub/xui"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/components"
+	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
@@ -54,4 +58,54 @@ func TestRetryUnavailableRestoresIdle(t *testing.T) {
 	require.False(t, e.overlays.Active())
 	require.False(t, e.submitter.IsBusy())
 	require.Equal(t, controller.ActivityIdle, e.activity.Current)
+}
+
+func TestCompactionResultToast(t *testing.T) {
+	tests := []struct {
+		name    string
+		result  controller.CompactionFinishedMsg
+		message string
+		kind    toast.ToastKind
+	}{
+		{
+			name: "committed", result: controller.CompactionFinishedMsg{Compacted: true},
+			message: "Compacted context", kind: toast.ToastSuccess,
+		},
+		{
+			name:    "committed with tokens",
+			result:  controller.CompactionFinishedMsg{Compacted: true, TokensBefore: 12000},
+			message: "Compacted context (was 12k tokens)", kind: toast.ToastSuccess,
+		},
+		{
+			name:    "committed despite a late cancel",
+			result:  controller.CompactionFinishedMsg{Compacted: true, Cancelled: true, TokensBefore: 2048},
+			message: "Compacted context (was 2.0k tokens)", kind: toast.ToastSuccess,
+		},
+		{
+			name:    "cancelled",
+			result:  controller.CompactionFinishedMsg{Err: context.Canceled, Cancelled: true},
+			message: "Compaction cancelled", kind: toast.ToastWarning,
+		},
+		{
+			name: "cancelled by context alone", result: controller.CompactionFinishedMsg{Cancelled: true},
+			message: "Compaction cancelled", kind: toast.ToastWarning,
+		},
+		{
+			name: "failed", result: controller.CompactionFinishedMsg{Err: errors.New("boom")},
+			message: "Compaction failed: boom", kind: toast.ToastError,
+		},
+		{
+			name: "nothing to do", result: controller.CompactionFinishedMsg{},
+			message: "Nothing to compact yet", kind: toast.ToastWarning,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newTestEditor(t)
+			e.Update(tt.result)
+			assert.Equal(t, tt.message, e.toast.Message)
+			assert.Equal(t, tt.kind, e.toast.Kind)
+			assert.True(t, e.toast.Visible())
+		})
+	}
 }

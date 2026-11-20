@@ -41,8 +41,16 @@ func PrepareCompact(
 	pathEntries []session.MessageEntry,
 	settings Settings,
 ) (*CompactionPreparation, error) {
+	// A fresh session has nothing to walk: the cut point below would index [0]
+	// of an empty slice. Manual compaction can reach this state (/compact on a
+	// new session); the automatic path cannot, because it only runs once a usage
+	// report crosses the threshold.
+	if len(pathEntries) == 0 {
+		return &CompactionPreparation{}, nil
+	}
+
 	// already compacted, skip
-	if len(pathEntries) > 0 && pathEntries[len(pathEntries)-1].GetType() == session.EntryCompaction {
+	if pathEntries[len(pathEntries)-1].GetType() == session.EntryCompaction {
 		return &CompactionPreparation{}, nil
 	}
 

@@ -262,7 +262,7 @@ syntax highlighting. Structural markers (`#`, `` ` ``, `*`) are stripped.
 The editor supports:
 
 - `@` — fuzzy file mention picker (type `@` and start typing a path)
-- `/` — slash command picker (`/sessions`, `/branch`, `/skill`, `/new`, `/fork`, `/diff`, `/code`)
+- `/` — slash command picker (`/sessions`, `/branch`, `/skill`, `/new`, `/fork`, `/compact`, `/diff`, `/code`)
 - `?` — shortcut help picker (lists `/`, `!`, `!!`, `@`, and key bindings; `Esc` closes)
 - `!command` — run a shell command locally and stream its output into the
   transcript (see [Commands](#commands))
@@ -363,6 +363,7 @@ unfinished.
 | `/branch`          | Switch the working branch — see [Branch switching](#branch-switching) |
 | `/new`             | Start a fresh empty session (TUI)             |
 | `/fork`            | Copy this session at its current point into a new one (TUI) |
+| `/compact`         | Compact this session's context now instead of waiting for the threshold (TUI) |
 | `/diff`            | Full-screen git review — see [Diff review](#diff-review) |
 | `/code`            | Full-screen source viewer — see [Code viewer](#code-viewer) |
 | `!command`         | Run a shell command locally, stream output into the transcript; `Esc` cancels it |
@@ -384,6 +385,9 @@ Sessions persist automatically per working directory under
 - `/fork` — copy the current session at its current point into a new session
   (new id, same conversation) and switch to it; the source keeps running
   untouched
+- `/compact` — compact the context now instead of waiting for the automatic
+  threshold; the outcome (compacted, nothing to compact, failed) arrives as a
+  toast, and `Esc` cancels the run
 - `phi sessions remove <id>` — delete a session (`rm` also works; a unique id
   prefix is enough)
 - `phi sessions fork <id>` — copy a session at its current point and print the

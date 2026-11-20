@@ -47,6 +47,16 @@ type LoopFinishedMsg struct {
 
 func (LoopFinishedMsg) isMsg() {}
 
+// CompactionFinishedMsg reports a manual compaction result for UI presentation.
+type CompactionFinishedMsg struct {
+	Compacted    bool
+	Err          error
+	Cancelled    bool
+	TokensBefore int
+}
+
+func (CompactionFinishedMsg) isMsg() {}
+
 // FooterKind discriminates variants of FooterMsg.
 type FooterKind int
 

@@ -162,3 +162,17 @@ func TestSessionCommands_DeleteUnknownIdToastsAndKeepsList(t *testing.T) {
 	assert.Contains(t, drainToast(t, bus), "not found")
 	assert.False(t, refreshed, "failed delete must not touch the picker")
 }
+
+func TestSessionCommands_CompactRejectsArguments(t *testing.T) {
+	bus := controller.NewBus(nil)
+	s := &SessionCommands{Bus: bus, StreamActive: func() bool { return false }}
+	s.Compact([]string{"now"})
+	assert.Contains(t, drainToast(t, bus), "Usage: /compact")
+}
+
+func TestSessionCommands_CompactBlocksWhenBusy(t *testing.T) {
+	bus := controller.NewBus(nil)
+	s := &SessionCommands{Bus: bus, StreamActive: func() bool { return true }}
+	s.Compact(nil)
+	assert.Contains(t, drainToast(t, bus), "Cannot compact")
+}

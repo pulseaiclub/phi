@@ -35,6 +35,7 @@ type EngineController struct {
 
 	streamMu       sync.Mutex
 	streamCancel   context.CancelFunc
+	compactCancel  context.CancelFunc
 	streamGen      int
 	lastPrompt     LastPrompt
 	promptAppended bool
@@ -766,6 +767,70 @@ func (c *EngineController) startPromptLocked() {
 	go c.runLoop(ctx, c.streamGen, c.engine, c.lastPrompt, c.promptAppended)
 }
 
+// Compact runs a manual context compaction for the active session.
+//
+// The outcome is reported as a toast, not through the loop-error dialog: the
+// dialog offers Retry, which replays a prompt, and the user asked for a
+// compaction. Esc cancels the run through Cancel, like any other in-flight
+// work. Refusing a second concurrent run matters because both would compact
+// the same leaf and the loser aborts on the anchor check.
+func (c *EngineController) Compact() error {
+	ctx, ok := c.beginCompaction()
+	if !ok {
+		return errors.New("a compaction is already running")
+	}
+	engine := c.engine
+	go c.runCompact(ctx, engine)
+	return nil
+}
+
+// beginCompaction claims the manual-compaction slot, so prompts and a second
+// command cannot act on the session while a summary is in flight.
+func (c *EngineController) beginCompaction() (context.Context, bool) {
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	if c.compactCancel != nil {
+		return nil, false
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	c.compactCancel = cancel
+	return ctx, true
+}
+
+// endCompaction releases the slot and cancels the context, so a finished run
+// leaves no stale cancellation behind.
+func (c *EngineController) endCompaction() {
+	c.streamMu.Lock()
+	cancel := c.compactCancel
+	c.compactCancel = nil
+	c.streamMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+func (c *EngineController) runCompact(ctx context.Context, engine *agent.Engine) {
+	defer c.endCompaction()
+
+	var before int
+	did, err := engine.Compact(ctx, func(ev session.Event) bool {
+		if done, ok := ev.(session.CompactionComplete); ok && !done.Failed {
+			before = done.TokensBefore
+		}
+		// Gen 0: these events belong to no prompt loop. The footer activity and
+		// the compaction marker come from CompactionStarted/Complete themselves.
+		c.publish(SessionEventMsg{Event: ev})
+		return true
+	})
+
+	c.publish(CompactionFinishedMsg{
+		Compacted:    did,
+		Err:          err,
+		Cancelled:    ctx.Err() != nil,
+		TokensBefore: before,
+	})
+}
+
 // RetryLastPrompt resumes a failed turn without appending its user message again.
 func (c *EngineController) RetryLastPrompt() bool {
 	c.streamMu.Lock()
@@ -782,6 +847,11 @@ func (c *EngineController) Cancel() {
 	defer c.streamMu.Unlock()
 	if c.streamCancel != nil {
 		c.streamCancel()
+	}
+	// A manual summary is cancellable too: Esc must not leave it running
+	// against a session the user is about to act on.
+	if c.compactCancel != nil {
+		c.compactCancel()
 	}
 	// Invalidate queued completion messages as well as the running request.
 	c.streamGen++
