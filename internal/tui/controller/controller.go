@@ -14,7 +14,6 @@ import (
 
 	ext "github.com/pulseaiclub/phi/ext/go"
 	"github.com/pulseaiclub/phi/internal/agent"
-	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/debuglog"
 	"github.com/pulseaiclub/phi/internal/extension"
@@ -824,35 +823,12 @@ func (c *EngineController) runCompact(ctx context.Context, engine *agent.Engine)
 		return true
 	})
 
-	c.publish(compactionToast(did, err, ctx.Err(), before))
-}
-
-// compactionToast maps one manual compaction result to the toast to show.
-//
-// A committed checkpoint wins over a late cancel: Esc can land after the
-// compaction entry was appended, and reporting "cancelled" would deny a
-// summary the transcript already shows.
-func compactionToast(did bool, err, ctxErr error, before int) ToastMsg {
-	switch {
-	case did:
-		// A provider that reports no usage leaves TokensBefore at zero; claim a
-		// number only when there is one.
-		msg := "Compacted context"
-		if before > 0 {
-			msg = fmt.Sprintf("Compacted context (was %s tokens)", components.FormatTokens(before))
-		}
-		return ToastMsg{Message: msg, Kind: toast.ToastSuccess, Duration: 3 * time.Second}
-	case err != nil && !errors.Is(err, context.Canceled):
-		return ToastMsg{
-			Message:  "Compaction failed: " + err.Error(),
-			Kind:     toast.ToastError,
-			Duration: 4 * time.Second,
-		}
-	case errors.Is(err, context.Canceled) || ctxErr != nil:
-		return ToastMsg{Message: "Compaction cancelled", Kind: toast.ToastWarning, Duration: 3 * time.Second}
-	default:
-		return ToastMsg{Message: "Nothing to compact yet", Kind: toast.ToastWarning, Duration: 3 * time.Second}
-	}
+	c.publish(CompactionFinishedMsg{
+		Compacted:    did,
+		Err:          err,
+		Cancelled:    ctx.Err() != nil,
+		TokensBefore: before,
+	})
 }
 
 // RetryLastPrompt resumes a failed turn without appending its user message again.

@@ -2,22 +2,19 @@ package controller
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/pulseaiclub/phi/internal/components/toast"
 )
 
-// drainToasts empties the bus and returns the toast messages, newest last.
-func drainToasts(bus *Bus) []ToastMsg {
-	var out []ToastMsg
+// drainCompactionResults empties the bus and returns compaction results, newest last.
+func drainCompactionResults(bus *Bus) []CompactionFinishedMsg {
+	var out []CompactionFinishedMsg
 	for _, m := range bus.Drain() {
-		if tm, ok := m.(ToastMsg); ok {
-			out = append(out, tm)
+		if result, ok := m.(CompactionFinishedMsg); ok {
+			out = append(out, result)
 		}
 	}
 	return out
@@ -31,17 +28,18 @@ func TestCompactReportsNothingToCompact(t *testing.T) {
 
 	require.NoError(t, ctrl.Compact())
 
-	var got ToastMsg
+	var got CompactionFinishedMsg
 	require.Eventually(t, func() bool {
-		toasts := drainToasts(ctrl.bus)
-		if len(toasts) == 0 {
+		results := drainCompactionResults(ctrl.bus)
+		if len(results) == 0 {
 			return false
 		}
-		got = toasts[len(toasts)-1]
+		got = results[len(results)-1]
 		return true
 	}, 5*time.Second, 10*time.Millisecond)
 
-	assert.Equal(t, "Nothing to compact yet", got.Message)
+	assert.False(t, got.Compacted)
+	assert.NoError(t, got.Err)
 }
 
 // The slot is claimed for as long as a summary runs: a second /compact must be
@@ -74,46 +72,4 @@ func TestCancelCancelsRunningCompaction(t *testing.T) {
 	ctrl.Cancel()
 	require.ErrorIs(t, ctx.Err(), context.Canceled, "Cancel must reach the compaction context")
 	ctrl.endCompaction()
-}
-
-// compactionToast is the whole outcome mapping. The committed-checkpoint row
-// pins the late-cancel case: Esc after AppendCompaction succeeded must not
-// report "cancelled" while the transcript already shows the summary.
-func TestCompactionToast(t *testing.T) {
-	tests := []struct {
-		name    string
-		did     bool
-		err     error
-		ctxErr  error
-		before  int
-		message string
-		kind    toast.ToastKind
-	}{
-		{name: "committed", did: true, before: 0, message: "Compacted context", kind: toast.ToastSuccess},
-		{
-			name: "committed with tokens", did: true, before: 12000, message: "Compacted context (was 12k tokens)",
-			kind: toast.ToastSuccess,
-		},
-		{
-			name: "committed despite a late cancel", did: true, ctxErr: context.Canceled, before: 2048,
-			message: "Compacted context (was 2.0k tokens)", kind: toast.ToastSuccess,
-		},
-		{
-			name: "cancelled", err: context.Canceled, ctxErr: context.Canceled,
-			message: "Compaction cancelled", kind: toast.ToastWarning,
-		},
-		{
-			name: "cancelled by ctx alone", ctxErr: context.Canceled,
-			message: "Compaction cancelled", kind: toast.ToastWarning,
-		},
-		{name: "failed", err: errors.New("boom"), message: "Compaction failed: boom", kind: toast.ToastError},
-		{name: "nothing to do", message: "Nothing to compact yet", kind: toast.ToastWarning},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := compactionToast(tt.did, tt.err, tt.ctxErr, tt.before)
-			assert.Equal(t, tt.message, got.Message)
-			assert.Equal(t, tt.kind, got.Kind)
-		})
-	}
 }

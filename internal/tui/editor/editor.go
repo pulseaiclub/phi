@@ -2,6 +2,9 @@
 package editor
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -237,6 +240,8 @@ func (e *Editor) Update(m controller.Msg) {
 		e.applyFooterMessage(msg)
 	case controller.ToastMsg:
 		e.toast.Show(msg.Message, msg.Kind, msg.Duration)
+	case controller.CompactionFinishedMsg:
+		e.showCompactionResult(msg)
 	case controller.ThemeMsg:
 		e.applyTheme(msg.Name)
 	case controller.ModelChangeMsg:
@@ -267,6 +272,27 @@ func (e *Editor) Update(m controller.Msg) {
 		e.extCmds.Sync()
 	case controller.JobProgressMsg:
 		// Applied in drainBus so we can skip Sync when the tree is unchanged.
+	}
+}
+
+// showCompactionResult maps the domain result to its user-facing notification.
+// A committed checkpoint wins over a late cancel: the transcript already shows
+// the summary, so reporting cancellation would contradict the session state.
+func (e *Editor) showCompactionResult(result controller.CompactionFinishedMsg) {
+	const short = 3 * time.Second
+	switch {
+	case result.Compacted:
+		msg := "Compacted context"
+		if result.TokensBefore > 0 {
+			msg = fmt.Sprintf("Compacted context (was %s tokens)", components.FormatTokens(result.TokensBefore))
+		}
+		e.toast.Show(msg, toast.ToastSuccess, short)
+	case result.Err != nil && !errors.Is(result.Err, context.Canceled):
+		e.toast.Show("Compaction failed: "+result.Err.Error(), toast.ToastError, 4*time.Second)
+	case errors.Is(result.Err, context.Canceled) || result.Cancelled:
+		e.toast.Show("Compaction cancelled", toast.ToastWarning, short)
+	default:
+		e.toast.Show("Nothing to compact yet", toast.ToastWarning, short)
 	}
 }
 
