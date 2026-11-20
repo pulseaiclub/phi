@@ -135,10 +135,33 @@ func TestModelToolsAndActiveFilter(t *testing.T) {
 	assert.Equal(t, "mutated", r.snapshot().tools[0].Name)
 }
 
-func TestRunnerLifecycleNotifications(t *testing.T) {
-	r := NewRunner("")
+func TestRunnerInitialHostStateIsInstalledWithoutNotification(t *testing.T) {
 	var changes int
-	r.SetOnChange(func() { changes++ })
+	r := NewRunnerWithHost("", HostConfig{
+		Host:      ext.HostOpts{Cwd: "/project", SessionID: "session-1", HasUI: true},
+		BaseTools: []tooldef.Tool{{Definition: llm.ToolDefinition{Name: "builtin"}}},
+		OnChange:  func() { changes++ },
+	})
+	f, api := handBuiltFiber("initial")
+	api.RegisterTool(noopTool("extension"))
+
+	r.AddFiberInitial(f)
+
+	assert.Equal(t, 0, changes, "initial topology must not notify")
+	ctx := api.NewContext()
+	assert.Equal(t, "/project", ctx.Cwd)
+	assert.Equal(t, "session-1", ctx.SessionID)
+	assert.True(t, ctx.HasUI)
+	assert.Equal(t, []string{"builtin", "extension"}, toolNames(api.GetAllTools()))
+	assert.Equal(t, []string{"builtin", "extension"}, api.GetActiveTools())
+
+	api.SetActiveTools([]string{"extension"})
+	assert.Equal(t, []string{"extension"}, api.GetActiveTools())
+}
+
+func TestRunnerLifecycleNotifications(t *testing.T) {
+	var changes int
+	r := NewRunnerWithHost("", HostConfig{OnChange: func() { changes++ }})
 
 	f, _ := handBuiltFiber("alpha")
 	r.mu.Lock()

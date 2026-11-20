@@ -55,9 +55,11 @@ func TestEngineRunnerChildUsesItsOwnWorkdir(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	workdir := t.TempDir()
-	require.NoError(t,
-		os.WriteFile(filepath.Join(workdir, "AGENTS.md"), []byte("child-workdir-rule"), 0o644))
+	root := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(root, ".git"), 0o755))
+	workdir := filepath.Join(root, "pkg")
+	require.NoError(t, os.Mkdir(workdir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("child-workdir-rule"), 0o644))
 
 	mgr, err := job.New(job.Options{
 		Root: t.TempDir(),
@@ -87,6 +89,7 @@ func TestEngineRunnerChildUsesItsOwnWorkdir(t *testing.T) {
 
 	assert.Contains(t, system, "child-workdir-rule", "child must load the AGENTS.md of its workdir")
 	assert.Contains(t, system, "- Current directory: "+workdir)
+	assert.Contains(t, system, "- Workspace: "+root)
 
 	processCwd, err := os.Getwd()
 	require.NoError(t, err)

@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/pulseaiclub/phi/internal/extension/loader"
 
@@ -22,26 +21,61 @@ import (
 
 const maxContextBytes = 4 * 1024
 
-// NewRunner returns an empty runner rooted at logDir (where extension child
-// logs are written). Fibers are added by the lifecycle package.
+// NewRunner returns an empty runner rooted at logDir. Callers that own initial
+// host state should use NewRunnerWithHost.
 func NewRunner(logDir string) *Runner {
-	return &Runner{
-		fibers: make(map[string]*Fiber),
-		logDir: logDir,
-	}
+	return NewRunnerWithHost(logDir, HostConfig{})
 }
 
-// AddFiber registers an already-loaded fiber. Used by the lifecycle package
-// after a successful start; the caller owns the handoff.
-func (r *Runner) AddFiber(f *Fiber) {
+type HostConfig struct {
+	Host      ext.HostOpts
+	BaseTools []tooldef.Tool
+	OnChange  func()
+	OnPrompt  func(runner *Runner, sessionID, text string)
+}
+
+// NewRunnerWithHost returns a runner with its initial host state installed.
+func NewRunnerWithHost(logDir string, cfg HostConfig) *Runner {
+	host := cfg.Host
+	r := &Runner{
+		fibers:    make(map[string]*Fiber),
+		logDir:    logDir,
+		ui:        host.UI,
+		cwd:       host.Cwd,
+		session:   host.SessionID,
+		hasUI:     host.HasUI,
+		baseTools: append([]tooldef.Tool(nil), cfg.BaseTools...),
+		onPrompt:  cfg.OnPrompt,
+		onChange:  cfg.OnChange,
+	}
+	if host.GetActiveTools == nil {
+		host.GetActiveTools = func() []string {
+			return toolNames(r.snapshot().activeTools)
+		}
+	}
+	if host.SetActiveTools == nil {
+		host.SetActiveTools = r.SetActiveTools
+	}
+	if host.GetAllTools == nil {
+		host.GetAllTools = func() []ext.ToolInfo {
+			return r.snapshot().tools
+		}
+	}
+	r.host = host
+	return r
+}
+
+// AddFiberInitial wires and registers a fiber without notifying the host. The
+// initial topology is delivered by the completed Load call, before the host is ready.
+func (r *Runner) AddFiberInitial(f *Fiber) {
 	if r == nil || f == nil {
 		return
 	}
+	r.wire(f, r.hostOpts())
 	r.mu.Lock()
 	r.fibers[f.ID] = f
 	r.invalidateLocked()
 	r.mu.Unlock()
-	r.notifyChange()
 }
 
 // Runner holds loaded extensions and dispatches events.
@@ -65,31 +99,14 @@ type Runner struct {
 	activeNames map[string]bool // nil = all active
 	host        ext.HostOpts
 
-	onChange atomic.Pointer[func()]
-}
-
-// SetOnChange registers a hook fired after the extension topology changes —
-// load, unload or hot swap. It runs on whichever goroutine performed the
-// change (a UI action) and must not block: hosts use it to re-derive tool
-// schemas and refresh the UI.
-func (r *Runner) SetOnChange(fn func()) {
-	if r == nil {
-		return
-	}
-	if fn == nil {
-		r.onChange.Store(nil)
-		return
-	}
-	r.onChange.Store(&fn)
+	onChange func()
+	onPrompt func(*Runner, string, string)
 }
 
 // notifyChange runs the topology hook, if any.
 func (r *Runner) notifyChange() {
-	if r == nil {
-		return
-	}
-	if p := r.onChange.Load(); p != nil && *p != nil {
-		(*p)()
+	if r != nil && r.onChange != nil {
+		r.onChange()
 	}
 }
 
@@ -123,39 +140,6 @@ func (r *Runner) Loaded() []loader.Discovered {
 	return out
 }
 
-// Bind attaches host capabilities to every extension API.
-func (r *Runner) Bind(opts ext.HostOpts) {
-	if r == nil {
-		return
-	}
-	if opts.GetActiveTools == nil {
-		opts.GetActiveTools = func() []string {
-			return toolNames(r.snapshot().activeTools)
-		}
-	}
-	if opts.SetActiveTools == nil {
-		opts.SetActiveTools = r.SetActiveTools
-	}
-	if opts.GetAllTools == nil {
-		opts.GetAllTools = func() []ext.ToolInfo {
-			return r.snapshot().tools
-		}
-	}
-
-	r.mu.Lock()
-	r.ui = opts.UI
-	r.cwd = opts.Cwd
-	r.session = opts.SessionID
-	r.hasUI = opts.HasUI
-	r.host = opts
-	fibers := r.fiberListLocked()
-	r.mu.Unlock()
-
-	for _, f := range fibers {
-		r.wire(f, opts)
-	}
-}
-
 // wire connects the host side of one fiber: the API receives the host opts and
 // the process receives the frame sink that forwards Notify / host requests.
 // Every path that produces a live process — initial load, hot swap, resume —
@@ -163,6 +147,11 @@ func (r *Runner) Bind(opts ext.HostOpts) {
 func (r *Runner) wire(f *Fiber, opts ext.HostOpts) {
 	if f == nil {
 		return
+	}
+	if r.onPrompt != nil {
+		// Keep the origin from this binding even if SetMeta rewires the fiber before delivery.
+		sessionID := opts.SessionID
+		opts.SendUserMessage = func(text string) { r.onPrompt(r, sessionID, text) }
 	}
 	if api := f.API(); api != nil {
 		api.BindHost(opts)

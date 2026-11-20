@@ -28,14 +28,14 @@ func TestLoopStopsDuringCompaction(t *testing.T) {
 				llm.Message{Role: llm.RoleAssistant, Content: compactionSeed},
 				llm.Message{Role: llm.RoleUser, Content: compactionSeed},
 			))
-			engine, err := NewEngine(llm.ModelConfig{Name: "stub", ContextWindow: 40_000}, sess,
-				WithTools([]tooldef.Tool{}))
-			require.NoError(t, err)
 			var compacts int
-			engine.client = fakeCompactClient{compact: func(context.Context) error {
+			client := fakeCompactClient{compact: func(context.Context) error {
 				compacts++
 				return errors.New("summary failed")
 			}}
+			engine, err := NewEngine(llm.ModelConfig{Name: "stub", ContextWindow: 40_000}, sess, client,
+				NewExecutor(tooldef.NewRegistry(nil), sess.Cwd(), nil))
+			require.NoError(t, err)
 			var events int
 			for event, err := range engine.Loop(t.Context(), "go", LoopOpts{}) {
 				require.NoError(t, err)
@@ -73,16 +73,15 @@ func TestLoopStopsToolBatchWithoutRunningTools(t *testing.T) {
 			var runs atomic.Int32
 			tool := countingTool(&runs)
 			tool.Definition.Readable = readable
-			engine, err := NewEngine(llm.ModelConfig{Name: "stub"}, sess,
-				WithTools([]tooldef.Tool{tool}))
-			require.NoError(t, err)
 			client := &stubChatClient{streams: []func(context.Context, []llm.Message) iter.Seq2[llm.StreamEvent, error]{
 				stubMessageStream(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
 					{ID: "first", Type: "function", Function: llm.Function{Name: "count", Arguments: `{}`}},
 					{ID: "second", Type: "function", Function: llm.Function{Name: "count", Arguments: `{}`}},
 				}}),
 			}}
-			engine.client = client
+			engine, err := NewEngine(llm.ModelConfig{Name: "stub"}, sess, client,
+				NewExecutor(tooldef.NewRegistry([]tooldef.Tool{tool}), sess.Cwd(), nil))
+			require.NoError(t, err)
 			var toolEvents int
 			for event, err := range engine.Loop(t.Context(), "go", LoopOpts{}) {
 				require.NoError(t, err)

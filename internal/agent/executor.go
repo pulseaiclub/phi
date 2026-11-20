@@ -30,8 +30,8 @@ type Executor struct {
 }
 
 // NewExecutor builds an executor. extRunner may be nil.
-func NewExecutor(registry tooldef.Registry, extRunner *extension.Runner) *Executor {
-	return &Executor{registry: registry, ext: extRunner}
+func NewExecutor(registry tooldef.Registry, cwd string, extRunner *extension.Runner) *Executor {
+	return &Executor{registry: registry, cwd: cwd, ext: extRunner}
 }
 
 // Run executes tool calls and yields ToolData updates via emit.

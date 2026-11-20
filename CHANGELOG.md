@@ -10,6 +10,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Removed
 
+- `!git commit -m` no longer sends changes to the model to suggest a commit
+  message. Local shell completions are unchanged.
+
 ### Changed
 
 - Command Palette now uses the shared list picker with a dedicated command-list
@@ -23,6 +26,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the panel width and column positions; the panel height follows the result
   count, so the panel re-centers vertically as it shrinks. Panels use quiet
   square borders, separate titles, and a gap above the list.
+- Extensions receive the active session ID and working directory in their initial handshake,
+  including when resuming a session or using `phi run`.
 - Bash commands now get shell syntax highlighting in the transcript — the
   `$ command` title row and bash rows inside the agent tool tree — with token
   colors mapped to the active theme.
@@ -50,6 +55,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   with the synthetic `(inherit parent)` row.
 - Updated the Go, Rust, and TypeScript SDK comments to describe tool-call
   interception before execution without referring to the removed permission gate.
+- MCP: match a stdio response to its request id. A server-initiated request
+  or a late reply to a timed-out call is no longer returned as the current
+  call's result.
 - `find` no longer reports "results limit reached" when the total number of
   matching files equals the requested limit.
 - `find` caps `limit` at 10000, so a huge value can no longer reach fd as a

@@ -1,4 +1,4 @@
-package diffpane
+package pane
 
 import (
 	"os"
@@ -26,7 +26,7 @@ const sampleDiff = `diff --git a/main.go b/main.go
 
 func TestPaneOpenCommentSearchAndSend(t *testing.T) {
 	var submitted string
-	p := New(components.DefaultTheme(), t.TempDir(), func(s string) { submitted = s }, nil, nil)
+	p := NewDiff(components.DefaultTheme(), t.TempDir(), func(s string) { submitted = s }, nil, nil)
 	p.OpenText(sampleDiff, nil)
 	require.True(t, p.Active())
 	require.NotEmpty(t, p.rows)
@@ -69,7 +69,7 @@ func TestPaneOpenCommentSearchAndSend(t *testing.T) {
 }
 
 func TestPanePasteReviewNote(t *testing.T) {
-	p := New(components.DefaultTheme(), t.TempDir(), nil, nil, nil)
+	p := NewDiff(components.DefaultTheme(), t.TempDir(), nil, nil, nil)
 	p.OpenText(sampleDiff, nil)
 
 	ctx := &components.EventContext{}
@@ -113,7 +113,7 @@ func TestPanePasteReviewNote(t *testing.T) {
 }
 
 func TestPaneDropsNotesWhenDiffChanges(t *testing.T) {
-	p := New(components.DefaultTheme(), t.TempDir(), nil, nil, nil)
+	p := NewDiff(components.DefaultTheme(), t.TempDir(), nil, nil, nil)
 	p.OpenText(sampleDiff, nil)
 
 	ctx := &components.EventContext{}
@@ -143,7 +143,7 @@ func TestPaneDropsNotesWhenDiffChanges(t *testing.T) {
 }
 
 func TestPaneEscCloses(t *testing.T) {
-	p := New(components.DefaultTheme(), t.TempDir(), nil, nil, nil)
+	p := NewDiff(components.DefaultTheme(), t.TempDir(), nil, nil, nil)
 	p.OpenText(sampleDiff, nil)
 	require.True(t, p.Active())
 	p.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyEscape})
@@ -151,7 +151,7 @@ func TestPaneEscCloses(t *testing.T) {
 }
 
 func TestPaneDraw(t *testing.T) {
-	p := New(components.DefaultTheme(), t.TempDir(), nil, nil, nil)
+	p := NewDiff(components.DefaultTheme(), t.TempDir(), nil, nil, nil)
 	p.OpenText(sampleDiff, nil)
 	surf := p.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 24}, Method: xui.WidthUnicode})
 	text := components.SurfaceText(surf)
@@ -162,7 +162,7 @@ func TestPaneDraw(t *testing.T) {
 func TestPaneEmptyNoteNamesUntrackedPath(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "new.go"), []byte("package main\n"), 0o644))
-	p := New(components.DefaultTheme(), dir, nil, nil, nil)
+	p := NewDiff(components.DefaultTheme(), dir, nil, nil, nil)
 	p.OpenText("", []string{"@new.go"})
 	surf := p.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 24}, Method: xui.WidthUnicode})
 	assert.Contains(t, components.SurfaceText(surf), "new.go is untracked")
@@ -170,7 +170,7 @@ func TestPaneEmptyNoteNamesUntrackedPath(t *testing.T) {
 
 func TestChangeMetadataAndExactCommentPaths(t *testing.T) {
 	dir := t.TempDir()
-	p := New(components.DefaultTheme(), dir, nil, nil, nil)
+	p := NewDiff(components.DefaultTheme(), dir, nil, nil, nil)
 	for _, tc := range []struct{ path, content, want string }{
 		{"empty", "", "Empty file"},
 		{"binary", "\x00\x01", "Binary files"},
@@ -199,7 +199,7 @@ func TestChangeNotesAndBackNavigation(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "a"), []byte("content\n"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "b"), []byte("other\n"), 0o600))
 	var submitted string
-	p := New(components.DefaultTheme(), dir, func(s string) { submitted = s }, nil, nil)
+	p := NewDiff(components.DefaultTheme(), dir, func(s string) { submitted = s }, nil, nil)
 	a := gitx.Change{Status: '?', Path: "a"}
 	b := gitx.Change{Status: '?', Path: "b"}
 	p.OpenChange(dir, a)
@@ -244,7 +244,7 @@ func TestChangeQuotedPathKeepsExactCommentPath(t *testing.T) {
 		`+++ "b/./line\nfile"` + "\n" +
 		"@@ -0,0 +1 @@\n" +
 		"+content\n"
-	p := New(components.DefaultTheme(), t.TempDir(), nil, nil, nil)
+	p := NewDiff(components.DefaultTheme(), t.TempDir(), nil, nil, nil)
 	p.change = &gitx.Change{Status: '?', Path: path}
 	p.openParsed(quoted, "", true)
 	require.Empty(t, p.err)
@@ -265,7 +265,7 @@ func TestChangeQuotedPathKeepsExactCommentPath(t *testing.T) {
 // of the expectation rather than an accident.
 func TestChangeControlCharPathIsQuotedInLabel(t *testing.T) {
 	path := "line\nfile"
-	p := New(components.DefaultTheme(), t.TempDir(), nil, nil, nil)
+	p := NewDiff(components.DefaultTheme(), t.TempDir(), nil, nil, nil)
 	p.OpenChange(p.cwd, gitx.Change{Status: '?', Path: path})
 	assert.Equal(t, strconv.Quote(path), p.label)
 	assert.NotEmpty(t, p.err)

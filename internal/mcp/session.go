@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 )
@@ -34,6 +35,12 @@ func (s *session) Initialize(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.initLocked(ctx)
+}
+
+func (s *session) resetLocked() {
+	_ = s.tr.close()
+	s.ready = false
+	s.tools = nil
 }
 
 func (s *session) initLocked(ctx context.Context) error {
@@ -78,6 +85,9 @@ func (s *session) ListTools(ctx context.Context) ([]ToolDefinition, error) {
 	for range maxToolListPages {
 		raw, err := s.tr.call(ctx, "tools/list", params)
 		if err != nil {
+			if errors.Is(err, errResponseIDMismatch) || errors.Is(err, errTransportDesynchronized) {
+				s.resetLocked()
+			}
 			return nil, err
 		}
 		pageTools, next, err := decodeToolsList(raw)
@@ -130,6 +140,9 @@ func (s *session) CallTool(ctx context.Context, name string, args map[string]any
 		"arguments": args,
 	})
 	if err != nil {
+		if errors.Is(err, errResponseIDMismatch) || errors.Is(err, errTransportDesynchronized) {
+			s.resetLocked()
+		}
 		return "", err
 	}
 	return extractToolContent(raw), nil
@@ -138,9 +151,10 @@ func (s *session) CallTool(ctx context.Context, name string, args map[string]any
 func (s *session) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	err := s.tr.close()
 	s.ready = false
 	s.tools = nil
-	return s.tr.close()
+	return err
 }
 
 func cloneTools(in []ToolDefinition) []ToolDefinition {

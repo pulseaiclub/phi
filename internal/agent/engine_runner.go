@@ -129,10 +129,10 @@ func (r EngineRunner) newEngine(meta job.Meta, cfg llm.ModelConfig, spec ChildSp
 	if err != nil {
 		return nil, err
 	}
-	return NewEngine(cfg, sess,
-		WithTools(toolList),
-		WithExtensions(extRunner),
-		WithOmitExtensionTools(true),
-		WithHooks(model.HooksForConfig(cfg)),
-	)
+	return (EngineConfig{
+		Tools:              toolList,
+		Extensions:         extRunner,
+		OmitExtensionTools: true,
+		Hooks:              model.HooksForConfig(cfg),
+	}).NewEngine(cfg, sess)
 }

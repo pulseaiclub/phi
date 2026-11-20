@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/components/toast"
+	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/session"
 )
@@ -74,6 +75,15 @@ func (FooterMsg) isMsg() {}
 type ExtTopologyChangedMsg struct{}
 
 func (ExtTopologyChangedMsg) isMsg() {}
+
+// ExtPromptMsg carries literal prompt text, not a composer slash command.
+type ExtPromptMsg struct {
+	runner    *extension.Runner
+	sessionID string
+	text      string
+}
+
+func (ExtPromptMsg) isMsg() {}
 
 // ToastMsg asks the Editor to show a transient overlay notification.
 // Producers Publish this instead of holding a toast callback.
