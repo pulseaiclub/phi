@@ -26,11 +26,10 @@ func FileItems(paths []string) []listpicker.Item {
 // FileConfig returns the file picker's chrome and filename/directory layout.
 func FileConfig() listpicker.ShowConfig {
 	return listpicker.ShowConfig{
-		Title:        "Files",
-		FilterHint:   "filename or path",
-		Empty:        "No files found",
-		EmptyFilter:  "No files match %q",
-		Hint:         chrome.ListHint("open"),
-		PrimaryWidth: 30,
+		Title:       "Files",
+		FilterHint:  "filename or path",
+		Empty:       "No files found",
+		EmptyFilter: "No files match %q",
+		Hint:        chrome.ListHint("open"),
 	}
 }

@@ -78,7 +78,7 @@ func (b *Builtin) Bind(
 	submitter extSubmitter,
 	commandCtx Context,
 	openPicker func(items []session.SessionMeta, currentID string),
-	refreshPicker func(items []session.SessionMeta, currentID string),
+	refreshPicker func(items []session.SessionMeta),
 	openBranchPicker func(branches []gitx.Branch, recent []string, onAccept, onDelete func(name string)),
 	refreshBranchPicker func(branches []gitx.Branch, recent []string),
 	openSkillPicker func(items []listpicker.Item, cfg listpicker.ShowConfig, onAccept func(listpicker.Item)),

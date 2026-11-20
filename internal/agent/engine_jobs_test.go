@@ -12,7 +12,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/llm"
 )
 
-func TestNewEngineRegistersJobs(t *testing.T) {
+func TestEngineConfigRegistersJobs(t *testing.T) {
 	mgr, err := job.New(job.Options{
 		Root: t.TempDir(),
 		Runner: job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
@@ -24,19 +24,15 @@ func TestNewEngineRegistersJobs(t *testing.T) {
 
 	sess, err := agent.NewSession(agent.WithCwd(t.TempDir()))
 	require.NoError(t, err)
-	eng, err := agent.NewEngine(
+	eng, err := (agent.EngineConfig{Jobs: mgr}).NewEngine(
 		llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
 		sess,
-		agent.WithJobs(mgr),
 	)
 	require.NoError(t, err)
-	assert.True(t, eng.HasTool("agent_spawn"))
-
-	eng.SetModel(llm.ModelConfig{Name: "fake2", BaseURL: "http://127.0.0.1:9", APIKey: "x"})
 	assert.True(t, eng.HasTool("agent_spawn"))
 }
 
-func TestSetJobsTogglesAgentTools(t *testing.T) {
+func TestEngineConfigCoreToolsDoesNotMutateInputs(t *testing.T) {
 	mgr, err := job.New(job.Options{
 		Root: t.TempDir(),
 		Runner: job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
@@ -48,19 +44,12 @@ func TestSetJobsTogglesAgentTools(t *testing.T) {
 
 	sess, err := agent.NewSession(agent.WithCwd(t.TempDir()))
 	require.NoError(t, err)
-	eng, err := agent.NewEngine(
-		llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
-		sess,
-	)
-	require.NoError(t, err)
-	assert.False(t, eng.HasTool("agent_spawn"))
-
-	eng.SetJobs(mgr)
-	assert.True(t, eng.HasTool("agent_spawn"))
-
-	eng.SetJobs(nil)
-	assert.False(t, eng.HasTool("agent_spawn"))
-	assert.True(t, eng.HasTool("bash")) // default tools still present
+	base := agent.SpecForRole(job.RoleExplore).Tools
+	cfg := agent.EngineConfig{Tools: base, Jobs: mgr}
+	got := cfg.CoreTools(sess)
+	assert.Len(t, base, len(agent.SpecForRole(job.RoleExplore).Tools))
+	assert.Greater(t, len(got), len(base))
+	assert.NotNil(t, cfg.Jobs)
 }
 
 func TestChildToolsHaveNoAgent(t *testing.T) {

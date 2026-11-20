@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/job"
+	"github.com/pulseaiclub/phi/internal/llm"
 )
 
 func newMgr(t *testing.T, runner job.Runner, opts job.Options) *job.Manager {
@@ -63,6 +64,37 @@ func TestSpawnWaitResultOnDisk(t *testing.T) {
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(events), 2)
 	assert.Equal(t, "step-1", events[1].Message)
+}
+
+func TestRoleModelsAreSpawnSnapshots(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	models := make(chan string, 2)
+	m := newMgr(t, job.RunnerFunc(func(_ context.Context, env job.RunEnv) (string, error) {
+		models <- env.Model.Name
+		if env.Job.Description == "first" {
+			close(started)
+			<-release
+		}
+		return "ok", nil
+	}), job.Options{RoleModels: map[job.Role]llm.ModelConfig{
+		job.RoleExplore: {Name: "old"},
+	}})
+
+	first, err := m.Spawn(t.Context(), job.SpawnRequest{Prompt: "one", Description: "first"})
+	require.NoError(t, err)
+	<-started
+	m.SetRoleModels(map[job.Role]llm.ModelConfig{job.RoleExplore: {Name: "new"}})
+	second, err := m.Spawn(t.Context(), job.SpawnRequest{Prompt: "two", Description: "second"})
+	require.NoError(t, err)
+	close(release)
+
+	_, err = m.Wait(t.Context(), first.ID)
+	require.NoError(t, err)
+	_, err = m.Wait(t.Context(), second.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "old", <-models)
+	assert.Equal(t, "new", <-models)
 }
 
 func TestCancelStopsRunner(t *testing.T) {

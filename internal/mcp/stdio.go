@@ -2,13 +2,18 @@ package mcp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -17,6 +22,13 @@ import (
 
 const defaultTimeout = 60 * time.Second
 
+var (
+	// errResponseIDMismatch marks a response whose ID differs from the pending request.
+	errResponseIDMismatch = errors.New("response id mismatch")
+	// errTransportDesynchronized marks a connection with an abandoned reader.
+	errTransportDesynchronized = errors.New("transport desynchronized")
+)
+
 // stdioTransport speaks newline-delimited JSON-RPC over a subprocess.
 type stdioTransport struct {
 	name    string
@@ -24,10 +36,12 @@ type stdioTransport struct {
 	timeout time.Duration
 	id      atomic.Int64
 
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout *bufio.Reader
-	stderr *os.File
+	cmd        *exec.Cmd
+	stdin      io.WriteCloser
+	stdoutPipe io.ReadCloser
+	stdout     *bufio.Reader
+	stderr     *os.File
+	readerWG   sync.WaitGroup
 }
 
 func newStdioTransport(name string, cfg ServerConfig) (*stdioTransport, error) {
@@ -52,33 +66,38 @@ func (t *stdioTransport) call(ctx context.Context, method string, params map[str
 	}
 	payload = append(payload, '\n')
 
+	stdout := t.stdout
+	stdin := t.stdin
+
 	deadline := t.requestDeadline(ctx)
 	type outcome struct {
 		raw json.RawMessage
 		err error
 	}
 	ch := make(chan outcome, 1)
-	go func() {
-		if _, werr := t.stdin.Write(payload); werr != nil {
+	t.readerWG.Go(func() {
+		if _, werr := stdin.Write(payload); werr != nil {
 			ch <- outcome{err: fmt.Errorf("write %s: %w", method, werr)}
 			return
 		}
-		rpc, rerr := t.readResponse()
+		rpc, rerr := readResponse(stdout, stdin, id)
 		if rerr != nil {
 			ch <- outcome{err: fmt.Errorf("read %s: %w", method, rerr)}
 			return
 		}
 		raw, err := resultOrError(method, rpc)
 		ch <- outcome{raw: raw, err: err}
-	}()
+	})
 
 	timer := time.NewTimer(deadline)
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return nil, desynchronizedError{err: ctx.Err()}
 	case <-timer.C:
-		return nil, fmt.Errorf("mcp %s: timeout after %s", method, deadline)
+		return nil, desynchronizedError{
+			err: fmt.Errorf("mcp %s: timeout after %s", method, deadline),
+		}
 	case out := <-ch:
 		return out.raw, out.err
 	}
@@ -102,11 +121,18 @@ func (t *stdioTransport) close() error {
 		_ = t.stdin.Close()
 		t.stdin = nil
 	}
+	if t.stdoutPipe != nil {
+		_ = t.stdoutPipe.Close()
+		t.stdoutPipe = nil
+	}
 	var err error
 	if t.cmd != nil && t.cmd.Process != nil {
 		_ = t.cmd.Process.Kill()
+		t.readerWG.Wait()
 		err = t.cmd.Wait()
 		t.cmd = nil
+	} else {
+		t.readerWG.Wait()
 	}
 	if t.stderr != nil {
 		_ = t.stderr.Close()
@@ -156,36 +182,131 @@ func (t *stdioTransport) ensureStarted() error {
 	}
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
+		_ = stdoutPipe.Close()
 		_ = stderr.Close()
 		return fmt.Errorf("spawn %q: %w", t.name, err)
 	}
 	t.cmd = cmd
 	t.stdin = stdin
+	t.stdoutPipe = stdoutPipe
 	t.stdout = bufio.NewReader(stdoutPipe)
 	t.stderr = stderr
 	return nil
 }
 
-func (t *stdioTransport) readResponse() (jsonRPCResponse, error) {
+// readResponse reads frames until the JSON-RPC response carrying id.
+// Server-initiated requests (carrying both method and id) are answered so a
+// peer waiting on e.g. ping does not stall; notifications are skipped. A
+// response carrying another id means the stream is out of step (e.g. a late
+// reply to a timed-out call), which is reported instead of being taken as this
+// call's.
+func readResponse(stdout *bufio.Reader, stdin io.Writer, id int64) (jsonRPCResponse, error) {
 	for {
-		line, err := t.stdout.ReadBytes('\n')
+		line, err := stdout.ReadBytes('\n')
 		if err != nil {
 			return jsonRPCResponse{}, err
 		}
 		var rpc jsonRPCResponse
-		if err := json.Unmarshal(line, &rpc); err != nil {
+		dec := json.NewDecoder(bytes.NewReader(line))
+		dec.UseNumber()
+		if err := dec.Decode(&rpc); err != nil {
 			return jsonRPCResponse{}, fmt.Errorf(
 				"parse response: %w; raw=%q",
 				err,
 				util.TruncateBytes(string(line), 200, "…"),
 			)
 		}
-		// Skip server notifications (method set, no id).
-		if rpc.Method != "" && rpc.ID == nil {
+		if err := dec.Decode(new(any)); err != io.EOF {
+			return jsonRPCResponse{}, fmt.Errorf(
+				"parse response: trailing data; raw=%q",
+				util.TruncateBytes(string(line), 200, "…"),
+			)
+		}
+		if rpc.Method != "" {
+			if rpc.ID != nil {
+				_ = replyServerRequest(stdin, rpc.ID, rpc.Method)
+			}
 			continue
+		}
+		got, ok := responseID(rpc.ID)
+		if !ok {
+			// A parse-error response carries a null id; surface it rather than
+			// reading on until EOF hides the reason.
+			if rpc.ID == nil && rpc.Error != nil {
+				return rpc, nil
+			}
+			continue
+		}
+		if got != id {
+			return jsonRPCResponse{}, fmt.Errorf(
+				"%w: response id %d does not match request %d",
+				errResponseIDMismatch,
+				got,
+				id,
+			)
 		}
 		return rpc, nil
 	}
+}
+
+func replyServerRequest(stdin io.Writer, id any, method string) error {
+	if stdin == nil {
+		return nil
+	}
+	var msg map[string]any
+	if method == "ping" {
+		msg = map[string]any{
+			"jsonrpc": "2.0",
+			"id":      id,
+			"result":  map[string]any{},
+		}
+	} else {
+		msg = map[string]any{
+			"jsonrpc": "2.0",
+			"id":      id,
+			"error": map[string]any{
+				"code":    -32601,
+				"message": "method not found",
+			},
+		}
+	}
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	payload = append(payload, '\n')
+	_, err = stdin.Write(payload)
+	return err
+}
+
+// responseID decodes a JSON-RPC id. Requests use integers, but a gateway that
+// echoes them as numeric strings still identifies the right call.
+func responseID(value any) (int64, bool) {
+	switch v := value.(type) {
+	case float64:
+		if v != math.Trunc(v) {
+			return 0, false
+		}
+		return int64(v), true
+	case json.Number:
+		n, err := v.Int64()
+		return n, err == nil
+	case string:
+		n, err := strconv.ParseInt(v, 10, 64)
+		return n, err == nil
+	default:
+		return 0, false
+	}
+}
+
+type desynchronizedError struct {
+	err error
+}
+
+func (e desynchronizedError) Error() string { return e.err.Error() }
+func (e desynchronizedError) Unwrap() error { return e.err }
+func (desynchronizedError) Is(target error) bool {
+	return target == errTransportDesynchronized
 }
 
 func (t *stdioTransport) requestDeadline(ctx context.Context) time.Duration {

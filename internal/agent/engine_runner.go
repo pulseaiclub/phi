@@ -19,16 +19,14 @@ import (
 //
 // Each Run creates a fresh Engine with a persisted session under <job.Dir>/session/.
 // Child engines do not receive Jobs, so they have no agent_* tools.
-// Role (explore|worker|review) selects tools when Tools is nil. ModelFn
-// selects the model per role when set; otherwise Model is used as a snapshot.
+// Role (explore|worker|review) selects tools when Tools is nil.
+// The job manager supplies a model snapshot for each run.
 //
 // Extensions (or ExtensionsFn) are inherited from the parent so tool_call
 // handlers apply. Extension RegisterTool tools are not merged
 // into child engines. ExtensionsFn wins when set (live reload).
 type EngineRunner struct {
-	Model        llm.ModelConfig
-	ModelFn      func(role job.Role) llm.ModelConfig // if set, preferred over Model
-	Tools        []tooldef.Tool                      // nil → SpecForRole(job.Role).Tools
+	Tools        []tooldef.Tool // nil → SpecForRole(job.Role).Tools
 	Extensions   *extension.Runner
 	ExtensionsFn func() *extension.Runner
 }
@@ -40,7 +38,7 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 	}
 
 	spec := SpecForRole(env.Job.Role)
-	engine, err := r.newEngine(env.Job, spec)
+	engine, err := r.newEngine(env.Job, env.Model, spec)
 	if err != nil {
 		return "", err
 	}
@@ -106,7 +104,7 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 	return lastText, nil
 }
 
-func (r EngineRunner) newEngine(meta job.Meta, spec ChildSpec) (*Engine, error) {
+func (r EngineRunner) newEngine(meta job.Meta, cfg llm.ModelConfig, spec ChildSpec) (*Engine, error) {
 	cwd := meta.WorkDir
 	if cwd == "" {
 		cwd = "."
@@ -115,11 +113,6 @@ func (r EngineRunner) newEngine(meta job.Meta, spec ChildSpec) (*Engine, error) 
 	toolList := r.Tools
 	if toolList == nil {
 		toolList = spec.Tools
-	}
-
-	cfg := r.Model
-	if r.ModelFn != nil {
-		cfg = r.ModelFn(meta.Role)
 	}
 
 	extRunner := r.Extensions
@@ -136,10 +129,10 @@ func (r EngineRunner) newEngine(meta job.Meta, spec ChildSpec) (*Engine, error) 
 	if err != nil {
 		return nil, err
 	}
-	return NewEngine(cfg, sess,
-		WithTools(toolList),
-		WithExtensions(extRunner),
-		WithOmitExtensionTools(true),
-		WithHooks(model.HooksForConfig(cfg)),
-	)
+	return (EngineConfig{
+		Tools:              toolList,
+		Extensions:         extRunner,
+		OmitExtensionTools: true,
+		Hooks:              model.HooksForConfig(cfg),
+	}).NewEngine(cfg, sess)
 }

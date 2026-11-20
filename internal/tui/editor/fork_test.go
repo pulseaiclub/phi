@@ -8,8 +8,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ext "github.com/pulseaiclub/phi/ext/go"
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/app"
+	"github.com/pulseaiclub/phi/internal/extension/core"
 	"github.com/pulseaiclub/phi/internal/extension/loader"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
@@ -42,11 +44,45 @@ func forkEditor(t *testing.T) *Editor {
 	proj, err := project.Discover(dir)
 	require.NoError(t, err)
 	bus := controller.NewBus(nil)
-	ctrl, err := controller.NewController(bus, proj, nil)
+	ctrl, err := controller.NewController(bus, proj)
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 
 	return NewEditor(app.NewApp(nil), bus, ctrl, nil, components.DefaultTheme(), dir, "primary", nil, nil)
+}
+
+func TestQueuedExtensionPromptStaysWithRunnerAndSession(t *testing.T) {
+	e := forkEditor(t)
+	api := ext.NewAPI()
+	f := core.NewFiber("sender", loader.Discovered{})
+	f.Attach(api, core.FiberActive)
+	e.ctrl.Extensions().AddFiberInitial(f)
+
+	checkDelivery := func(wantStart bool) {
+		t.Helper()
+		e.drainBus()
+		started := false
+		for _, msg := range e.bus.Drain() {
+			if _, ok := msg.(controller.LoopStartedMsg); ok {
+				started = true
+			}
+		}
+		e.ctrl.Cancel()
+		assert.Equal(t, wantStart, started)
+	}
+	api.SendUserMessage("outgoing session")
+	require.NoError(t, e.ctrl.NewSession())
+	checkDelivery(false)
+	api.SendUserMessage("new session")
+	checkDelivery(true)
+	_, err := e.ctrl.ForkSession()
+	require.NoError(t, err)
+	api.SendUserMessage("forked session")
+	checkDelivery(true)
+	api.SendUserMessage("outgoing runner, same session")
+	_, _, err = e.ctrl.ReloadExtensions()
+	require.NoError(t, err)
+	checkDelivery(false)
 }
 
 func TestForkSlashSwitchesToANewSession(t *testing.T) {

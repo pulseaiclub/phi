@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	ext "github.com/pulseaiclub/phi/ext/go"
 	"github.com/pulseaiclub/phi/internal/agent"
 	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/job"
@@ -89,10 +90,6 @@ func runHeadless(opts runOptions) error {
 		resumeID = opts.session
 	}
 
-	extRunner := loadRunExtensions(bs)
-	if extRunner != nil {
-		defer extRunner.Close()
-	}
 	// Load the pool before tool selection so an explicit --tools list still
 	// gets MCP-aware ls/read/write.
 	var mcpPool *mcp.Pool
@@ -102,34 +99,37 @@ func runHeadless(opts runOptions) error {
 		mcpPool = pool
 		defer func() { _ = pool.Close() }()
 	}
-	engineOpts := []agent.EngineConfigOption{
-		agent.WithExtensions(extRunner),
-	}
+	cfg := agent.EngineConfig{MCP: mcpPool}
 	if opts.builtinTools != "" {
 		selected, err := selectBuiltinTools(opts.builtinTools, mcpPool)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "phi run:", err)
 			return exitCode(ExitUsage)
 		}
-		engineOpts = append(engineOpts, agent.WithTools(selected))
+		cfg.Tools = selected
 	}
 	primary, err := resolveRunModel(bs.Config, opts.model)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "phi run:", err)
 		return exitCode(ExitUsage)
 	}
-	engineOpts = append(engineOpts, agent.WithHooks(model.HooksForConfig(primary)))
-	if mcpPool != nil {
-		engineOpts = append(engineOpts, agent.WithMCP(mcpPool))
-	}
+	cfg.Hooks = model.HooksForConfig(primary)
+
+	var extRunner *extension.Runner
+	// Jobs share the runner, so drain them before closing it.
+	defer func() { extRunner.Close() }()
 	if bs.Config.Agents.Enabled {
-		parent := primary
-		jobs, jobErr := agent.NewJobManager(bs.Proj.JobsDir(), parent, func(role job.Role) llm.ModelConfig {
-			if cfg, ok := bs.Config.FindModel(bs.Config.Agents.Models.ForRole(role)); ok {
-				return cfg
+		roleModels := make(map[job.Role]llm.ModelConfig, 3)
+		for _, role := range []job.Role{job.RoleExplore, job.RoleReview, job.RoleWorker} {
+			cfg := primary
+			if name := bs.Config.Agents.Models.ForRole(role); name != "" {
+				if configured, ok := bs.Config.FindModel(name); ok {
+					cfg = configured
+				}
 			}
-			return parent
-		}, func() *extension.Runner {
+			roleModels[role] = cfg
+		}
+		jobs, jobErr := agent.NewJobManager(bs.Proj.JobsDir(), roleModels, func() *extension.Runner {
 			return extRunner
 		})
 		if jobErr != nil {
@@ -137,7 +137,7 @@ func runHeadless(opts runOptions) error {
 			return exitCode(ExitUsage)
 		}
 		defer func() { _ = jobs.Close(context.Background()) }()
-		engineOpts = append(engineOpts, agent.WithJobs(jobs))
+		cfg.Jobs = jobs
 	}
 
 	sessionOpts := []agent.SessionOption{
@@ -156,7 +156,12 @@ func runHeadless(opts runOptions) error {
 		return exitCode(ExitUsage)
 	}
 
-	engine, err := agent.NewEngine(primary, sess, engineOpts...)
+	extRunner = loadRunExtensions(bs, extension.HostConfig{
+		Host:      ext.HostOpts{Cwd: sess.Cwd(), SessionID: sess.ID()},
+		BaseTools: cfg.CoreTools(sess),
+	})
+	cfg.Extensions = extRunner
+	engine, err := cfg.NewEngine(primary, sess)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "phi run:", err)
 		return exitCode(ExitUsage)
@@ -179,11 +184,11 @@ func runHeadless(opts runOptions) error {
 
 // loadRunExtensions discovers user + project extensions for headless `phi run`.
 // Failures are non-fatal (fail-open). Warnings go to stderr as a one-line hint.
-func loadRunExtensions(bs *runBootstrap) *extension.Runner {
+func loadRunExtensions(bs *runBootstrap, host extension.HostConfig) *extension.Runner {
 	if bs == nil || bs.Proj == nil {
 		return nil
 	}
-	r, warns, err := extension.Load(bs.Proj.Global().ExtensionsDir(), bs.Proj.ExtensionsDir())
+	r, warns, err := extension.LoadWithHost(bs.Proj.Global().ExtensionsDir(), bs.Proj.ExtensionsDir(), host)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "warning: extensions:", err)
 		return nil

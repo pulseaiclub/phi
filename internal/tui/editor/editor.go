@@ -6,22 +6,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pulseaiclub/sev/commitmsg"
 	"github.com/pulseaiclub/xui"
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/components/chat"
 	"github.com/pulseaiclub/phi/internal/components/listpicker"
+	"github.com/pulseaiclub/phi/internal/components/pane"
 	"github.com/pulseaiclub/phi/internal/components/status"
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/session/shellhist"
-	"github.com/pulseaiclub/phi/internal/tui/codepane"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/composer"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
-	"github.com/pulseaiclub/phi/internal/tui/diffpane"
 	"github.com/pulseaiclub/phi/internal/tui/footer"
 	"github.com/pulseaiclub/phi/internal/tui/overlays"
 	"github.com/pulseaiclub/phi/internal/tui/pathutil"
@@ -55,8 +53,8 @@ type Editor struct {
 	footer     *footer.FooterChrome
 	overlays   *overlays.Overlays
 	toast      toast.Toast
-	diff       *diffpane.Pane
-	code       *codepane.Pane
+	diff       *pane.Diff
+	code       *pane.Code
 	diffList   listpicker.State
 
 	// The TUI redraws at 60fps; the flowing status highlight moves every fourth
@@ -105,8 +103,7 @@ func NewEditor(
 		activity: controller.NewActivityHandler(),
 	}
 	e.activity.SetOnChange(e.onActivityChange)
-	commitMessages := commitmsg.New(ctrl.GenerateCommitMessage)
-	e.composer.SetBashPredictor(composer.NewBashPredictor(cwd, commitMessages.Complete))
+	e.composer.SetBashPredictor(composer.NewBashPredictor(cwd))
 	// Prompt recall is opt-in: it persists what the user typed under the home
 	// directory, so it stays off until PHI_PROMPT_HISTORY turns it on.
 	if dir := ctrl.SessionDir(); dir != "" && shellhist.PromptsEnabled() {
@@ -123,13 +120,13 @@ func NewEditor(
 		e.handleErrorReply,
 	)
 	e.transcript.SetCopyHandlers(e.bus, e.copyToClipboard)
-	e.diff = diffpane.New(e.theme, cwd,
+	e.diff = pane.NewDiff(e.theme, cwd,
 		e.publishSubmit,
 		e.copyToClipboard,
 		e.publishToast,
 	)
 
-	e.code = codepane.New(e.theme, cwd,
+	e.code = pane.NewCode(e.theme, cwd,
 		e.addPendingRef,
 		e.publishToast,
 	)
@@ -190,6 +187,9 @@ func NewEditor(
 		RequestFocus:          e.App.RequestFocus,
 		CtrlClose:             e.ctrl.Close,
 	})
+	// The palette draws inside the transcript area, so the draft below stays
+	// clickable; keep it from taking the keyboard while the palette is open.
+	e.App.ModalInput = e.composer.PaletteOpen
 
 	e.extCmds.Sync()
 	return e
@@ -205,6 +205,8 @@ func (e *Editor) Update(m controller.Msg) {
 	switch msg := m.(type) {
 	case controller.SubmitMsg:
 		e.submitter.Submit(msg.Text)
+	case controller.ExtPromptMsg:
+		e.ctrl.StartExtensionPrompt(msg)
 	case controller.CancelStreamMsg:
 		e.submitter.Cancel()
 	case controller.MentionResultsMsg:
@@ -259,7 +261,9 @@ func (e *Editor) Update(m controller.Msg) {
 	case controller.ExtTopologyChangedMsg:
 		// Extensions changed underneath us (a reload): the agent still holds the old
 		// tool schemas and the palette the commands of the process that died.
-		e.ctrl.SyncExtensionTools()
+		if err := e.ctrl.SyncExtensionTools(); err != nil {
+			e.toast.Show(err.Error(), toast.ToastError, 4*time.Second)
+		}
 		e.extCmds.Sync()
 	case controller.JobProgressMsg:
 		// Applied in drainBus so we can skip Sync when the tree is unchanged.
@@ -572,7 +576,16 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	if !e.overlays.Active() {
 		root.Children = append(root.Children, e.composer.PickerOverlays(ctx, listH, maxSize.Width)...)
 	}
-	if pal, ok := e.composer.PaletteOverlay(ctx); ok {
+	// The palette may not shrink to an empty box: below this height the picker
+	// draws neither rows nor prompt nor hint, yet keeps eating keys while it
+	// is open. Let it overlap the draft instead — it is a modal, like it was
+	// before it moved into the transcript area.
+	const minPaletteOverlayHeight = 9
+	paletteCtx := ctx.WithConstraints(components.Size{}, components.Size{
+		Width:  maxSize.Width,
+		Height: max(listH, minPaletteOverlayHeight),
+	})
+	if pal, ok := e.composer.PaletteOverlay(paletteCtx); ok {
 		root.Children = append(root.Children, pal)
 	}
 	if list, ok := e.composer.ListOverlay(ctx); ok {

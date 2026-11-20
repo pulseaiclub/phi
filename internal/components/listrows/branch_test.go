@@ -38,7 +38,7 @@ func TestBranchRowsAreNameAndLastCommitOnly(t *testing.T) {
 	tests := []struct {
 		name    string
 		branch  gitx.Branch
-		leading string
+		current bool
 		detail  string
 	}{
 		{
@@ -47,7 +47,7 @@ func TestBranchRowsAreNameAndLastCommitOnly(t *testing.T) {
 				Name: "main", Current: true, Upstream: "origin/main",
 				Ahead: 2, Behind: 3, Committed: "3 hours ago", Subject: "chore: bump",
 			},
-			leading: "●",
+			current: true,
 			detail:  "chore: bump",
 		},
 		{
@@ -78,9 +78,9 @@ func TestBranchRowsAreNameAndLastCommitOnly(t *testing.T) {
 			assert.Equal(t, tc.branch.Name, item.ID,
 				"the row's own ref is its identity, so a delete cannot hit another branch")
 			assert.Equal(t, tc.branch.Name, item.Primary)
-			assert.Equal(t, tc.leading, item.Leading)
+			assert.Empty(t, item.Leading)
+			assert.Equal(t, tc.current, item.Current)
 			assert.Equal(t, tc.detail, item.Detail)
-			assert.Empty(t, item.Badge, "two columns means no badge column")
 			assert.Contains(t, item.Keywords, tc.branch.Name)
 		})
 	}
@@ -124,7 +124,7 @@ func TestFilterPutsTheBranchNamedOriginMainFirst(t *testing.T) {
 func TestBranchConfigKeepsBranchNamesReadable(t *testing.T) {
 	cfg := BranchConfig()
 	assert.Equal(t, "Branches", cfg.Title)
-	assert.GreaterOrEqual(t, cfg.PrimaryWidth, len("fix/agent-wait-timeout"))
+	assert.Equal(t, 30, cfg.PrimaryWidth)
 	assert.Contains(t, cfg.Hint, "switch")
 	assert.Contains(t, cfg.Hint, "ctrl+x delete", "the picker advertises the delete path /sessions has")
 	assert.NotEmpty(t, cfg.ConfirmMessage)

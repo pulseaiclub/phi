@@ -47,15 +47,12 @@ func TestEngineRunnerViaJobManager(t *testing.T) {
 	jobsRoot := t.TempDir()
 	workdir := t.TempDir()
 
-	runner := agent.EngineRunner{
-		Model: llm.ModelConfig{
-			Name:    "fake",
-			BaseURL: srv.URL,
-			APIKey:  "x",
-		},
-	}
+	runner := agent.EngineRunner{}
 	mgr, err := job.New(job.Options{
-		Root:   jobsRoot,
+		Root: jobsRoot,
+		RoleModels: map[job.Role]llm.ModelConfig{
+			job.RoleExplore: {Name: "fake", BaseURL: srv.URL, APIKey: "x"},
+		},
 		Runner: runner,
 	})
 	require.NoError(t, err)
@@ -120,15 +117,14 @@ func TestEngineRunnerExplicitPreset(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	runner := agent.EngineRunner{
+	runner := agent.EngineRunner{}
+	text, err := runner.Run(t.Context(), job.RunEnv{
+		Job: job.Meta{Dir: t.TempDir(), WorkDir: t.TempDir(), Prompt: "Reply OK"},
 		Model: llm.ModelConfig{
 			Name: "opaque-route", Preset: "gemini-2.5-pro", API: llm.Gemini,
 			BaseURL: srv.URL, APIKey: "test",
 			Think: llm.ThinkConfig{Enabled: true, Mode: llm.Low},
 		},
-	}
-	text, err := runner.Run(t.Context(), job.RunEnv{
-		Job: job.Meta{Dir: t.TempDir(), WorkDir: t.TempDir(), Prompt: "Reply OK"},
 		Log: func(string) {},
 	})
 	require.NoError(t, err)
@@ -152,11 +148,12 @@ func TestEngineRunnerCancel(t *testing.T) {
 	defer srv.Close()
 	defer close(block)
 
-	runner := agent.EngineRunner{
-		Model: llm.ModelConfig{Name: "fake", BaseURL: srv.URL, APIKey: "x"},
-	}
+	runner := agent.EngineRunner{}
 	mgr, err := job.New(job.Options{
-		Root:   t.TempDir(),
+		Root: t.TempDir(),
+		RoleModels: map[job.Role]llm.ModelConfig{
+			job.RoleExplore: {Name: "fake", BaseURL: srv.URL, APIKey: "x"},
+		},
 		Runner: runner,
 	})
 	require.NoError(t, err)

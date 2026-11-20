@@ -1,4 +1,4 @@
-package diffpane
+package pane
 
 import (
 	"context"
@@ -20,8 +20,8 @@ import (
 	"github.com/pulseaiclub/phi/internal/util/gitx"
 )
 
-// Pane is a full-screen git diff review overlay.
-type Pane struct {
+// Diff is a full-screen git diff review overlay.
+type Diff struct {
 	theme components.Theme
 	cwd   string
 
@@ -68,15 +68,15 @@ type Pane struct {
 	onToast  func(msg string)
 }
 
-// New builds an inactive review pane.
-func New(
+// NewDiff builds an inactive review pane.
+func NewDiff(
 	theme components.Theme,
 	cwd string,
 	onSubmit func(string),
 	onCopy func(string) bool,
 	onToast func(string),
-) *Pane {
-	p := &Pane{
+) *Diff {
+	p := &Diff{
 		theme:    theme,
 		cwd:      cwd,
 		onSubmit: onSubmit,
@@ -89,20 +89,20 @@ func New(
 }
 
 // Active reports whether the overlay is showing.
-func (p *Pane) Active() bool { return p.active }
+func (p *Diff) Active() bool { return p.active }
 
 // ReturnToList distinguishes back navigation from sending notes to the agent.
-func (p *Pane) ReturnToList() bool { return p.returnToList }
+func (p *Diff) ReturnToList() bool { return p.returnToList }
 
 // SetTheme updates chrome and syntax colors.
-func (p *Pane) SetTheme(th components.Theme) {
+func (p *Diff) SetTheme(th components.Theme) {
 	p.theme = th
 	p.picker.Theme = th
 	p.highlighted = diffview.HighlightRows(p.rows, th)
 }
 
 // OpenGit loads a git diff in cwd and shows the overlay.
-func (p *Pane) OpenGit(cwd string, spec []string) {
+func (p *Diff) OpenGit(cwd string, spec []string) {
 	wasChange := p.change != nil
 	p.saveChangeNotes()
 	p.change = nil
@@ -122,7 +122,7 @@ func (p *Pane) OpenGit(cwd string, spec []string) {
 }
 
 // OpenText shows a preloaded unified diff (tests / paste).
-func (p *Pane) OpenText(input string, spec []string) {
+func (p *Diff) OpenText(input string, spec []string) {
 	wasChange := p.change != nil
 	p.saveChangeNotes()
 	p.change = nil
@@ -134,7 +134,7 @@ func (p *Pane) OpenText(input string, spec []string) {
 }
 
 // OpenChange reviews a changed file without treating its path as a revision.
-func (p *Pane) OpenChange(root string, change gitx.Change) {
+func (p *Diff) OpenChange(root string, change gitx.Change) {
 	p.saveChangeNotes()
 	p.cwd = root
 	p.change = &change
@@ -162,11 +162,11 @@ type fileKey struct {
 
 // changeKey scopes saved notes to one file in one repo, so switching projects
 // with the same relative path does not leak notes across roots.
-func (p *Pane) changeKey() fileKey { return fileKey{cwd: p.cwd, path: p.change.Path} }
+func (p *Diff) changeKey() fileKey { return fileKey{cwd: p.cwd, path: p.change.Path} }
 
 // saveChangeNotes stashes the drafts of the file being left; an empty draft set
 // deletes the entry instead of storing an empty slice.
-func (p *Pane) saveChangeNotes() {
+func (p *Diff) saveChangeNotes() {
 	if p.change == nil {
 		return
 	}
@@ -182,7 +182,7 @@ func (p *Pane) saveChangeNotes() {
 
 // openParsed rebuilds rows for input. Notes are dropped unless keepNotes is set,
 // so a note never outlives the diff it was written against.
-func (p *Pane) openParsed(input, loadErr string, keepNotes bool) {
+func (p *Diff) openParsed(input, loadErr string, keepNotes bool) {
 	p.active = true
 	p.err = loadErr
 	p.help = false
@@ -250,7 +250,7 @@ func (p *Pane) openParsed(input, loadErr string, keepNotes bool) {
 }
 
 // Close hides the overlay.
-func (p *Pane) Close() {
+func (p *Diff) Close() {
 	p.saveChangeNotes()
 	p.returnToList = false
 	p.active = false
@@ -261,7 +261,7 @@ func (p *Pane) Close() {
 }
 
 // Handle routes input while the overlay is active.
-func (p *Pane) Handle(ctx *components.EventContext, ev xui.Event) {
+func (p *Diff) Handle(ctx *components.EventContext, ev xui.Event) {
 	if !p.active {
 		return
 	}
@@ -283,7 +283,7 @@ func (p *Pane) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 }
 
-func (p *Pane) handleKey(ctx *components.EventContext, e xui.KeyEvent) {
+func (p *Diff) handleKey(ctx *components.EventContext, e xui.KeyEvent) {
 	if p.picker.Open {
 		p.picker.Handle(ctx, e)
 		return
@@ -353,7 +353,7 @@ func (p *Pane) handleKey(ctx *components.EventContext, e xui.KeyEvent) {
 	ctx.ConsumeAndRedraw()
 }
 
-func (p *Pane) handlePending(ctx *components.EventContext, e xui.KeyEvent) bool {
+func (p *Diff) handlePending(ctx *components.EventContext, e xui.KeyEvent) bool {
 	if p.pendingG {
 		p.pendingG = false
 		if e.Code == xui.KeyRune && e.Rune == 'g' {
@@ -383,7 +383,7 @@ func (p *Pane) handlePending(ctx *components.EventContext, e xui.KeyEvent) bool 
 	return false
 }
 
-func (p *Pane) handleRune(ctx *components.EventContext, r rune) {
+func (p *Diff) handleRune(ctx *components.EventContext, r rune) {
 	switch r {
 	case 'j':
 		p.moveCursor(1)
@@ -447,7 +447,7 @@ func (p *Pane) handleRune(ctx *components.EventContext, r rune) {
 	ctx.ConsumeAndRedraw()
 }
 
-func (p *Pane) handleSearchKey(ctx *components.EventContext, e xui.KeyEvent) {
+func (p *Diff) handleSearchKey(ctx *components.EventContext, e xui.KeyEvent) {
 	switch e.Code {
 	case xui.KeyEscape:
 		p.searchMode = false
@@ -473,7 +473,7 @@ func (p *Pane) handleSearchKey(ctx *components.EventContext, e xui.KeyEvent) {
 	ctx.ConsumeAndRedraw()
 }
 
-func (p *Pane) handleCommentKey(ctx *components.EventContext, e xui.KeyEvent) {
+func (p *Diff) handleCommentKey(ctx *components.EventContext, e xui.KeyEvent) {
 	switch e.Code {
 	case xui.KeyEscape:
 		p.commentEdit = false
@@ -510,12 +510,12 @@ func (p *Pane) handleCommentKey(ctx *components.EventContext, e xui.KeyEvent) {
 	ctx.ConsumeAndRedraw()
 }
 
-func (p *Pane) insertComment(s string) {
+func (p *Diff) insertComment(s string) {
 	p.commentBody = p.commentBody[:p.commentCur] + s + p.commentBody[p.commentCur:]
 	p.commentCur += len(s)
 }
 
-func (p *Pane) openCommentEditor() {
+func (p *Diff) openCommentEditor() {
 	if p.cursor < 0 || p.cursor >= len(p.rows) {
 		p.toast("no line to comment")
 		return
@@ -539,7 +539,7 @@ func (p *Pane) openCommentEditor() {
 	p.commentEdit = true
 }
 
-func (p *Pane) submitComment() {
+func (p *Diff) submitComment() {
 	body := strings.TrimSpace(p.commentBody)
 	p.commentEdit = false
 	if body == "" {
@@ -563,7 +563,7 @@ func (p *Pane) submitComment() {
 	p.status = "note added"
 }
 
-func (p *Pane) deleteNote() {
+func (p *Diff) deleteNote() {
 	idx := diffreview.BuildCommentIndex(p.rows, p.drafts)
 	drafts := idx.DraftsForRow(p.cursor)
 	if len(drafts) == 0 {
@@ -574,7 +574,7 @@ func (p *Pane) deleteNote() {
 	p.status = "note deleted"
 }
 
-func (p *Pane) removeDraft(target diffreview.CommentDraft) {
+func (p *Diff) removeDraft(target diffreview.CommentDraft) {
 	out := p.drafts[:0]
 	for _, d := range p.drafts {
 		if diffreview.SameTarget(d, target) || (target.ID != "" && d.ID == target.ID) {
@@ -585,7 +585,7 @@ func (p *Pane) removeDraft(target diffreview.CommentDraft) {
 	p.drafts = out
 }
 
-func (p *Pane) sendToAgent() {
+func (p *Diff) sendToAgent() {
 	prompt := strings.TrimSpace(diffreview.FormatPrompt(p.drafts))
 	if prompt == "" {
 		p.toast("no notes to send")
@@ -597,7 +597,7 @@ func (p *Pane) sendToAgent() {
 	}
 }
 
-func (p *Pane) copyLine() {
+func (p *Diff) copyLine() {
 	if p.cursor < 0 || p.cursor >= len(p.rows) {
 		return
 	}
@@ -610,7 +610,7 @@ func (p *Pane) copyLine() {
 	}
 }
 
-func (p *Pane) openFilePicker() {
+func (p *Diff) openFilePicker() {
 	items := make([]listpicker.Item, 0)
 	seen := map[string]bool{}
 	for i, row := range p.rows {
@@ -639,12 +639,12 @@ func (p *Pane) openFilePicker() {
 	})
 }
 
-func (p *Pane) acceptPicker(item listpicker.Item) {
+func (p *Diff) acceptPicker(item listpicker.Item) {
 	row, _ := strconv.Atoi(item.ID)
 	p.setCursor(row)
 }
 
-func (p *Pane) updateSearch() {
+func (p *Diff) updateSearch() {
 	q := strings.ToLower(p.searchQuery)
 	p.searchMatches = p.searchMatches[:0]
 	if q == "" {
@@ -662,7 +662,7 @@ func (p *Pane) updateSearch() {
 	}
 }
 
-func (p *Pane) moveSearch(dir int) {
+func (p *Diff) moveSearch(dir int) {
 	if len(p.searchMatches) == 0 {
 		if p.searchQuery != "" {
 			p.updateSearch()
@@ -679,11 +679,11 @@ func (p *Pane) moveSearch(dir int) {
 	p.setCursor(p.searchMatches[p.searchIndex])
 }
 
-func (p *Pane) jumpFile(dir int) {
+func (p *Diff) jumpFile(dir int) {
 	p.jumpKind(dir, diffreview.RowFile)
 }
 
-func (p *Pane) jumpChange(dir int) {
+func (p *Diff) jumpChange(dir int) {
 	start := p.cursor
 	n := len(p.rows)
 	if n == 0 {
@@ -712,7 +712,7 @@ func (p *Pane) jumpChange(dir int) {
 	}
 }
 
-func (p *Pane) jumpNote(dir int) {
+func (p *Diff) jumpNote(dir int) {
 	targets := diffreview.BuildCommentIndex(p.rows, p.drafts).TargetRows()
 	if len(targets) == 0 {
 		p.toast("no notes")
@@ -744,7 +744,7 @@ func (p *Pane) jumpNote(dir int) {
 	p.setCursor(next)
 }
 
-func (p *Pane) jumpKind(dir int, kind diffreview.RowKind) {
+func (p *Diff) jumpKind(dir int, kind diffreview.RowKind) {
 	start := p.cursor
 	n := len(p.rows)
 	if n == 0 {
@@ -765,7 +765,7 @@ func (p *Pane) jumpKind(dir int, kind diffreview.RowKind) {
 	}
 }
 
-func (p *Pane) page() int {
+func (p *Diff) page() int {
 	h := p.viewH / 2
 	if h < 1 {
 		h = 8
@@ -773,17 +773,17 @@ func (p *Pane) page() int {
 	return h
 }
 
-func (p *Pane) moveCursor(delta int) {
+func (p *Diff) moveCursor(delta int) {
 	p.setCursor(p.cursor + delta)
 }
 
-func (p *Pane) setCursor(i int) {
+func (p *Diff) setCursor(i int) {
 	p.cursor = i
 	p.clampCursor()
 	p.revealCursor()
 }
 
-func (p *Pane) clampCursor() {
+func (p *Diff) clampCursor() {
 	if len(p.rows) == 0 {
 		p.cursor = 0
 		return
@@ -796,7 +796,7 @@ func (p *Pane) clampCursor() {
 	}
 }
 
-func (p *Pane) revealCursor() {
+func (p *Diff) revealCursor() {
 	vis := p.visList()
 	idx := 0
 	for i, v := range vis {
@@ -820,7 +820,7 @@ func (p *Pane) revealCursor() {
 	}
 }
 
-func (p *Pane) visList() []diffview.Vis {
+func (p *Diff) visList() []diffview.Vis {
 	idx := diffreview.BuildCommentIndex(p.rows, p.drafts)
 	if p.sideBySide {
 		return p.visSide(idx)
@@ -838,7 +838,7 @@ func (p *Pane) visList() []diffview.Vis {
 	return out
 }
 
-func (p *Pane) visSide(idx diffreview.CommentIndex) []diffview.Vis {
+func (p *Diff) visSide(idx diffreview.CommentIndex) []diffview.Vis {
 	sides := diffreview.SideBySideRows(p.rows)
 	out := make([]diffview.Vis, 0, len(sides)+len(p.drafts))
 	for _, side := range sides {
@@ -868,7 +868,7 @@ func (p *Pane) visSide(idx diffreview.CommentIndex) []diffview.Vis {
 }
 
 // Draw paints the overlay.
-func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
+func (p *Diff) Draw(ctx components.DrawContext) components.Surface {
 	p.viewH = max(ctx.Max.Height-2, 1)
 	p.revealCursor()
 
@@ -916,7 +916,7 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 	return surf
 }
 
-func (p *Pane) pickerOverlay(ctx components.DrawContext) (components.SubSurface, bool) {
+func (p *Diff) pickerOverlay(ctx components.DrawContext) (components.SubSurface, bool) {
 	return components.SubSurface{
 		Origin:  components.Point{X: 0, Y: 0},
 		Z:       20,
@@ -924,7 +924,7 @@ func (p *Pane) pickerOverlay(ctx components.DrawContext) (components.SubSurface,
 	}, true
 }
 
-func (p *Pane) location() string {
+func (p *Diff) location() string {
 	if p.cursor < 0 || p.cursor >= len(p.rows) {
 		return ""
 	}
@@ -948,7 +948,7 @@ func (p *Pane) location() string {
 	return loc
 }
 
-func (p *Pane) toast(msg string) {
+func (p *Diff) toast(msg string) {
 	p.status = msg
 	if p.onToast != nil {
 		p.onToast(msg)
@@ -971,7 +971,7 @@ func oneLine(s string) string {
 	return s
 }
 
-func (p *Pane) emptyText() string {
+func (p *Diff) emptyText() string {
 	if p.err != "" {
 		return p.err
 	}

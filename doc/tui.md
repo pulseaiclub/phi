@@ -43,8 +43,6 @@ internal/tui/
 ├── composer/               # ComposerPane, Wire(), Input iface
 ├── footer/                 # FooterChrome, token label helpers
 ├── overlays/               # ext-confirm + error panels
-├── diffpane/               # git diff review overlay (`/diff`)
-├── codepane/               # source viewer overlay (`/code`)
 ├── submit/                 # Submitter, BashRunner
 ├── commands/               # registry, builtins, SessionCommands, BranchCommands, ExtCommands
 └── pathutil/               # short path + git branch labels
@@ -58,8 +56,7 @@ internal/tui/
 | `composer` | Keyboard routing for chat, `/` slash, `?` shortcuts, `@` mention, `!` shell completion, Ctrl+K palette |
 | `footer` | Status label helpers and bottom footer row renderer |
 | `overlays` | Modal ext-confirm / error panels; replaces composer when active |
-| `diffpane` | Full-screen git diff review; notes stay in memory |
-| `codepane` | Full-screen source viewer: syntax highlight, caret, line selection |
+| `components/pane` | Full-screen source viewer (`/code`) and Git diff review (`/diff`) |
 | `submit` | User submit path: agent prompt, slash commands, `!bash`, cancel |
 | `commands` | Slash/palette registry; session load/new; extension command bridge |
 | `pathutil` | Cwd shortening and git branch labels for composer chrome |
@@ -75,10 +72,10 @@ Dumb rendering widgets stay in `internal/components/` (chat, input, palette, men
 ```text
 proj.LoadConfig()
 vx, theme, cwd
-extRunner := loadExtensions(proj)
 redraw := controller.NewRedrawRelay()
 bus    := controller.NewBus(redraw.Fire)
-ctrl   := controller.NewController(bus, proj, extRunner)
+ctrl   := controller.NewController(bus, proj)
+modelNames include ctrl.Extensions().ExtensionModels()
 ui     := editor.NewEditor(app, bus, ctrl, vx, theme, cwd, model, skillPaths, contextWindow, modelNames)
 redraw.Bind(ui.RequestRedraw)
 ui.StartUpdateCheck(...)
