@@ -1,6 +1,6 @@
 {
   "name": "@pulseaiclub/phi-ext",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "TypeScript author SDK for Phi PXB extensions (port of ext/rust)",
   "license": "MIT",
   "repository": {
