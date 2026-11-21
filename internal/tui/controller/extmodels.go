@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 
+	"github.com/pulseaiclub/phi/internal/agent"
 	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/project"
@@ -41,9 +42,12 @@ func extensionModelConfig(route extension.ModelRoute, cfg *project.Config) (llm.
 // config.yaml entries with the same name, matching the engine's transport
 // selection; a name known to neither keeps the primary connection and only
 // swaps the name (arbitrary-model workflow).
-func resolveModelConfig(cfg *project.Config, r *extension.Runner, name string) (llm.ModelConfig, error) {
-	if route, ok := r.LookupModel(name); ok {
-		return extensionModelConfig(route, cfg)
+func resolveModelConfig(cfg *project.Config, r agent.Extensions, name string) (llm.ModelConfig, error) {
+	// A nil runner means "no extensions" here — callers may not have loaded any.
+	if r != nil {
+		if route, ok := r.LookupModel(name); ok {
+			return extensionModelConfig(route, cfg)
+		}
 	}
 	if m, ok := cfg.FindModel(name); ok {
 		return m, nil

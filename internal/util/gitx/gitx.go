@@ -92,6 +92,15 @@ func Recent(ctx context.Context, dir string) ([]string, error) {
 	return parseRecent(out), nil
 }
 
+// GitDir returns the absolute administrative directory for the working tree.
+func GitDir(ctx context.Context, dir string) string {
+	out, err := run(ctx, dir, "rev-parse", "--absolute-git-dir")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimRight(out, "\r\n")
+}
+
 // Preflight reports uncommitted work and any in-progress operation.
 func Preflight(ctx context.Context, dir string) (Status, error) {
 	out, err := run(ctx, dir, "status", "--porcelain")
@@ -262,11 +271,7 @@ func isObjectID(name string) bool {
 }
 
 func inProgressOp(ctx context.Context, dir string) string {
-	out, err := run(ctx, dir, "rev-parse", "--absolute-git-dir")
-	if err != nil {
-		return ""
-	}
-	gitDir := strings.TrimSpace(out)
+	gitDir := GitDir(ctx, dir)
 	if gitDir == "" {
 		return ""
 	}

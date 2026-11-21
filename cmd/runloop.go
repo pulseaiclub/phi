@@ -129,7 +129,7 @@ func runHeadless(opts runOptions) error {
 			}
 			roleModels[role] = cfg
 		}
-		jobs, jobErr := agent.NewJobManager(bs.Proj.JobsDir(), roleModels, func() *extension.Runner {
+		jobs, jobErr := agent.NewJobManager(bs.Proj.JobsDir(), roleModels, func() agent.Extensions {
 			return extRunner
 		})
 		if jobErr != nil {
