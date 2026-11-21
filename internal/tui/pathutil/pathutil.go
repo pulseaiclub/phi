@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/pulseaiclub/phi/internal/util/gitx"
 )
 
 // HomePath abbreviates the home directory without folding the remaining path.
@@ -59,26 +61,34 @@ func PathWithBranch(dir string) string {
 
 // WatchBranch polls the git HEAD file for changes and calls onChange with
 // the updated path+branch label whenever the branch switches (e.g. from
-// another terminal). The poll interval defaults to one second; dir must be a
-// valid repository root.
+// another terminal). The poll interval defaults to one second.
 func WatchBranch(dir string, onChange func(string)) {
 	if dir == "" {
 		return
 	}
 	stop := make(chan struct{})
-	go (&branchWatch{dir: dir, interval: branchPollInterval}).run(stop, onChange)
+	go func() {
+		newBranchWatch(dir, branchPollInterval).run(stop, onChange)
+	}()
 }
 
 type branchWatch struct {
-	dir      string
-	interval time.Duration
+	dir         string
+	gitDir      string
+	initialHead string
+	interval    time.Duration
+}
+
+func newBranchWatch(dir string, interval time.Duration) *branchWatch {
+	gitDir := gitx.GitDir(context.Background(), dir)
+	if gitDir == "" {
+		gitDir = filepath.Join(dir, ".git")
+	}
+	return &branchWatch{dir: dir, gitDir: gitDir, initialHead: branchState(gitDir), interval: interval}
 }
 
 func (b *branchWatch) run(stop <-chan struct{}, onChange func(string)) {
-	if b.interval <= 0 {
-		b.interval = branchPollInterval
-	}
-	last := branchState(b.dir)
+	last := b.initialHead
 	ticker := time.NewTicker(b.interval)
 	defer ticker.Stop()
 	for {
@@ -87,34 +97,19 @@ func (b *branchWatch) run(stop <-chan struct{}, onChange func(string)) {
 			return
 		case <-ticker.C:
 		}
-		if cur := branchState(b.dir); cur != last {
+		if cur := branchState(b.gitDir); cur != last {
 			last = cur
 			onChange(PathWithBranch(b.dir))
 		}
 	}
 }
 
-func branchState(dir string) string {
-	gitDir := resolveGitDir(dir)
+func branchState(gitDir string) string {
 	data, err := os.ReadFile(filepath.Join(gitDir, "HEAD"))
 	if err != nil {
 		return "missing"
 	}
 	return strings.TrimSpace(string(data))
-}
-
-func resolveGitDir(dir string) string {
-	dotGit := filepath.Join(dir, ".git")
-	if data, err := os.ReadFile(dotGit); err == nil {
-		if target, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir:"); ok {
-			target = strings.TrimSpace(target)
-			if !filepath.IsAbs(target) {
-				target = filepath.Join(dir, target)
-			}
-			return target
-		}
-	}
-	return dotGit
 }
 
 const branchPollInterval = time.Second
