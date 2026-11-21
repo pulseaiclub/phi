@@ -4,9 +4,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pulseaiclub/xui"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/palette"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
@@ -63,4 +65,62 @@ func TestShellCompletionWithoutHistory(t *testing.T) {
 	assert.Contains(t, result.Items[0].Command, "git ch")
 	e.Update(result)
 	assert.True(t, e.composer.Chat.BashOpen)
+}
+
+func TestConfirmActivityExpiry(t *testing.T) {
+	for _, action := range []string{"reply", "dismiss"} {
+		t.Run(action, func(t *testing.T) {
+			e := newTestEditor(t)
+			e.activity.Apply(controller.ActivityCancelled)
+			e.Update(controller.OverlayMsg{Kind: controller.OverlayExtConfirm})
+			e.Update(controller.FooterMsg{
+				Kind: controller.FooterClearIfActivity, If: controller.ActivityCancelled,
+			})
+			require.Equal(t, controller.ActivityAwaitingApproval, e.activity.Current)
+			if action == "reply" {
+				e.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
+			} else {
+				e.Update(controller.OverlayMsg{Kind: controller.OverlayExtConfirmDismiss})
+			}
+			require.Equal(t, controller.ActivityIdle, e.activity.Current)
+		})
+	}
+}
+
+func TestOverlayCancellationRoutes(t *testing.T) {
+	for _, kind := range []struct {
+		name string
+		kind controller.OverlayKind
+	}{
+		{"confirm", controller.OverlayExtConfirm},
+		{"error", controller.OverlayErrorAsk},
+	} {
+		for _, route := range []string{"escape", "cancel"} {
+			t.Run(kind.name+"/"+route, func(t *testing.T) {
+				e := newTestEditor(t)
+				confirmReply := make(chan controller.ExtConfirmReply, 1)
+				e.Update(controller.OverlayMsg{
+					Kind: kind.kind, ConfirmReply: confirmReply, ErrorText: "failed",
+				})
+				require.True(t, e.submitter.StreamActive())
+
+				if route == "escape" {
+					e.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyEscape, Press: true})
+				} else {
+					e.Update(controller.CancelStreamMsg{})
+				}
+				require.False(t, e.overlays.Active())
+				if route == "cancel" {
+					require.Equal(t, controller.ActivityCancelled, e.activity.Current)
+				}
+				switch kind.kind {
+				case controller.OverlayExtConfirm:
+					require.Len(t, confirmReply, 1, "cancellation must unblock the confirmation waiter")
+					require.Equal(t, controller.ExtConfirmReply{}, <-confirmReply)
+				case controller.OverlayErrorAsk:
+					require.False(t, e.submitter.StreamActive())
+				}
+			})
+		}
+	}
 }
