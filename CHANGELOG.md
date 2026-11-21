@@ -37,6 +37,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - docs: the zh-CN README's resource table and its measurement note now match the
   English README: 54k lines (49k non-blank) in 345 files, 84 packages, 8 direct
   dependencies.
+- docs: `doc/project-layout.md` now lists every package under `internal/` and all
+  three author SDKs (`ext/go`, `ext/rust`, `ext/ts`), and no longer claims the job
+  manager lives in `internal/agent/`.
 
 ### Added
 
