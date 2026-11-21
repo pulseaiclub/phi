@@ -15,7 +15,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
-- The bash completion test moved into `editor_test.go`; `bash_test.go` was removed. No behaviour change.
 - Command Palette now uses the shared list picker with a dedicated command-list
   style: stable width, left-aligned rows, visible secondary descriptions, a
   full-row selection bar, and centered placement in the transcript area.
