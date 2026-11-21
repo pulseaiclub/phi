@@ -64,11 +64,11 @@ func TestWatchBranchFiresFromSubdirectory(t *testing.T) {
 	labels := make(chan string, 1)
 	stop := make(chan struct{})
 	defer close(stop)
-	go (&branchWatch{dir: nested, interval: 10 * time.Millisecond}).run(stop, func(label string) {
+	watcher := newBranchWatch(nested, 10*time.Millisecond)
+	go watcher.run(stop, func(label string) {
 		labels <- label
 	})
 
-	time.Sleep(250 * time.Millisecond)
 	require.NoError(
 		t,
 		exec.CommandContext(t.Context(), "git", "-C", dir, "symbolic-ref", "HEAD", "refs/heads/feature").Run(),

@@ -67,23 +67,28 @@ func WatchBranch(dir string, onChange func(string)) {
 		return
 	}
 	stop := make(chan struct{})
-	go (&branchWatch{dir: dir, interval: branchPollInterval}).run(stop, onChange)
+	go func() {
+		newBranchWatch(dir, branchPollInterval).run(stop, onChange)
+	}()
 }
 
 type branchWatch struct {
-	dir      string
-	interval time.Duration
+	dir         string
+	gitDir      string
+	initialHead string
+	interval    time.Duration
+}
+
+func newBranchWatch(dir string, interval time.Duration) *branchWatch {
+	gitDir := gitx.GitDir(context.Background(), dir)
+	if gitDir == "" {
+		gitDir = filepath.Join(dir, ".git")
+	}
+	return &branchWatch{dir: dir, gitDir: gitDir, initialHead: branchState(gitDir), interval: interval}
 }
 
 func (b *branchWatch) run(stop <-chan struct{}, onChange func(string)) {
-	if b.interval <= 0 {
-		b.interval = branchPollInterval
-	}
-	gitDir := gitx.GitDir(context.Background(), b.dir)
-	if gitDir == "" {
-		gitDir = filepath.Join(b.dir, ".git")
-	}
-	last := branchState(gitDir)
+	last := b.initialHead
 	ticker := time.NewTicker(b.interval)
 	defer ticker.Stop()
 	for {
@@ -92,7 +97,7 @@ func (b *branchWatch) run(stop <-chan struct{}, onChange func(string)) {
 			return
 		case <-ticker.C:
 		}
-		if cur := branchState(gitDir); cur != last {
+		if cur := branchState(b.gitDir); cur != last {
 			last = cur
 			onChange(PathWithBranch(b.dir))
 		}
