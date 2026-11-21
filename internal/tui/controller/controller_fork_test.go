@@ -30,7 +30,7 @@ func pathIDs(s *agent.Session) []string {
 func forkTestController(t *testing.T) *EngineController {
 	t.Helper()
 	ctrl := newThinkingTestController(t, setupThinkingTest(t, llm.OpenAI, "http://127.0.0.1:9"))
-	require.NoError(t, ctrl.engine.Session().Append(
+	require.NoError(t, ctrl.sess.Append(
 		llm.Message{Role: llm.RoleUser, Content: "hello"},
 		llm.Message{Role: llm.RoleAssistant, Content: "hi"},
 	))
@@ -40,7 +40,7 @@ func forkTestController(t *testing.T) *EngineController {
 func TestForkSessionSwitchesToDistinctSessionWithSameContext(t *testing.T) {
 	ctrl := forkTestController(t)
 	srcID, srcFile := ctrl.SessionID(), ctrl.SessionFile()
-	srcPath := pathIDs(ctrl.engine.Session())
+	srcPath := pathIDs(ctrl.sess)
 	srcBytes, err := os.ReadFile(srcFile)
 	require.NoError(t, err)
 
@@ -50,7 +50,7 @@ func TestForkSessionSwitchesToDistinctSessionWithSameContext(t *testing.T) {
 	assert.NotEqual(t, srcID, newID)
 	assert.Equal(t, newID, ctrl.SessionID())
 	assert.NotEqual(t, srcFile, ctrl.SessionFile())
-	assert.Equal(t, srcPath, pathIDs(ctrl.engine.Session()), "the fork starts on the source's branch")
+	assert.Equal(t, srcPath, pathIDs(ctrl.sess), "the fork starts on the source's branch")
 	assert.Equal(t, "primary", ctrl.ModelName(), "the fork keeps the active model")
 	assert.NotEmpty(t, ctrl.ReplaySnapshot().Messages, "the transcript survives the fork")
 
@@ -69,7 +69,7 @@ func TestForkSessionPersistsForkAndParent(t *testing.T) {
 	loaded, err := session.OpenSession(ctrl.SessionFile())
 	require.NoError(t, err)
 	assert.Equal(t, newID, loaded.ID())
-	assert.Equal(t, pathIDs(ctrl.engine.Session()), pathIDsOf(loaded))
+	assert.Equal(t, pathIDs(ctrl.sess), pathIDsOf(loaded))
 	assert.Equal(t, srcID, forkHeader(t, ctrl.SessionFile()).ParentSession, "the fork records its source")
 
 	list, err := session.ListSessions(ctrl.SessionDir())
@@ -82,7 +82,7 @@ func TestForkSessionPersistsForkAndParent(t *testing.T) {
 func TestForkSessionLeavesSourceResumable(t *testing.T) {
 	ctrl := forkTestController(t)
 	srcID := ctrl.SessionID()
-	srcPath := pathIDs(ctrl.engine.Session())
+	srcPath := pathIDs(ctrl.sess)
 
 	newID, err := ctrl.ForkSession()
 	require.NoError(t, err)
@@ -91,17 +91,17 @@ func TestForkSessionLeavesSourceResumable(t *testing.T) {
 	_, err = ctrl.Resume(srcID)
 	require.NoError(t, err)
 	assert.Equal(t, srcID, ctrl.SessionID())
-	assert.Equal(t, srcPath, pathIDs(ctrl.engine.Session()))
+	assert.Equal(t, srcPath, pathIDs(ctrl.sess))
 
 	_, err = ctrl.Resume(newID)
 	require.NoError(t, err)
-	assert.Equal(t, srcPath, pathIDs(ctrl.engine.Session()), "the fork reopens with the same branch")
+	assert.Equal(t, srcPath, pathIDs(ctrl.sess), "the fork reopens with the same branch")
 }
 
 func TestForkSessionFailureKeepsSourceActive(t *testing.T) {
 	ctrl := forkTestController(t)
 	srcID := ctrl.SessionID()
-	path := pathIDs(ctrl.engine.Session())
+	path := pathIDs(ctrl.sess)
 
 	// A file where the session directory belongs makes the fork write fail; it
 	// is the only failure this package can force without a fake session store.
@@ -113,7 +113,7 @@ func TestForkSessionFailureKeepsSourceActive(t *testing.T) {
 	require.Error(t, err)
 	assert.Empty(t, id)
 	assert.Equal(t, srcID, ctrl.SessionID(), "a failed fork must not switch sessions")
-	assert.Equal(t, path, pathIDs(ctrl.engine.Session()), "the source context is untouched")
+	assert.Equal(t, path, pathIDs(ctrl.sess), "the source context is untouched")
 	assert.NotEmpty(t, ctrl.ReplaySnapshot().Messages)
 }
 
@@ -125,7 +125,7 @@ func TestForkSessionOfEmptySession(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, newID, ctrl.SessionID())
 	assert.Empty(t, ctrl.ReplaySnapshot().Messages, "an empty session forks empty")
-	assert.Equal(t, ctrl.cwd, ctrl.engine.SessionCwd())
+	assert.Equal(t, ctrl.cwd, ctrl.sess.Cwd())
 }
 
 // forkHeader decodes the first line of a session file, which is where a fork

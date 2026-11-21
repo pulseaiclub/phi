@@ -7,7 +7,6 @@ import (
 
 	"github.com/pulseaiclub/phi/ext/go/pxb"
 	"github.com/pulseaiclub/phi/internal/agent/prompt"
-	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
@@ -22,7 +21,7 @@ import (
 type EngineConfig struct {
 	Tools              []tooldef.Tool
 	Jobs               *job.Manager
-	Extensions         *extension.Runner
+	Extensions         Extensions
 	OmitExtensionTools bool
 	MCP                *mcp.Pool
 	Hooks              llmclient.Hooks
@@ -53,6 +52,9 @@ func (cfg EngineConfig) CoreTools(sess *Session) []tooldef.Tool {
 func (cfg EngineConfig) NewEngine(model llm.ModelConfig, sess *Session) (*Engine, error) {
 	if sess == nil {
 		return nil, errors.New("agent: session is required")
+	}
+	if cfg.Extensions == nil {
+		cfg.Extensions = disabledExtensions()
 	}
 	coreTools := cfg.CoreTools(sess)
 	toolList := coreTools

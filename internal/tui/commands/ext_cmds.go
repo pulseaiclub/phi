@@ -89,8 +89,8 @@ func (h *ExtCommands) run(name, args string) {
 	defer h.running.Store(false)
 
 	gen := h.gen.Load()
-	// A nil extension runner is legitimate runtime state (nothing loaded yet).
-	if h.Ctrl.Extensions() == nil {
+	// No loaded runner is legitimate runtime state (nothing loaded yet).
+	if !h.Ctrl.HasExtensions() {
 		h.Bus.Publish(controller.ExtCommandResultMsg{Gen: gen, Err: "extensions are not loaded"})
 		return
 	}

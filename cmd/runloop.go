@@ -129,7 +129,7 @@ func runHeadless(opts runOptions) error {
 			}
 			roleModels[role] = cfg
 		}
-		jobs, jobErr := agent.NewJobManager(bs.Proj.JobsDir(), roleModels, func() *extension.Runner {
+		jobs, jobErr := agent.NewJobManager(bs.Proj.JobsDir(), roleModels, func() agent.Extensions {
 			return extRunner
 		})
 		if jobErr != nil {
@@ -167,8 +167,8 @@ func runHeadless(opts runOptions) error {
 		return exitCode(ExitUsage)
 	}
 
-	fmt.Fprintf(os.Stderr, "session: %s\n", engine.SessionID())
-	if f := engine.SessionFile(); f != "" {
+	fmt.Fprintf(os.Stderr, "session: %s\n", sess.ID())
+	if f := sess.File(); f != "" {
 		fmt.Fprintf(os.Stderr, "file: %s\n", f)
 	}
 
@@ -179,7 +179,7 @@ func runHeadless(opts runOptions) error {
 		defer cancel()
 	}
 
-	return exitCode(runLoop(runCtx, engine, opts))
+	return exitCode(runLoop(runCtx, sess, engine, opts))
 }
 
 // loadRunExtensions discovers user + project extensions for headless `phi run`.
@@ -204,7 +204,7 @@ func loadRunExtensions(bs *runBootstrap, host extension.HostConfig) *extension.R
 
 // runLoop consumes the same engine.Loop the TUI uses — no second loop is
 // implemented here — and maps events to stdout/stderr + exit codes.
-func runLoop(ctx context.Context, engine *agent.Engine, opts runOptions) int {
+func runLoop(ctx context.Context, sess *agent.Session, engine *agent.Engine, opts runOptions) int {
 	enc := &jsonlEncoder{out: os.Stdout, enabled: opts.jsonl}
 
 	exit := ExitOK
@@ -249,7 +249,7 @@ func runLoop(ctx context.Context, engine *agent.Engine, opts runOptions) int {
 		fmt.Fprintln(os.Stdout, finalText)
 	}
 
-	enc.doneEvent(engine.SessionID(), engine.SessionFile(), exit)
+	enc.doneEvent(sess.ID(), sess.File(), exit)
 	return exit
 }
 

@@ -39,32 +39,6 @@ func NewEngine(model llm.ModelConfig, sess *Session, client llm.ChatClient, exec
 	return &Engine{modelCfg: model, session: sess, client: client, executor: executor}, nil
 }
 
-// HasTool reports whether a tool is currently registered on the executor.
-func (engine *Engine) HasTool(name string) bool {
-	_, ok := engine.executor.registry[name]
-	return ok
-}
-
-// SessionID returns the durable session id.
-func (engine *Engine) SessionID() string {
-	return engine.session.ID()
-}
-
-// SessionFile returns the JSONL path (empty in memory mode).
-func (engine *Engine) SessionFile() string {
-	return engine.session.File()
-}
-
-// SessionCwd returns the cwd recorded on the session header.
-func (engine *Engine) SessionCwd() string {
-	return engine.session.Cwd()
-}
-
-// Session returns the underlying session wrapper (for UI transcript replay).
-func (engine *Engine) Session() *Session {
-	return engine.session
-}
-
 // LoopOpts configures a single agent loop turn.
 type LoopOpts struct {
 	// PendingSkills are skill names the user selected in the composer.

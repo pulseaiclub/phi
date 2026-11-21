@@ -47,6 +47,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- The branch label refreshes after an external checkout when phi starts in a
+  repository subdirectory.
 - Command Palette: `thm` finds `theme` again (subsequence search), Tab moves
   the highlight instead of firing the highlighted row, submenu rows keep
   working across an extension sync, the save shortcut stays visible on narrow

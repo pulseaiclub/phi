@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/project/model"
@@ -27,8 +26,8 @@ import (
 // into child engines. ExtensionsFn wins when set (live reload).
 type EngineRunner struct {
 	Tools        []tooldef.Tool // nil → SpecForRole(job.Role).Tools
-	Extensions   *extension.Runner
-	ExtensionsFn func() *extension.Runner
+	Extensions   Extensions
+	ExtensionsFn func() Extensions
 }
 
 // Run implements [job.Runner].
@@ -43,7 +42,7 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 		return "", err
 	}
 
-	env.Log(fmt.Sprintf("sub-agent role=%s session=%s parent=%s", spec.Role, engine.SessionID(), env.Job.ParentID))
+	env.Log(fmt.Sprintf("sub-agent role=%s session=%s parent=%s", spec.Role, engine.session.ID(), env.Job.ParentID))
 
 	prompt := env.Job.Prompt
 	if env.Job.Description != "" {
@@ -85,7 +84,7 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 		}
 	}
 
-	if path := engine.SessionFile(); path != "" {
+	if path := engine.session.File(); path != "" {
 		env.Log("session_file=" + path)
 	}
 
