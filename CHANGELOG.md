@@ -10,6 +10,21 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Removed
 
+### Changed
+
+### Added
+
+### Fixed
+
+### Security
+
+<!-- Released section -->
+<!-- Don't change this section unless doing release -->
+
+## [0.30.1] - 2026-11-21
+
+### Removed
+
 - `!git commit -m` no longer sends changes to the model to suggest a commit
   message. Local shell completions are unchanged.
 
@@ -74,9 +89,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   panicked.
 
 ### Security
-
-<!-- Released section -->
-<!-- Don't change this section unless doing release -->
 
 ## [0.30.0] - 2026-11-17
 
@@ -1639,7 +1651,8 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.30.0...HEAD
+[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.30.1...HEAD
+[0.30.1]: https://github.com/pulseaiclub/phi/releases/tag/v0.30.1
 [0.30.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.30.0
 [0.29.9]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.9
 [0.29.8]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.8
