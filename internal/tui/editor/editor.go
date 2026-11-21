@@ -13,8 +13,10 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/app"
+	"github.com/pulseaiclub/phi/internal/components/changelist"
 	"github.com/pulseaiclub/phi/internal/components/chat"
 	"github.com/pulseaiclub/phi/internal/components/listpicker"
+	"github.com/pulseaiclub/phi/internal/components/listrows"
 	"github.com/pulseaiclub/phi/internal/components/pane"
 	"github.com/pulseaiclub/phi/internal/components/status"
 	"github.com/pulseaiclub/phi/internal/components/toast"
@@ -28,6 +30,8 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/pathutil"
 	"github.com/pulseaiclub/phi/internal/tui/submit"
 	"github.com/pulseaiclub/phi/internal/tui/transcript"
+	"github.com/pulseaiclub/phi/internal/util/filesearch"
+	"github.com/pulseaiclub/phi/internal/util/gitx"
 	"github.com/pulseaiclub/phi/internal/util/update"
 	"github.com/pulseaiclub/phi/internal/version"
 )
@@ -401,6 +405,38 @@ func (e *Editor) openDiff(args []string) {
 	e.captureOverlayFocus()
 }
 
+// showChanges opens the combined changed-files picker. With restore, it puts
+// the previous list state back and warns when the selected change is gone.
+func (e *Editor) showChanges(restore bool) {
+	root, changes, err := gitx.ChangedFiles(context.Background(), e.cwd)
+	if err != nil {
+		e.toast.Show(err.Error(), toast.ToastError, 4*time.Second)
+		e.composer.FocusChat()
+		return
+	}
+	if len(changes) == 0 {
+		e.toast.Show("No changes", toast.ToastSuccess, 2*time.Second)
+		e.composer.FocusChat()
+		return
+	}
+	byID := make(map[string]gitx.Change, len(changes))
+	for _, change := range changes {
+		byID[change.Path] = change
+	}
+	e.composer.ShowList(changelist.Items(changes), changelist.Config(), func(item listpicker.Item) {
+		e.diffList = e.composer.ListState()
+		e.diff.OpenChange(root, byID[item.ID])
+		e.composer.SetListFocusReturn(e)
+		e.captureOverlayFocus()
+	}, nil)
+	if restore {
+		e.composer.RestoreListState(e.diffList)
+		if _, exists := byID[e.diffList.SelectedID]; !exists {
+			e.toast.Show("Selected change is no longer available; list refreshed", toast.ToastWarning, 3*time.Second)
+		}
+	}
+}
+
 // openCode shows a file in the viewer. A ":line" suffix puts the cursor there.
 // An "@" prefix is expanded to "./" so the shell can complete the path.
 func (e *Editor) openCode(args []string) {
@@ -423,6 +459,28 @@ func (e *Editor) openCode(args []string) {
 	e.diff.Close()
 	e.code.OpenAt(path, line)
 	e.captureOverlayFocus()
+}
+
+// showCodeFiles opens the file picker for every file in the workspace.
+func (e *Editor) showCodeFiles() {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	paths, truncated, err := filesearch.Search(ctx, e.cwd, "", 10000)
+	if err != nil {
+		e.toast.Show("List files: "+err.Error(), toast.ToastError, 4*time.Second)
+		e.composer.FocusChat()
+		return
+	}
+	cfg := listrows.FileConfig()
+	if truncated {
+		cfg.Title = "Files (first 10000; use /code path for other files)"
+	}
+	e.composer.ShowList(listrows.FileItems(paths), cfg, func(item listpicker.Item) {
+		// Picker IDs are literal paths, not the @path:line command syntax.
+		e.code.OpenAt(item.ID, 0)
+		e.composer.SetListFocusReturn(e)
+		e.captureOverlayFocus()
+	}, nil)
 }
 
 func (e *Editor) captureOverlayFocus() {
