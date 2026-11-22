@@ -9,7 +9,9 @@ import (
 
 	"github.com/pulseaiclub/phi/ext/go/pxb"
 	"github.com/pulseaiclub/phi/internal/extension"
+	"github.com/pulseaiclub/phi/internal/extension/core"
 	"github.com/pulseaiclub/phi/internal/extension/create"
+
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/project"
 )
@@ -40,7 +42,7 @@ func main() {
 }
 `
 
-func loadResolveModelRunner(t *testing.T) *extension.Runner {
+func loadResolveModelRunner(t *testing.T) *core.Runner {
 	t.Helper()
 	root := t.TempDir()
 	require.NoError(t, create.Materialize(
@@ -109,21 +111,21 @@ func TestExtensionModelConfigValidation(t *testing.T) {
 
 	t.Run("direct-connect needs base_url", func(t *testing.T) {
 		_, err := extensionModelConfig(
-			extension.ModelRoute{Reg: pxb.RegisterModel{Name: "x"}},
+			core.ModelRoute{Reg: pxb.RegisterModel{Name: "x"}},
 			cfg,
 		)
 		require.ErrorContains(t, err, "needs base_url")
 	})
 
 	t.Run("unknown preset rejected", func(t *testing.T) {
-		_, err := extensionModelConfig(extension.ModelRoute{Reg: pxb.RegisterModel{
+		_, err := extensionModelConfig(core.ModelRoute{Reg: pxb.RegisterModel{
 			Name: "x", Conn: pxb.ConnExt, Preset: "not-a-model",
 		}}, cfg)
 		require.ErrorContains(t, err, "unknown preset")
 	})
 
 	t.Run("ext-served without base_url is fine", func(t *testing.T) {
-		m, err := extensionModelConfig(extension.ModelRoute{Reg: pxb.RegisterModel{
+		m, err := extensionModelConfig(core.ModelRoute{Reg: pxb.RegisterModel{
 			Name: "x", Conn: pxb.ConnExt, ContextWindow: 5,
 		}}, cfg)
 		require.NoError(t, err)

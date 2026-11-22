@@ -8,7 +8,7 @@
 // The package is split into semantic subpackages with a one-way dependency
 // graph, so an extension feature lands in exactly one place (Cordis-style):
 //
-//	extension/            this package: facade re-exports + Load      — what agent/tui/cmd import
+//	extension/            bootstrap: Load (discover + start)          — agent/tui/cmd entry point
 //	├── core/             kernel: Proc (one subprocess) + Fiber (its  — spawn, handshake, RPC,
 //	│                         lifecycle state machine) + Runner       — dispose, topology, read model
 //	├── ui/               BusUI: extension UI effects → host callbacks

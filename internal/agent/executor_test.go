@@ -14,6 +14,7 @@ import (
 
 	ext "github.com/pulseaiclub/phi/ext/go"
 	"github.com/pulseaiclub/phi/internal/extension"
+	"github.com/pulseaiclub/phi/internal/extension/core"
 	"github.com/pulseaiclub/phi/internal/extension/create"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
@@ -21,7 +22,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
-func loadExt(t *testing.T, host extension.HostConfig, mainGo string) *extension.Runner {
+func loadExt(t *testing.T, host core.HostConfig, mainGo string) *core.Runner {
 	t.Helper()
 	root := t.TempDir()
 	extDir := filepath.Join(root, "test")
@@ -68,7 +69,7 @@ func TestExecutorExtensionCanBlockTool(t *testing.T) {
 			},
 		},
 	}
-	r := loadExt(t, extension.HostConfig{}, `package main
+	r := loadExt(t, core.HostConfig{}, `package main
 import (
   "github.com/pulseaiclub/phi/ext/go"
   "github.com/pulseaiclub/phi/ext/go/phi"
@@ -108,7 +109,7 @@ func TestExecutorExtPostContextOnModelOnly(t *testing.T) {
 			},
 		},
 	}
-	r := loadExt(t, extension.HostConfig{}, `package main
+	r := loadExt(t, core.HostConfig{}, `package main
 import (
   "github.com/pulseaiclub/phi/ext/go"
   "github.com/pulseaiclub/phi/ext/go/phi"
@@ -294,7 +295,7 @@ func TestExecutorMixedBatchStaysSequential(t *testing.T) {
 func TestChildEnginePreservesExtensionHostState(t *testing.T) {
 	parent, err := NewSession(WithCwd(t.TempDir()))
 	require.NoError(t, err)
-	r := loadExt(t, extension.HostConfig{
+	r := loadExt(t, core.HostConfig{
 		Host:      ext.HostOpts{SessionID: parent.ID(), Cwd: parent.Cwd()},
 		BaseTools: (EngineConfig{}).CoreTools(parent),
 	}, `package main

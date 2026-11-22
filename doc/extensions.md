@@ -513,7 +513,7 @@ them under management.
 
 | Path | Layer | Owns |
 |------|-------|------|
-| `internal/extension` | facade | re-exports (`Runner`, `FiberState`, `BusUI`, …) + `Load` — what agent/tui/cmd import |
+| `internal/extension` | bootstrap | `Load` — discover via `loader`, start via `core` |
 | `internal/extension/core` | kernel | one `Proc` per extension (PXB framing, handshake, RPC + timeouts, teardown), the `Fiber` state machine around it, and the `Runner` that aggregates fibers into the read model and owns load/unload/reload |
 | `internal/extension/ui` | host UI | `BusUI`: extension toasts / status / confirm → host callbacks |
 | `internal/extension/loader` | config | `phi.yaml` (`Manifest`) and directory discovery |
@@ -522,7 +522,8 @@ them under management.
 
 Imports point down only: `extension/ui → core/loader`, `core → loader`,
 `install → loader`; `create` stands alone.
-`agent` and `tui` import just the top package; `cmd` is the sole importer of `install`.
+`agent` and `tui` import the top package for `Load` plus `core` and `ui` directly;
+`cmd` is the sole importer of `install`.
 
 The layering follows [cordis](https://github.com/cordiverse/cordis) `packages/*`,
 so its mechanisms can be lifted one at a time:
