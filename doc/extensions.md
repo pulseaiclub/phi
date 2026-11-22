@@ -522,7 +522,8 @@ them under management.
 
 Imports point down only: `extension/ui → core/loader`, `core → loader`,
 `install → loader`; `create` stands alone.
-`agent` and `tui` import just the top package; `cmd` is the sole importer of `install`.
+`agent` and `tui` import the top package for `Load` plus `core` and `ui` directly;
+`cmd` is the sole importer of `install`.
 
 The layering follows [cordis](https://github.com/cordiverse/cordis) `packages/*`,
 so its mechanisms can be lifted one at a time:
