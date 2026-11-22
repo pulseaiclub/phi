@@ -21,6 +21,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Terminal: upgrade xui to v0.1.10 so overwriting the continuation column of a
+  wide glyph truncates it, keeping overlay borders intact next to CJK text.
+
 ### Security
 
 <!-- Released section -->
