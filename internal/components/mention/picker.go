@@ -281,8 +281,8 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 	}
 	layout.DrawRoundedBorder(&panel, layout.BorderRounded, th.Border, nil, nil, nil, nil, ctx.Method)
 
-	// Soft blue selection bar (distinct from palette yellow).
-	selBg := xui.RGBColor(0x3a, 0x5a, 0x7a)
+	// Selection chrome rides the theme roles shared with listpicker / configui.
+	selBg := th.SelectionBg.Bg
 
 	padL := 1
 	listY := 1
@@ -299,6 +299,10 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 	} else {
 		pathSt := th.ToolName
 		descSt := th.Muted
+		selFg := th.SelectionFg
+		selFg.Bg, selFg.Bold = selBg, true
+		selMuted := th.Muted
+		selMuted.Bg = selBg
 		innerW := boxW - 3
 		const minDescW = 8
 		gap := "  "
@@ -330,8 +334,8 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 				for x := 1; x < boxW-1; x++ {
 					panel.SetCell(x, y, xui.Cell{Char: " ", Width: 1, Style: xui.Style{Bg: selBg}})
 				}
-				st = xui.Style{Fg: xui.RGBColor(0xe0, 0xf0, 0xff), Bg: selBg, Bold: true}
-				dst = xui.Style{Fg: xui.RGBColor(0xb0, 0xc8, 0xe0), Bg: selBg}
+				st = selFg
+				dst = selMuted
 			}
 			labelW := xui.StringWidth(label, ctx.Method)
 			descBudget := innerW - max(labelW, colW) - gapW

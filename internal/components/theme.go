@@ -18,7 +18,7 @@ import (
 //	ToolName   — cool action accent: tools, keybinds, busy, paths, inline code
 //	Accent     — interactive links / "Show more" only
 //	Success / Warning / Destructive — outcomes and risk only
-//	Selection* / Command — palette selection chrome
+//	Selection* / Command — shared selection chrome (lists, transcript, code)
 type Theme struct {
 	Foreground  xui.Style
 	Muted       xui.Style

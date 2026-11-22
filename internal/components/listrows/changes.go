@@ -1,5 +1,4 @@
-// Package changelist maps git changes into the shared list picker.
-package changelist
+package listrows
 
 import (
 	"strconv"
@@ -11,7 +10,8 @@ import (
 	"github.com/pulseaiclub/phi/internal/util/gitx"
 )
 
-func Config() listpicker.ShowConfig {
+// ChangeConfig returns chrome copy for the changed-files picker.
+func ChangeConfig() listpicker.ShowConfig {
 	return listpicker.ShowConfig{
 		Title: "Changes", FilterHint: "filter changed files…",
 		Empty: "No changes", EmptyFilter: "No changed files match %q",
@@ -19,7 +19,10 @@ func Config() listpicker.ShowConfig {
 	}
 }
 
-func Items(changes []gitx.Change) []listpicker.Item {
+// ChangeItems maps git changes into rows, in the order git reported them. A
+// rename or copy keeps showing where it came from, so the old path rides on
+// the detail column.
+func ChangeItems(changes []gitx.Change) []listpicker.Item {
 	items := make([]listpicker.Item, 0, len(changes))
 	for _, change := range changes {
 		detail := statusLabel(change.Status)

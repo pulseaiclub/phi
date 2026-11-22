@@ -1,4 +1,4 @@
-package changelist
+package listrows
 
 import (
 	"testing"
@@ -39,8 +39,8 @@ func TestDisplayPath(t *testing.T) {
 	}{
 		{
 			"plain path passes through",
-			"internal/components/changelist/items.go",
-			"internal/components/changelist/items.go",
+			"internal/components/listrows/changes.go",
+			"internal/components/listrows/changes.go",
 		},
 		{"empty path stays empty", "", ""},
 		{"control character is quoted", "dir/\x01bad.go", `"dir/\x01bad.go"`},
@@ -54,7 +54,7 @@ func TestDisplayPath(t *testing.T) {
 	}
 }
 
-func TestItems(t *testing.T) {
+func TestChangeItems(t *testing.T) {
 	changes := []gitx.Change{
 		{Path: "modified.go", Status: 'M'},
 		{Path: "added.go", Status: 'A'},
@@ -66,7 +66,7 @@ func TestItems(t *testing.T) {
 		{Path: "conflicted.go", Status: 'U'},
 	}
 
-	items := Items(changes)
+	items := ChangeItems(changes)
 
 	assert.Len(t, items, len(changes))
 	for i, change := range changes {
@@ -84,8 +84,8 @@ func TestItems(t *testing.T) {
 	assert.Equal(t, "Unresolved conflict", items[7].Detail)
 }
 
-func TestItemsRenameShowsBothPaths(t *testing.T) {
-	items := Items([]gitx.Change{{Path: "new name.go", OldPath: "old name.go", Status: 'R'}})
+func TestChangeItemsRenameShowsBothPaths(t *testing.T) {
+	items := ChangeItems([]gitx.Change{{Path: "new name.go", OldPath: "old name.go", Status: 'R'}})
 
 	assert.Len(t, items, 1)
 	assert.Equal(t, "new name.go", items[0].Primary)
@@ -93,16 +93,16 @@ func TestItemsRenameShowsBothPaths(t *testing.T) {
 	assert.Equal(t, "new name.go old name.go", items[0].Keywords, "both sides stay searchable")
 }
 
-func TestItemsQuotesControlCharactersInOldPath(t *testing.T) {
-	items := Items([]gitx.Change{{Path: "new.go", OldPath: "old/\x07bell.go", Status: 'R'}})
+func TestChangeItemsQuotesControlCharactersInOldPath(t *testing.T) {
+	items := ChangeItems([]gitx.Change{{Path: "new.go", OldPath: "old/\x07bell.go", Status: 'R'}})
 
 	assert.Len(t, items, 1)
 	assert.Equal(t, "Renamed from \"old/\\abell.go\"", items[0].Detail)
 	assert.Equal(t, "new.go old/\x07bell.go", items[0].Keywords, "keywords keep the raw path")
 }
 
-func TestItemsEmpty(t *testing.T) {
-	items := Items(nil)
+func TestChangeItemsEmpty(t *testing.T) {
+	items := ChangeItems(nil)
 
 	assert.Empty(t, items)
 	assert.NotNil(t, items)

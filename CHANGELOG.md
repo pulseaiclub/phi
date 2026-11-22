@@ -12,6 +12,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- The composer's `@` / slash picker no longer hardcodes its selection colors:
+  the highlighted row uses the shared `Selection` theme roles like the list
+  picker and config form, so themes such as Pink no longer show an off-palette
+  blue selection bar.
+
 ### Added
 
 ### Fixed

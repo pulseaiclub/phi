@@ -154,6 +154,33 @@ func TestPickerAlignsDescriptions(t *testing.T) {
 	}
 }
 
+// The selected row paints from the theme's shared selection roles — the same
+// chrome listpicker and the config form use — not from hardcoded colors.
+func TestPickerDrawSelectionUsesTheme(t *testing.T) {
+	th := components.DarculaTheme()
+	p := &Picker{
+		Theme:         th,
+		Items:         []Item{{Path: "go.mod", Description: "module"}, {Path: "main.go"}},
+		AnchorBottomY: 20,
+		AnchorWidth:   60,
+	}
+	p.Show()
+	surf := p.Draw(components.DrawContext{
+		Max:    components.Size{Width: 80, Height: 24},
+		Method: xui.WidthUnicode,
+	})
+	require.Len(t, surf.Children, 1)
+	panel := surf.Children[0].Surface
+
+	for x := 1; x < panel.Size.Width-1; x++ {
+		assert.Equal(t, th.SelectionBg.Bg, panel.Buffer[panel.Size.Width+x].Style.Bg,
+			"selected row stripe must use the theme selection background")
+	}
+	label := panel.Buffer[panel.Size.Width+2].Style // first label char after the pad
+	assert.Equal(t, th.SelectionFg.Fg, label.Fg)
+	assert.True(t, label.Bold, "the highlighted label keeps its emphasis")
+}
+
 // panelRow flattens one surface row into plain text for alignment assertions.
 func panelRow(s components.Surface, y int) string {
 	var b strings.Builder
