@@ -11,6 +11,7 @@ import (
 	"github.com/pulseaiclub/xui"
 
 	"github.com/pulseaiclub/phi/internal/components"
+	"github.com/pulseaiclub/phi/internal/components/layout"
 	"github.com/pulseaiclub/phi/internal/components/status"
 )
 
@@ -163,6 +164,27 @@ func ExpandArrow(expanded bool) string {
 		return Collapse
 	}
 	return Expand
+}
+
+// AskPanel paints ask-panel body lines inside a rounded border tinted by
+// border. Shared by every decision panel so frames stay identical.
+func AskPanel(
+	body []components.RichLine,
+	width, height int,
+	border xui.Style,
+	method xui.WidthMethod,
+) components.Surface {
+	panel := components.NewSurface(width, height, nil)
+	layout.DrawRoundedBorder(&panel, layout.BorderRounded, border, nil, nil, nil, nil, method)
+	y := 1
+	for _, line := range body {
+		if y >= height-1 {
+			break
+		}
+		components.PaintSpans(&panel, 2, y, line, method)
+		y++
+	}
+	return panel
 }
 
 // ToolIcon returns the status glyph + style for a tool / agent title row.
