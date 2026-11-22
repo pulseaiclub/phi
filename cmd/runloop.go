@@ -16,6 +16,7 @@ import (
 	ext "github.com/pulseaiclub/phi/ext/go"
 	"github.com/pulseaiclub/phi/internal/agent"
 	"github.com/pulseaiclub/phi/internal/extension"
+	"github.com/pulseaiclub/phi/internal/extension/core"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/mcp"
@@ -115,7 +116,7 @@ func runHeadless(opts runOptions) error {
 	}
 	cfg.Hooks = model.HooksForConfig(primary)
 
-	var extRunner *extension.Runner
+	var extRunner *core.Runner
 	// Jobs share the runner, so drain them before closing it.
 	defer func() { extRunner.Close() }()
 	if bs.Config.Agents.Enabled {
@@ -156,7 +157,7 @@ func runHeadless(opts runOptions) error {
 		return exitCode(ExitUsage)
 	}
 
-	extRunner = loadRunExtensions(bs, extension.HostConfig{
+	extRunner = loadRunExtensions(bs, core.HostConfig{
 		Host:      ext.HostOpts{Cwd: sess.Cwd(), SessionID: sess.ID()},
 		BaseTools: cfg.CoreTools(sess),
 	})
@@ -184,7 +185,7 @@ func runHeadless(opts runOptions) error {
 
 // loadRunExtensions discovers user + project extensions for headless `phi run`.
 // Failures are non-fatal (fail-open). Warnings go to stderr as a one-line hint.
-func loadRunExtensions(bs *runBootstrap, host extension.HostConfig) *extension.Runner {
+func loadRunExtensions(bs *runBootstrap, host core.HostConfig) *core.Runner {
 	if bs == nil || bs.Proj == nil {
 		return nil
 	}

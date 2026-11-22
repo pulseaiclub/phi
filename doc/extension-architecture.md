@@ -103,5 +103,5 @@ UI goroutine) cannot leave the palette showing commands that no longer exist.
 | `core` | the kernel, one package like cordis: `proc.go` (PXB transport), `fiber.go` (the `Fiber` state machine), `runner.go` (event dispatch, host binding, `Close`), `view.go` (cached read model), `manage.go` (per-extension load/unload/reload) |
 | `ui` | `BusUI`: extension UI effects → host callbacks |
 
-`Load` (the facade package's `load.go`) is the bootstrap: discovery plus the
+`Load` (the `extension` package's `load.go`) is the bootstrap: discovery plus the
 first start of every extension.

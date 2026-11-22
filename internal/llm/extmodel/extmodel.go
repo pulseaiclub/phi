@@ -16,7 +16,7 @@ import (
 )
 
 // StreamFunc starts one extension model stream. The host binds
-// extension.Runner.ModelStream to the selected route; tests inject fakes.
+// core.Runner.ModelStream to the selected route; tests inject fakes.
 type StreamFunc func(
 	ctx context.Context,
 	req pxb.ModelInvoke,

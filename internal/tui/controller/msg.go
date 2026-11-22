@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/components/toast"
-	"github.com/pulseaiclub/phi/internal/extension"
+	"github.com/pulseaiclub/phi/internal/extension/core"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/session"
 )
@@ -88,7 +88,7 @@ func (ExtTopologyChangedMsg) isMsg() {}
 
 // ExtPromptMsg carries literal prompt text, not a composer slash command.
 type ExtPromptMsg struct {
-	runner    *extension.Runner
+	runner    *core.Runner
 	sessionID string
 	text      string
 }

@@ -10,14 +10,17 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/extension/loader"
 
 	ext "github.com/pulseaiclub/phi/ext/go"
 	"github.com/pulseaiclub/phi/internal/agent"
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/debuglog"
-	"github.com/pulseaiclub/phi/internal/extension"
+	"github.com/pulseaiclub/phi/internal/extension/core"
+	"github.com/pulseaiclub/phi/internal/extension/ui"
 	"github.com/pulseaiclub/phi/internal/job"
+
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/project"
@@ -29,13 +32,13 @@ import (
 // ExtRunner is the controller's handle on the extension host: the management
 // surface the TUI drives, the models and slash commands it consults, and the
 // engine-facing dispatch surface handed to agent.EngineConfig. The
-// production implementation is *extension.Runner.
+// production implementation is *core.Runner.
 type ExtRunner interface {
 	agent.Extensions
 
 	// Lifecycle management.
 	Loaded() []loader.Discovered
-	ListExtensions() map[string]extension.FiberState
+	ListExtensions() map[string]core.FiberState
 	UnloadExtension(name string) error
 	ReloadExtension(name string) error
 	Close()
@@ -45,9 +48,9 @@ type ExtRunner interface {
 	SetMeta(sessionID, cwd string)
 
 	// Models and slash commands.
-	ExtensionModels() []extension.ModelRoute
+	ExtensionModels() []core.ModelRoute
 	CommandEntries() []ext.CommandEntry
-	RunCommand(name, args string) (extension.CommandOutcome, error)
+	RunCommand(name, args string) (core.CommandOutcome, error)
 
 	// Session lifecycle events.
 	EmitSessionStart(ev ext.SessionStartEvent) ext.SessionEffects
@@ -85,7 +88,7 @@ type EngineController struct {
 
 	askTimeoutSec int
 	agentsEnabled atomic.Bool
-	extRunner     atomic.Pointer[extension.Runner]
+	extRunner     atomic.Pointer[core.Runner]
 	mcpPool       *mcp.Pool
 
 	lastJobProgress sync.Map // progressSlot → progressSig
@@ -290,7 +293,7 @@ func (c *EngineController) engineJobs() *job.Manager {
 }
 
 // Extensions returns the runner handle. The value is never a nil interface —
-// the disabled state is a nil *extension.Runner behind ExtRunner, whose
+// the disabled state is a nil *core.Runner behind ExtRunner, whose
 // methods are nil-receiver no-ops. Use HasExtensions for the presence check.
 func (c *EngineController) Extensions() ExtRunner {
 	return c.extRunner.Load()
@@ -321,7 +324,7 @@ func (c *EngineController) ReloadExtensions() (loaded int, warns []loader.Warnin
 	return len(r.Loaded()), warns, nil
 }
 
-func (c *EngineController) swapExtensionRunner(r *extension.Runner) {
+func (c *EngineController) swapExtensionRunner(r *core.Runner) {
 	if prev := c.extRunner.Swap(r); prev != nil {
 		prev.Close()
 	}
@@ -356,7 +359,7 @@ func (c *EngineController) UnloadExtension(name string) error {
 }
 
 // ListExtensionStates returns all extension states.
-func (c *EngineController) ListExtensionStates() map[string]extension.FiberState {
+func (c *EngineController) ListExtensionStates() map[string]core.FiberState {
 	r := c.extRunner.Load()
 	if r == nil {
 		return nil
@@ -365,7 +368,7 @@ func (c *EngineController) ListExtensionStates() map[string]extension.FiberState
 }
 
 // Startup and resume are fail-open; an explicit reload reports discovery errors.
-func (c *EngineController) loadSessionExtensions(sess *agent.Session) *extension.Runner {
+func (c *EngineController) loadSessionExtensions(sess *agent.Session) *core.Runner {
 	r, _, err := c.loadExtensions(sess)
 	if err != nil {
 		debuglog.Logf("extension: load failed: %v", err)
@@ -373,9 +376,9 @@ func (c *EngineController) loadSessionExtensions(sess *agent.Session) *extension
 	return r
 }
 
-func (c *EngineController) loadExtensions(sess *agent.Session) (*extension.Runner, []loader.Warning, error) {
+func (c *EngineController) loadExtensions(sess *agent.Session) (*core.Runner, []loader.Warning, error) {
 	host := ext.HostOpts{
-		UI: extension.BusUI{
+		UI: ui.BusUI{
 			NotifyFn: c.handleExtNotify, SetStatusFn: c.handleExtStatus, ConfirmFn: c.askExtConfirm,
 		},
 		Cwd: sess.Cwd(), SessionID: sess.ID(), HasUI: true,
@@ -385,9 +388,9 @@ func (c *EngineController) loadExtensions(sess *agent.Session) (*extension.Runne
 	r, warns, err := extension.LoadWithHost(
 		c.proj.Global().ExtensionsDir(),
 		c.proj.ExtensionsDir(),
-		extension.HostConfig{
+		core.HostConfig{
 			Host: host, BaseTools: base.CoreTools(sess), OnChange: c.requestTopologyRefresh,
-			OnPrompt: func(r *extension.Runner, sessionID, text string) {
+			OnPrompt: func(r *core.Runner, sessionID, text string) {
 				c.publish(ExtPromptMsg{runner: r, sessionID: sessionID, text: text})
 			},
 		},

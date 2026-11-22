@@ -12,12 +12,12 @@ import (
 
 // Load discovers PXB extensions and spawns each subprocess.
 func Load(userDir, projectDir string) (*core.Runner, []loader.Warning, error) {
-	return LoadWithHost(userDir, projectDir, HostConfig{})
+	return LoadWithHost(userDir, projectDir, core.HostConfig{})
 }
 
 // LoadWithHost discovers PXB extensions and starts them with the host state
 // already installed. Initial topology changes are intentionally silent.
-func LoadWithHost(userDir, projectDir string, cfg HostConfig) (*core.Runner, []loader.Warning, error) {
+func LoadWithHost(userDir, projectDir string, cfg core.HostConfig) (*core.Runner, []loader.Warning, error) {
 	found, warns, err := loader.Discover(userDir, projectDir)
 	if err != nil {
 		return nil, warns, err

@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/pulseaiclub/phi/internal/agent"
-	"github.com/pulseaiclub/phi/internal/extension"
+	"github.com/pulseaiclub/phi/internal/extension/core"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/project"
 )
@@ -14,7 +14,7 @@ import (
 // entries, so extension models honor preset capabilities and think levels.
 // Direct-connect registrations must carry a base_url — the host would
 // otherwise dial an empty endpoint.
-func extensionModelConfig(route extension.ModelRoute, cfg *project.Config) (llm.ModelConfig, error) {
+func extensionModelConfig(route core.ModelRoute, cfg *project.Config) (llm.ModelConfig, error) {
 	reg := route.Reg
 	if !route.ExtConn() && reg.BaseURL == "" {
 		return llm.ModelConfig{}, fmt.Errorf("model %q: direct-connect registration needs base_url", reg.Name)
