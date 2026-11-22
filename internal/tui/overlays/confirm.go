@@ -213,5 +213,5 @@ func (o *Overlays) drawExtConfirm(ctx components.DrawContext, width, height int)
 		{Text: chrome.ConfirmHint(), Style: th.Muted},
 	}, innerW, ctx.Method)...)
 
-	return paintAskPanel(body, width, height, border, ctx.Method)
+	return chrome.AskPanel(body, width, height, border, ctx.Method)
 }

@@ -4,7 +4,7 @@ import (
 	"github.com/pulseaiclub/xui"
 
 	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/components/layout"
+	"github.com/pulseaiclub/phi/internal/components/ask"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
@@ -17,7 +17,7 @@ type overlayComposer interface {
 type Overlays struct {
 	theme    components.Theme
 	confirm  *confirmAskState
-	err      *errorAskState
+	err      *ask.Dialog
 	activity *controller.ActivityHandler
 	composer overlayComposer
 
@@ -96,7 +96,7 @@ func (o *Overlays) PreferredBottomHeight(width int, method xui.WidthMethod) (hei
 		return o.confirm.preferredAskHeight(), true
 	}
 	if o.err != nil {
-		return o.err.preferredAskHeight(width, method), true
+		return o.err.PreferredHeight(width, method), true
 	}
 	return 0, false
 }
@@ -107,26 +107,7 @@ func (o *Overlays) DrawBottom(ctx components.DrawContext, width, height int) (co
 		return o.drawExtConfirm(ctx, width, height), true
 	}
 	if o.err != nil {
-		return o.drawError(ctx, width, height), true
+		return o.err.Draw(o.theme, o.theme.Destructive, width, height, ctx.Method), true
 	}
 	return components.Surface{}, false
-}
-
-func paintAskPanel(
-	body []components.RichLine,
-	width, height int,
-	border xui.Style,
-	method xui.WidthMethod,
-) components.Surface {
-	panel := components.NewSurface(width, height, nil)
-	layout.DrawRoundedBorder(&panel, layout.BorderRounded, border, nil, nil, nil, nil, method)
-	y := 1
-	for _, line := range body {
-		if y >= height-1 {
-			break
-		}
-		components.PaintSpans(&panel, 2, y, line, method)
-		y++
-	}
-	return panel
 }
