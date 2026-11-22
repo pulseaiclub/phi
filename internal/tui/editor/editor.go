@@ -13,7 +13,6 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/app"
-	"github.com/pulseaiclub/phi/internal/components/changelist"
 	"github.com/pulseaiclub/phi/internal/components/chat"
 	"github.com/pulseaiclub/phi/internal/components/listpicker"
 	"github.com/pulseaiclub/phi/internal/components/listrows"
@@ -423,7 +422,7 @@ func (e *Editor) showChanges(restore bool) {
 	for _, change := range changes {
 		byID[change.Path] = change
 	}
-	e.composer.ShowList(changelist.Items(changes), changelist.Config(), func(item listpicker.Item) {
+	e.composer.ShowList(listrows.ChangeItems(changes), listrows.ChangeConfig(), func(item listpicker.Item) {
 		e.diffList = e.composer.ListState()
 		e.diff.OpenChange(root, byID[item.ID])
 		e.composer.SetListFocusReturn(e)
