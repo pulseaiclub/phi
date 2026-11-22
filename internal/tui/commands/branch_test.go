@@ -16,8 +16,7 @@ import (
 
 func TestBranchCommandRegistersSlash(t *testing.T) {
 	r := NewCommandRegistry()
-	b := NewBranchCommands(controller.NewBus(nil))
-	b.OpenOverlay = func([]gitx.Branch, []string, func(string), func(string)) {}
+	b := NewBranchCommands(controller.NewBus(nil), "", &stubBuiltinComposer{}, &stubHost{})
 	b.Register(r)
 
 	assert.Equal(t, "/branch ", r.LookupInsert("branch"))
@@ -27,19 +26,19 @@ func TestBranchCommandRegistersSlash(t *testing.T) {
 func TestBranchShowOpensOverlayWithRows(t *testing.T) {
 	branches := []gitx.Branch{{Name: "main", Current: true}, {Name: "fix/x"}}
 	b := stubBranchCommands(branches)
-	var got []string
-	b.OpenOverlay = func(list []gitx.Branch, recent []string, onAccept, onDelete func(string)) {
-		for _, item := range list {
-			got = append(got, item.Name)
-		}
-		assert.Equal(t, []string{"fix/x"}, recent, "reflog order reaches the picker")
-		require.NotNil(t, onAccept)
-		require.NotNil(t, onDelete, "the picker owns the branch delete path")
-	}
+	comp := &stubBuiltinComposer{}
+	b.composer = comp
 
 	b.Show()
 
-	assert.Equal(t, []string{"main", "fix/x"}, got)
+	names := make([]string, 0, len(comp.branchItems))
+	for _, item := range comp.branchItems {
+		names = append(names, item.Name)
+	}
+	assert.Equal(t, []string{"main", "fix/x"}, names)
+	assert.Equal(t, []string{"fix/x"}, comp.branchRecent, "reflog order reaches the picker")
+	assert.NotNil(t, comp.branchAccept, "accept must reach the switch path")
+	assert.NotNil(t, comp.branchDelete, "the picker owns the branch delete path")
 }
 
 func TestRunWithNameCreatesMissingBranch(t *testing.T) {
@@ -212,7 +211,7 @@ func TestCreateFromRefusedWhileStreaming(t *testing.T) {
 	bus := controller.NewBus(nil)
 	b := stubBranchCommands([]gitx.Branch{{Name: "main", Current: true}, {Name: "release-2.4"}})
 	b.Bus = bus
-	b.StreamActive = func() bool { return true }
+	b.ui = &stubHost{stream: true}
 	called := false
 	b.CreateAt = func(context.Context, string, string, string) error {
 		called = true
@@ -288,15 +287,13 @@ func TestBranchShowIgnoresMissingReflog(t *testing.T) {
 	b.Recent = func(context.Context, string) ([]string, error) {
 		return nil, errors.New("fatal: your current branch does not have any commits yet")
 	}
-	opened := false
-	b.OpenOverlay = func(_ []gitx.Branch, recent []string, _, _ func(string)) {
-		opened = true
-		assert.Empty(t, recent)
-	}
+	comp := &stubBuiltinComposer{}
+	b.composer = comp
 
 	b.Show()
 
-	assert.True(t, opened, "row order must not gate switching")
+	assert.NotNil(t, comp.branchAccept, "row order must not gate switching")
+	assert.Empty(t, comp.branchRecent)
 }
 
 func TestSwitchToReportsFailureAndSuccess(t *testing.T) {
@@ -344,7 +341,7 @@ func TestSwitchToRefusedWhileStreaming(t *testing.T) {
 	bus := controller.NewBus(nil)
 	b := stubBranchCommands(nil)
 	b.Bus = bus
-	b.StreamActive = func() bool { return true }
+	b.ui = &stubHost{stream: true}
 	called := false
 	b.Switch = func(context.Context, string, string) error {
 		called = true
@@ -372,17 +369,17 @@ func TestDeleteRemovesTheChosenBranchAndRefreshesRows(t *testing.T) {
 		}
 		return []gitx.Branch{{Name: "main", Current: true}}, nil
 	}
-	var refreshed []string
-	b.RefreshOverlay = func(branches []gitx.Branch, _ []string) {
-		for _, item := range branches {
-			refreshed = append(refreshed, item.Name)
-		}
-	}
+	comp := &stubBuiltinComposer{}
+	b.composer = comp
 
 	b.Delete("fix/x")
 
 	assert.Equal(t, []string{"fix/x"}, removed)
-	assert.Equal(t, []string{"main"}, refreshed, "the row is gone without reopening the picker")
+	names := make([]string, 0, len(comp.refreshedBranches))
+	for _, item := range comp.refreshedBranches {
+		names = append(names, item.Name)
+	}
+	assert.Equal(t, []string{"main"}, names, "the row is gone without reopening the picker")
 	assert.Contains(t, drainToast(t, bus), "Deleted fix/x")
 }
 
@@ -435,7 +432,7 @@ func TestDeleteRefusedWhileStreaming(t *testing.T) {
 	bus := controller.NewBus(nil)
 	b := stubBranchCommands([]gitx.Branch{{Name: "fix/x"}})
 	b.Bus = bus
-	b.StreamActive = func() bool { return true }
+	b.ui = &stubHost{stream: true}
 	called := false
 	b.Remove = func(context.Context, string, string) error {
 		called = true
@@ -449,8 +446,7 @@ func TestDeleteRefusedWhileStreaming(t *testing.T) {
 }
 
 func stubBranchCommands(branches []gitx.Branch) *BranchCommands {
-	b := NewBranchCommands(nil)
-	b.Dir = "/repo"
+	b := NewBranchCommands(nil, "/repo", nil, nil)
 	b.CurrentBranch = func(context.Context, string) string { return "" }
 	b.Branches = func(context.Context, string) ([]gitx.Branch, error) { return branches, nil }
 	b.Recent = func(context.Context, string) ([]string, error) { return []string{"fix/x"}, nil }

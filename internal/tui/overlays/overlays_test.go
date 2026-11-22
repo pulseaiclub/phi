@@ -10,7 +10,7 @@ import (
 )
 
 func testOverlays(activity *controller.ActivityHandler) *Overlays {
-	return NewOverlays(components.DefaultTheme(), activity, nil, nil, nil, nil)
+	return NewOverlays(components.DefaultTheme(), activity, nil, nil)
 }
 
 func TestConfirmRestoresPreviousActivity(t *testing.T) {

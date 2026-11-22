@@ -83,11 +83,14 @@ ui.StartBranchWatch()
 app.Run(ui)
 ```
 
-Inside `NewEditor`, panes are built first, then `commands.NewBuiltinRegistry`
-assembles the registry and domain handlers (`SessionCommands`, `BranchCommands`,
-`ExtCommands`, settings/skills/diff). `Builtin.Bind` attaches Submitter / pickers /
-stream guard after `Submitter` exists. `ComposerPane.Wire(...)` connects the keyboard
-path last.
+Inside `NewEditor`, panes are built first, then the collaborators assemble in
+dependency order: registry → command Context → `Submitter` →
+`commands.NewBuiltinRegistry`, which wires the domain handlers (`SessionCommands`,
+`BranchCommands`, `ExtCommands`, settings/skills/diff) completely at construction —
+no late `Bind` pass, no post-construction callback fields. Shell callbacks
+aggregate in `commands.HostUI` (implemented by `Editor`), composer callbacks in
+`BuiltinComposer` and the per-domain composer interfaces; overlay hooks in
+`overlays.ShellHooks`. `ComposerPane.Wire(...)` connects the keyboard path last.
 
 `Editor` does **not** call `project.GetDefaultProject` or construct `Controller`.
 It does **not** own command side effects — those live in `internal/tui/commands`.
@@ -250,7 +253,8 @@ Composer input is blocked while an overlay is active (`OverlayBlocksComposer`).
 
 `commands.NewBuiltinRegistry` owns slash/palette registration. Domain handlers
 (`SessionCommands`, `SettingsCommands`, `ExtCommands`, …) call `Ctrl` / `Bus` /
-composer directly — no Editor closures.
+`commands.HostUI` (the editor aggregate) / their composer slice directly — no
+Editor closures.
 
 `/fork` (`SessionCommands.Fork`) copies the session at its current point: both
 sessions keep going from here with the same history. It takes no arguments:
@@ -270,11 +274,12 @@ untouched and stays in the picker.
 
 The `/sessions` overlay follows this wiring: `SessionCommands.Show` lists the
 project's sessions and opens the shared `listpicker` through the
-`Builtin.Bind`-injected callbacks. Enter resumes the selection; Ctrl+X arms
-an in-place destructive confirm (Y/Enter deletes, N/Esc cancels) and the
-picker refreshes its rows in place via `RefreshPicker`, keeping the filter
-query. Deleting the current session resets the engine to a fresh one, since
-the old JSONL file is gone. The same store call backs `phi sessions remove`.
+constructor-injected composer surface (`sessionComposer`). Enter resumes the
+selection; Ctrl+X arms an in-place destructive confirm (Y/Enter deletes, N/Esc
+cancels) and the picker refreshes its rows in place via the composer's
+`RefreshSessionList`, keeping the filter query. Deleting the current session
+resets the engine to a fresh one, since the old JSONL file is gone. The same
+store call backs `phi sessions remove`.
 
 ### 6. Background chrome
 

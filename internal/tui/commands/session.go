@@ -9,20 +9,23 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/transcript"
 )
 
+// sessionComposer is the composer surface session commands drive.
+type sessionComposer interface {
+	SetModelLabel(name, thinkLevel string)
+	ShowSessionList(items []session.SessionMeta, currentID string, onAccept, onDelete func(id string))
+	RefreshSessionList(items []session.SessionMeta)
+}
+
 // SessionCommands owns session command UI side effects.
 type SessionCommands struct {
-	Ctrl          *controller.EngineController
-	Composer      BuiltinComposer
-	Transcript    *transcript.TranscriptPane
-	Bus           *controller.Bus
-	SyncHooks     func()
-	ResetActivity func()
-	// OpenPicker opens the session list overlay (wired by Builtin.Bind).
-	OpenPicker func(items []session.SessionMeta, currentID string)
-	// RefreshPicker swaps rows into the open overlay (wired by Builtin.Bind).
-	RefreshPicker func(items []session.SessionMeta)
-	// StreamActive reports whether session changes should be blocked.
-	StreamActive func() bool
+	Ctrl       *controller.EngineController
+	Transcript *transcript.TranscriptPane
+	Bus        *controller.Bus
+	// Ext re-registers extension commands after a resume or fork rebinds the
+	// engine to another session file.
+	Ext      *ExtCommands
+	composer sessionComposer
+	ui       HostUI
 	// SessionDir / SessionID override Ctrl for tests when set.
 	SessionDir func() string
 	SessionID  func() string
@@ -31,15 +34,19 @@ type SessionCommands struct {
 // NewSessionCommands builds session command handlers.
 func NewSessionCommands(
 	ctrl *controller.EngineController,
-	transcript *transcript.TranscriptPane,
+	tr *transcript.TranscriptPane,
 	bus *controller.Bus,
-	syncHooks func(),
+	ext *ExtCommands,
+	composer sessionComposer,
+	ui HostUI,
 ) *SessionCommands {
 	return &SessionCommands{
 		Ctrl:       ctrl,
-		Transcript: transcript,
+		Transcript: tr,
 		Bus:        bus,
-		SyncHooks:  syncHooks,
+		Ext:        ext,
+		composer:   composer,
+		ui:         ui,
 	}
 }
 
@@ -95,7 +102,10 @@ func (s *SessionCommands) Show() {
 		publishToast(s.Bus, "No sessions for this directory", toast.ToastWarning, 3*time.Second)
 		return
 	}
-	s.OpenPicker(list, currentID)
+	if s.composer == nil {
+		return // no composer surface in this wiring (partial test stubs)
+	}
+	s.composer.ShowSessionList(list, currentID, s.Accept, s.Delete)
 }
 
 func (s *SessionCommands) dirAndID() (dir, currentID string) {
@@ -127,8 +137,8 @@ func (s *SessionCommands) resume(id string) {
 		publishToast(s.Bus, err.Error(), toast.ToastError, 4*time.Second)
 		return
 	}
-	if s.SyncHooks != nil {
-		s.SyncHooks()
+	if s.Ext != nil {
+		s.Ext.Sync()
 	}
 	snap := s.Ctrl.ReplaySnapshot()
 	s.Transcript.LoadReplay(snap)
@@ -166,7 +176,7 @@ func (s *SessionCommands) Delete(id string) {
 // refreshPicker re-lists sessions and pushes the rows into the open overlay
 // in place, keeping the filter query instead of reopening via Show.
 func (s *SessionCommands) refreshPicker() {
-	if s.RefreshPicker == nil {
+	if s.composer == nil {
 		return
 	}
 	dir, _ := s.dirAndID()
@@ -174,7 +184,7 @@ func (s *SessionCommands) refreshPicker() {
 	if err != nil {
 		return // listing worked moments ago; keep the rows already on screen
 	}
-	s.RefreshPicker(list)
+	s.composer.RefreshSessionList(list)
 }
 
 // NewSession starts a new empty session. Blocks while a stream or extension command is active.
@@ -206,8 +216,8 @@ func (s *SessionCommands) Fork(args []string) {
 		publishToast(s.Bus, err.Error(), toast.ToastError, 4*time.Second)
 		return
 	}
-	if s.SyncHooks != nil {
-		s.SyncHooks()
+	if s.Ext != nil {
+		s.Ext.Sync()
 	}
 	s.resetSessionView()
 	publishToast(s.Bus, "Forked "+session.ShortID(id), toast.ToastSuccess, 3*time.Second)
@@ -234,7 +244,7 @@ func (s *SessionCommands) Compact(args []string) {
 
 // blocked reports whether a session switch has to wait, and says why.
 func (s *SessionCommands) blocked(action string) bool {
-	if s.StreamActive == nil || !s.StreamActive() {
+	if s.ui == nil || !s.ui.StreamActive() {
 		return false
 	}
 	publishToast(
@@ -251,15 +261,15 @@ func (s *SessionCommands) resetSessionView() {
 	s.Transcript.LoadReplay(s.Ctrl.ReplaySnapshot())
 	s.Transcript.ResetSubagents()
 	s.refreshModel()
-	if s.ResetActivity != nil {
-		s.ResetActivity()
+	if s.ui != nil {
+		s.ui.ResetActivity()
 	}
 	s.Transcript.Sync()
 	s.Transcript.StickToBottom()
 }
 
 func (s *SessionCommands) refreshModel() {
-	if s.Composer != nil {
-		s.Composer.SetModelLabel(s.Ctrl.ModelName(), string(s.Ctrl.ThinkLevel()))
+	if s.composer != nil {
+		s.composer.SetModelLabel(s.Ctrl.ModelName(), string(s.Ctrl.ThinkLevel()))
 	}
 }

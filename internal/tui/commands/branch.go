@@ -11,18 +11,21 @@ import (
 	"github.com/pulseaiclub/phi/internal/util/gitx"
 )
 
+// branchComposer is the composer surface the branch picker drives.
+type branchComposer interface {
+	ShowBranchList(branches []gitx.Branch, recent []string, onAccept, onDelete func(name string))
+	RefreshBranchList(branches []gitx.Branch, recent []string)
+}
+
 // BranchCommands owns the /branch working-context switcher.
 type BranchCommands struct {
 	Bus *controller.Bus
 	// Dir is the directory git runs in (the agent's working directory).
 	Dir string
 
-	// OpenOverlay opens the branch picker (wired by Builtin.Bind).
-	OpenOverlay func(branches []gitx.Branch, recent []string, onAccept, onDelete func(name string))
-	// RefreshOverlay swaps rows into the open picker (wired by Builtin.Bind).
-	RefreshOverlay func(branches []gitx.Branch, recent []string)
-	// StreamActive reports whether a checkout or delete must be refused.
-	StreamActive func() bool
+	composer branchComposer
+	// ui gates mutations on the stream guard (HostUI.StreamActive).
+	ui HostUI
 
 	// CurrentBranch reports the checked-out branch name ("" when unavailable).
 	CurrentBranch func(ctx context.Context, dir string) string
@@ -38,9 +41,12 @@ type BranchCommands struct {
 }
 
 // NewBranchCommands builds the /branch handler over the real git.
-func NewBranchCommands(bus *controller.Bus) *BranchCommands {
+func NewBranchCommands(bus *controller.Bus, dir string, composer branchComposer, ui HostUI) *BranchCommands {
 	return &BranchCommands{
 		Bus:           bus,
+		Dir:           dir,
+		composer:      composer,
+		ui:            ui,
 		CurrentBranch: pathutil.GitBranch,
 		Branches:      gitx.Branches,
 		Recent:        gitx.Recent,
@@ -85,7 +91,10 @@ func (b *BranchCommands) Show() {
 	if err != nil {
 		recent = nil
 	}
-	b.OpenOverlay(branches, recent, b.SwitchTo, b.Delete)
+	if b.composer == nil {
+		return // no picker surface in this wiring (partial test stubs)
+	}
+	b.composer.ShowBranchList(branches, recent, b.SwitchTo, b.Delete)
 }
 
 // Run handles /branch [name] [base]. A missing name is created off base, or
@@ -239,7 +248,7 @@ func (b *BranchCommands) CreateBranch(name string) {
 // rewrites a ref — no worktree checkout — so it runs inline like the session
 // delete it mirrors.
 func (b *BranchCommands) Delete(name string) {
-	if b.StreamActive != nil && b.StreamActive() {
+	if b.streamActive() {
 		b.toast("Cannot delete a branch while a reply or command is running", toast.ToastWarning)
 		return
 	}
@@ -288,7 +297,7 @@ func findBranch(branches []gitx.Branch, name string) (gitx.Branch, bool) {
 // refreshOverlay re-lists and pushes the rows into the open picker in place.
 // A failing listing keeps the rows already on screen: they were just valid.
 func (b *BranchCommands) refreshOverlay() {
-	if b.RefreshOverlay == nil {
+	if b.composer == nil {
 		return
 	}
 	dir := b.dir()
@@ -301,14 +310,14 @@ func (b *BranchCommands) refreshOverlay() {
 	if err != nil {
 		recent = nil
 	}
-	b.RefreshOverlay(branches, recent)
+	b.composer.RefreshBranchList(branches, recent)
 }
 
 // refuse reports whether a git mutation has to wait: a running reply would be
 // repointed at another branch, and an unfinished merge or rebase has an index
 // git will not let us leave.
 func (b *BranchCommands) refuse() bool {
-	if b.StreamActive != nil && b.StreamActive() {
+	if b.streamActive() {
 		b.toast("Cannot switch branches while a reply or command is running", toast.ToastWarning)
 		return true
 	}
@@ -318,6 +327,12 @@ func (b *BranchCommands) refuse() bool {
 	}
 	b.toast("Finish or abort the in-progress "+st.Op+" first", toast.ToastWarning)
 	return true
+}
+
+// streamActive reports whether a mutation must wait for the agent; an absent
+// guard (partial test stubs) means nothing is in flight.
+func (b *BranchCommands) streamActive() bool {
+	return b.ui != nil && b.ui.StreamActive()
 }
 
 func (b *BranchCommands) done(msg, dir string) {

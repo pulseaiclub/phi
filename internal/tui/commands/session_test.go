@@ -20,71 +20,58 @@ func TestSessionCommands_ShowOpensPicker(t *testing.T) {
 	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
 	require.NoError(t, err)
 
-	var got []session.SessionMeta
-	var current string
 	bus := controller.NewBus(nil)
+	comp := &stubBuiltinComposer{}
 	s := &SessionCommands{
 		Bus:        bus,
 		SessionDir: func() string { return dir },
 		SessionID:  func() string { return m.ID() },
-		OpenPicker: func(items []session.SessionMeta, currentID string) {
-			got = items
-			current = currentID
-		},
+		composer:   comp,
 	}
 	s.Show()
-	require.Len(t, got, 1)
-	assert.Equal(t, m.ID(), got[0].ID)
-	assert.Equal(t, m.ID(), current)
-	assert.Equal(t, "hello world", got[0].Preview)
+	require.Len(t, comp.sessionItems, 1)
+	assert.Equal(t, m.ID(), comp.sessionItems[0].ID)
+	require.NotNil(t, comp.sessionAccept, "accept must reach the command handlers")
+	assert.Equal(t, "hello world", comp.sessionItems[0].Preview)
 }
 
 func TestSessionCommands_ShowEmptyToasts(t *testing.T) {
 	bus := controller.NewBus(nil)
+	comp := &stubBuiltinComposer{}
 	s := &SessionCommands{
 		Bus:        bus,
 		SessionDir: func() string { return t.TempDir() },
-		OpenPicker: func([]session.SessionMeta, string) {
-			require.Fail(t, "picker should not open")
-		},
+		composer:   comp,
 	}
 	s.Show()
 	assert.Contains(t, drainToast(t, bus), "No sessions")
+	assert.Nil(t, comp.sessionAccept, "empty listing must not arm an accept path")
 }
 
 func TestSessionCommands_AcceptBlocksWhenBusy(t *testing.T) {
 	bus := controller.NewBus(nil)
-	s := &SessionCommands{
-		Bus:          bus,
-		StreamActive: func() bool { return true },
-	}
+	s := &SessionCommands{Bus: bus, ui: &stubHost{stream: true}}
 	s.Accept("abc")
 	assert.Contains(t, drainToast(t, bus), "Cannot resume")
 }
 
 func TestSessionCommands_NewSessionBlocksWhenBusy(t *testing.T) {
 	bus := controller.NewBus(nil)
-	s := &SessionCommands{
-		Bus:          bus,
-		StreamActive: func() bool { return true },
-	}
+	s := &SessionCommands{Bus: bus, ui: &stubHost{stream: true}}
 	s.NewSession()
 	assert.Contains(t, drainToast(t, bus), "Cannot start a new session")
 }
 
 func TestSessionCommands_ForkBlocksWhenBusy(t *testing.T) {
 	bus := controller.NewBus(nil)
-	s := &SessionCommands{
-		Bus:          bus,
-		StreamActive: func() bool { return true },
-	}
+	s := &SessionCommands{Bus: bus, ui: &stubHost{stream: true}}
 	s.Fork(nil)
 	assert.Contains(t, drainToast(t, bus), "Cannot fork while a reply or command is running")
 }
 
 func TestSessionCommands_ForkRejectsArguments(t *testing.T) {
 	bus := controller.NewBus(nil)
-	s := &SessionCommands{Bus: bus, StreamActive: func() bool { return false }}
+	s := &SessionCommands{Bus: bus, ui: &stubHost{}}
 	s.Fork([]string{"later"})
 	assert.Contains(t, drainToast(t, bus), "Usage: /fork")
 
@@ -112,18 +99,18 @@ func TestSessionCommands_DeleteRemovesAndRefreshes(t *testing.T) {
 	require.NoError(t, err)
 
 	bus := controller.NewBus(nil)
-	var refreshed []session.SessionMeta
+	comp := &stubBuiltinComposer{}
 	s := &SessionCommands{
-		Bus:           bus,
-		SessionDir:    func() string { return dir },
-		SessionID:     func() string { return current.ID() },
-		RefreshPicker: func(items []session.SessionMeta) { refreshed = items },
+		Bus:        bus,
+		SessionDir: func() string { return dir },
+		SessionID:  func() string { return current.ID() },
+		composer:   comp,
 	}
 	s.Delete(other.ID())
 
 	assert.Contains(t, drainToast(t, bus), "Deleted")
-	require.Len(t, refreshed, 1)
-	assert.Equal(t, current.ID(), refreshed[0].ID, "deleted session is gone from the refreshed list")
+	require.Len(t, comp.refreshedSessions, 1)
+	assert.Equal(t, current.ID(), comp.refreshedSessions[0].ID, "deleted session is gone from the refreshed list")
 	list, err := session.ListSessions(dir)
 	require.NoError(t, err)
 	require.Len(t, list, 1)
@@ -133,9 +120,9 @@ func TestSessionCommands_DeleteRemovesAndRefreshes(t *testing.T) {
 func TestSessionCommands_DeleteBlocksWhenBusy(t *testing.T) {
 	bus := controller.NewBus(nil)
 	s := &SessionCommands{
-		Bus:          bus,
-		SessionDir:   func() string { return t.TempDir() },
-		StreamActive: func() bool { return true },
+		Bus:        bus,
+		SessionDir: func() string { return t.TempDir() },
+		ui:         &stubHost{stream: true},
 	}
 	s.Delete("abc")
 	assert.Contains(t, drainToast(t, bus), "Cannot delete")
@@ -151,28 +138,28 @@ func TestSessionCommands_DeleteUnknownIdToastsAndKeepsList(t *testing.T) {
 	require.NoError(t, err)
 
 	bus := controller.NewBus(nil)
-	var refreshed bool
+	comp := &stubBuiltinComposer{}
 	s := &SessionCommands{
-		Bus:           bus,
-		SessionDir:    func() string { return dir },
-		SessionID:     func() string { return m.ID() },
-		RefreshPicker: func([]session.SessionMeta) { refreshed = true },
+		Bus:        bus,
+		SessionDir: func() string { return dir },
+		SessionID:  func() string { return m.ID() },
+		composer:   comp,
 	}
 	s.Delete("nosuchsession")
 	assert.Contains(t, drainToast(t, bus), "not found")
-	assert.False(t, refreshed, "failed delete must not touch the picker")
+	assert.Nil(t, comp.refreshedSessions, "failed delete must not touch the picker")
 }
 
 func TestSessionCommands_CompactRejectsArguments(t *testing.T) {
 	bus := controller.NewBus(nil)
-	s := &SessionCommands{Bus: bus, StreamActive: func() bool { return false }}
+	s := &SessionCommands{Bus: bus, ui: &stubHost{}}
 	s.Compact([]string{"now"})
 	assert.Contains(t, drainToast(t, bus), "Usage: /compact")
 }
 
 func TestSessionCommands_CompactBlocksWhenBusy(t *testing.T) {
 	bus := controller.NewBus(nil)
-	s := &SessionCommands{Bus: bus, StreamActive: func() bool { return true }}
+	s := &SessionCommands{Bus: bus, ui: &stubHost{stream: true}}
 	s.Compact(nil)
 	assert.Contains(t, drainToast(t, bus), "Cannot compact")
 }

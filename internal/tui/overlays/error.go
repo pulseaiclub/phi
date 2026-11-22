@@ -176,8 +176,8 @@ func (o *Overlays) beginErrorAsk(msg controller.OverlayMsg) {
 	o.err = &errorAskState{message: msg.ErrorText}
 	// The turn is over — this dialog is the aftermath, not an in-flight ask.
 	o.activity.Apply(controller.ActivityIdle)
-	if o.focusEditor != nil {
-		o.focusEditor()
+	if o.hooks != nil {
+		o.hooks.FocusEditor()
 	}
 }
 
@@ -190,14 +190,13 @@ func (o *Overlays) dismissError() {
 	if o.activity != nil && o.activity.Current == controller.ActivityAwaitingApproval {
 		o.activity.Apply(controller.ActivityIdle)
 	}
-	if o.focusChat != nil {
-		o.focusChat()
+	if o.composer != nil {
+		o.composer.FocusChat()
 	}
 }
 
-// resolveError clears the overlay and delivers the reply directly to the
-// onResolve callback: nobody waits on this dialog, so unlike the ask
-// overlays there is no reply chan.
+// resolveError clears the overlay and delivers the reply to the shell hooks:
+// nobody waits on this dialog, so unlike the ask overlays there is no reply chan.
 func (o *Overlays) resolveError(r controller.ErrorReply) {
 	st := o.err
 	if st == nil {
@@ -205,8 +204,8 @@ func (o *Overlays) resolveError(r controller.ErrorReply) {
 	}
 	text := st.message
 	o.dismissError()
-	if o.onErrorResolve != nil {
-		o.onErrorResolve(r, text)
+	if o.hooks != nil {
+		o.hooks.ResolveErrorReply(r, text)
 	}
 }
 

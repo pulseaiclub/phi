@@ -13,16 +13,27 @@ import (
 
 const testErrText = "request ended without sending any chunks"
 
-// errorOverlays builds overlays whose resolve callback records replies.
+// recordingHooks is the ShellHooks stub: it records resolved error replies
+// through the caller's slices, so tests keep reading replies/texts directly.
+type recordingHooks struct {
+	replies *[]controller.ErrorReply
+	texts   *[]string
+}
+
+func (*recordingHooks) FocusEditor() {}
+
+func (h *recordingHooks) ResolveErrorReply(r controller.ErrorReply, text string) {
+	*h.replies = append(*h.replies, r)
+	*h.texts = append(*h.texts, text)
+}
+
+// errorOverlays builds overlays whose resolve hook records replies.
 func errorOverlays(replies *[]controller.ErrorReply, texts *[]string) *Overlays {
 	return NewOverlays(
 		components.DefaultTheme(),
 		controller.NewActivityHandler(),
-		nil, nil, nil,
-		func(r controller.ErrorReply, text string) {
-			*replies = append(*replies, r)
-			*texts = append(*texts, text)
-		},
+		nil,
+		&recordingHooks{replies: replies, texts: texts},
 	)
 }
 

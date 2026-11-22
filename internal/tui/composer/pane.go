@@ -37,9 +37,6 @@ type ComposerPane struct {
 	theme components.Theme
 	cwd   string
 
-	// OnPaletteOpen refreshes root commands before Ctrl+K opens the palette.
-	OnPaletteOpen func()
-
 	Chat     chat.ChatInput
 	mention  mention.Picker
 	slash    mention.Picker
@@ -54,6 +51,8 @@ type ComposerPane struct {
 	// mentionCancel stops the search in flight; nil before the first search.
 	mentionCancel context.CancelFunc
 	commands      *commands.CommandRegistry
+	// paletteCtx re-derives the Ctrl+K surface on open; nil until Wire.
+	paletteCtx commands.Context
 
 	transcript *transcript.TranscriptPane
 	submitter  BusyChecker
@@ -108,6 +107,7 @@ type WireDeps struct {
 	Transcript            *transcript.TranscriptPane
 	Submitter             BusyChecker
 	Commands              *commands.CommandRegistry
+	CommandCtx            commands.Context
 	Bus                   *controller.Bus
 	DrainBus              func()
 	OnRedraw              func()
@@ -123,6 +123,7 @@ type WireDeps struct {
 // Wire binds bus, transcript, and editor overlay hooks after Editor assembly.
 func (c *ComposerPane) Wire(deps WireDeps) {
 	c.commands = deps.Commands
+	c.paletteCtx = deps.CommandCtx
 	c.transcript = deps.Transcript
 	c.submitter = deps.Submitter
 	c.bus = deps.Bus
@@ -182,6 +183,16 @@ func (c *ComposerPane) HideCompleters() {
 // HidePalette closes the command palette if open.
 func (c *ComposerPane) HidePalette() {
 	c.palette.Hide()
+}
+
+// refreshRootCommands re-derives the Ctrl+K surface from the live registry
+// before it opens. Extension reloads write the same registry, so both paths
+// rebuild from one source instead of the pane holding an outward callback.
+func (c *ComposerPane) refreshRootCommands() {
+	if c.commands == nil || c.paletteCtx == nil {
+		return
+	}
+	c.SetPaletteCommands(c.commands.BuildPalette(c.paletteCtx))
 }
 
 // ShowList opens the opaque list picker overlay. Each caller passes its own
@@ -665,9 +676,7 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 				c.FocusChat()
 			} else {
 				c.HideCompleters()
-				if c.OnPaletteOpen != nil {
-					c.OnPaletteOpen()
-				}
+				c.refreshRootCommands()
 				c.palette.Show()
 				if c.requestFocus != nil {
 					c.requestFocus(&c.palette.Picker)

@@ -69,28 +69,21 @@ Do the work.
 	}
 	e.composer.Wire(composer.WireDeps{})
 
+	registry := commands.NewCommandRegistry()
 	builtins := commands.NewBuiltinRegistry(
+		registry,
+		commands.NewContext(bus, nil),
 		bus,
 		nil,
 		e.composer,
 		nil,
+		dir,
 		nil,
 		[]string{filepath.Join(dir, "skills")},
-		nil,
+		e,
 		nil,
 	)
 	e.commands = builtins.Registry
-	builtins.Bind(
-		nil,
-		commands.NewContext(bus, nil),
-		nil,
-		nil,
-		nil,
-		nil,
-		e.showSkillList,
-		dir,
-		func() bool { return false },
-	)
 
 	return e
 }

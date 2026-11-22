@@ -1,8 +1,9 @@
 package commands
 
-// DiffCommands owns the /diff slash command.
+// DiffCommands owns the /diff slash command. It opens the viewer through the
+// shared HostUI surface instead of a bare func field.
 type DiffCommands struct {
-	Open func(args []string)
+	ui HostUI
 }
 
 // Register wires /diff into r.
@@ -13,8 +14,8 @@ func (d *DiffCommands) Register(r *CommandRegistry) {
 		Slash:       true,
 		Insert:      "/diff ",
 		Run: func(_ Context, args []string) {
-			if d.Open != nil {
-				d.Open(args)
+			if d.ui != nil {
+				d.ui.OpenDiff(args)
 			}
 		},
 	})

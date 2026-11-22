@@ -1,9 +1,9 @@
 package commands
 
 // CodeCommands owns the /code slash command, which opens a file in the
-// full-screen viewer.
+// full-screen viewer through the shared HostUI surface.
 type CodeCommands struct {
-	Open func(args []string)
+	ui HostUI
 }
 
 // Register wires /code into r.
@@ -14,8 +14,8 @@ func (c *CodeCommands) Register(r *CommandRegistry) {
 		Slash:       true,
 		Insert:      "/code",
 		Run: func(_ Context, args []string) {
-			if c.Open != nil {
-				c.Open(args)
+			if c.ui != nil {
+				c.ui.OpenCode(args)
 			}
 		},
 	})

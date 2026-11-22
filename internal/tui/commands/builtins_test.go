@@ -6,15 +6,35 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/pulseaiclub/phi/internal/components/listpicker"
 	"github.com/pulseaiclub/phi/internal/components/palette"
+	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/pulseaiclub/phi/internal/util/gitx"
 )
 
+// stubBuiltinComposer and stubHost are shared fixtures for the commands
+// package tests (session/branch/skills/commands tests wire them into domains).
 type stubBuiltinComposer struct {
 	model      string
 	thinkLevel string
 	skills     []string
 	pal        []palette.PaletteCommand
+
+	listItems  []listpicker.Item
+	listAccept func(listpicker.Item)
+
+	sessionItems  []session.SessionMeta
+	sessionAccept func(id string)
+
+	refreshedSessions []session.SessionMeta
+
+	branchItems  []gitx.Branch
+	branchRecent []string
+	branchAccept func(name string)
+	branchDelete func(name string)
+
+	refreshedBranches []gitx.Branch
 }
 
 func (s *stubBuiltinComposer) SetModelLabel(name, thinkLevel string) {
@@ -30,19 +50,97 @@ func (s *stubBuiltinComposer) SetPaletteCommands(cmds []palette.PaletteCommand) 
 	s.pal = cmds
 }
 
+func (s *stubBuiltinComposer) ShowList(
+	items []listpicker.Item,
+	_ listpicker.ShowConfig,
+	onAccept func(listpicker.Item),
+	_ func(listpicker.Item),
+) {
+	s.listItems = items
+	s.listAccept = onAccept
+}
+
+func (s *stubBuiltinComposer) ShowSessionList(
+	items []session.SessionMeta,
+	_ string,
+	onAccept func(id string),
+	_ func(id string),
+) {
+	s.sessionItems = items
+	s.sessionAccept = onAccept
+}
+
+func (s *stubBuiltinComposer) RefreshSessionList(items []session.SessionMeta) {
+	s.refreshedSessions = items
+}
+
+func (s *stubBuiltinComposer) ShowBranchList(
+	branches []gitx.Branch,
+	recent []string,
+	onAccept func(name string),
+	onDelete func(name string),
+) {
+	s.branchItems = branches
+	s.branchRecent = recent
+	s.branchAccept = onAccept
+	s.branchDelete = onDelete
+}
+
+func (s *stubBuiltinComposer) RefreshBranchList(branches []gitx.Branch, _ []string) {
+	s.refreshedBranches = branches
+}
+
+// stubHost is the HostUI stub: one aggregate for every shell callback, with a
+// mutable stream flag tests flip to exercise the guards. route records which
+// viewer method ran, so a /diff→OpenCode mixup cannot hide behind one slice.
+type stubHost struct {
+	opened    [][]string
+	route     []string
+	stream    bool
+	status    string
+	activityN int
+}
+
+func (h *stubHost) OpenDiff(args []string) {
+	h.open("diff", args)
+}
+
+func (h *stubHost) OpenCode(args []string) {
+	h.open("code", args)
+}
+
+func (h *stubHost) open(kind string, args []string) {
+	h.route = append(h.route, kind)
+	h.opened = append(h.opened, args)
+}
+
+func (h *stubHost) ResetActivity() {
+	h.activityN++
+}
+
+func (h *stubHost) SetExtensionStatus(status string) {
+	h.status = status
+}
+
+func (h *stubHost) StreamActive() bool { return h.stream }
+
 func TestNewBuiltinRegistry_RegistersDomains(t *testing.T) {
 	bus := controller.NewBus(nil)
 	comp := &stubBuiltinComposer{}
-	var opened []string
+	host := &stubHost{}
+	r := NewCommandRegistry()
 
 	b := NewBuiltinRegistry(
+		r,
+		NewContext(bus, nil),
 		bus,
 		nil,
 		comp,
 		nil,
+		"",
 		[]string{"m1"},
 		[]string{t.TempDir()},
-		func(args []string) { opened = append([]string(nil), args...) },
+		host,
 		nil,
 	)
 	require.NotNil(t, b)
@@ -73,10 +171,10 @@ func TestNewBuiltinRegistry_RegistersDomains(t *testing.T) {
 	assert.Equal(t, "/branch ", b.Registry.LookupInsert("branch"))
 
 	assert.True(t, b.Registry.DispatchSlash("/diff staged", ctx))
-	assert.Equal(t, []string{"staged"}, opened)
+	assert.Equal(t, []string{"diff"}, host.route)
+	assert.Equal(t, [][]string{{"staged"}}, host.opened)
 
-	b.Bind(nil, nil, nil, nil, nil, nil, nil, "", func() bool { return true })
-
+	host.stream = true
 	b.Sessions.NewSession()
 	assert.Contains(t, drainToast(t, bus), "Cannot start a new session")
 }
