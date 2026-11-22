@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/components/chrome"
 )
 
 func TestPickerFilterAndAccept(t *testing.T) {
@@ -96,10 +95,9 @@ func TestPickerRanksFilterHits(t *testing.T) {
 
 // primaryOrder is the visible order of the rows the filter kept.
 func (p *Picker) primaryOrder() []string {
-	rows := p.rows()
 	out := make([]string, 0, len(p.filtered))
 	for _, h := range p.filtered {
-		out = append(out, rows[h.index].Primary)
+		out = append(out, p.Items[h.index].Primary)
 	}
 	return out
 }
@@ -297,185 +295,6 @@ func TestPickerSetItemsKeepsQueryAndClamps(t *testing.T) {
 	assert.Len(t, p.filtered, 1)
 }
 
-// The filter line carries commands too: `!name` swaps the rows for the caller's
-// commands, and Enter runs the highlighted one instead of accepting a row.
-func TestPickerCommandRunsAndCloses(t *testing.T) {
-	ran, args := "", ""
-	p := &Picker{
-		Theme: components.DefaultTheme(),
-		Commands: []Command{
-			{Name: "fetch", Detail: "fetch remotes", Run: func(a string) { ran, args = "fetch", a }},
-			{Name: "commit", Detail: "commit work", Run: func(string) { ran = "commit" }},
-		},
-		OnAccept: func(item Item) { t.Errorf("command line must not accept row %q", item.ID) },
-	}
-	p.Show([]Item{{ID: "alpha", Primary: "alpha"}}, ShowConfig{})
-	ctx := &components.EventContext{}
-
-	typeQuery(p, ctx, "!co")
-	assert.True(t, p.commandMode)
-	assert.Equal(t, []string{"!commit"}, p.primaryOrder())
-	assert.Equal(t, 0, p.Selected, "the best command sits under the cursor")
-
-	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
-	assert.Equal(t, "commit", ran)
-	assert.Empty(t, args)
-	assert.False(t, p.Open, "a command closes the overlay unless it asks to stay")
-}
-
-// Text after the name is an operand, not a filter: `!fetch origin` must keep
-// offering fetch, and hand "origin" to Run.
-func TestPickerCommandKeepsOperandOutOfFilter(t *testing.T) {
-	got := ""
-	p := &Picker{Theme: components.DefaultTheme()}
-	p.Commands = []Command{{Name: "fetch", Run: func(a string) { got = a }}}
-	p.Show([]Item{{ID: "alpha", Primary: "alpha"}}, ShowConfig{})
-	ctx := &components.EventContext{}
-
-	typeQuery(p, ctx, "!fetch origin")
-	assert.Equal(t, []string{"!fetch"}, p.primaryOrder(), "the operand must not filter the name away")
-	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
-	assert.Equal(t, "origin", got)
-}
-
-// A command that refreshes the rows keeps the overlay up and hands the filter
-// line back, so the picker stays usable after one command.
-func TestPickerCommandKeepOpenReturnsToRows(t *testing.T) {
-	ran := false
-	p := &Picker{Theme: components.DefaultTheme()}
-	p.Commands = []Command{{
-		Name:     "fetch",
-		KeepOpen: true,
-		Run: func(string) {
-			ran = true
-			p.SetItems([]Item{{ID: "beta", Primary: "beta"}})
-		},
-	}}
-	p.Show([]Item{{ID: "alpha", Primary: "alpha"}}, ShowConfig{})
-	ctx := &components.EventContext{}
-
-	typeQuery(p, ctx, "!fetch")
-	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
-
-	assert.True(t, ran)
-	assert.True(t, p.Open, "KeepOpen keeps the overlay up")
-	assert.False(t, p.commandMode)
-	assert.Empty(t, p.Query(), "the line is consumed, not left as a filter")
-	assert.Equal(t, []string{"beta"}, p.primaryOrder())
-}
-
-// No commands configured means no command line: `!` stays an ordinary rune, so
-// domains that never opt in keep their old filter behavior.
-func TestPickerCommandPrefixWithoutCommandsStaysFilter(t *testing.T) {
-	p := &Picker{Theme: components.DefaultTheme()}
-	p.Show([]Item{
-		{ID: "x", Primary: "!weird"},
-		{ID: "y", Primary: "other"},
-	}, ShowConfig{})
-	ctx := &components.EventContext{}
-
-	typeQuery(p, ctx, "!we")
-	assert.False(t, p.commandMode)
-	assert.Equal(t, []string{"!weird"}, p.primaryOrder())
-}
-
-// Configuring commands must not disturb the plain path: text filters rows, the
-// hit accepts, and no command runs.
-func TestPickerCommandsLeaveRowAcceptAlone(t *testing.T) {
-	var got string
-	ran := false
-	p := &Picker{
-		Theme:    components.DefaultTheme(),
-		OnAccept: func(item Item) { got = item.ID },
-	}
-	p.Commands = []Command{{Name: "fetch", Run: func(string) { ran = true }}}
-	p.Show([]Item{{ID: "alpha", Primary: "alpha"}, {ID: "beta", Primary: "beta"}}, ShowConfig{})
-	ctx := &components.EventContext{}
-
-	typeQuery(p, ctx, "al")
-	assert.False(t, p.commandMode)
-
-	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
-	assert.Equal(t, "alpha", got)
-	assert.False(t, ran)
-	assert.False(t, p.Open)
-}
-
-// The selected row in command mode is a command, not a caller row: Ctrl+X must
-// not arm a delete over it.
-func TestPickerCommandIgnoresDeleteChord(t *testing.T) {
-	deleted := 0
-	p := &Picker{Theme: components.DefaultTheme(), OnDelete: func(Item) { deleted++ }}
-	p.Commands = []Command{{Name: "fetch"}}
-	p.Show([]Item{{ID: "alpha", Primary: "alpha"}}, ShowConfig{})
-	ctx := &components.EventContext{}
-
-	typeQuery(p, ctx, "!f")
-	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: 'x', Mods: xui.ModCtrl, Press: true})
-	assert.False(t, p.confirming)
-
-	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
-	assert.Zero(t, deleted)
-	assert.False(t, p.Open)
-}
-
-// Chrome: the item list advertises the command line, and the command list wears
-// its own title, hint, and empty copy.
-func TestPickerCommandDrawChrome(t *testing.T) {
-	p := &Picker{Theme: components.DefaultTheme()}
-	p.Commands = []Command{
-		{Name: "fetch", Detail: "fetch remotes"},
-		{Name: "commit", Detail: "commit work"},
-		{Name: "checkout", Detail: "switch branch"},
-	}
-	p.Show([]Item{{ID: "alpha", Primary: "alpha"}}, ShowConfig{Title: "Sessions"})
-	ctx := &components.EventContext{}
-
-	draw := func() string {
-		s := p.Draw(components.DrawContext{
-			Max:    components.Size{Width: 80, Height: 24},
-			Method: xui.WidthUnicode,
-		})
-		require.Len(t, s.Children, 1)
-		return components.SurfaceText(s.Children[0].Surface)
-	}
-
-	text := draw()
-	assert.Contains(t, text, "Sessions")
-	assert.Contains(t, text, CommandPrefix+" commands", "the row list advertises the line")
-
-	typeQuery(p, ctx, "!fetch")
-	text = draw()
-	assert.Contains(t, text, "Commands")
-	assert.Contains(t, text, "fetch remotes")
-	assert.Contains(t, text, "⏎ run")
-
-	p.SetQuery(CommandPrefix + "checkout")
-	p.refilter()
-	text = draw()
-
-	assert.Contains(t, text, "!checkout", "a name wider than the item column is not cut")
-	assert.Contains(t, text, "switch branch")
-
-	p.SetQuery(CommandPrefix + "zzz")
-	p.refilter()
-
-	assert.Contains(t, draw(), "No command matches", "the empty copy is command-specific")
-}
-
-// A caller that set its own Hint keeps it: the command advert does not step on
-// copy the domain already chose.
-func TestPickerCommandAdvertRespectsHint(t *testing.T) {
-	p := &Picker{Theme: components.DefaultTheme(), Commands: []Command{{Name: "fetch"}}}
-	p.Show(nil, ShowConfig{Hint: " ↑↓ move" + chrome.Sep + "⏎ select"})
-
-	s := p.Draw(components.DrawContext{Max: components.Size{Width: 100, Height: 24}, Method: xui.WidthUnicode})
-	require.Len(t, s.Children, 1)
-	text := components.SurfaceText(s.Children[0].Surface)
-	assert.Contains(t, text, "⏎ select")
-	assert.NotContains(t, text, CommandPrefix+" commands")
-}
-
 // drawRowLines renders the panel and returns its line buffer, one string per row.
 func drawRowLines(t *testing.T, p *Picker) []string {
 	t.Helper()
@@ -523,20 +342,6 @@ func TestPickerColumnsAlignAcrossRowsAndFiltering(t *testing.T) {
 	panel = draw()
 	assert.Equal(t, "L", panel.Buffer[4*panel.Size.Width+4].Char)
 	assert.Equal(t, ".", panel.Buffer[4*panel.Size.Width+26].Char)
-
-	p.Commands = []Command{{Name: "fetch", Detail: "description"}, {Name: "pull", Detail: "sync"}}
-	p.Show(nil, ShowConfig{})
-	typeQuery(p, &components.EventContext{}, "!")
-	panel = draw()
-	for i, name := range []string{"!fetch", "!pull"} {
-		row := panel.Buffer[(4+i)*panel.Size.Width : (5+i)*panel.Size.Width]
-		for x, char := range name {
-			assert.Equal(t, string(char), row[4+x].Char)
-		}
-		assert.Equal(t, " ", row[10].Char)
-		assert.Equal(t, " ", row[11].Char)
-		assert.Equal(t, []string{"d", "s"}[i], row[12].Char)
-	}
 }
 
 func TestPickerUsesColorForCurrentChoice(t *testing.T) {
@@ -614,7 +419,8 @@ func TestPickerCentersSingleColumnPages(t *testing.T) {
 }
 
 func TestPickerFrameTracksResultCount(t *testing.T) {
-	p := &Picker{Commands: []Command{{Name: "fetch", Detail: "fetch remotes"}}}
+	p := &Picker{}
+
 	items := []Item{{ID: "target", Primary: "target"}}
 	for range 20 {
 		items = append(items, Item{ID: "other", Primary: "other"})
@@ -638,9 +444,6 @@ func TestPickerFrameTracksResultCount(t *testing.T) {
 	require.Empty(t, p.filtered)
 	check(7)
 	p.Show(nil, ShowConfig{Title: "Empty"})
-	check(7)
-	typeQuery(p, ctx, "!")
-	require.True(t, p.commandMode)
 	check(7)
 }
 
@@ -730,7 +533,7 @@ func TestPickerFuzzyMatchesNameSubsequences(t *testing.T) {
 		}
 		var got []string
 		for _, h := range p.filtered {
-			got = append(got, p.rows()[h.index].ID)
+			got = append(got, p.Items[h.index].ID)
 		}
 		return got
 	}
