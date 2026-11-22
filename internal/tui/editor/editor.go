@@ -74,7 +74,6 @@ type Editor struct {
 	ctrl *controller.EngineController
 
 	commands  *commands.CommandRegistry
-	sessions  *commands.SessionCommands
 	extCmds   *commands.ExtCommands
 	submitter *submit.Submitter
 }
@@ -117,14 +116,7 @@ func NewEditor(
 	}
 	e.transcript = transcript.NewTranscriptPane(theme, e.spin, "Phi "+version.Version)
 	e.syncStatusSlot()
-	e.overlays = overlays.NewOverlays(
-		theme,
-		e.activity,
-		e.composer,
-		e.focusSelf,
-		e.composer.FocusChat,
-		e.handleErrorReply,
-	)
+	e.overlays = overlays.NewOverlays(theme, e.activity, e.composer, e)
 	e.transcript.SetCopyHandlers(e.bus, e.copyToClipboard)
 	e.diff = pane.NewDiff(e.theme, cwd,
 		e.publishSubmit,
@@ -137,51 +129,42 @@ func NewEditor(
 		e.publishToast,
 	)
 
-	builtins := commands.NewBuiltinRegistry(
-		e.bus,
-		e.ctrl,
-		e.composer,
-		e.transcript,
-		modelNames,
-		skillPaths,
-		e.openDiff,
-		e.openCode,
-	)
-	e.commands = builtins.Registry
-	e.sessions = builtins.Sessions
-	e.sessions.ResetActivity = e.resetActivity
-	e.extCmds = builtins.Ext
-	e.extCmds.SetStatus = e.setExtensionStatus
-	e.composer.OnPaletteOpen = builtins.Ext.RefreshPalette
-
+	// Assembly order matters once: the registry has no domain deps, the
+	// submitter needs that registry, the domains need the submitter. Every
+	// collaborator lands in a constructor — no late Bind, no setter callbacks.
+	registry := commands.NewCommandRegistry()
 	cmdCtx := commands.NewContext(e.bus, e.composer.PushPalette)
 	e.submitter = submit.NewSubmitter(
 		e.ctrl,
-		e.commands,
+		registry,
 		e.transcript,
 		e.activity,
 		e.composer,
 		e.bus,
 		cmdCtx,
-		e.overlays.BlocksSessionSwitch,
-		e.overlays.Cancel,
+		e.overlays,
 	)
-	builtins.Bind(
-		e.submitter,
+	builtins := commands.NewBuiltinRegistry(
+		registry,
 		cmdCtx,
-		e.showSessionList,
-		e.composer.RefreshSessionList,
-		e.composer.ShowBranchList,
-		e.composer.RefreshBranchList,
-		e.showSkillList,
+		e.bus,
+		e.ctrl,
+		e.composer,
+		e.transcript,
 		e.cwd,
-		e.submitter.StreamActive,
+		modelNames,
+		skillPaths,
+		e,
+		e.submitter,
 	)
+	e.commands = builtins.Registry
+	e.extCmds = builtins.Ext
 
 	e.composer.Wire(composer.WireDeps{
 		Transcript:            e.transcript,
 		Submitter:             e.submitter,
 		Commands:              e.commands,
+		CommandCtx:            cmdCtx,
 		Bus:                   e.bus,
 		DrainBus:              e.drainBus,
 		OnRedraw:              e.vx.QueueRefresh,
@@ -189,7 +172,7 @@ func NewEditor(
 		OverlayBlocksComposer: e.blocksComposer,
 		HandleOverlayKey:      e.overlays.HandleKey,
 		HandleCopyKey:         e.handleCopyKey,
-		RequestFocusEditor:    e.focusSelf,
+		RequestFocusEditor:    e.FocusEditor,
 		RequestFocus:          e.App.RequestFocus,
 		CtrlClose:             e.ctrl.Close,
 	})
@@ -361,12 +344,22 @@ func (e *Editor) syncStatusSlot() {
 	e.composer.SetBottomLeftLabel(label)
 }
 
-func (e *Editor) resetActivity() {
+// ResetActivity drops the footer back to idle after a session switch rewinds
+// the transcript (HostUI).
+func (e *Editor) ResetActivity() {
 	e.activity.Apply(controller.ActivityIdle)
 }
 
-func (e *Editor) setExtensionStatus(status string) {
+// SetExtensionStatus shows an extension-set footer status (HostUI).
+func (e *Editor) SetExtensionStatus(status string) {
 	e.extStatus = status
+}
+
+// StreamActive reports whether input that would collide with the agent or a
+// modal must wait (HostUI). It rides the submitter's guard; a nil submitter
+// (partial test wiring) means nothing is in flight.
+func (e *Editor) StreamActive() bool {
+	return e.submitter != nil && e.submitter.StreamActive()
 }
 
 func (e *Editor) applyFooterMessage(msg controller.FooterMsg) {
@@ -390,9 +383,9 @@ func (e *Editor) blocksComposer() bool {
 	return e.code.Active()
 }
 
-// openDiff and openCode each close the other: two full-screen overlays cannot
+// OpenDiff and OpenCode each close the other: two full-screen overlays cannot
 // both own the frame, and the one underneath would come back on the next Esc.
-func (e *Editor) openDiff(args []string) {
+func (e *Editor) OpenDiff(args []string) {
 	e.code.Close()
 	if len(args) == 0 {
 		e.diff.Close()
@@ -436,9 +429,10 @@ func (e *Editor) showChanges(restore bool) {
 	}
 }
 
-// openCode shows a file in the viewer. A ":line" suffix puts the cursor there.
-// An "@" prefix is expanded to "./" so the shell can complete the path.
-func (e *Editor) openCode(args []string) {
+// OpenCode shows a file in the viewer (HostUI). A ":line" suffix puts the
+// cursor there. An "@" prefix is expanded to "./" so the shell can complete
+// the path.
+func (e *Editor) OpenCode(args []string) {
 	path := strings.TrimSpace(strings.Join(args, " "))
 	if strings.HasPrefix(path, "@") {
 		path = "./" + path[1:]
@@ -520,9 +514,9 @@ func (e *Editor) handleCopyKey(ctx *components.EventContext, ke xui.KeyEvent) bo
 	return e.transcript.HandleCopyKey(ctx, ke)
 }
 
-// focusSelf returns keyboard focus to the editor itself; full-screen overlays
-// keep keys away from the composer while open.
-func (e *Editor) focusSelf() { e.App.RequestFocus(e) }
+// FocusEditor returns keyboard focus to the editor itself; full-screen
+// overlays keep keys away from the composer while open (ShellHooks).
+func (e *Editor) FocusEditor() { e.App.RequestFocus(e) }
 
 // publishSubmit feeds diff-review edits through the normal submit path.
 func (e *Editor) publishSubmit(text string) {
@@ -541,9 +535,9 @@ func (e *Editor) copyToClipboard(text string) bool {
 	return e.vx.CopyToClipboard(text) == nil
 }
 
-// handleErrorReply performs the error dialog's Retry/Copy side effects. It
-// runs on the UI goroutine as the overlay resolves.
-func (e *Editor) handleErrorReply(r controller.ErrorReply, text string) {
+// ResolveErrorReply performs the error dialog's Retry/Copy side effects
+// (ShellHooks). It runs on the UI goroutine as the overlay resolves.
+func (e *Editor) ResolveErrorReply(r controller.ErrorReply, text string) {
 	switch {
 	case r.Retry:
 		e.activity.Apply(controller.ActivityWaiting)
@@ -568,23 +562,6 @@ func (e *Editor) handleErrorReply(r controller.ErrorReply, text string) {
 func (e *Editor) addPendingRef(ref chat.Ref) {
 	e.composer.AddPendingRef(ref)
 	e.composer.FocusChat()
-}
-
-// showSessionList opens the session picker bound to the session commands'
-// accept/delete handlers.
-func (e *Editor) showSessionList(items []session.SessionMeta, currentID string) {
-	e.composer.ShowSessionList(items, currentID, e.sessions.Accept, e.sessions.Delete)
-}
-
-// showSkillList opens the skills picker bound to the skills commands' accept
-// handler. /skill is a slash command, not a Ctrl+K palette entry: attaching a
-// skill belongs to composing a turn.
-func (e *Editor) showSkillList(
-	items []listpicker.Item,
-	cfg listpicker.ShowConfig,
-	onAccept func(listpicker.Item),
-) {
-	e.composer.ShowList(items, cfg, onAccept, nil)
 }
 
 // Draw renders the editor surface for the given draw context.

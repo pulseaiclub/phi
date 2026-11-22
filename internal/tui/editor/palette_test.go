@@ -134,8 +134,18 @@ func TestPaletteRefreshesRegistryOnlyWhenOpening(t *testing.T) {
 			return palette.PaletteCommand{ID: "live-setting", Verb: current}
 		},
 	})
-	rec := &recordingComposer{}
-	e.extCmds.Composer = rec
+	// The composer rebuilds its own palette root on open; the last registered
+	// command is live-setting, so its Verb shows which build ran.
+	root := func() string {
+		overlay, ok := e.composer.PaletteOverlay(components.DrawContext{
+			Max:    components.Size{Width: 100, Height: 30},
+			Method: xui.WidthUnicode,
+		})
+		require.True(t, ok, "palette must be open")
+		p, ok := overlay.Surface.Widget.(*palette.CommandPalette)
+		require.True(t, ok)
+		return p.Root[len(p.Root)-1].Verb
+	}
 	toggle := func() {
 		e.composer.Handle(
 			&components.EventContext{},
@@ -144,13 +154,13 @@ func TestPaletteRefreshesRegistryOnlyWhenOpening(t *testing.T) {
 	}
 	toggle()
 	require.Equal(t, 1, builds)
-	assert.Equal(t, "first", rec.last[len(rec.last)-1].Verb)
+	assert.Equal(t, "first", root())
 	toggle()
 	assert.Equal(t, 1, builds, "closing must not rebuild commands before Hide restores parent frames")
 	current = "second"
 	toggle()
 	require.Equal(t, 2, builds)
-	assert.Equal(t, "second", rec.last[len(rec.last)-1].Verb)
+	assert.Equal(t, "second", root())
 }
 
 func TestModelPaletteSavesDefaultAndRestoresSession(t *testing.T) {

@@ -71,8 +71,8 @@ func (o *Overlays) beginExtConfirm(msg controller.OverlayMsg) {
 		o.confirm.previous = o.activity.Current
 	}
 	o.activity.Apply(controller.ActivityAwaitingApproval)
-	if o.focusEditor != nil {
-		o.focusEditor()
+	if o.hooks != nil {
+		o.hooks.FocusEditor()
 	}
 }
 
@@ -85,8 +85,8 @@ func (o *Overlays) dismissExtConfirm() {
 	if o.activity != nil && o.activity.Current == controller.ActivityAwaitingApproval {
 		o.activity.Apply(st.previous)
 	}
-	if o.focusChat != nil {
-		o.focusChat()
+	if o.composer != nil {
+		o.composer.FocusChat()
 	}
 }
 
@@ -99,8 +99,8 @@ func (o *Overlays) resolveExtConfirm(r controller.ExtConfirmReply) {
 	if o.activity != nil && o.activity.Current == controller.ActivityAwaitingApproval {
 		o.activity.Apply(st.previous)
 	}
-	if o.focusChat != nil {
-		o.focusChat()
+	if o.composer != nil {
+		o.composer.FocusChat()
 	}
 	if st.reply != nil {
 		select {

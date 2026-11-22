@@ -11,6 +11,15 @@ import (
 type overlayComposer interface {
 	HideCompleters()
 	HidePalette()
+	FocusChat()
+}
+
+// ShellHooks is the editor surface overlays drive: keyboard focus back to the
+// shell, and the error dialog's Retry/Copy side effects. *editor.Editor
+// implements it; overlay callbacks stay one aggregate instead of loose funcs.
+type ShellHooks interface {
+	FocusEditor()
+	ResolveErrorReply(reply controller.ErrorReply, text string)
 }
 
 // Overlays owns extension-confirm and loop-error UI that replaces the composer slot.
@@ -20,10 +29,7 @@ type Overlays struct {
 	err      *errorAskState
 	activity *controller.ActivityHandler
 	composer overlayComposer
-
-	focusEditor    func()
-	focusChat      func()
-	onErrorResolve func(controller.ErrorReply, string)
+	hooks    ShellHooks
 }
 
 // NewOverlays builds overlay state handlers.
@@ -31,16 +37,13 @@ func NewOverlays(
 	theme components.Theme,
 	activity *controller.ActivityHandler,
 	composer overlayComposer,
-	focusEditor, focusChat func(),
-	onErrorResolve func(controller.ErrorReply, string),
+	hooks ShellHooks,
 ) *Overlays {
 	return &Overlays{
-		theme:          theme,
-		activity:       activity,
-		composer:       composer,
-		focusEditor:    focusEditor,
-		focusChat:      focusChat,
-		onErrorResolve: onErrorResolve,
+		theme:    theme,
+		activity: activity,
+		composer: composer,
+		hooks:    hooks,
 	}
 }
 

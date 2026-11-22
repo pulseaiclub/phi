@@ -14,6 +14,13 @@ import (
 	imgutil "github.com/pulseaiclub/phi/internal/util/image"
 )
 
+// OverlayGuard is the overlay surface submit needs: whether session switching
+// must wait on a modal, and how to tear open overlays down before a cancel.
+type OverlayGuard interface {
+	BlocksSessionSwitch() bool
+	Cancel()
+}
+
 // Submitter owns submit / cancel / slash dispatch and coordinates bash runs.
 type Submitter struct {
 	ctrl       *controller.EngineController
@@ -27,8 +34,7 @@ type Submitter struct {
 
 	bus *controller.Bus
 
-	overlayBlocksSessionSwitch func() bool
-	cancelOverlays             func()
+	overlays OverlayGuard
 }
 
 // NewSubmitter builds a Submitter from explicit collaborators (no *Editor back-pointer).
@@ -41,20 +47,18 @@ func NewSubmitter(
 	composer composer.Input,
 	bus *controller.Bus,
 	commandContext commands.Context,
-	overlayBlocksSessionSwitch func() bool,
-	cancelOverlays func(),
+	overlays OverlayGuard,
 ) *Submitter {
 	return &Submitter{
-		ctrl:                       ctrl,
-		commands:                   commands,
-		transcript:                 transcript,
-		activity:                   activity,
-		composer:                   composer,
-		bash:                       newBashRunner(transcript, composer, bus, ctrl),
-		commandContext:             commandContext,
-		bus:                        bus,
-		overlayBlocksSessionSwitch: overlayBlocksSessionSwitch,
-		cancelOverlays:             cancelOverlays,
+		ctrl:           ctrl,
+		commands:       commands,
+		transcript:     transcript,
+		activity:       activity,
+		composer:       composer,
+		bash:           newBashRunner(transcript, composer, bus, ctrl),
+		commandContext: commandContext,
+		bus:            bus,
+		overlays:       overlays,
 	}
 }
 
@@ -167,8 +171,8 @@ func (s *Submitter) handleUserInput(text string) {
 
 // Cancel aborts overlays, bash, or the in-flight agent stream.
 func (s *Submitter) Cancel() {
-	if s.cancelOverlays != nil {
-		s.cancelOverlays()
+	if s.overlays != nil {
+		s.overlays.Cancel()
 	}
 	if s.bash.Cancel() {
 		return
@@ -195,7 +199,7 @@ func (s *Submitter) IsBusy() bool {
 
 // StreamActive reports whether user input should be blocked for stream/overlays.
 func (s *Submitter) StreamActive() bool {
-	if s.IsBusy() || (s.overlayBlocksSessionSwitch != nil && s.overlayBlocksSessionSwitch()) {
+	if s.IsBusy() || (s.overlays != nil && s.overlays.BlocksSessionSwitch()) {
 		return true
 	}
 	switch s.activity.Current {

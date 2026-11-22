@@ -30,10 +30,11 @@ type ExtCommands struct {
 	Registry   *CommandRegistry
 	Ctrl       *controller.EngineController
 	Composer   extComposer
-	SetStatus  func(string)
 	Submitter  extSubmitter
 	Bus        *controller.Bus
 	CommandCtx Context
+	// ui writes extension status into the footer (HostUI.SetExtensionStatus).
+	ui HostUI
 
 	gen     atomic.Uint64
 	running atomic.Bool
@@ -114,8 +115,8 @@ func (h *ExtCommands) Apply(msg controller.ExtCommandResultMsg) {
 		publishToast(h.Bus, msg.Err, toast.ToastError, 3*time.Second)
 		return
 	}
-	if msg.StatusSet && h.SetStatus != nil {
-		h.SetStatus(msg.Status)
+	if msg.StatusSet && h.ui != nil {
+		h.ui.SetExtensionStatus(msg.Status)
 	}
 	if msg.Toast != "" {
 		publishToast(h.Bus, msg.Toast, toast.ToastSuccess, 3*time.Second)

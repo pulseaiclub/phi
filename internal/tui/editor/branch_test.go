@@ -113,19 +113,21 @@ func branchEditor(t *testing.T) *Editor {
 	}
 	e.composer.Wire(composer.WireDeps{})
 
-	builtins := commands.NewBuiltinRegistry(bus, nil, e.composer, nil, nil, nil, nil, nil)
-	e.commands = builtins.Registry
-	builtins.Bind(
-		nil,
+	registry := commands.NewCommandRegistry()
+	builtins := commands.NewBuiltinRegistry(
+		registry,
 		commands.NewContext(bus, nil),
+		bus,
 		nil,
-		nil,
-		e.composer.ShowBranchList,
-		e.composer.RefreshBranchList,
+		e.composer,
 		nil,
 		dir,
-		func() bool { return false },
+		nil,
+		nil,
+		e,
+		nil,
 	)
+	e.commands = builtins.Registry
 
 	return e
 }

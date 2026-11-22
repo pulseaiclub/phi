@@ -196,17 +196,19 @@ func TestCommandRegistry_DispatchSlash(t *testing.T) {
 	assert.True(t, r.DispatchSlash("/new", ctx))
 	assert.Equal(t, 1, started)
 
-	var spec []string
-	(&DiffCommands{
-		Open: func(args []string) { spec = append([]string(nil), args...) },
-	}).Register(r)
+	diffHost := &stubHost{}
+	(&DiffCommands{ui: diffHost}).Register(r)
 	assert.True(t, r.DispatchSlash("/diff staged", ctx))
-	assert.Equal(t, []string{"staged"}, spec)
+	require.Len(t, diffHost.opened, 1)
+	assert.Equal(t, []string{"diff"}, diffHost.route)
+	assert.Equal(t, []string{"staged"}, diffHost.opened[0])
 
 	_, incomplete := r.IncompleteSlash("/diff")
 	assert.False(t, incomplete, "diff args are optional; bare /diff should run")
 	assert.True(t, r.DispatchSlash("/diff", ctx))
-	assert.Empty(t, spec)
+	require.Len(t, diffHost.opened, 2)
+	assert.Empty(t, diffHost.opened[1])
+	assert.Equal(t, []string{"diff", "diff"}, diffHost.route)
 
 	assert.False(t, r.DispatchSlash("/unknown", ctx))
 	assert.False(t, r.DispatchSlash("not-slash", ctx))
@@ -328,10 +330,8 @@ func drainToast(t *testing.T, bus *controller.Bus) string {
 
 func TestCodeCommandPickerAndExplicitPath(t *testing.T) {
 	r := NewCommandRegistry()
-	var opened [][]string
-	(&CodeCommands{
-		Open: func(args []string) { opened = append(opened, append([]string(nil), args...)) },
-	}).Register(r)
+	host := &stubHost{}
+	(&CodeCommands{ui: host}).Register(r)
 
 	assert.Equal(t, "/code", r.LookupInsert("code"))
 
@@ -341,7 +341,8 @@ func TestCodeCommandPickerAndExplicitPath(t *testing.T) {
 	ctx := NewContext(controller.NewBus(nil), nil)
 	assert.True(t, r.DispatchSlash("/code", ctx))
 	assert.True(t, r.DispatchSlash("/code internal/tui/editor/editor.go:42", ctx))
-	require.Len(t, opened, 2)
-	assert.Empty(t, opened[0])
-	assert.Equal(t, []string{"internal/tui/editor/editor.go:42"}, opened[1])
+	require.Len(t, host.opened, 2)
+	assert.Equal(t, []string{"code", "code"}, host.route)
+	assert.Empty(t, host.opened[0])
+	assert.Equal(t, []string{"internal/tui/editor/editor.go:42"}, host.opened[1])
 }
