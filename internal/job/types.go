@@ -55,7 +55,7 @@ type Info struct {
 	Meta
 }
 
-// SpawnRequest configures a new job in memory; JSON tool arguments use [SpawnArgs].
+// SpawnRequest configures a new job in memory.
 type SpawnRequest struct {
 	Prompt          string
 	Description     string

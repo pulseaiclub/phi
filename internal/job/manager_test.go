@@ -2,7 +2,6 @@ package job_test
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -220,29 +219,6 @@ func TestConcurrencyBusy(t *testing.T) {
 	close(block)
 	_, err = m.Wait(ctx, info.ID)
 	require.NoError(t, err)
-}
-
-func TestHandleWaitTimeoutDoesNotCancelJob(t *testing.T) {
-	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, _ job.RunEnv) (string, error) {
-		<-ctx.Done()
-		return "", ctx.Err()
-	}), t.TempDir())
-
-	info, err := m.Spawn(t.Context(), job.SpawnRequest{Prompt: "slow"})
-	require.NoError(t, err)
-
-	raw, _ := json.Marshal(job.WaitArgs{JobID: info.ID, TimeoutSec: 1})
-	result, err := m.HandleWait(t.Context(), raw)
-	require.NoError(t, err)
-	assert.Equal(t, info.ID, result.Info.ID)
-	assert.False(t, result.Info.Status.Terminal())
-
-	// Job still live until Cancel.
-	got, err := m.Get(t.Context(), info.ID)
-	require.NoError(t, err)
-	assert.False(t, got.Status.Terminal())
-
-	require.NoError(t, m.Cancel(t.Context(), info.ID))
 }
 
 func TestMetaPersisted(t *testing.T) {
