@@ -202,35 +202,6 @@ func TestSpawnTimeoutIsTimedOut(t *testing.T) {
 	assert.Equal(t, job.StatusTimedOut, res.Info.Status)
 }
 
-func TestDepthLimit(t *testing.T) {
-	m := newMgr(t, job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
-		return "ok", nil
-	}), t.TempDir(), job.WithMaxDepth(1))
-
-	_, err := m.Spawn(t.Context(), job.SpawnRequest{Prompt: "nested", Depth: 1})
-	require.ErrorIs(t, err, job.ErrDepth)
-}
-
-func TestDefaultDepthLimitForNonpositiveOptions(t *testing.T) {
-	tests := []struct {
-		name string
-		opts []job.Option
-	}{
-		{name: "default"},
-		{name: "zero", opts: []job.Option{job.WithMaxDepth(0)}},
-		{name: "negative", opts: []job.Option{job.WithMaxDepth(-1)}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			m := newMgr(t, job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
-				return "ok", nil
-			}), t.TempDir(), tt.opts...)
-			_, err := m.Spawn(t.Context(), job.SpawnRequest{Prompt: "nested", Depth: 1})
-			require.ErrorIs(t, err, job.ErrDepth)
-		})
-	}
-}
-
 func TestDefaultConcurrencyLimitForNonpositiveOptions(t *testing.T) {
 	tests := []struct {
 		name string

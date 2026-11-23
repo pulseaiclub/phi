@@ -17,7 +17,6 @@ type Option func(*managerConfig)
 
 type managerConfig struct {
 	maxConcurrent      int
-	maxDepth           int
 	progressBufferSize int
 	roleModels         map[Role]llm.ModelConfig
 	recovery           RecoveryMode
@@ -28,11 +27,6 @@ type managerConfig struct {
 // WithMaxConcurrent limits simultaneous jobs. Non-positive limits use the default of 4.
 func WithMaxConcurrent(limit int) Option {
 	return func(c *managerConfig) { c.maxConcurrent = limit }
-}
-
-// WithMaxDepth limits job nesting. Non-positive limits use the default of 1.
-func WithMaxDepth(limit int) Option {
-	return func(c *managerConfig) { c.maxDepth = limit }
 }
 
 // WithSubscribeBufferSize sets the buffer size for progress subscriptions. Non-positive sizes use the default of 64.
@@ -65,7 +59,6 @@ type Manager struct {
 	store              Store
 	runner             Runner
 	maxConcurrent      int
-	maxDepth           int
 	progressBufferSize int
 	onStoreError       func(op, jobID string, err error)
 
@@ -109,9 +102,6 @@ func New(root string, runner Runner, opts ...Option) (*Manager, error) {
 	if cfg.maxConcurrent <= 0 {
 		cfg.maxConcurrent = 4
 	}
-	if cfg.maxDepth <= 0 {
-		cfg.maxDepth = 1
-	}
 	if cfg.progressBufferSize <= 0 {
 		cfg.progressBufferSize = 64
 	}
@@ -126,7 +116,6 @@ func New(root string, runner Runner, opts ...Option) (*Manager, error) {
 		store:              cfg.store,
 		runner:             runner,
 		maxConcurrent:      cfg.maxConcurrent,
-		maxDepth:           cfg.maxDepth,
 		progressBufferSize: cfg.progressBufferSize,
 		onStoreError:       cfg.onStoreError,
 		roleModels:         maps.Clone(cfg.roleModels),
@@ -199,13 +188,10 @@ func (m *Manager) SetRoleModels(models map[Role]llm.ModelConfig) {
 // Spawn starts a job asynchronously. The returned Info reflects starting state.
 //
 // Concurrency: if MaxConcurrent slots are full, Spawn returns [ErrBusy]
-// (jobs are not queued). Depth: if req.Depth >= MaxDepth, returns [ErrDepth].
+// (jobs are not queued).
 func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (Info, error) {
 	if err := req.validate(); err != nil {
 		return Info{}, err
-	}
-	if req.Depth >= m.maxDepth {
-		return Info{}, fmt.Errorf("%w: depth %d >= max %d", ErrDepth, req.Depth, m.maxDepth)
 	}
 
 	m.mu.Lock()
@@ -231,7 +217,6 @@ func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (Info, error) {
 	meta := Meta{
 		ID:          id,
 		ParentID:    req.ParentID,
-		ParentDepth: req.Depth,
 		Role:        NormalizeRole(string(req.Role)),
 		Prompt:      req.Prompt,
 		Description: req.Description,
@@ -564,9 +549,6 @@ func (m *Manager) ParentToolUseID(jobID string) string {
 	}
 	return ""
 }
-
-// MaxDepth exposes the configured nesting ceiling (for tool adapters).
-func (m *Manager) MaxDepth() int { return m.maxDepth }
 
 // MaxConcurrent exposes the concurrency ceiling.
 func (m *Manager) MaxConcurrent() int { return m.maxConcurrent }

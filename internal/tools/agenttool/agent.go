@@ -62,7 +62,7 @@ func WithWorkDir(workDir func() string) AgentOption {
 }
 
 // AgentTools returns agent_spawn and agent_wait.
-// Depth is forced to 0; the parent id comes from WithParentID, not model args.
+// The parent id comes from WithParentID, not model args.
 func AgentTools(opts ...AgentOption) []tooldef.Tool {
 	cfg := agentConfig{
 		parentID: func() string { return "" },
@@ -134,7 +134,6 @@ Concurrency cap: at most %d sub-agents run concurrently; spawning more fails (jo
 				Description:     in.Description,
 				ParentID:        cfg.parentID(),
 				ParentToolUseID: tooldef.ToolCallID(ctx),
-				Depth:           0,
 				Role:            role,
 				WorkDir:         wd,
 			}
