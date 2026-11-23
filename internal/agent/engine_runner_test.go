@@ -50,13 +50,9 @@ func TestEngineRunnerViaJobManager(t *testing.T) {
 	workdir := t.TempDir()
 
 	runner := agent.EngineRunner{}
-	mgr, err := job.New(job.Options{
-		Root: jobsRoot,
-		RoleModels: map[job.Role]llm.ModelConfig{
-			job.RoleExplore: {Name: "fake", BaseURL: srv.URL, APIKey: "x"},
-		},
-		Runner: runner,
-	})
+	mgr, err := job.New(jobsRoot, runner, job.WithRoleModels(map[job.Role]llm.ModelConfig{
+		job.RoleExplore: {Name: "fake", BaseURL: srv.URL, APIKey: "x"},
+	}))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
 
@@ -151,13 +147,9 @@ func TestEngineRunnerCancel(t *testing.T) {
 	defer close(block)
 
 	runner := agent.EngineRunner{}
-	mgr, err := job.New(job.Options{
-		Root: t.TempDir(),
-		RoleModels: map[job.Role]llm.ModelConfig{
-			job.RoleExplore: {Name: "fake", BaseURL: srv.URL, APIKey: "x"},
-		},
-		Runner: runner,
-	})
+	mgr, err := job.New(t.TempDir(), runner, job.WithRoleModels(map[job.Role]llm.ModelConfig{
+		job.RoleExplore: {Name: "fake", BaseURL: srv.URL, APIKey: "x"},
+	}))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
 
@@ -214,13 +206,9 @@ func TestEngineRunnerChildUsesItsOwnWorkdir(t *testing.T) {
 	require.NoError(t, os.Mkdir(workdir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("child-workdir-rule"), 0o644))
 
-	mgr, err := job.New(job.Options{
-		Root: t.TempDir(),
-		RoleModels: map[job.Role]llm.ModelConfig{
-			job.RoleExplore: {Name: "fake", BaseURL: srv.URL, APIKey: "x"},
-		},
-		Runner: agent.EngineRunner{},
-	})
+	mgr, err := job.New(t.TempDir(), agent.EngineRunner{}, job.WithRoleModels(map[job.Role]llm.ModelConfig{
+		job.RoleExplore: {Name: "fake", BaseURL: srv.URL, APIKey: "x"},
+	}))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
 

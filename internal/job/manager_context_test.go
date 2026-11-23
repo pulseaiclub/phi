@@ -23,7 +23,7 @@ func TestSpawnPassesIndependentParentContexts(t *testing.T) {
 		case <-ctx.Done():
 			return "", ctx.Err()
 		}
-	}), job.Options{MaxConcurrent: 4})
+	}), t.TempDir(), job.WithMaxConcurrent(4))
 	t.Cleanup(func() { close(release) })
 
 	contexts := []job.ParentContext{
@@ -64,7 +64,7 @@ func TestSpawnRejectsInvalidParentContextBeforeCreatingJob(t *testing.T) {
 	mgr := newMgr(t, job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
 		calls <- struct{}{}
 		return "done", nil
-	}), job.Options{Root: root, MaxConcurrent: 1})
+	}), root, job.WithMaxConcurrent(1))
 
 	_, err := mgr.Spawn(t.Context(), job.SpawnRequest{
 		Prompt: "work", ParentContext: job.ParentContext{Mode: "fork"},

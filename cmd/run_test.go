@@ -191,12 +191,9 @@ func TestSelectedBuiltinToolsStillAppendExternalTools(t *testing.T) {
 		"echo": {Command: []string{"true"}},
 	})
 	t.Cleanup(func() { require.NoError(t, pool.Close()) })
-	jobs, err := job.New(job.Options{
-		Root: t.TempDir(),
-		Runner: job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
-			return "ok", nil
-		}),
-	})
+	jobs, err := job.New(t.TempDir(), job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
+		return "ok", nil
+	}))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, jobs.Close(t.Context())) })
 
