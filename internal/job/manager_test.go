@@ -17,13 +17,9 @@ import (
 	"github.com/pulseaiclub/phi/internal/llm"
 )
 
-func newMgr(t *testing.T, runner job.Runner, opts job.Options) *job.Manager {
+func newMgr(t *testing.T, runner job.Runner, root string, opts ...job.Option) *job.Manager {
 	t.Helper()
-	if opts.Root == "" {
-		opts.Root = t.TempDir()
-	}
-	opts.Runner = runner
-	m, err := job.New(opts)
+	m, err := job.New(root, runner, opts...)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		// t.Context is canceled before cleanup; Close must still wait for job writes.
@@ -38,7 +34,7 @@ func TestSpawnWaitResultOnDisk(t *testing.T) {
 	m := newMgr(t, job.RunnerFunc(func(_ context.Context, env job.RunEnv) (string, error) {
 		env.Log("step-1")
 		return "hello from " + env.Job.ID, nil
-	}), job.Options{})
+	}), t.TempDir())
 
 	ctx := t.Context()
 	a, err := m.Spawn(ctx, job.SpawnRequest{Prompt: "explore A", Description: "A"})
@@ -77,9 +73,9 @@ func TestRoleModelsAreSpawnSnapshots(t *testing.T) {
 			<-release
 		}
 		return "ok", nil
-	}), job.Options{RoleModels: map[job.Role]llm.ModelConfig{
+	}), t.TempDir(), job.WithRoleModels(map[job.Role]llm.ModelConfig{
 		job.RoleExplore: {Name: "old"},
-	}})
+	}))
 
 	first, err := m.Spawn(t.Context(), job.SpawnRequest{Prompt: "one", Description: "first"})
 	require.NoError(t, err)
@@ -103,7 +99,7 @@ func TestCancelStopsRunner(t *testing.T) {
 		close(started)
 		<-ctx.Done()
 		return "", ctx.Err()
-	}), job.Options{})
+	}), t.TempDir())
 
 	ctx := t.Context()
 	info, err := m.Spawn(ctx, job.SpawnRequest{Prompt: "long"})
@@ -125,7 +121,7 @@ func TestSpawnTimeoutIsTimedOut(t *testing.T) {
 	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, _ job.RunEnv) (string, error) {
 		<-ctx.Done()
 		return "", ctx.Err()
-	}), job.Options{})
+	}), t.TempDir())
 
 	info, err := m.Spawn(t.Context(), job.SpawnRequest{
 		Prompt:  "slow",
@@ -141,10 +137,68 @@ func TestSpawnTimeoutIsTimedOut(t *testing.T) {
 func TestDepthLimit(t *testing.T) {
 	m := newMgr(t, job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
 		return "ok", nil
-	}), job.Options{MaxDepth: 1})
+	}), t.TempDir(), job.WithMaxDepth(1))
 
 	_, err := m.Spawn(t.Context(), job.SpawnRequest{Prompt: "nested", Depth: 1})
 	require.ErrorIs(t, err, job.ErrDepth)
+}
+
+func TestDefaultDepthLimitForNonpositiveOptions(t *testing.T) {
+	tests := []struct {
+		name string
+		opts []job.Option
+	}{
+		{name: "default"},
+		{name: "zero", opts: []job.Option{job.WithMaxDepth(0)}},
+		{name: "negative", opts: []job.Option{job.WithMaxDepth(-1)}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newMgr(t, job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
+				return "ok", nil
+			}), t.TempDir(), tt.opts...)
+			_, err := m.Spawn(t.Context(), job.SpawnRequest{Prompt: "nested", Depth: 1})
+			require.ErrorIs(t, err, job.ErrDepth)
+		})
+	}
+}
+
+func TestDefaultConcurrencyLimitForNonpositiveOptions(t *testing.T) {
+	tests := []struct {
+		name string
+		opts []job.Option
+	}{
+		{name: "default"},
+		{name: "zero", opts: []job.Option{job.WithMaxConcurrent(0)}},
+		{name: "negative", opts: []job.Option{job.WithMaxConcurrent(-1)}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			block := make(chan struct{})
+			m := newMgr(t, job.RunnerFunc(func(ctx context.Context, _ job.RunEnv) (string, error) {
+				select {
+				case <-block:
+					return "ok", nil
+				case <-ctx.Done():
+					return "", ctx.Err()
+				}
+			}), t.TempDir(), tt.opts...)
+			ctx := t.Context()
+			infos := make([]job.Info, 4)
+			for i := range infos {
+				var err error
+				infos[i], err = m.Spawn(ctx, job.SpawnRequest{Prompt: "blocked"})
+				require.NoError(t, err)
+			}
+			_, err := m.Spawn(ctx, job.SpawnRequest{Prompt: "blocked"})
+			require.ErrorIs(t, err, job.ErrBusy)
+			close(block)
+			for _, info := range infos {
+				_, err = m.Wait(ctx, info.ID)
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 func TestConcurrencyBusy(t *testing.T) {
@@ -156,7 +210,7 @@ func TestConcurrencyBusy(t *testing.T) {
 		case <-ctx.Done():
 			return "", ctx.Err()
 		}
-	}), job.Options{MaxConcurrent: 1})
+	}), t.TempDir(), job.WithMaxConcurrent(1))
 
 	ctx := t.Context()
 	info, err := m.Spawn(ctx, job.SpawnRequest{Prompt: "1"})
@@ -172,7 +226,7 @@ func TestHandleWaitTimeoutDoesNotCancelJob(t *testing.T) {
 	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, _ job.RunEnv) (string, error) {
 		<-ctx.Done()
 		return "", ctx.Err()
-	}), job.Options{})
+	}), t.TempDir())
 
 	info, err := m.Spawn(t.Context(), job.SpawnRequest{Prompt: "slow"})
 	require.NoError(t, err)
@@ -195,7 +249,7 @@ func TestMetaPersisted(t *testing.T) {
 	root := t.TempDir()
 	m := newMgr(t, job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
 		return "summary", nil
-	}), job.Options{Root: root})
+	}), root)
 
 	info, err := m.Spawn(t.Context(), job.SpawnRequest{
 		Prompt:   "p",
@@ -217,6 +271,7 @@ func TestRecoverStaleJobsOnNew(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "job_zombie")
 	require.NoError(t, os.MkdirAll(dir, 0o755))
+
 	// strconv.Quote so Windows paths with backslashes remain valid JSON.
 	meta := `{
   "id": "job_zombie",
@@ -232,7 +287,7 @@ func TestRecoverStaleJobsOnNew(t *testing.T) {
 
 	m := newMgr(t, job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
 		return "ok", nil
-	}), job.Options{Root: root})
+	}), root)
 
 	info, err := m.Get(t.Context(), "job_zombie")
 	require.NoError(t, err)
@@ -257,13 +312,10 @@ func TestRecoverIgnoreLeavesStale(t *testing.T) {
 }`
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "meta.json"), []byte(meta), 0o644))
 
-	m, err := job.New(job.Options{
-		Root:     root,
-		Recovery: job.RecoverIgnore,
-		Runner: job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
-			return "ok", nil
-		}),
-	})
+	m, err := job.New(root, job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
+		return "ok", nil
+	}), job.WithRecovery(job.RecoverIgnore))
+
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = m.Close(t.Context()) })
 
@@ -286,13 +338,12 @@ func TestOnStoreErrorCallback(t *testing.T) {
 	// Smoke: ensure option is accepted and normal path never fires.
 	m := newMgr(t, job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
 		return "ok", nil
-	}), job.Options{
-		OnStoreError: func(op, _ string, _ error) {
-			mu.Lock()
-			ops = append(ops, op)
-			mu.Unlock()
-		},
-	})
+	}), t.TempDir(), job.WithOnStoreError(func(op, _ string, _ error) {
+		mu.Lock()
+		ops = append(ops, op)
+		mu.Unlock()
+	}))
+
 	info, err := m.Spawn(t.Context(), job.SpawnRequest{Prompt: "x"})
 	require.NoError(t, err)
 	_, err = m.Wait(t.Context(), info.ID)
@@ -317,7 +368,7 @@ func TestSubscribeProgress(t *testing.T) {
 			Detail:    "foo.go",
 		})
 		return "done", nil
-	}), job.Options{})
+	}), t.TempDir())
 
 	ch, cancel := m.Subscribe()
 	defer cancel()
@@ -352,7 +403,7 @@ func TestSubscribeProgress(t *testing.T) {
 func TestSubscribeCancelAfterClose(t *testing.T) {
 	m := newMgr(t, job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
 		return "ok", nil
-	}), job.Options{})
+	}), t.TempDir())
 
 	_, cancel := m.Subscribe()
 	require.NoError(t, m.Close(t.Context()))
@@ -372,7 +423,7 @@ func TestEmitProgressCancelRace(t *testing.T) {
 				env.OnProgress(job.Progress{Name: "read", Status: "in-progress", Detail: "x"})
 			}
 			return "", ctx.Err()
-		}), job.Options{})
+		}), t.TempDir())
 
 		ch, cancel := m.Subscribe()
 		go func() {

@@ -19,7 +19,7 @@ import (
 
 func newAgentTestRegistry(t *testing.T, runner job.RunnerFunc) (*job.Manager, tooldef.Registry) {
 	t.Helper()
-	mgr, err := job.New(job.Options{Root: t.TempDir(), Runner: runner})
+	mgr, err := job.New(t.TempDir(), runner)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
 	workdir := t.TempDir()

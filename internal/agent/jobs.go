@@ -18,11 +18,7 @@ func NewJobManager(
 	if root == "" {
 		return nil, errors.New("agent: jobs root is required")
 	}
-	return job.New(job.Options{
-		Root:       root,
-		RoleModels: models,
-		Runner: EngineRunner{
-			ExtensionsFn: extensionsFn,
-		},
-	})
+	return job.New(root, EngineRunner{
+		ExtensionsFn: extensionsFn,
+	}, job.WithRoleModels(models))
 }
