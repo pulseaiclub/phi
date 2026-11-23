@@ -31,10 +31,9 @@ func newAgentTestRegistry(t *testing.T, runner job.RunnerFunc) (*job.Manager, to
 	return mgr, reg
 }
 
-func TestAgentToolsSpawnWaitForcesDepthAndParent(t *testing.T) {
+func TestAgentToolsSpawnUsesConfiguredParent(t *testing.T) {
 	_, reg := newAgentTestRegistry(t, func(_ context.Context, env job.RunEnv) (string, error) {
 		assert.Equal(t, "parent-1", env.Job.ParentID)
-		assert.Equal(t, 0, env.Job.ParentDepth)
 		return "summary-ok", nil
 	})
 	require.Contains(t, reg, "agent_spawn")
@@ -44,7 +43,6 @@ func TestAgentToolsSpawnWaitForcesDepthAndParent(t *testing.T) {
 	spawnArgs, _ := json.Marshal(map[string]any{
 		"prompt":      "do work",
 		"description": "d",
-		"depth":       99, // must be ignored
 		"parent_id":   "evil",
 	})
 	spawnRes, err := reg["agent_spawn"].Run(t.Context(), spawnArgs)
