@@ -29,6 +29,75 @@ func newMgr(t *testing.T, runner job.Runner, root string, opts ...job.Option) *j
 	return m
 }
 
+type memoryStore struct {
+	mu      sync.Mutex
+	metas   map[string]job.Meta
+	results map[string]string
+}
+
+func newMemoryStore() *memoryStore {
+	return &memoryStore{
+		metas:   make(map[string]job.Meta),
+		results: make(map[string]string),
+	}
+}
+
+func (s *memoryStore) Create(meta job.Meta) (job.Meta, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.metas[meta.ID] = meta
+	return meta, nil
+}
+
+func (s *memoryStore) Save(meta job.Meta) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.metas[meta.ID] = meta
+	return nil
+}
+
+func (s *memoryStore) Load(id string) (job.Meta, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	meta, ok := s.metas[id]
+	if !ok {
+		return job.Meta{}, job.ErrNotFound
+	}
+	return meta, nil
+}
+
+func (*memoryStore) AppendEvent(string, string) error { return nil }
+
+func (*memoryStore) ReadEvents(string, int) ([]job.Event, error) { return nil, nil }
+
+func (s *memoryStore) WriteResult(id, summary string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.results[id] = summary
+	return nil
+}
+
+func (s *memoryStore) ReadResult(id string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.results[id], nil
+}
+
+func (s *memoryStore) ListIDs() ([]string, error) { return nil, nil }
+
+func TestManagerUsesInjectedStore(t *testing.T) {
+	store := newMemoryStore()
+	m := newMgr(t, job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
+		return "from memory", nil
+	}), "", job.WithStore(store))
+
+	info, err := m.Spawn(t.Context(), job.SpawnRequest{Prompt: "p"})
+	require.NoError(t, err)
+	result, err := m.Wait(t.Context(), info.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "from memory", result.Summary)
+}
+
 func TestSpawnWaitResultOnDisk(t *testing.T) {
 	m := newMgr(t, job.RunnerFunc(func(_ context.Context, env job.RunEnv) (string, error) {
 		env.Log("step-1")
@@ -196,6 +265,32 @@ func TestDefaultConcurrencyLimitForNonpositiveOptions(t *testing.T) {
 				_, err = m.Wait(ctx, info.ID)
 				require.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestSubscribeBufferSizeOption(t *testing.T) {
+	tests := []struct {
+		name string
+		size int
+	}{
+		{name: "configured", size: 3},
+		{name: "zero uses default", size: 0},
+		{name: "negative uses default", size: -1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newMgr(t, job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
+				return "ok", nil
+			}), t.TempDir(), job.WithSubscribeBufferSize(tt.size))
+
+			ch, cancel := m.Subscribe()
+			defer cancel()
+			want := tt.size
+			if want <= 0 {
+				want = 64
+			}
+			assert.Equal(t, want, cap(ch))
 		})
 	}
 }

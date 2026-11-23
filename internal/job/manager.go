@@ -16,11 +16,13 @@ import (
 type Option func(*managerConfig)
 
 type managerConfig struct {
-	maxConcurrent int
-	maxDepth      int
-	roleModels    map[Role]llm.ModelConfig
-	recovery      RecoveryMode
-	onStoreError  func(op, jobID string, err error)
+	maxConcurrent      int
+	maxDepth           int
+	progressBufferSize int
+	roleModels         map[Role]llm.ModelConfig
+	recovery           RecoveryMode
+	onStoreError       func(op, jobID string, err error)
+	store              Store
 }
 
 // WithMaxConcurrent limits simultaneous jobs. Non-positive limits use the default of 4.
@@ -31,6 +33,11 @@ func WithMaxConcurrent(limit int) Option {
 // WithMaxDepth limits job nesting. Non-positive limits use the default of 1.
 func WithMaxDepth(limit int) Option {
 	return func(c *managerConfig) { c.maxDepth = limit }
+}
+
+// WithSubscribeBufferSize sets the buffer size for progress subscriptions. Non-positive sizes use the default of 64.
+func WithSubscribeBufferSize(size int) Option {
+	return func(c *managerConfig) { c.progressBufferSize = size }
 }
 
 // WithRoleModels sets the initial models for child jobs.
@@ -48,13 +55,19 @@ func WithOnStoreError(fn func(op, jobID string, err error)) Option {
 	return func(c *managerConfig) { c.onStoreError = fn }
 }
 
+// WithStore replaces the default filesystem-backed job store.
+func WithStore(store Store) Option {
+	return func(c *managerConfig) { c.store = store }
+}
+
 // Manager owns in-process job lifecycles and a disk store.
 type Manager struct {
-	store         *store
-	runner        Runner
-	maxConcurrent int
-	maxDepth      int
-	onStoreError  func(op, jobID string, err error)
+	store              Store
+	runner             Runner
+	maxConcurrent      int
+	maxDepth           int
+	progressBufferSize int
+	onStoreError       func(op, jobID string, err error)
 
 	mu         sync.Mutex
 	roleModels map[Role]llm.ModelConfig
@@ -89,10 +102,6 @@ func New(root string, runner Runner, opts ...Option) (*Manager, error) {
 	if runner == nil {
 		return nil, fmt.Errorf("%w: Runner is required", ErrInvalid)
 	}
-	st, err := newStore(root)
-	if err != nil {
-		return nil, err
-	}
 	var cfg managerConfig
 	for _, opt := range opts {
 		opt(&cfg)
@@ -103,15 +112,26 @@ func New(root string, runner Runner, opts ...Option) (*Manager, error) {
 	if cfg.maxDepth <= 0 {
 		cfg.maxDepth = 1
 	}
+	if cfg.progressBufferSize <= 0 {
+		cfg.progressBufferSize = 64
+	}
+	if cfg.store == nil {
+		var err error
+		cfg.store, err = newFileStore(root)
+		if err != nil {
+			return nil, err
+		}
+	}
 	m := &Manager{
-		store:         st,
-		runner:        runner,
-		maxConcurrent: cfg.maxConcurrent,
-		maxDepth:      cfg.maxDepth,
-		onStoreError:  cfg.onStoreError,
-		roleModels:    maps.Clone(cfg.roleModels),
-		slots:         make(chan struct{}, cfg.maxConcurrent),
-		jobs:          make(map[string]*liveJob),
+		store:              cfg.store,
+		runner:             runner,
+		maxConcurrent:      cfg.maxConcurrent,
+		maxDepth:           cfg.maxDepth,
+		progressBufferSize: cfg.progressBufferSize,
+		onStoreError:       cfg.onStoreError,
+		roleModels:         maps.Clone(cfg.roleModels),
+		slots:              make(chan struct{}, cfg.maxConcurrent),
+		jobs:               make(map[string]*liveJob),
 	}
 	if cfg.recovery != RecoverIgnore {
 		if err := m.recoverStale(); err != nil {
@@ -122,13 +142,13 @@ func New(root string, runner Runner, opts ...Option) (*Manager, error) {
 }
 
 func (m *Manager) recoverStale() error {
-	ids, err := m.store.listIDs()
+	ids, err := m.store.ListIDs()
 	if err != nil {
 		return err
 	}
 	now := time.Now().UTC()
 	for _, id := range ids {
-		meta, err := m.store.readMeta(id)
+		meta, err := m.store.Load(id)
 		if err != nil {
 			m.reportStore("readMeta", id, err)
 			continue
@@ -139,10 +159,10 @@ func (m *Manager) recoverStale() error {
 		meta.Status = StatusFailed
 		meta.FinishedAt = now
 		meta.Error = "interrupted: process restarted before job finished"
-		if err := m.store.writeMeta(meta); err != nil {
+		if err := m.store.Save(meta); err != nil {
 			return fmt.Errorf("job: recover %s: %w", id, err)
 		}
-		if err := m.store.appendEvent(meta, "recovered: marked failed after restart"); err != nil {
+		if err := m.store.AppendEvent(id, "recovered: marked failed after restart"); err != nil {
 			m.reportStore("appendEvent", id, err)
 		}
 	}
@@ -157,13 +177,13 @@ func (m *Manager) reportStore(op, jobID string, err error) {
 }
 
 func (m *Manager) persistMeta(meta Meta) {
-	if err := m.store.writeMeta(meta); err != nil {
+	if err := m.store.Save(meta); err != nil {
 		m.reportStore("writeMeta", meta.ID, err)
 	}
 }
 
 func (m *Manager) persistEvent(meta Meta, msg string) {
-	if err := m.store.appendEvent(meta, msg); err != nil {
+	if err := m.store.AppendEvent(meta.ID, msg); err != nil {
 		m.reportStore("appendEvent", meta.ID, err)
 	}
 }
@@ -219,7 +239,7 @@ func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (Info, error) {
 		Status:      StatusStarting,
 		CreatedAt:   now,
 	}
-	meta, err = m.store.create(meta)
+	meta, err = m.store.Create(meta)
 	if err != nil {
 		<-m.slots
 		return Info{}, err
@@ -276,7 +296,7 @@ func (m *Manager) run(ctx context.Context, lj *liveJob) {
 			m.persistEvent(meta, message)
 		},
 		WriteResult: func(summary string) error {
-			err := m.store.writeResult(meta, summary)
+			err := m.store.WriteResult(meta.ID, summary)
 			if err != nil {
 				m.reportStore("writeResult", meta.ID, err)
 			}
@@ -322,7 +342,7 @@ func (m *Manager) run(ctx context.Context, lj *liveJob) {
 	default:
 		meta.Status = StatusCompleted
 		if summary != "" {
-			if werr := m.store.writeResult(meta, summary); werr != nil {
+			if werr := m.store.WriteResult(meta.ID, summary); werr != nil {
 				m.reportStore("writeResult", meta.ID, werr)
 				meta.Status = StatusFailed
 				meta.Error = "failed to write result.md: " + werr.Error()
@@ -367,7 +387,7 @@ func (m *Manager) loadInfo(id string) (Info, error) {
 		return Info{Meta: meta}, nil
 	}
 	m.mu.Unlock()
-	meta, err := m.store.readMeta(id)
+	meta, err := m.store.Load(id)
 	if err != nil {
 		return Info{}, err
 	}
@@ -384,7 +404,7 @@ func (m *Manager) Wait(ctx context.Context, id string) (WaitResult, error) {
 			return WaitResult{}, err
 		}
 		if info.Status.Terminal() {
-			summary, _ := m.store.readResult(info.Meta)
+			summary, _ := m.store.ReadResult(info.ID)
 			return WaitResult{Info: info, Summary: summary}, nil
 		}
 
@@ -402,7 +422,7 @@ func (m *Manager) Wait(ctx context.Context, id string) (WaitResult, error) {
 				return WaitResult{}, err
 			}
 			if info.Status.Terminal() {
-				summary, _ := m.store.readResult(info.Meta)
+				summary, _ := m.store.ReadResult(info.ID)
 				return WaitResult{Info: info, Summary: summary}, nil
 			}
 			return WaitResult{}, fmt.Errorf("%w: %s disappeared while non-terminal", ErrNotFound, id)
@@ -425,7 +445,7 @@ func (m *Manager) Log(ctx context.Context, id string, limit int) ([]Event, error
 	if err != nil {
 		return nil, err
 	}
-	return m.store.readEvents(info.Meta, limit)
+	return m.store.ReadEvents(info.ID, limit)
 }
 
 // Cancel requests cancellation of a running/starting job.
@@ -489,7 +509,7 @@ func (m *Manager) Close(ctx context.Context) error {
 // Subscribe receives live [Progress] events. The channel is buffered; slow
 // consumers may miss events. Cancel closes the channel and unregisters.
 func (m *Manager) Subscribe() (<-chan Progress, func()) {
-	ch := make(chan Progress, 64)
+	ch := make(chan Progress, m.progressBufferSize)
 	sub := &subscriber{ch: ch}
 	m.mu.Lock()
 	if m.closed {

@@ -17,21 +17,33 @@ const (
 	resultFile = "result.md"
 )
 
-type store struct {
+// Store persists job metadata, events, and results.
+type Store interface {
+	Create(Meta) (Meta, error)
+	Save(Meta) error
+	Load(id string) (Meta, error)
+	AppendEvent(id, message string) error
+	ReadEvents(id string, limit int) ([]Event, error)
+	WriteResult(id, summary string) error
+	ReadResult(id string) (string, error)
+	ListIDs() ([]string, error)
+}
+
+type fileStore struct {
 	root string
 }
 
-func newStore(root string) (*store, error) {
+func newFileStore(root string) (*fileStore, error) {
 	if root == "" {
 		return nil, fmt.Errorf("%w: root directory is required", ErrInvalid)
 	}
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, err
 	}
-	return &store{root: root}, nil
+	return &fileStore{root: root}, nil
 }
 
-func (s *store) create(meta Meta) (Meta, error) {
+func (s *fileStore) Create(meta Meta) (Meta, error) {
 	dir := filepath.Join(s.root, meta.ID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return Meta{}, err
@@ -39,7 +51,7 @@ func (s *store) create(meta Meta) (Meta, error) {
 	meta.Dir = dir
 	meta.ResultPath = filepath.Join(dir, resultFile)
 	meta.EventsPath = filepath.Join(dir, eventsFile)
-	if err := s.writeMeta(meta); err != nil {
+	if err := s.Save(meta); err != nil {
 		return Meta{}, err
 	}
 	f, err := os.OpenFile(meta.EventsPath, os.O_CREATE|os.O_WRONLY, 0o644)
@@ -50,8 +62,8 @@ func (s *store) create(meta Meta) (Meta, error) {
 	return meta, nil
 }
 
-func (*store) writeMeta(meta Meta) error {
-	path := filepath.Join(meta.Dir, metaFile)
+func (s *fileStore) Save(meta Meta) error {
+	path := filepath.Join(s.root, meta.ID, metaFile)
 	data, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {
 		return err
@@ -63,7 +75,7 @@ func (*store) writeMeta(meta Meta) error {
 	return os.Rename(tmp, path)
 }
 
-func (s *store) readMeta(id string) (Meta, error) {
+func (s *fileStore) Load(id string) (Meta, error) {
 	path := filepath.Join(s.root, id, metaFile)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -79,13 +91,13 @@ func (s *store) readMeta(id string) (Meta, error) {
 	return meta, nil
 }
 
-func (*store) appendEvent(meta Meta, msg string) error {
-	ev := Event{Time: time.Now().UTC(), Message: msg}
+func (s *fileStore) AppendEvent(id, message string) error {
+	ev := Event{Time: time.Now().UTC(), Message: message}
 	line, err := json.Marshal(ev)
 	if err != nil {
 		return err
 	}
-	f, err := os.OpenFile(meta.EventsPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(filepath.Join(s.root, id, eventsFile), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
@@ -94,8 +106,8 @@ func (*store) appendEvent(meta Meta, msg string) error {
 	return err
 }
 
-func (*store) readEvents(meta Meta, limit int) ([]Event, error) {
-	data, err := os.ReadFile(meta.EventsPath)
+func (s *fileStore) ReadEvents(id string, limit int) ([]Event, error) {
+	data, err := os.ReadFile(filepath.Join(s.root, id, eventsFile))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -120,13 +132,13 @@ func (*store) readEvents(meta Meta, limit int) ([]Event, error) {
 	return out, nil
 }
 
-func (*store) writeResult(meta Meta, summary string) error {
+func (s *fileStore) WriteResult(id, summary string) error {
 	//nolint:gosec // G306: job results are local tooling state
-	return os.WriteFile(meta.ResultPath, []byte(summary), 0o644)
+	return os.WriteFile(filepath.Join(s.root, id, resultFile), []byte(summary), 0o644)
 }
 
-func (*store) readResult(meta Meta) (string, error) {
-	data, err := os.ReadFile(meta.ResultPath)
+func (s *fileStore) ReadResult(id string) (string, error) {
+	data, err := os.ReadFile(filepath.Join(s.root, id, resultFile))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", nil
@@ -136,7 +148,7 @@ func (*store) readResult(meta Meta) (string, error) {
 	return string(data), nil
 }
 
-func (s *store) listIDs() ([]string, error) {
+func (s *fileStore) ListIDs() ([]string, error) {
 	entries, err := os.ReadDir(s.root)
 	if err != nil {
 		return nil, err
