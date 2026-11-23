@@ -3,6 +3,7 @@ package agenttool
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -185,12 +186,13 @@ func oneLine(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-// jobIDInput is the {job_id} payload of agent_wait.
-type jobIDInput struct {
-	JobID string `json:"job_id"`
+// waitInput is the JSON payload of agent_wait.
+type waitInput struct {
+	JobID      string `json:"job_id"`
+	TimeoutSec int    `json:"timeout_sec,omitempty"`
 }
 
-func jobIDDetail(in jobIDInput) string {
+func jobIDDetail(in waitInput) string {
 	return in.JobID
 }
 
@@ -233,7 +235,7 @@ A wait timeout or interrupted wait does NOT cancel the job; it keeps running unt
 		}),
 		tooldef.WithDetail(jobIDDetail),
 		tooldef.WithRun(func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
-			res, err := cfg.manager.HandleWait(ctx, input)
+			res, err := wait(ctx, cfg.manager, input)
 			if err != nil {
 				return tooldef.Result{}, err
 			}
@@ -254,6 +256,32 @@ A wait timeout or interrupted wait does NOT cancel the job; it keeps running unt
 			}, nil
 		}),
 	)
+}
+
+func wait(ctx context.Context, manager *job.Manager, raw json.RawMessage) (job.WaitResult, error) {
+	var args waitInput
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return job.WaitResult{}, fmt.Errorf("%w: %w", job.ErrInvalid, err)
+	}
+	if args.JobID == "" {
+		return job.WaitResult{}, fmt.Errorf("%w: job_id is required", job.ErrInvalid)
+	}
+	waitCtx := ctx
+	var cancel context.CancelFunc
+	if args.TimeoutSec > 0 {
+		waitCtx, cancel = context.WithTimeout(ctx, time.Duration(args.TimeoutSec)*time.Second)
+		defer cancel()
+	}
+	result, err := manager.Wait(waitCtx, args.JobID)
+	if err != nil && args.TimeoutSec > 0 && errors.Is(err, job.ErrWaitTimeout) {
+		// An explicit polling timeout is a normal non-terminal result for tools.
+		info, getErr := manager.Get(ctx, args.JobID)
+		if getErr != nil {
+			return job.WaitResult{}, getErr
+		}
+		return job.WaitResult{Info: info}, nil
+	}
+	return result, err
 }
 
 func absCleanAt(path, cwd string) (string, error) {

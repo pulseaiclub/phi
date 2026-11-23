@@ -65,6 +65,30 @@ func TestAgentToolsSpawnWaitForcesDepthAndParent(t *testing.T) {
 	assert.Equal(t, "explore: d", waitRes.Detail)
 }
 
+func TestAgentWaitTimeoutDoesNotCancelJob(t *testing.T) {
+	mgr, reg := newAgentTestRegistry(t, func(ctx context.Context, _ job.RunEnv) (string, error) {
+		<-ctx.Done()
+		return "", ctx.Err()
+	})
+
+	spawnRes, err := reg["agent_spawn"].Run(t.Context(), json.RawMessage(`{"prompt":"slow"}`))
+	require.NoError(t, err)
+	var spawned struct {
+		JobID string `json:"job_id"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(spawnRes.Content), &spawned))
+
+	result, err := reg["agent_wait"].Run(t.Context(), []byte(`{"job_id":"`+spawned.JobID+`","timeout_sec":1}`))
+	require.NoError(t, err)
+	assert.Contains(t, result.Content, `"status": "running"`)
+
+	got, err := mgr.Get(t.Context(), spawned.JobID)
+	require.NoError(t, err)
+	assert.False(t, got.Status.Terminal())
+
+	require.NoError(t, mgr.Cancel(t.Context(), spawned.JobID))
+}
+
 func TestAgentWaitPreservesFullSummary(t *testing.T) {
 	// Important conclusions can appear after the former 12,000-byte cutoff.
 	summary := strings.Repeat("分析结果：保留完整上下文。\n", 2000) + "Final conclusion: fix the root cause.\n"
