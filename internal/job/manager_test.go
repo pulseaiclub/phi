@@ -83,7 +83,7 @@ func (s *memoryStore) ReadResult(id string) (string, error) {
 	return s.results[id], nil
 }
 
-func (s *memoryStore) ListIDs() ([]string, error) { return nil, nil }
+func (*memoryStore) ListIDs() ([]string, error) { return nil, nil }
 
 func TestManagerUsesInjectedStore(t *testing.T) {
 	store := newMemoryStore()
