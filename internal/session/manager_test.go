@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"sync"
 	"testing"
 
 	"github.com/pulseaiclub/phi/internal/llm"
@@ -570,4 +571,36 @@ func TestReplaySnapshotCompactionDropsOldMessages(t *testing.T) {
 	assert.Equal(t, keptID, snap.Messages[1].ID)
 	assert.Equal(t, RoleUser, snap.Messages[1].Role)
 	assert.Equal(t, "still here", snap.Messages[1].Text)
+}
+
+// TestManagerConcurrentAccess guards the mutex: concurrent append/read
+// must not race or corrupt the tree. Run with -race.
+func TestManagerConcurrentAccess(t *testing.T) {
+	m, err := NewSessionManager(t.TempDir(), WithShouldFlush(false))
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	for w := range 8 {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			for i := range 50 {
+				msg := llm.Message{
+					Role:    llm.RoleUser,
+					Content: fmt.Sprintf("w%d-%d", w, i),
+				}
+				id, err := m.Append(msg)
+				assert.NoError(t, err)
+				if err != nil {
+					return
+				}
+				_ = m.BuildContext()
+				_ = m.GetBranch(id)
+				_ = m.Len()
+			}
+		}(w)
+	}
+	wg.Wait()
+
+	require.GreaterOrEqual(t, m.Len(), 8*50)
 }
