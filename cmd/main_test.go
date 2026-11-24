@@ -36,3 +36,18 @@ func TestNoArgCommandsRejectPositionalArgs(t *testing.T) {
 		})
 	}
 }
+
+func TestRootDispatchHelpAndUnknown(t *testing.T) {
+	err := root().Dispatch([]string{"--help"})
+	var he *cli.HelpError
+	require.ErrorAs(t, err, &he)
+	assert.Contains(t, he.Help, "usage: phi")
+	assert.Contains(t, he.Help, "run")
+	assert.Contains(t, he.Help, "sessions")
+	assert.Contains(t, he.Help, "phi plugin …       install/list/update/remove extensions (see 'phi plugin --help')")
+
+	err = root().Dispatch([]string{"bogus"})
+	var ue *cli.UsageError
+	require.ErrorAs(t, err, &ue)
+	assert.Contains(t, err.Error(), `unknown command "bogus"`)
+}
