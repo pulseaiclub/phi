@@ -1,4 +1,4 @@
-package agent
+package extension
 
 import (
 	"context"
@@ -54,8 +54,8 @@ type Extensions interface {
 	EmitSessionCompact(reason string)
 }
 
-// disabledExtensions is the nil Extensions every engine assembles against, so
+// DisabledExtensions is the nil Extensions every engine assembles against, so
 // a missing runner keeps the nil-receiver semantics of the concrete one.
-func disabledExtensions() Extensions {
+func DisabledExtensions() Extensions {
 	return (*core.Runner)(nil)
 }

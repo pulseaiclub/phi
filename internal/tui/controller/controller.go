@@ -34,7 +34,7 @@ import (
 // engine-facing dispatch surface handed to agent.EngineConfig. The
 // production implementation is *core.Runner.
 type ExtRunner interface {
-	agent.Extensions
+	extension.Extensions
 
 	// Lifecycle management.
 	Loaded() []loader.Discovered
@@ -118,7 +118,7 @@ func NewController(bus *Bus, proj *project.Project) (*EngineController, error) {
 		return nil, err
 	}
 
-	jobs, err := agent.NewJobManager(proj.JobsDir(), nil, func() agent.Extensions {
+	jobs, err := agent.NewJobManager(proj.JobsDir(), nil, func() extension.Extensions {
 		return c.Extensions()
 	})
 	if err != nil {
@@ -780,13 +780,13 @@ func (c *EngineController) openSession(cfg llm.ModelConfig, resumeID string) (*a
 // here, so a forked session runs on exactly the wiring of a resumed one.
 func (c *EngineController) newEngine(
 	cfg llm.ModelConfig,
-	extRunner agent.Extensions,
+	extRunner extension.Extensions,
 	sess *agent.Session,
 ) (*agent.Engine, error) {
 	return c.engineConfig(cfg, extRunner).NewEngine(cfg, sess)
 }
 
-func (c *EngineController) engineConfig(cfg llm.ModelConfig, r agent.Extensions) agent.EngineConfig {
+func (c *EngineController) engineConfig(cfg llm.ModelConfig, r extension.Extensions) agent.EngineConfig {
 	return agent.EngineConfig{Jobs: c.engineJobs(), Extensions: r, MCP: c.mcpPool, Hooks: model.HooksForConfig(cfg)}
 }
 

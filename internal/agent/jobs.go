@@ -3,6 +3,7 @@ package agent
 import (
 	"errors"
 
+	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 )
@@ -13,7 +14,7 @@ import (
 func NewJobManager(
 	root string,
 	models map[job.Role]llm.ModelConfig,
-	extensionsFn func() Extensions,
+	extensionsFn func() extension.Extensions,
 ) (*job.Manager, error) {
 	if root == "" {
 		return nil, errors.New("agent: jobs root is required")
