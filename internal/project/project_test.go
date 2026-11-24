@@ -430,8 +430,8 @@ models:
 	flash, ok := cfg.FindModel("deepseek-flash")
 	require.True(t, ok)
 	assert.Equal(t, "https://api.deepseek.com", flash.BaseURL)
-	assert.Equal(t, 1_000_000, flash.ContextWindow)
-	assert.Equal(t, 384_000, flash.MaxTokens, "preset supplies the output limit")
+	assert.Equal(t, 1_048_576, flash.ContextWindow)
+	assert.Equal(t, 393_216, flash.MaxTokens, "preset supplies the output limit")
 	assert.True(t, flash.ImageEnabled, "flash supports image input")
 
 	// deepseek-v4-pro: explicit context_window overrides the preset; image

@@ -1,0 +1,17 @@
+{
+  "deepseek-flash": "deepseek/deepseek-flash",
+  "deepseek-v4-pro": "deepseek/deepseek-v4-pro",
+  "gemini-2.5-flash": "google/gemini-2.5-flash",
+  "gemini-2.5-pro": "google/gemini-2.5-pro",
+  "gemini-3-flash": "google/gemini-3-flash-preview",
+  "glm-5.3": "zai-coding-plan/glm-5.3",
+  "glm-5.3-flash": "zai-coding-plan/glm-5.3-flash",
+  "gpt-5.5": "openai/gpt-5.5",
+  "gpt-5.5-pro": "openai/gpt-5.5-pro",
+  "gpt-5.6-luna": "openai/gpt-5.6-luna",
+  "gpt-5.6-sol": "openai/gpt-5.6-sol",
+  "gpt-5.6-terra": "openai/gpt-5.6-terra",
+  "gpt-6-astra": "openai/gpt-6-astra",
+  "kimi-k2.7-code": "moonshotai/kimi-k2.7-code",
+  "kimi-k3": "moonshotai/kimi-k3"
+}

@@ -59,7 +59,7 @@ func TestModelAliasBoundariesAndSpecificity(t *testing.T) {
 		p, ok := Lookup(name)
 		require.True(t, ok, name)
 		assert.Equal(t, name, p.Config.Name)
-		assert.Equal(t, 384_000, p.Config.MaxTokens, name)
+		assert.Equal(t, 393_216, p.Config.MaxTokens, name)
 	}
 }
 

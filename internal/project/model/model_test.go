@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -16,15 +17,46 @@ func TestLookupGPTPresets(t *testing.T) {
 	tests := []struct {
 		name          string
 		contextWindow int
+		maxTokens     int
 		thinking      llm.ThinkConfig
 	}{
-		{name: "gpt-6-astra", contextWindow: 272_000, thinking: llm.ThinkConfig{Enabled: true, Mode: llm.Max}},
-		{name: "gpt-5.6-sol", contextWindow: 272_000, thinking: llm.ThinkConfig{Enabled: true, Mode: llm.High}},
-		{name: "gpt-5.6-terra", contextWindow: 272_000, thinking: llm.ThinkConfig{Enabled: true, Mode: llm.High}},
-		{name: "gpt-5.6-luna", contextWindow: 272_000, thinking: llm.ThinkConfig{Enabled: true, Mode: llm.High}},
-		{name: "gpt-5-chat-latest", contextWindow: 128_000, thinking: llm.ThinkConfig{}},
-		{name: "gpt-5.5", contextWindow: 272_000, thinking: llm.ThinkConfig{Enabled: true, Mode: llm.High}},
-		{name: "gpt-5.5-pro", contextWindow: 1_050_000, thinking: llm.ThinkConfig{Enabled: true, Mode: llm.High}},
+		{
+			name:          "gpt-6-astra",
+			contextWindow: 1_050_000,
+			maxTokens:     128_000,
+			thinking:      llm.ThinkConfig{Enabled: true, Mode: llm.Max},
+		},
+		{
+			name:          "gpt-5.6-sol",
+			contextWindow: 1_050_000,
+			maxTokens:     128_000,
+			thinking:      llm.ThinkConfig{Enabled: true, Mode: llm.High},
+		},
+		{
+			name:          "gpt-5.6-terra",
+			contextWindow: 1_050_000,
+			maxTokens:     128_000,
+			thinking:      llm.ThinkConfig{Enabled: true, Mode: llm.High},
+		},
+		{
+			name:          "gpt-5.6-luna",
+			contextWindow: 1_050_000,
+			maxTokens:     128_000,
+			thinking:      llm.ThinkConfig{Enabled: true, Mode: llm.High},
+		},
+		{name: "gpt-5-chat-latest", contextWindow: 128_000, maxTokens: 0, thinking: llm.ThinkConfig{}},
+		{
+			name:          "gpt-5.5",
+			contextWindow: 1_050_000,
+			maxTokens:     128_000,
+			thinking:      llm.ThinkConfig{Enabled: true, Mode: llm.High},
+		},
+		{
+			name:          "gpt-5.5-pro",
+			contextWindow: 1_050_000,
+			maxTokens:     128_000,
+			thinking:      llm.ThinkConfig{Enabled: true, Mode: llm.High},
+		},
 	}
 
 	for _, tt := range tests {
@@ -33,6 +65,7 @@ func TestLookupGPTPresets(t *testing.T) {
 			require.True(t, ok)
 			assert.Equal(t, "https://api.openai.com/v1", p.Config.BaseURL)
 			assert.Equal(t, tt.contextWindow, p.Config.ContextWindow)
+			assert.Equal(t, tt.maxTokens, p.Config.MaxTokens)
 			assert.True(t, p.Config.ImageEnabled)
 			assert.Equal(t, llm.OpenAIResponses, p.Config.API)
 			assert.Equal(t, tt.thinking, p.Config.Think)
@@ -46,7 +79,8 @@ func TestLookupDeepSeekFlash(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "deepseek-flash", p.Config.Name)
 	assert.Equal(t, "https://api.deepseek.com", p.Config.BaseURL)
-	assert.Equal(t, 1_000_000, p.Config.ContextWindow)
+	assert.Equal(t, 1_048_576, p.Config.ContextWindow)
+	assert.Equal(t, 393_216, p.Config.MaxTokens)
 	assert.True(t, p.Config.ImageEnabled, "V4.1-Flash accepts image input")
 	assert.NotNil(t, p.Hooks.OpenAI)
 }
@@ -56,7 +90,8 @@ func TestLookupDeepSeekV4Pro(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "deepseek-v4-pro", p.Config.Name)
 	assert.Equal(t, "https://api.deepseek.com", p.Config.BaseURL)
-	assert.Equal(t, 1_000_000, p.Config.ContextWindow)
+	assert.Equal(t, 1_048_576, p.Config.ContextWindow)
+	assert.Equal(t, 393_216, p.Config.MaxTokens)
 	assert.False(t, p.Config.ImageEnabled, "V4-Pro has no image understanding")
 	assert.NotNil(t, p.Hooks.OpenAI)
 }
@@ -77,8 +112,8 @@ func TestLookupUnknownFallsThrough(t *testing.T) {
 	assert.Equal(t, llm.ModelConfig{
 		Name:          "deepseek-flash",
 		BaseURL:       "https://api.deepseek.com",
-		ContextWindow: 1_000_000,
-		MaxTokens:     384_000,
+		ContextWindow: 1_048_576,
+		MaxTokens:     393_216,
 		ImageEnabled:  true,
 		API:           llm.OpenAI,
 		Think:         llm.ThinkConfig{Enabled: true, Mode: llm.High},
@@ -87,7 +122,7 @@ func TestLookupUnknownFallsThrough(t *testing.T) {
 	// A gateway route inherits the output limit with the rest of the preset.
 	routed, ok := Lookup("deepseek/deepseek-flash")
 	require.True(t, ok)
-	assert.Equal(t, 384_000, routed.Config.MaxTokens)
+	assert.Equal(t, 393_216, routed.Config.MaxTokens)
 }
 
 func TestDeepSeekInterceptorSetsTopLevelThinking(t *testing.T) {
@@ -108,7 +143,8 @@ func TestLookupGLM53(t *testing.T) {
 	p, ok := Lookup("glm-5.3")
 	require.True(t, ok)
 	assert.Equal(t, "https://api.z.ai/api/coding/paas/v4", p.Config.BaseURL)
-	assert.Equal(t, 1_048_576, p.Config.ContextWindow)
+	assert.Equal(t, 1_000_000, p.Config.ContextWindow)
+	assert.Equal(t, 131_072, p.Config.MaxTokens)
 	assert.False(t, p.Config.ImageEnabled, "5.3 is text-only")
 }
 
@@ -116,7 +152,8 @@ func TestLookupGLM53Flash(t *testing.T) {
 	p, ok := Lookup("glm-5.3-flash")
 	require.True(t, ok)
 	assert.Equal(t, "https://api.z.ai/api/coding/paas/v4", p.Config.BaseURL)
-	assert.Equal(t, 1_048_576, p.Config.ContextWindow)
+	assert.Equal(t, 1_000_000, p.Config.ContextWindow)
+	assert.Equal(t, 131_072, p.Config.MaxTokens)
 	assert.True(t, p.Config.ImageEnabled, "5.3-flash is natively multimodal")
 	assert.Equal(t, llm.OpenAI, p.Config.API)
 }
@@ -199,4 +236,37 @@ func TestGeminiLevelHookOffFloor(t *testing.T) {
 	body, err := json.Marshal(req.GenerationConfig.ThinkingConfig)
 	require.NoError(t, err)
 	assert.Contains(t, string(body), `"thinkingLevel":"LOW"`)
+}
+
+func TestSyncedSpecsMatchSources(t *testing.T) {
+	raw, err := os.ReadFile("sources.json")
+	require.NoError(t, err)
+
+	var sources map[string]string
+	require.NoError(t, json.Unmarshal(raw, &sources))
+	require.Len(t, syncedSpecs, len(sources))
+
+	presetNames := make(map[string]struct{}, len(presets))
+	for _, p := range presets {
+		presetNames[p.Config.Name] = struct{}{}
+		assert.Positive(t, p.Config.ContextWindow, p.Config.Name)
+	}
+	for name := range sources {
+		assert.Contains(t, presetNames, name)
+		assert.Contains(t, syncedSpecs, name)
+	}
+}
+
+func TestSyncedSpecPreservesExplicitOverrides(t *testing.T) {
+	k3, ok := Lookup("kimi-k3")
+	require.True(t, ok)
+	assert.Equal(t, 1_048_576, k3.Config.ContextWindow)
+	assert.Equal(t, 131_072, k3.Config.MaxTokens)
+	assert.True(t, k3.Config.ImageEnabled)
+
+	k27, ok := Lookup("kimi-k2.7-code")
+	require.True(t, ok)
+	assert.Equal(t, 10_000_000, k27.Config.ContextWindow)
+	assert.Equal(t, 262_144, k27.Config.MaxTokens)
+	assert.True(t, k27.Config.ImageEnabled)
 }
