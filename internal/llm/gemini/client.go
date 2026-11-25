@@ -115,21 +115,26 @@ func (req *GeminiRequest) ApplyBudgetThinking(think llm.ThinkConfig) {
 	req.setThinkingConfig(&thinkingConfig{ThinkingBudget: &budget})
 }
 
-// ApplyLevelThinking maps ThinkConfig to Gemini 3.x thinkingLevel.
-// offLevel is used when thinking is disabled (models that cannot fully turn off).
-func (req *GeminiRequest) ApplyLevelThinking(think llm.ThinkConfig, offLevel string) {
-	if !think.Enabled {
-		if offLevel == "" {
-			offLevel = "MINIMAL"
-		}
+// ApplyLevelThinking maps ThinkConfig to Gemini 3+/4 thinkingLevel.
+// offLevel is the floor used when thinking is disabled or below the model's
+// minimum level. allowXHigh maps xhigh/max to "XHIGH" on models that support it.
+func (req *GeminiRequest) ApplyLevelThinking(think llm.ThinkConfig, offLevel string, allowXHigh bool) {
+	if offLevel == "" {
+		offLevel = "MINIMAL"
+	}
+	if !think.Enabled || think.Mode == llm.Off {
 		req.setThinkingConfig(&thinkingConfig{ThinkingLevel: offLevel})
 		return
 	}
-	req.setThinkingConfig(&thinkingConfig{ThinkingLevel: mapThinkModeToGeminiLevel(think.Mode)})
+	level := mapThinkModeToGeminiLevel(think.Mode, allowXHigh)
+	if level == "MINIMAL" && offLevel != "MINIMAL" {
+		level = offLevel
+	}
+	req.setThinkingConfig(&thinkingConfig{ThinkingLevel: level})
 }
 
-// mapThinkModeToGeminiLevel maps ThinkMode to Gemini 3's thinkingLevel string.
-func mapThinkModeToGeminiLevel(mode llm.ThinkMode) string {
+// mapThinkModeToGeminiLevel maps ThinkMode to Gemini 3+/4 thinkingLevel string.
+func mapThinkModeToGeminiLevel(mode llm.ThinkMode, allowXHigh bool) string {
 	switch mode {
 	case llm.Minimal:
 		return "MINIMAL"
@@ -137,7 +142,12 @@ func mapThinkModeToGeminiLevel(mode llm.ThinkMode) string {
 		return "LOW"
 	case llm.Medium:
 		return "MEDIUM"
-	default: // high, xhigh, max, and anything else
+	case llm.XHigh, llm.Max:
+		if allowXHigh {
+			return "XHIGH"
+		}
+		return "HIGH"
+	default: // high and anything else
 		return "HIGH"
 	}
 }

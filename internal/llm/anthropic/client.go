@@ -632,6 +632,7 @@ func NewCompactRequest(model, prompt string, maxTokens int) *AnthropicRequest {
 		Messages: []anthropicMessage{
 			{Role: "user", Content: prompt},
 		},
+		compact: true,
 	}
 }
 

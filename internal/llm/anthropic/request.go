@@ -31,6 +31,7 @@ type AnthropicRequest struct {
 	native         *llm.ProviderState
 	nativeInput    *AnthropicRequest
 	vendorThinking bool
+	compact        bool
 }
 
 type outputConfig struct {
@@ -51,6 +52,37 @@ func (r *AnthropicRequest) ApplyVendorThinking(think llm.ThinkConfig, forced, ad
 	if think.Enabled {
 		r.OutputConfig = &outputConfig{Effort: string(think.Mode)}
 	}
+}
+
+// ApplyAdaptiveThinking switches native Claude models from fixed budget_tokens
+// to adaptive thinking with output_config.effort. When forced is true (models
+// that reject thinking.type=disabled), disabled thinking falls back to low
+// effort; otherwise it explicitly sends thinking.type=disabled. Compaction
+// requests follow the disabled path so summaries keep their output budget. When
+// allowXHigh is false (Claude 4.6), xhigh falls back to high.
+func (r *AnthropicRequest) ApplyAdaptiveThinking(think llm.ThinkConfig, forced, allowXHigh bool) {
+	if r.compact {
+		think = llm.ThinkConfig{Enabled: false}
+	}
+	r.OutputConfig = nil
+	if !think.Enabled || think.Mode == llm.Off {
+		if !forced {
+			r.Thinking = &thinkingConfig{Type: "disabled"}
+			return
+		}
+		think.Mode = llm.Low
+	}
+	effort := think.Mode
+	switch effort {
+	case llm.Minimal, "":
+		effort = llm.Low
+	case llm.XHigh:
+		if !allowXHigh {
+			effort = llm.High
+		}
+	}
+	r.Thinking = &thinkingConfig{Type: "adaptive"}
+	r.OutputConfig = &outputConfig{Effort: string(effort)}
 }
 
 type anthropicMessage struct {

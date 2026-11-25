@@ -114,8 +114,14 @@ func HooksForConfig(cfg llm.ModelConfig) llmclient.Hooks {
 }
 
 var (
-	thinkHigh = llm.ThinkConfig{Enabled: true, Mode: llm.High}
-	thinkMax  = llm.ThinkConfig{Enabled: true, Mode: llm.Max}
+	thinkMedium          = llm.ThinkConfig{Enabled: true, Mode: llm.Medium}
+	thinkHigh            = llm.ThinkConfig{Enabled: true, Mode: llm.High}
+	thinkMax             = llm.ThinkConfig{Enabled: true, Mode: llm.Max}
+	lowToMaxModes        = []llm.ThinkMode{llm.Low, llm.Medium, llm.High, llm.XHigh, llm.Max}
+	offLowToMaxModes     = []llm.ThinkMode{llm.Off, llm.Low, llm.Medium, llm.High, llm.XHigh, llm.Max}
+	claude46Modes        = []llm.ThinkMode{llm.Off, llm.Low, llm.Medium, llm.High, llm.Max}
+	geminiLowToHighModes = []llm.ThinkMode{llm.Low, llm.Medium, llm.High}
+	gemini4XHighModes    = []llm.ThinkMode{llm.Low, llm.Medium, llm.High, llm.XHigh}
 )
 
 // withSyncedSpec fills zero ContextWindow, InputLimit, and MaxTokens from
@@ -140,7 +146,21 @@ func withSyncedSpec(cfg llm.ModelConfig) llm.ModelConfig {
 	return cfg
 }
 
-func openAIPreset(name string, think llm.ThinkConfig) Preset {
+func claudePreset(name, alias string, forced, allowXHigh bool, modes []llm.ThinkMode) Preset {
+	return Preset{
+		Config: withSyncedSpec(llm.ModelConfig{
+			Name:    name,
+			BaseURL: "https://api.anthropic.com",
+			API:     llm.Anthropic,
+			Think:   thinkHigh,
+		}),
+		Hooks:      claudeAdaptiveHooks(forced, allowXHigh),
+		thinkModes: modes,
+		Alias:      alias,
+	}
+}
+
+func openAIPreset(name string, think llm.ThinkConfig, hooks llmclient.Hooks, modes ...llm.ThinkMode) Preset {
 	return Preset{
 		Config: withSyncedSpec(llm.ModelConfig{
 			Name:    name,
@@ -148,18 +168,36 @@ func openAIPreset(name string, think llm.ThinkConfig) Preset {
 			API:     llm.OpenAIResponses,
 			Think:   think,
 		}),
+		Hooks:      hooks,
+		thinkModes: modes,
 	}
 }
 
-func geminiPreset(name string, hooks llmclient.Hooks) Preset {
+func geminiPreset(name string, think llm.ThinkConfig, hooks llmclient.Hooks, modes ...llm.ThinkMode) Preset {
 	return Preset{
 		Config: withSyncedSpec(llm.ModelConfig{
 			Name:    name,
 			BaseURL: "https://generativelanguage.googleapis.com/v1beta",
 			API:     llm.Gemini,
-			Think:   thinkHigh,
+			Think:   think,
 		}),
-		Hooks: hooks,
+		Hooks:      hooks,
+		thinkModes: modes,
+	}
+}
+
+func kimiPreset(name, alias string) Preset {
+	return Preset{
+		Config: withSyncedSpec(llm.ModelConfig{
+			Name:    name,
+			BaseURL: "https://api.moonshot.cn/v1",
+			// Moonshot's models.dev entries set limit.output equal to the 1M context window.
+			MaxTokens: 131_072,
+			API:       llm.OpenAI,
+			Think:     thinkMax,
+		}),
+		Alias:      alias,
+		thinkModes: []llm.ThinkMode{llm.Low, llm.High, llm.Max},
 	}
 }
 
@@ -183,11 +221,26 @@ func glmPreset(name, alias string) Preset {
 // explicit overrides. Connection defaults, thinking hooks, and alias rules
 // remain hand-maintained.
 var presets = []Preset{
-	// Source: https://platform.openai.com/docs/models
-	openAIPreset("gpt-6-astra", thinkMax),
-	openAIPreset("gpt-5.6-sol", thinkHigh),
-	openAIPreset("gpt-5.6-terra", thinkHigh),
-	openAIPreset("gpt-5.6-luna", thinkHigh),
+	// Claude Fable 5.2 and Opus/Sonnet 5.5 use forced adaptive thinking; Haiku 5.5
+	// and Claude 4.6 accept thinking.type=disabled (4.6 omits xhigh).
+	// Source: https://platform.claude.com/docs/en/build-with-claude/thinking
+	claudePreset("claude-fable-5-2", `claude-fable-5[.\-]2`, true, true, lowToMaxModes),
+	claudePreset("claude-opus-5-5", `claude-opus-5[.\-]5`, true, true, lowToMaxModes),
+	claudePreset("claude-sonnet-5-5", `claude-sonnet-5[.\-]5`, true, true, lowToMaxModes),
+	claudePreset("claude-haiku-5-5", `claude-haiku-5[.\-]5`, false, true, offLowToMaxModes),
+	claudePreset("claude-opus-4-6", `claude-opus-4[.\-]6`, false, false, claude46Modes),
+	claudePreset("claude-sonnet-4-6", `claude-sonnet-4[.\-]6`, false, false, claude46Modes),
+
+	// Source: https://developers.openai.com/api/docs/models
+	openAIPreset("gpt-6.2-astra", thinkMax, llmclient.Hooks{}, lowToMaxModes...),
+	openAIPreset("gpt-6.2-sol", thinkHigh, llmclient.Hooks{}, lowToMaxModes...),
+	openAIPreset("gpt-6.1-sol", thinkHigh, llmclient.Hooks{}, lowToMaxModes...),
+	openAIPreset("gpt-6.1-terra", thinkHigh, responsesNoneOffHooks(), offLowToMaxModes...),
+	openAIPreset("gpt-6-astra", thinkMax, llmclient.Hooks{}),
+	openAIPreset("gpt-6-luna", thinkHigh, responsesNoneOffHooks(), offLowToMaxModes...),
+	openAIPreset("gpt-5.6-sol", thinkHigh, llmclient.Hooks{}),
+	openAIPreset("gpt-5.6-terra", thinkHigh, llmclient.Hooks{}),
+	openAIPreset("gpt-5.6-luna", thinkHigh, llmclient.Hooks{}),
 	// Retired upstream and absent from models.dev; retained for existing configs.
 	{
 		Config: llm.ModelConfig{
@@ -198,8 +251,8 @@ var presets = []Preset{
 			API:           llm.OpenAIResponses,
 		},
 	},
-	openAIPreset("gpt-5.5", thinkHigh),
-	openAIPreset("gpt-5.5-pro", thinkHigh),
+	openAIPreset("gpt-5.5", thinkHigh, llmclient.Hooks{}),
+	openAIPreset("gpt-5.5-pro", thinkHigh, llmclient.Hooks{}),
 
 	// Source: https://api-docs.deepseek.com/zh-cn/quick_start/pricing
 	{
@@ -227,11 +280,15 @@ var presets = []Preset{
 		openCodeModes: []llm.ThinkMode{llm.High, llm.Max},
 	},
 
-	// Gemini 2.5 — thinkingBudget (token cap). Source: https://ai.google.dev/gemini-api/docs/models
-	geminiPreset("gemini-2.5-pro", geminiBudgetHooks()),
-	geminiPreset("gemini-2.5-flash", geminiBudgetHooks()),
+	// Gemini 4 — Carbon/Argon default medium (LOW..HIGH); Neon/Hydrogen default high (LOW..XHIGH).
+	// Source: https://ai.google.dev/gemini-api/docs/generate-content/thinking
+	geminiPreset("gemini-4-carbon", thinkMedium, geminiLevelHooks("LOW", false), geminiLowToHighModes...),
+	geminiPreset("gemini-4-argon", thinkMedium, geminiLevelHooks("LOW", false), geminiLowToHighModes...),
+	geminiPreset("gemini-4-neon", thinkHigh, geminiLevelHooks("LOW", true), gemini4XHighModes...),
+	geminiPreset("gemini-4-hydrogen", thinkHigh, geminiLevelHooks("LOW", true), gemini4XHighModes...),
 
-	// Gemini 3 — thinkingLevel. Pro floor LOW; Flash floor MINIMAL. Neither can fully disable.
+	// Gemini 3 — thinkingLevel. 3.8 Flash and Pro floor LOW; 3 Flash floor MINIMAL.
+	geminiPreset("gemini-3.8-flash", thinkHigh, geminiLevelHooks("LOW", false), geminiLowToHighModes...),
 	// gemini-3-pro is absent from models.dev; retained for existing configs.
 	{
 		Config: llm.ModelConfig{
@@ -242,22 +299,16 @@ var presets = []Preset{
 			API:           llm.Gemini,
 			Think:         thinkHigh,
 		},
-		Hooks: geminiLevelHooks("LOW"),
+		Hooks: geminiLevelHooks("LOW", false),
 	},
-	geminiPreset("gemini-3-flash", geminiLevelHooks("MINIMAL")),
+	geminiPreset("gemini-3-flash", thinkHigh, geminiLevelHooks("MINIMAL", false)),
 
-	{
-		Config: withSyncedSpec(llm.ModelConfig{
-			Name:    "kimi-k3",
-			BaseURL: "https://api.moonshot.cn/v1",
-			// Moonshot's models.dev entry sets limit.output equal to the 1M context window.
-			MaxTokens: 131_072,
-			API:       llm.OpenAI,
-			Think:     thinkMax,
-		}),
-		Alias:      `(?:auto-)?kimi-k3`,
-		thinkModes: []llm.ThinkMode{llm.Low, llm.High, llm.Max},
-	},
+	// Gemini 2.5 — thinkingBudget (token cap).
+	geminiPreset("gemini-2.5-pro", thinkHigh, geminiBudgetHooks()),
+	geminiPreset("gemini-2.5-flash", thinkHigh, geminiBudgetHooks()),
+
+	kimiPreset("kimi-k3.1-pro", `(?:auto-)?kimi-k3[.\-]1-pro`),
+	kimiPreset("kimi-k3", `(?:auto-)?kimi-k3`),
 	// Coding-plan 10M tier; models.dev only lists the 256 KiB standard tier with
 	// limit.output equal to context, so keep this entry hand-maintained.
 	{
@@ -270,11 +321,12 @@ var presets = []Preset{
 		},
 	},
 
-	// GLM on the z.ai coding plan. Both presets are forced-thinking; endpoint
+	// GLM on the z.ai coding plan. All presets are forced-thinking; endpoint
 	// rules enable preserved history only on known native APIs.
 	// Sources: https://docs.z.ai/api-reference/llm/chat-completion
 	//          https://docs.z.ai/guides/capabilities/thinking
 	// group/auto-glm-5-3-flash routes with a dash for the version dot.
+	glmPreset("glm-5.4", `(?:auto-)?glm-5[.\-]4`),
 	glmPreset("glm-5.3-flash", `(?:auto-)?glm-5[.\-]3-flash`),
 	glmPreset("glm-5.3", `(?:auto-)?glm-5[.\-]3`),
 }

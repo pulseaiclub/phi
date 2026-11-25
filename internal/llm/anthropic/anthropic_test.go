@@ -448,6 +448,58 @@ func TestValidateThinking(t *testing.T) {
 	require.NoError(t, validateThinking(&AnthropicRequest{MaxTokens: defaultMaxTokens}))
 }
 
+func TestApplyAdaptiveThinking(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		compact    bool
+		think      llm.ThinkConfig
+		forced     bool
+		allowXHigh bool
+		wantType   string
+		wantEffort string
+	}{
+		{"forced_high", false, llm.ThinkConfig{Enabled: true, Mode: llm.High}, true, true, "adaptive", "high"},
+		{"forced_xhigh", false, llm.ThinkConfig{Enabled: true, Mode: llm.XHigh}, true, true, "adaptive", "xhigh"},
+		{"forced_max", false, llm.ThinkConfig{Enabled: true, Mode: llm.Max}, true, true, "adaptive", "max"},
+		{"forced_minimal", false, llm.ThinkConfig{Enabled: true, Mode: llm.Minimal}, true, true, "adaptive", "low"},
+		{"forced_disabled", false, llm.ThinkConfig{Enabled: false}, true, true, "adaptive", "low"},
+		{"optional_disabled", false, llm.ThinkConfig{Enabled: false}, false, false, "disabled", ""},
+		{"optional_xhigh_capped", false, llm.ThinkConfig{Enabled: true, Mode: llm.XHigh}, false, false, "adaptive", "high"},
+		{"compact_optional", true, llm.ThinkConfig{Enabled: true, Mode: llm.High}, false, true, "disabled", ""},
+		{"compact_forced", true, llm.ThinkConfig{Enabled: true, Mode: llm.Max}, true, true, "adaptive", "low"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var req *AnthropicRequest
+			if tc.compact {
+				req = NewCompactRequest("claude-opus-5-5", "summarize", 256)
+			} else {
+				built := BuildRequest(
+					llm.ModelConfig{Name: "claude-opus-5-5", Think: tc.think},
+					"",
+					[]llm.Message{{Role: llm.RoleUser, Content: "hi"}},
+					nil,
+				)
+				req = &built
+			}
+			origMaxTokens := req.MaxTokens
+
+			req.ApplyAdaptiveThinking(tc.think, tc.forced, tc.allowXHigh)
+
+			require.NotNil(t, req.Thinking)
+			assert.Equal(t, tc.wantType, req.Thinking.Type)
+			assert.Nil(t, req.Thinking.BudgetTokens)
+			if tc.wantEffort == "" {
+				assert.Nil(t, req.OutputConfig)
+			} else {
+				require.NotNil(t, req.OutputConfig)
+				assert.Equal(t, tc.wantEffort, req.OutputConfig.Effort)
+			}
+			assert.Equal(t, origMaxTokens, req.MaxTokens)
+			require.NoError(t, validateThinking(req))
+		})
+	}
+}
+
 // Compaction never sends thinking: its single summarization call must stay a
 // plain text request regardless of the session's thinking level.
 func TestCompactRequestHasNoThinking(t *testing.T) {

@@ -9,8 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/llm/anthropic"
 	"github.com/pulseaiclub/phi/internal/llm/gemini"
 	"github.com/pulseaiclub/phi/internal/llm/openai"
+	"github.com/pulseaiclub/phi/internal/llm/openai/responses"
 )
 
 func TestLookupGPTPresets(t *testing.T) {
@@ -20,13 +22,57 @@ func TestLookupGPTPresets(t *testing.T) {
 		inputLimit    int
 		maxTokens     int
 		thinking      llm.ThinkConfig
+		modes         []llm.ThinkMode
+		noneOff       bool
 	}{
+		{
+			name:          "gpt-6.2-astra",
+			contextWindow: 1_050_000,
+			inputLimit:    922_000,
+			maxTokens:     128_000,
+			thinking:      llm.ThinkConfig{Enabled: true, Mode: llm.Max},
+			modes:         lowToMaxModes,
+		},
+		{
+			name:          "gpt-6.2-sol",
+			contextWindow: 1_050_000,
+			inputLimit:    922_000,
+			maxTokens:     128_000,
+			thinking:      llm.ThinkConfig{Enabled: true, Mode: llm.High},
+			modes:         lowToMaxModes,
+		},
+		{
+			name:          "gpt-6.1-sol",
+			contextWindow: 1_050_000,
+			inputLimit:    922_000,
+			maxTokens:     128_000,
+			thinking:      llm.ThinkConfig{Enabled: true, Mode: llm.High},
+			modes:         lowToMaxModes,
+		},
+		{
+			name:          "gpt-6.1-terra",
+			contextWindow: 1_050_000,
+			inputLimit:    922_000,
+			maxTokens:     128_000,
+			thinking:      llm.ThinkConfig{Enabled: true, Mode: llm.High},
+			modes:         offLowToMaxModes,
+			noneOff:       true,
+		},
 		{
 			name:          "gpt-6-astra",
 			contextWindow: 1_050_000,
 			inputLimit:    922_000,
 			maxTokens:     128_000,
 			thinking:      llm.ThinkConfig{Enabled: true, Mode: llm.Max},
+		},
+		{
+			name:          "gpt-6-luna",
+			contextWindow: 1_050_000,
+			inputLimit:    922_000,
+			maxTokens:     128_000,
+			thinking:      llm.ThinkConfig{Enabled: true, Mode: llm.High},
+			modes:         offLowToMaxModes,
+			noneOff:       true,
 		},
 		{
 			name:          "gpt-5.6-sol",
@@ -77,7 +123,71 @@ func TestLookupGPTPresets(t *testing.T) {
 			assert.True(t, p.Config.ImageEnabled)
 			assert.Equal(t, llm.OpenAIResponses, p.Config.API)
 			assert.Equal(t, tt.thinking, p.Config.Think)
-			assert.Empty(t, p.Hooks)
+			if len(tt.modes) > 0 {
+				assert.Equal(t, tt.modes, ThinkingModes(p.Config))
+			}
+			if tt.noneOff {
+				require.NotNil(t, p.Hooks.OpenAIResponses)
+				offCfg := p.Config
+				offCfg.Think = llm.ThinkConfig{Enabled: false}
+				req := responses.BuildRequest(offCfg, "", []llm.Message{{Role: llm.RoleUser, Content: "hi"}}, nil)
+				require.NoError(t, p.Hooks.OpenAIResponses.Before(t.Context(), req, offCfg))
+				assert.Equal(t, &responses.Reasoning{Effort: "none"}, req.Reasoning)
+
+				onReq := responses.BuildRequest(p.Config, "", []llm.Message{{Role: llm.RoleUser, Content: "hi"}}, nil)
+				require.NoError(t, p.Hooks.OpenAIResponses.Before(t.Context(), onReq, p.Config))
+				assert.Equal(t, &responses.Reasoning{Effort: "high", Summary: "auto"}, onReq.Reasoning)
+			} else {
+				assert.Empty(t, p.Hooks)
+			}
+		})
+	}
+}
+
+func TestLookupClaudePresets(t *testing.T) {
+	tests := []struct {
+		name     string
+		dotAlias string
+		modes    []llm.ThinkMode
+		allowOff bool
+	}{
+		{"claude-fable-5-2", "anthropic/claude-fable-5.2", lowToMaxModes, false},
+		{"claude-opus-5-5", "anthropic/claude-opus-5.5", lowToMaxModes, false},
+		{"claude-sonnet-5-5", "anthropic/claude-sonnet-5.5", lowToMaxModes, false},
+		{"claude-haiku-5-5", "anthropic/claude-haiku-5.5", offLowToMaxModes, true},
+		{"claude-opus-4-6", "anthropic/claude-opus-4.6", claude46Modes, true},
+		{"claude-sonnet-4-6", "anthropic/claude-sonnet-4.6", claude46Modes, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, ok := Lookup(tt.name)
+			require.True(t, ok)
+			assert.Equal(t, "https://api.anthropic.com", p.Config.BaseURL)
+			assert.Equal(t, llm.Anthropic, p.Config.API)
+			assert.Equal(t, thinkHigh, p.Config.Think)
+			assert.Equal(t, tt.modes, ThinkingModes(p.Config))
+			require.NotNil(t, p.Hooks.Anthropic)
+
+			offCfg := p.Config
+			offCfg.Think = llm.ThinkConfig{Enabled: false}
+			offReq := anthropic.BuildRequest(offCfg, "", []llm.Message{{Role: llm.RoleUser, Content: "hi"}}, nil)
+			require.NoError(t, p.Hooks.Anthropic.Before(t.Context(), &offReq, offCfg))
+			body, err := json.Marshal(offReq)
+			require.NoError(t, err)
+			if tt.allowOff {
+				assert.Contains(t, string(body), `"thinking":{"type":"disabled"}`)
+				assert.NotContains(t, string(body), `"output_config"`)
+			} else {
+				assert.Contains(t, string(body), `"thinking":{"type":"adaptive"}`)
+				assert.Contains(t, string(body), `"output_config":{"effort":"low"}`)
+			}
+
+			routed, ok := Lookup(tt.dotAlias)
+			require.True(t, ok, tt.dotAlias)
+			assert.Empty(t, routed.Config.BaseURL)
+			assert.Equal(t, 1_000_000, routed.Config.ContextWindow)
+			assert.NotNil(t, routed.Hooks.Anthropic)
 		})
 	}
 }
@@ -173,11 +283,11 @@ func TestGLMRetiredNamesAreNotPresets(t *testing.T) {
 	}
 }
 
-// Both GLM presets are forced-thinking: thinking.type is always enabled and
+// All GLM presets are forced-thinking: thinking.type is always enabled and
 // clear_thinking is false (Preserved Thinking) so reasoning survives across
 // turns. reasoning_effort rides along as the depth of the thought chain.
 func TestGLMPresetWiresThinkingForNativeEndpoint(t *testing.T) {
-	for _, name := range []string{"glm-5.3", "glm-5.3-flash"} {
+	for _, name := range []string{"glm-5.4", "glm-5.3", "glm-5.3-flash"} {
 		p, ok := Lookup(name)
 		require.True(t, ok, name)
 		require.NotNil(t, p.Hooks.OpenAI, name)
@@ -200,7 +310,7 @@ func TestGLMPresetWiresThinkingForNativeEndpoint(t *testing.T) {
 // z.ai errors on thinking.type=disabled, so turning the session's thinking off
 // must not turn it off on the wire either — it only drops the depth knob.
 func TestGLMThinkingCannotBeDisabled(t *testing.T) {
-	for _, name := range []string{"glm-5.3", "glm-5.3-flash"} {
+	for _, name := range []string{"glm-5.4", "glm-5.3", "glm-5.3-flash"} {
 		p, ok := Lookup(name)
 		require.True(t, ok, name)
 		cfg := p.Config
@@ -246,6 +356,43 @@ func TestGeminiLevelHookOffFloor(t *testing.T) {
 	assert.Contains(t, string(body), `"thinkingLevel":"LOW"`)
 }
 
+func TestLookupGemini4And38Presets(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		defaultMode llm.ThinkMode
+		modes       []llm.ThinkMode
+		xhighWire   string
+	}{
+		{"gemini-4-carbon", llm.Medium, geminiLowToHighModes, `"thinkingLevel":"HIGH"`},
+		{"gemini-4-argon", llm.Medium, geminiLowToHighModes, `"thinkingLevel":"HIGH"`},
+		{"gemini-4-neon", llm.High, gemini4XHighModes, `"thinkingLevel":"XHIGH"`},
+		{"gemini-4-hydrogen", llm.High, gemini4XHighModes, `"thinkingLevel":"XHIGH"`},
+		{"gemini-3.8-flash", llm.High, geminiLowToHighModes, `"thinkingLevel":"HIGH"`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p, ok := Lookup(tt.name)
+			require.True(t, ok)
+			assert.Equal(t, tt.defaultMode, p.Config.Think.Mode)
+			assert.Equal(t, tt.modes, ThinkingModes(p.Config))
+			require.NotNil(t, p.Hooks.Gemini)
+
+			offReq := &gemini.GeminiRequest{}
+			require.NoError(t, p.Hooks.Gemini.Before(t.Context(), offReq, llm.ModelConfig{}))
+			offBody, err := json.Marshal(offReq.GenerationConfig.ThinkingConfig)
+			require.NoError(t, err)
+			assert.Contains(t, string(offBody), `"thinkingLevel":"LOW"`)
+
+			xhighReq := &gemini.GeminiRequest{}
+			require.NoError(t, p.Hooks.Gemini.Before(t.Context(), xhighReq, llm.ModelConfig{
+				Think: llm.ThinkConfig{Enabled: true, Mode: llm.XHigh},
+			}))
+			xhighBody, err := json.Marshal(xhighReq.GenerationConfig.ThinkingConfig)
+			require.NoError(t, err)
+			assert.Contains(t, string(xhighBody), tt.xhighWire)
+		})
+	}
+}
+
 func TestSyncedSpecsMatchSources(t *testing.T) {
 	raw, err := os.ReadFile("sources.json")
 	require.NoError(t, err)
@@ -253,6 +400,11 @@ func TestSyncedSpecsMatchSources(t *testing.T) {
 	var sources map[string]string
 	require.NoError(t, json.Unmarshal(raw, &sources))
 	require.Len(t, syncedSpecs, len(sources))
+
+	maxTokenOverrides := map[string]int{
+		"kimi-k3":       131_072,
+		"kimi-k3.1-pro": 131_072,
+	}
 
 	byName := make(map[string]Preset, len(presets))
 	for _, p := range presets {
@@ -267,9 +419,11 @@ func TestSyncedSpecsMatchSources(t *testing.T) {
 		assert.Equal(t, spec.ContextWindow, p.Config.ContextWindow, name)
 		assert.Equal(t, spec.InputLimit, p.Config.InputLimit, name)
 		assert.Equal(t, spec.ImageEnabled, p.Config.ImageEnabled, name)
-		if name != "kimi-k3" {
-			assert.Equal(t, spec.MaxTokens, p.Config.MaxTokens, name)
+		wantMax := spec.MaxTokens
+		if override, has := maxTokenOverrides[name]; has {
+			wantMax = override
 		}
+		assert.Equal(t, wantMax, p.Config.MaxTokens, name)
 	}
 }
 

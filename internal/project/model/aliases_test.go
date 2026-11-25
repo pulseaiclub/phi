@@ -43,7 +43,14 @@ func TestModelAliasBoundariesAndSpecificity(t *testing.T) {
 		_, ok := Lookup(name)
 		assert.False(t, ok, name)
 	}
-	for _, name := range []string{"GLM-5.3-FLASH", "group/auto-glm-5-3-flash", "group/auto-kimi-k3", "gateway/auto-kimi-k3:free"} {
+	for _, name := range []string{
+		"GLM-5.3-FLASH",
+		"group/auto-glm-5-3-flash",
+		"group/auto-glm-5-4",
+		"group/auto-kimi-k3",
+		"group/auto-kimi-k3-1-pro",
+		"gateway/auto-kimi-k3:free",
+	} {
 		p, ok := Lookup(name)
 		require.True(t, ok, name)
 		assert.True(t, p.Config.ImageEnabled, name)
