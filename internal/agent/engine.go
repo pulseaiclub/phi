@@ -199,14 +199,20 @@ func (engine *Engine) estimateContextTokens() int {
 	return compaction.EstimateContextTokens(engine.session.PathEntries())
 }
 
-// compactIfNeeded compacts only when usage crosses the context-window threshold.
+// Compaction reasons reported to session_compact extension handlers.
+const (
+	CompactAuto   = "auto"
+	CompactManual = "manual"
+)
+
+// compactIfNeeded compacts only when usage crosses the model's compaction window.
 func (engine *Engine) compactIfNeeded(
 	ctx context.Context,
 	yield func(session.Event, error) bool,
 	usage int,
 ) (bool, error) {
 	settings := compaction.DefaultSettings()
-	if engine.client == nil || !compaction.ShouldCompact(usage, engine.modelCfg.ContextWindow, settings) {
+	if engine.client == nil || !compaction.ShouldCompact(usage, engine.modelCfg.CompactionWindow(), settings) {
 		return false, nil
 	}
 	prep, err := engine.prepareCompaction(settings)

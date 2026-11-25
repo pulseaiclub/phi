@@ -1,7 +1,10 @@
 package editor
 
 import (
+	"context"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,6 +21,14 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/composer"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 	"github.com/pulseaiclub/phi/internal/util/filesearch"
+
+	ext "github.com/pulseaiclub/phi/ext/go"
+	"github.com/pulseaiclub/phi/internal/components/chrome"
+	"github.com/pulseaiclub/phi/internal/extension/core"
+	"github.com/pulseaiclub/phi/internal/extension/loader"
+	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/project"
+	"github.com/pulseaiclub/phi/internal/session"
 )
 
 func TestShellCompletionWithoutHistory(t *testing.T) {
@@ -395,4 +406,694 @@ func TestOpeningCodeClosesDiff(t *testing.T) {
 	e.OpenCode([]string{"a.go"})
 	assert.False(t, e.diff.Active())
 	assert.True(t, e.code.Active())
+}
+
+// TestEditorAppliesBranchLabel removed: it constructed an Editor with a nil vx
+// and only passed because Update nil-guarded vx before QueueRefresh. Guard is
+// gone — a nil vx now panics, which is the intended contract.
+// TestBranchSlashOpensPickerOverRealRepo walks the whole path the way the shell
+// wires it: registry → BranchCommands → git → branchlist → composer overlay.
+func TestBranchSlashOpensPickerOverRealRepo(t *testing.T) {
+	e := branchEditor(t)
+
+	require.True(t, e.commands.DispatchSlash("/branch", commands.NewContext(e.bus, nil)))
+
+	text := branchOverlay(t, e)
+	assert.Contains(t, text, "Branches")
+	assert.Contains(t, text, "main")
+	assert.NotContains(t, text, "current", "two columns only — no badge column")
+}
+
+// TestBranchPickerCtrlXDeletesOverRealRepo mirrors the /sessions delete: the
+// picker arms on ctrl+x, Y confirms, git drops the branch, and the open list
+// refreshes in place.
+func TestBranchPickerCtrlXDeletesOverRealRepo(t *testing.T) {
+	e := branchEditor(t)
+	gitFixtureRun(t, e.cwd, "branch", "old-work")
+	require.True(t, e.commands.DispatchSlash("/branch", commands.NewContext(e.bus, nil)))
+	require.Contains(t, branchOverlay(t, e), "old-work")
+
+	key := func(code xui.KeyCode, r rune, mods xui.Modifiers) {
+		e.composer.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: code, Rune: r, Mods: mods})
+	}
+	key(xui.KeyDown, 0, 0) // current branch anchors the list, so old-work is second
+	key(xui.KeyRune, 'x', xui.ModCtrl)
+	key(xui.KeyRune, 'y', 0)
+
+	cmd := exec.CommandContext(t.Context(), "git", "branch", "--list", "old-work")
+	cmd.Dir = e.cwd
+	out, err := cmd.Output()
+	require.NoError(t, err)
+	assert.Empty(t, strings.TrimSpace(string(out)), "git must have dropped the branch")
+	assert.NotContains(t, branchOverlay(t, e), "old-work", "the open picker refreshed its rows")
+	assert.Contains(t, branchOverlay(t, e), "main")
+}
+
+func TestBranchPickerDeletesUnmergedBranchAfterOneConfirmation(t *testing.T) {
+	for _, accept := range []bool{false, true} {
+		t.Run(map[bool]string{false: "cancel", true: "delete"}[accept], func(t *testing.T) {
+			e := branchEditor(t)
+			gitFixtureRun(t, e.cwd, "checkout", "-b", "feature")
+			require.NoError(t, os.WriteFile(filepath.Join(e.cwd, "feature.txt"), []byte("work\n"), 0o600))
+			gitFixtureRun(t, e.cwd, "add", ".")
+			gitFixtureRun(t, e.cwd, "commit", "-m", "unmerged work")
+			gitFixtureRun(t, e.cwd, "checkout", "main")
+			require.True(t, e.commands.DispatchSlash("/branch", commands.NewContext(e.bus, nil)))
+			key := func(code xui.KeyCode, r rune, mods xui.Modifiers) {
+				e.composer.Handle(
+					&components.EventContext{},
+					xui.KeyEvent{Press: true, Code: code, Rune: r, Mods: mods},
+				)
+			}
+			key(xui.KeyDown, 0, 0)
+			key(xui.KeyRune, 'x', xui.ModCtrl)
+			if accept {
+				key(xui.KeyRune, 'y', 0)
+			} else {
+				key(xui.KeyRune, 'n', 0)
+			}
+			for _, msg := range e.bus.Drain() {
+				_, isOverlay := msg.(controller.OverlayMsg)
+				assert.False(t, isOverlay, "deletion must not ask for a second confirmation")
+			}
+			cmd := exec.CommandContext(t.Context(), "git", "branch", "--list", "feature")
+			cmd.Dir = e.cwd
+			out, err := cmd.Output()
+			require.NoError(t, err)
+			if accept {
+				assert.Empty(t, strings.TrimSpace(string(out)))
+				assert.NotContains(t, branchOverlay(t, e), "feature")
+			} else {
+				assert.Contains(t, string(out), "feature")
+				assert.Contains(t, branchOverlay(t, e), "feature")
+			}
+		})
+	}
+}
+
+// branchEditor builds the shell wiring the editor uses, over a real repo.
+func branchEditor(t *testing.T) *Editor {
+	t.Helper()
+	dir := gitFixtureRepo(t)
+	bus := controller.NewBus(nil)
+	e := &Editor{
+		composer: composer.NewComposerPane(components.DefaultTheme(), "m", dir),
+		bus:      bus,
+		cwd:      dir,
+	}
+	e.composer.Wire(composer.WireDeps{})
+
+	registry := commands.NewCommandRegistry()
+	builtins := commands.NewBuiltinRegistry(
+		registry,
+		commands.NewContext(bus, nil),
+		bus,
+		nil,
+		e.composer,
+		nil,
+		dir,
+		nil,
+		nil,
+		e,
+		nil,
+	)
+	e.commands = builtins.Registry
+
+	return e
+}
+
+func branchOverlay(t *testing.T, e *Editor) string {
+	t.Helper()
+	overlay, ok := e.composer.ListOverlay(components.DrawContext{
+		Max:    components.Size{Width: 100, Height: 30},
+		Method: xui.WidthUnicode,
+	})
+	require.True(t, ok, "/branch must open the picker")
+	return components.SurfaceText(overlay.Surface)
+}
+
+func gitFixtureRepo(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	dir := t.TempDir()
+	gitFixtureRun(t, dir, "init", "-b", "main")
+	gitFixtureRun(t, dir, "config", "user.email", "phi@example.com")
+	gitFixtureRun(t, dir, "config", "user.name", "phi tests")
+	gitFixtureRun(t, dir, "commit", "--allow-empty", "-m", "init")
+	return dir
+}
+
+func gitFixtureRun(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.CommandContext(t.Context(), "git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=phi tests", "GIT_AUTHOR_EMAIL=phi@example.com",
+		"GIT_COMMITTER_NAME=phi tests", "GIT_COMMITTER_EMAIL=phi@example.com",
+		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null",
+	)
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "git %v: %s", args, out)
+}
+
+func TestLoopFailureEndsStreamingBeforeDismiss(t *testing.T) {
+	e := newTestEditor(t)
+	e.bus.Publish(controller.SessionEventMsg{Event: session.AssistantMessageUpdate{Message: session.Message{
+		ID: "partial", State: session.StateStreaming, Text: "partial output",
+	}}})
+	e.bus.Publish(controller.LoopFinishedMsg{ErrorText: "stream closed without assistant output"})
+	e.drainBus()
+	require.False(t, e.transcript.IsStreaming())
+	require.True(t, e.overlays.Active())
+	require.True(t, e.submitter.StreamActive(), "dialog still blocks session switches")
+	e.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyEscape, Press: true})
+	require.False(t, e.overlays.Active())
+	require.False(t, e.submitter.IsBusy(), "dismiss releases the composer")
+	require.Equal(t, "partial output", e.transcript.Snapshot().Messages[0].Text)
+}
+
+func TestCancellationDropsQueuedLoopFailure(t *testing.T) {
+	e := newTestEditor(t)
+	e.bus.Publish(controller.LoopFinishedMsg{ErrorText: "context canceled"})
+	e.ctrl.Cancel()
+	e.drainBus()
+	require.False(t, e.overlays.Active())
+	require.False(t, e.submitter.IsBusy())
+}
+
+func TestCancelledCompletionDoesNotShowError(t *testing.T) {
+	e := newTestEditor(t)
+	e.transcript.ApplySession(session.AssistantMessageUpdate{Message: session.Message{
+		ID: "partial", State: session.StateStreaming, Text: "partial output",
+	}})
+	e.Update(controller.LoopFinishedMsg{Cancelled: true})
+	require.False(t, e.overlays.Active())
+	require.False(t, e.transcript.IsStreaming())
+	require.Equal(t, controller.ActivityCancelled, e.activity.Current)
+}
+
+func TestRetryUnavailableRestoresIdle(t *testing.T) {
+	e := newTestEditor(t)
+	e.Update(controller.OverlayMsg{Kind: controller.OverlayErrorAsk, ErrorText: "error"})
+	e.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
+	require.False(t, e.overlays.Active())
+	require.False(t, e.submitter.IsBusy())
+	require.Equal(t, controller.ActivityIdle, e.activity.Current)
+}
+
+func TestCompactionResultToast(t *testing.T) {
+	tests := []struct {
+		name    string
+		result  controller.CompactionFinishedMsg
+		message string
+		kind    toast.ToastKind
+	}{
+		{
+			name: "committed", result: controller.CompactionFinishedMsg{Compacted: true},
+			message: "Compacted context", kind: toast.ToastSuccess,
+		},
+		{
+			name:    "committed with tokens",
+			result:  controller.CompactionFinishedMsg{Compacted: true, TokensBefore: 12000},
+			message: "Compacted context (was 12k tokens)", kind: toast.ToastSuccess,
+		},
+		{
+			name:    "committed despite a late cancel",
+			result:  controller.CompactionFinishedMsg{Compacted: true, Cancelled: true, TokensBefore: 2048},
+			message: "Compacted context (was 2.0k tokens)", kind: toast.ToastSuccess,
+		},
+		{
+			name:    "cancelled",
+			result:  controller.CompactionFinishedMsg{Err: context.Canceled, Cancelled: true},
+			message: "Compaction cancelled", kind: toast.ToastWarning,
+		},
+		{
+			name: "cancelled by context alone", result: controller.CompactionFinishedMsg{Cancelled: true},
+			message: "Compaction cancelled", kind: toast.ToastWarning,
+		},
+		{
+			name: "failed", result: controller.CompactionFinishedMsg{Err: errors.New("boom")},
+			message: "Compaction failed: boom", kind: toast.ToastError,
+		},
+		{
+			name: "nothing to do", result: controller.CompactionFinishedMsg{},
+			message: "Nothing to compact yet", kind: toast.ToastWarning,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newTestEditor(t)
+			e.Update(tt.result)
+			assert.Equal(t, tt.message, e.toast.Message)
+			assert.Equal(t, tt.kind, e.toast.Kind)
+			assert.True(t, e.toast.Visible())
+		})
+	}
+}
+
+// forkEditor wires the shell the way cmd does, on a live controller over a
+// throwaway project, so /fork runs the whole path: dispatch → controller fork →
+// transcript refresh.
+func forkEditor(t *testing.T) *Editor {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	for _, key := range []string{"PHI_MODEL", "PHI_API_KEY", "PHI_BASE_URL", "PHI_THINK_LEVEL"} {
+		t.Setenv(key, "")
+	}
+	t.Setenv(loader.EnvExtensions, "off")
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".phi"), 0o700))
+	config := `models:
+  - name: primary
+    default: true
+    api: OpenAI
+    api_key: test-key
+    base_url: "http://127.0.0.1:9"
+`
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".phi", "config.yaml"), []byte(config), 0o600))
+
+	dir := t.TempDir()
+	proj, err := project.Discover(dir)
+	require.NoError(t, err)
+	bus := controller.NewBus(nil)
+	ctrl, err := controller.NewController(bus, proj)
+	require.NoError(t, err)
+	t.Cleanup(ctrl.Close)
+
+	return NewEditor(app.NewApp(nil), bus, ctrl, nil, components.DefaultTheme(), dir, "primary", nil, nil)
+}
+
+func TestQueuedExtensionPromptStaysWithRunnerAndSession(t *testing.T) {
+	e := forkEditor(t)
+	api := ext.NewAPI()
+	f := core.NewFiber("sender", loader.Discovered{})
+	f.Attach(api, core.FiberActive)
+	e.ctrl.Extensions().(*core.Runner).AddFiberInitial(f)
+
+	checkDelivery := func(wantStart bool) {
+		t.Helper()
+		e.drainBus()
+		started := false
+		for _, msg := range e.bus.Drain() {
+			if _, ok := msg.(controller.LoopStartedMsg); ok {
+				started = true
+			}
+		}
+		e.ctrl.Cancel()
+		assert.Equal(t, wantStart, started)
+	}
+	api.SendUserMessage("outgoing session")
+	require.NoError(t, e.ctrl.NewSession())
+	checkDelivery(false)
+	api.SendUserMessage("new session")
+	checkDelivery(true)
+	_, err := e.ctrl.ForkSession()
+	require.NoError(t, err)
+	api.SendUserMessage("forked session")
+	checkDelivery(true)
+	api.SendUserMessage("outgoing runner, same session")
+	_, _, err = e.ctrl.ReloadExtensions()
+	require.NoError(t, err)
+	checkDelivery(false)
+}
+
+func TestForkSlashSwitchesToANewSession(t *testing.T) {
+	e := forkEditor(t)
+	srcID, srcFile := e.ctrl.SessionID(), e.ctrl.SessionFile()
+
+	require.True(t, e.commands.DispatchSlash("/fork", commands.NewContext(e.bus, nil)))
+	e.drainBus()
+
+	assert.NotEqual(t, srcID, e.ctrl.SessionID(), "/fork must open the session it created")
+	assert.NotEqual(t, srcFile, e.ctrl.SessionFile())
+	assert.Empty(t, e.transcript.Snapshot().Messages, "a fresh session forks empty")
+}
+
+func TestForkSlashRejectsArguments(t *testing.T) {
+	e := forkEditor(t)
+	srcID := e.ctrl.SessionID()
+
+	require.True(t, e.commands.DispatchSlash("/fork now", commands.NewContext(e.bus, nil)))
+	e.drainBus()
+
+	assert.Equal(t, srcID, e.ctrl.SessionID(), "arguments must not fork silently")
+}
+
+func TestPaletteReopenReflectsThinkingSelectionAndModelSwitch(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	for _, key := range []string{"PHI_MODEL", "PHI_API_KEY", "PHI_BASE_URL", "PHI_THINK_LEVEL"} {
+		t.Setenv(key, "")
+	}
+	t.Setenv(loader.EnvExtensions, "off")
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".phi"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".phi", "config.yaml"), []byte(`models:
+  - name: primary
+    default: true
+    api: OpenAI
+    api_key: test-key
+    base_url: http://127.0.0.1:9
+    think_level: off
+  - name: secondary
+    api: OpenAI
+    api_key: test-key
+    base_url: http://127.0.0.1:9
+    think_level: high
+`), 0o600))
+	cwd := t.TempDir()
+	proj, err := project.Discover(cwd)
+	require.NoError(t, err)
+	bus := controller.NewBus(nil)
+	ctrl, err := controller.NewController(bus, proj)
+	require.NoError(t, err)
+	t.Cleanup(ctrl.Close)
+	e := NewEditor(
+		app.NewApp(nil),
+		bus,
+		ctrl,
+		nil,
+		components.DefaultTheme(),
+		cwd,
+		"primary",
+		nil,
+		[]string{"primary", "secondary"},
+	)
+
+	key := func(code xui.KeyCode) {
+		e.composer.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: code})
+	}
+	openSettings := func(query, title string) *palette.CommandPalette {
+		t.Helper()
+		e.composer.Handle(
+			&components.EventContext{},
+			xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'k', Mods: xui.ModCtrl},
+		)
+		for _, r := range query {
+			e.composer.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: r})
+		}
+		key(xui.KeyEnter)
+		overlay, ok := e.composer.PaletteOverlay(
+			components.DrawContext{Max: components.Size{Width: 100, Height: 30}, Method: xui.WidthUnicode},
+		)
+		require.True(t, ok)
+		p, ok := overlay.Surface.Widget.(*palette.CommandPalette)
+		require.True(t, ok)
+		require.Equal(t, title, p.Title)
+		return p
+	}
+	assertCurrent := func(p *palette.CommandPalette, current llm.ThinkMode) {
+		t.Helper()
+		for _, cmd := range p.Commands {
+			level := cmd.ID[len("think-"):]
+			assert.Equal(t, chrome.CurrentMarker(level == string(current))+level, cmd.Verb)
+		}
+	}
+
+	p := openSettings("think", "Thinking Level")
+	assertCurrent(p, llm.Off)
+	key(xui.KeyDown) // minimal
+	key(xui.KeyDown) // low
+	key(xui.KeyEnter)
+	require.False(t, p.Picker.Open)
+	require.Equal(t, llm.Low, ctrl.ThinkLevel())
+	p = openSettings("think", "Thinking Level")
+	assertCurrent(p, llm.Low)
+	e.composer.HidePalette()
+
+	p = openSettings("settings model", "Select Model")
+	require.Len(t, p.Commands, 2)
+	assert.Equal(t, chrome.CurrentMarker(true)+"primary", p.Commands[0].Verb)
+	assert.Equal(t, chrome.CurrentMarker(false)+"secondary", p.Commands[1].Verb)
+	key(xui.KeyDown)
+	key(xui.KeyEnter)
+	require.False(t, p.Picker.Open)
+	require.Equal(t, "secondary", ctrl.ModelName())
+
+	p = openSettings("settings model", "Select Model")
+	require.Len(t, p.Commands, 2)
+	assert.Equal(t, chrome.CurrentMarker(false)+"primary", p.Commands[0].Verb)
+	assert.Equal(t, chrome.CurrentMarker(true)+"secondary", p.Commands[1].Verb)
+	e.composer.HidePalette()
+
+	p = openSettings("think", "Thinking Level")
+	assertCurrent(p, llm.High)
+}
+
+func TestPaletteRefreshesRegistryOnlyWhenOpening(t *testing.T) {
+	e := newTestEditor(t)
+	current := "first"
+	builds := 0
+	e.commands.Register(commands.Command{
+		Name: "live-setting",
+		Build: func(commands.Context) palette.PaletteCommand {
+			builds++
+			return palette.PaletteCommand{ID: "live-setting", Verb: current}
+		},
+	})
+	// The composer rebuilds its own palette root on open; the last registered
+	// command is live-setting, so its Verb shows which build ran.
+	root := func() string {
+		overlay, ok := e.composer.PaletteOverlay(components.DrawContext{
+			Max:    components.Size{Width: 100, Height: 30},
+			Method: xui.WidthUnicode,
+		})
+		require.True(t, ok, "palette must be open")
+		p, ok := overlay.Surface.Widget.(*palette.CommandPalette)
+		require.True(t, ok)
+		return p.Root[len(p.Root)-1].Verb
+	}
+	toggle := func() {
+		e.composer.Handle(
+			&components.EventContext{},
+			xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'k', Mods: xui.ModCtrl},
+		)
+	}
+	toggle()
+	require.Equal(t, 1, builds)
+	assert.Equal(t, "first", root())
+	toggle()
+	assert.Equal(t, 1, builds, "closing must not rebuild commands before Hide restores parent frames")
+	current = "second"
+	toggle()
+	require.Equal(t, 2, builds)
+	assert.Equal(t, "second", root())
+}
+
+func TestModelPaletteSavesDefaultAndRestoresSession(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	for _, key := range []string{"PHI_MODEL", "PHI_API_KEY", "PHI_BASE_URL", "PHI_THINK_LEVEL"} {
+		t.Setenv(key, "")
+	}
+	t.Setenv(loader.EnvExtensions, "off")
+	configDir := filepath.Join(home, ".phi")
+	require.NoError(t, os.MkdirAll(configDir, 0o700))
+	configPath := filepath.Join(configDir, "config.yaml")
+	config := `models:
+  - name: primary
+    default: true
+    api_key: test-key
+    base_url: http://127.0.0.1:9
+    context_window: 192000
+  - name: secondary
+    api_key: test-key
+    base_url: http://127.0.0.1:9
+    context_window: 1000000
+`
+	require.NoError(t, os.WriteFile(configPath, []byte(config), 0o600))
+	cwd := t.TempDir()
+	proj, err := project.Discover(cwd)
+	require.NoError(t, err)
+	bus := controller.NewBus(nil)
+	ctrl, err := controller.NewController(bus, proj)
+	require.NoError(t, err)
+	t.Cleanup(ctrl.Close)
+	e := NewEditor(app.NewApp(nil), bus, ctrl, nil, components.DefaultTheme(), cwd,
+		"primary", nil, []string{"primary", "secondary"})
+	key := func(code xui.KeyCode, r rune, mods xui.Modifiers) {
+		t.Helper()
+		e.composer.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: code, Rune: r, Mods: mods})
+	}
+	openModel := func(query string) *palette.CommandPalette {
+		t.Helper()
+		key(xui.KeyRune, 'k', xui.ModCtrl)
+		for _, r := range "settings model" {
+			key(xui.KeyRune, r, 0)
+		}
+		key(xui.KeyEnter, 0, 0)
+		for _, r := range query {
+			key(xui.KeyRune, r, 0)
+		}
+		overlay, ok := e.composer.PaletteOverlay(components.DrawContext{
+			Max: components.Size{Width: 100, Height: 30}, Method: xui.WidthUnicode,
+		})
+		require.True(t, ok)
+		p, ok := overlay.Surface.Widget.(*palette.CommandPalette)
+		require.True(t, ok)
+		return p
+	}
+
+	p := openModel("secondary")
+	key(xui.KeyEnter, 0, 0)
+	require.False(t, p.Picker.Open)
+	require.Equal(t, "secondary", ctrl.ModelName())
+	data, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	assert.Equal(t, config, string(data), "Enter must not modify global defaults")
+	require.NoError(t, ctrl.SetModel("primary"))
+	previous, err := session.NewSessionManager(cwd, session.WithSessionDir(ctrl.SessionDir()),
+		session.WithShouldFlush(true), session.WithModel("primary"))
+	require.NoError(t, err)
+	_, err = previous.Append(llm.Message{Role: llm.RoleAssistant, Content: "done"})
+	require.NoError(t, err)
+	firstID := previous.ID()
+	require.NoError(t, ctrl.NewSession())
+
+	p = openModel("secondary")
+	assert.Empty(t, p.Commands[1].Shortcut)
+	// A failed write must keep the picker open and leave the active model alone.
+	require.NoError(t, os.Mkdir(configPath+".bak", 0o700))
+	key(xui.KeyRune, 's', xui.ModCtrl)
+	require.True(t, p.Picker.Open)
+	key(xui.KeyRune, 'y', 0)
+	require.True(t, p.Picker.Open)
+	require.Equal(t, "primary", ctrl.ModelName())
+	require.NoError(t, os.Remove(configPath+".bak"))
+	key(xui.KeyRune, 's', xui.ModCtrl)
+	require.True(t, p.Picker.Open)
+	require.Equal(t, "primary", ctrl.ModelName())
+	data, err = os.ReadFile(configPath)
+	require.NoError(t, err)
+	assert.Equal(t, config, string(data), "Ctrl+S must wait for confirmation before writing")
+	key(xui.KeyEnter, 0, 0)
+	require.False(t, p.Picker.Open)
+	require.Equal(t, "secondary", ctrl.ModelName())
+	assert.Equal(t, "secondary", e.composer.Chat.TopRightLabel.Text)
+	assert.Equal(t, 1000000, ctrl.ContextWindow())
+	doc, err := project.ReadConfigDoc(configPath)
+	require.NoError(t, err)
+	assert.False(t, doc.Models[0].Default)
+	assert.True(t, doc.Models[1].Default)
+	require.NoError(t, ctrl.NewSession())
+	assert.Equal(t, "secondary", ctrl.ModelName())
+
+	ctrl.Close()
+	restarted, err := controller.NewController(controller.NewBus(nil), proj)
+	require.NoError(t, err)
+	t.Cleanup(restarted.Close)
+	assert.Equal(t, "secondary", restarted.ModelName(), "saved default must survive restart")
+	_, err = restarted.Resume(firstID)
+	require.NoError(t, err)
+	assert.Equal(t, "primary", restarted.ModelName(), "session model must take precedence on resume")
+}
+
+// On a short terminal the transcript area can shrink to a few rows. The open
+// palette must not follow it down to an empty box that still captures keys.
+func TestPaletteStaysUsableOnShortTerminals(t *testing.T) {
+	e := newTestEditor(t)
+	e.composer.Handle(&components.EventContext{},
+		xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'k', Mods: xui.ModCtrl})
+	require.True(t, e.composer.PaletteOpen())
+
+	root := e.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 8}, Method: xui.WidthUnicode})
+	var overlay *components.Surface
+	for i := range root.Children {
+		if _, ok := root.Children[i].Surface.Widget.(*palette.CommandPalette); ok {
+			overlay = &root.Children[i].Surface
+		}
+	}
+	require.NotNil(t, overlay, "the palette overlay draws")
+	require.Len(t, overlay.Children, 1)
+	panel := overlay.Children[0].Surface
+	assert.Equal(t, 7, panel.Size.Height, "one row plus full chrome, not an empty box")
+	text := components.SurfaceText(panel)
+	assert.Contains(t, text, chrome.FilterPrompt, "the filter line is visible")
+	assert.Contains(t, text, "esc close", "the hint is visible")
+}
+
+// TestSkillSlashOpensPicker walks the wiring the way the shell uses it:
+// registry → SkillsCommands → skills.LoadAll → listrows → composer overlay.
+// /skill is a slash command, not a Ctrl+K palette entry.
+func TestSkillSlashOpensPicker(t *testing.T) {
+	e := skillEditor(t)
+
+	require.True(t, e.commands.DispatchSlash("/skill", commands.NewContext(e.bus, nil)))
+
+	text := skillOverlay(t, e)
+	assert.Contains(t, text, "Skills")
+	assert.Contains(t, text, "extract-and-distill")
+}
+
+// Accepting a row attaches the skill to the composer and refocuses chat.
+func TestSkillPickerAcceptAttachesSkill(t *testing.T) {
+	e := skillEditor(t)
+	require.True(t, e.commands.DispatchSlash("/skill", commands.NewContext(e.bus, nil)))
+	_, ok := e.composer.ListOverlay(components.DrawContext{
+		Max:    components.Size{Width: 100, Height: 30},
+		Method: xui.WidthUnicode,
+	})
+	require.True(t, ok, "/skill must have opened the picker")
+
+	key := func(code xui.KeyCode, r rune, mods xui.Modifiers) {
+		e.composer.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: code, Rune: r, Mods: mods})
+	}
+	key(xui.KeyEnter, 0, 0)
+
+	assert.Equal(t, []string{"extract-and-distill"}, e.composer.PendingSkills())
+}
+
+func skillEditor(t *testing.T) *Editor {
+	t.Helper()
+	dir := t.TempDir()
+	// Write one skill under <dir>/skills/<name>/SKILL.md so the registry root
+	// is the temp dir's skills folder.
+	skillDir := filepath.Join(dir, "skills", "extract-and-distill")
+	require.NoError(t, os.MkdirAll(skillDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
+name: extract-and-distill
+description: Distill ideas from source material
+---
+Do the work.
+`), 0o644))
+
+	bus := controller.NewBus(nil)
+	e := &Editor{
+		composer: composer.NewComposerPane(components.DefaultTheme(), "m", dir),
+		bus:      bus,
+		cwd:      dir,
+	}
+	e.composer.Wire(composer.WireDeps{})
+
+	registry := commands.NewCommandRegistry()
+	builtins := commands.NewBuiltinRegistry(
+		registry,
+		commands.NewContext(bus, nil),
+		bus,
+		nil,
+		e.composer,
+		nil,
+		dir,
+		nil,
+		[]string{filepath.Join(dir, "skills")},
+		e,
+		nil,
+	)
+	e.commands = builtins.Registry
+
+	return e
+}
+
+func skillOverlay(t *testing.T, e *Editor) string {
+	t.Helper()
+	overlay, ok := e.composer.ListOverlay(components.DrawContext{
+		Max:    components.Size{Width: 100, Height: 30},
+		Method: xui.WidthUnicode,
+	})
+	require.True(t, ok, "/skill must open the picker")
+	return components.SurfaceText(overlay.Surface)
 }

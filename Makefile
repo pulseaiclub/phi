@@ -14,7 +14,7 @@ CGO      ?= 0
 # Pin digest so CI / local make use the same markdownlint image.
 MARKDOWN_LINT_IMAGE ?= avtodev/markdown-lint:v1@sha256:6aeedc2f49138ce7a1cd0adffc1b1c0321b841dc2102408967d9301c031949ee
 
-.PHONY: all build install run clean test fmt fmt-check lint lint-markdown deadcode check help
+.PHONY: all build install run clean test fmt fmt-check lint lint-markdown deadcode sync-models check help
 
 all: build
 
@@ -35,6 +35,10 @@ clean:
 
 test:
 	$(GO) test ./...
+
+# Sync built-in preset specs (specs_gen.go) from models.dev.
+sync-models:
+	$(GO) run ./internal/project/model/cmd/modelgen
 
 # Apply gofumpt / goimports / golines via .golangci.yml formatters.
 fmt:
@@ -68,4 +72,5 @@ help:
 	@echo "  make lint     - run golangci-lint"
 	@echo "  make lint-markdown - lint Markdown (Docker; needs daemon)"
 	@echo "  make deadcode - unreachable func check (deadcode -test vs baseline)"
+	@echo "  make sync-models - sync built-in preset specs from models.dev"
 	@echo "  make check    - fmt-check + lint + deadcode (CI)"

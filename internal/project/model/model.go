@@ -118,59 +118,77 @@ var (
 	thinkMax  = llm.ThinkConfig{Enabled: true, Mode: llm.Max}
 )
 
-// presets is the built-in catalog, keyed by model name. Values mirror each
-// provider's public API docs; re-check the linked page when refreshing a
-// model — context length, base URL, and capabilities change between versions.
-// MaxTokens (output limit) is set only where a source states it; presets
-// without it fall back to the compaction default. GPT values come from each
-// model's page under the OpenAI source below; DeepSeek, Kimi and GLM follow the
-// limits ZCode ships for the same models.
+// withSyncedSpec fills zero ContextWindow, InputLimit, and MaxTokens from
+// generated models.dev specs (preserving non-zero overrides) and sets ImageEnabled.
+// An explicit ContextWindow override skips the synced InputLimit so the two
+// limits never come from different tiers.
+func withSyncedSpec(cfg llm.ModelConfig) llm.ModelConfig {
+	spec, ok := syncedSpecs[cfg.Name]
+	if !ok {
+		return cfg
+	}
+	if cfg.ContextWindow == 0 {
+		cfg.ContextWindow = spec.ContextWindow
+		if cfg.InputLimit == 0 {
+			cfg.InputLimit = spec.InputLimit
+		}
+	}
+	if cfg.MaxTokens == 0 {
+		cfg.MaxTokens = spec.MaxTokens
+	}
+	cfg.ImageEnabled = spec.ImageEnabled
+	return cfg
+}
+
+func openAIPreset(name string, think llm.ThinkConfig) Preset {
+	return Preset{
+		Config: withSyncedSpec(llm.ModelConfig{
+			Name:    name,
+			BaseURL: "https://api.openai.com/v1",
+			API:     llm.OpenAIResponses,
+			Think:   think,
+		}),
+	}
+}
+
+func geminiPreset(name string, hooks llmclient.Hooks) Preset {
+	return Preset{
+		Config: withSyncedSpec(llm.ModelConfig{
+			Name:    name,
+			BaseURL: "https://generativelanguage.googleapis.com/v1beta",
+			API:     llm.Gemini,
+			Think:   thinkHigh,
+		}),
+		Hooks: hooks,
+	}
+}
+
+func glmPreset(name, alias string) Preset {
+	return Preset{
+		Config: withSyncedSpec(llm.ModelConfig{
+			Name:    name,
+			BaseURL: "https://api.z.ai/api/coding/paas/v4",
+			API:     llm.OpenAI,
+			Think:   thinkMax,
+		}),
+		Hooks:      chatHooks(true),
+		thinkModes: []llm.ThinkMode{llm.Low, llm.High, llm.Max},
+		Alias:      alias,
+	}
+}
+
+// presets is the built-in catalog, keyed by model name. Entries mapped in
+// sources.json pull ContextWindow, InputLimit, MaxTokens, and ImageEnabled from
+// specs_gen.go (`make sync-models`); non-zero limit fields below act as
+// explicit overrides. Connection defaults, thinking hooks, and alias rules
+// remain hand-maintained.
 var presets = []Preset{
 	// Source: https://platform.openai.com/docs/models
-	{
-		Config: llm.ModelConfig{
-			Name:          "gpt-6-astra",
-			BaseURL:       "https://api.openai.com/v1",
-			ContextWindow: 272_000,
-			MaxTokens:     128_000,
-			ImageEnabled:  true,
-			API:           llm.OpenAIResponses,
-			Think:         thinkMax,
-		},
-	},
-	{
-		Config: llm.ModelConfig{
-			Name:          "gpt-5.6-sol",
-			BaseURL:       "https://api.openai.com/v1",
-			ContextWindow: 272_000,
-			MaxTokens:     128_000,
-			ImageEnabled:  true,
-			API:           llm.OpenAIResponses,
-			Think:         thinkHigh,
-		},
-	},
-	{
-		Config: llm.ModelConfig{
-			Name:          "gpt-5.6-terra",
-			BaseURL:       "https://api.openai.com/v1",
-			ContextWindow: 272_000,
-			MaxTokens:     128_000,
-			ImageEnabled:  true,
-			API:           llm.OpenAIResponses,
-			Think:         thinkHigh,
-		},
-	},
-	{
-		Config: llm.ModelConfig{
-			Name:          "gpt-5.6-luna",
-			BaseURL:       "https://api.openai.com/v1",
-			ContextWindow: 272_000,
-			MaxTokens:     128_000,
-			ImageEnabled:  true,
-			API:           llm.OpenAIResponses,
-			Think:         thinkHigh,
-		},
-	},
+	openAIPreset("gpt-6-astra", thinkMax),
+	openAIPreset("gpt-5.6-sol", thinkHigh),
+	openAIPreset("gpt-5.6-terra", thinkHigh),
+	openAIPreset("gpt-5.6-luna", thinkHigh),
+	// Retired upstream and absent from models.dev; retained for existing configs.
 	{
 		Config: llm.ModelConfig{
 			Name:          "gpt-5-chat-latest",
@@ -180,38 +198,17 @@ var presets = []Preset{
 			API:           llm.OpenAIResponses,
 		},
 	},
-	// Source: https://platform.openai.com/docs/models
-	{
-		Config: llm.ModelConfig{
-			Name:          "gpt-5.5",
-			BaseURL:       "https://api.openai.com/v1",
-			ContextWindow: 272_000,
-			ImageEnabled:  true,
-			API:           llm.OpenAIResponses,
-			Think:         thinkHigh,
-		},
-	},
-	{
-		Config: llm.ModelConfig{
-			Name:          "gpt-5.5-pro",
-			BaseURL:       "https://api.openai.com/v1",
-			ContextWindow: 1_050_000,
-			ImageEnabled:  true,
-			API:           llm.OpenAIResponses,
-			Think:         thinkHigh,
-		},
-	},
+	openAIPreset("gpt-5.5", thinkHigh),
+	openAIPreset("gpt-5.5-pro", thinkHigh),
+
 	// Source: https://api-docs.deepseek.com/zh-cn/quick_start/pricing
 	{
-		Config: llm.ModelConfig{
-			Name:          "deepseek-flash",
-			BaseURL:       "https://api.deepseek.com",
-			ContextWindow: 1_000_000,
-			MaxTokens:     384_000,
-			ImageEnabled:  true,
-			API:           llm.OpenAI,
-			Think:         thinkHigh,
-		},
+		Config: withSyncedSpec(llm.ModelConfig{
+			Name:    "deepseek-flash",
+			BaseURL: "https://api.deepseek.com",
+			API:     llm.OpenAI,
+			Think:   thinkHigh,
+		}),
 		Hooks:         chatHooks(false),
 		thinkModes:    []llm.ThinkMode{llm.Off, llm.Low, llm.High, llm.Max},
 		openCodeModes: []llm.ThinkMode{llm.Low, llm.High, llm.Max},
@@ -219,42 +216,23 @@ var presets = []Preset{
 		Alias: `deepseek-(?:v4[.\-]1-)?flash`,
 	},
 	{
-		Config: llm.ModelConfig{
-			Name:          "deepseek-v4-pro",
-			BaseURL:       "https://api.deepseek.com",
-			ContextWindow: 1_000_000,
-			MaxTokens:     384_000,
-			API:           llm.OpenAI,
-			Think:         thinkHigh,
-		},
+		Config: withSyncedSpec(llm.ModelConfig{
+			Name:    "deepseek-v4-pro",
+			BaseURL: "https://api.deepseek.com",
+			API:     llm.OpenAI,
+			Think:   thinkHigh,
+		}),
 		Hooks:         chatHooks(false),
 		thinkModes:    []llm.ThinkMode{llm.Off, llm.Low, llm.High, llm.Max},
 		openCodeModes: []llm.ThinkMode{llm.High, llm.Max},
 	},
+
 	// Gemini 2.5 — thinkingBudget (token cap). Source: https://ai.google.dev/gemini-api/docs/models
-	{
-		Config: llm.ModelConfig{
-			Name:          "gemini-2.5-pro",
-			BaseURL:       "https://generativelanguage.googleapis.com/v1beta",
-			ContextWindow: 1_000_000,
-			ImageEnabled:  true,
-			API:           llm.Gemini,
-			Think:         thinkHigh,
-		},
-		Hooks: geminiBudgetHooks(),
-	},
-	{
-		Config: llm.ModelConfig{
-			Name:          "gemini-2.5-flash",
-			BaseURL:       "https://generativelanguage.googleapis.com/v1beta",
-			ContextWindow: 1_000_000,
-			ImageEnabled:  true,
-			API:           llm.Gemini,
-			Think:         thinkHigh,
-		},
-		Hooks: geminiBudgetHooks(),
-	},
+	geminiPreset("gemini-2.5-pro", geminiBudgetHooks()),
+	geminiPreset("gemini-2.5-flash", geminiBudgetHooks()),
+
 	// Gemini 3 — thinkingLevel. Pro floor LOW; Flash floor MINIMAL. Neither can fully disable.
+	// gemini-3-pro is absent from models.dev; retained for existing configs.
 	{
 		Config: llm.ModelConfig{
 			Name:          "gemini-3-pro",
@@ -266,30 +244,22 @@ var presets = []Preset{
 		},
 		Hooks: geminiLevelHooks("LOW"),
 	},
+	geminiPreset("gemini-3-flash", geminiLevelHooks("MINIMAL")),
+
 	{
-		Config: llm.ModelConfig{
-			Name:          "gemini-3-flash",
-			BaseURL:       "https://generativelanguage.googleapis.com/v1beta",
-			ContextWindow: 1_000_000,
-			ImageEnabled:  true,
-			API:           llm.Gemini,
-			Think:         thinkHigh,
-		},
-		Hooks: geminiLevelHooks("MINIMAL"),
-	},
-	{
-		Config: llm.ModelConfig{
-			Name:          "kimi-k3",
-			BaseURL:       "https://api.moonshot.cn/v1",
-			ContextWindow: 1_000_000,
-			MaxTokens:     131_072,
-			ImageEnabled:  true,
-			API:           llm.OpenAI,
-			Think:         thinkMax,
-		},
+		Config: withSyncedSpec(llm.ModelConfig{
+			Name:    "kimi-k3",
+			BaseURL: "https://api.moonshot.cn/v1",
+			// Moonshot's models.dev entry sets limit.output equal to the 1M context window.
+			MaxTokens: 131_072,
+			API:       llm.OpenAI,
+			Think:     thinkMax,
+		}),
 		Alias:      `(?:auto-)?kimi-k3`,
 		thinkModes: []llm.ThinkMode{llm.Low, llm.High, llm.Max},
 	},
+	// Coding-plan 10M tier; models.dev only lists the 256 KiB standard tier with
+	// limit.output equal to context, so keep this entry hand-maintained.
 	{
 		Config: llm.ModelConfig{
 			Name:          "kimi-k2.7-code",
@@ -299,36 +269,12 @@ var presets = []Preset{
 			API:           llm.OpenAI,
 		},
 	},
+
 	// GLM on the z.ai coding plan. Both presets are forced-thinking; endpoint
 	// rules enable preserved history only on known native APIs.
 	// Sources: https://docs.z.ai/api-reference/llm/chat-completion
 	//          https://docs.z.ai/guides/capabilities/thinking
-	{
-		Config: llm.ModelConfig{
-			Name:          "glm-5.3-flash",
-			BaseURL:       "https://api.z.ai/api/coding/paas/v4",
-			ContextWindow: 1_048_576,
-			MaxTokens:     128_000,
-			ImageEnabled:  true,
-			API:           llm.OpenAI,
-			Think:         thinkMax,
-		},
-		Hooks:      chatHooks(true),
-		thinkModes: []llm.ThinkMode{llm.Low, llm.High, llm.Max},
-		// group/auto-glm-5-3-flash routes with a dash for the version dot.
-		Alias: `(?:auto-)?glm-5[.\-]3-flash`,
-	},
-	{
-		Config: llm.ModelConfig{
-			Name:          "glm-5.3",
-			BaseURL:       "https://api.z.ai/api/coding/paas/v4",
-			ContextWindow: 1_048_576,
-			MaxTokens:     128_000,
-			API:           llm.OpenAI,
-			Think:         thinkMax,
-		},
-		Hooks:      chatHooks(true),
-		thinkModes: []llm.ThinkMode{llm.Low, llm.High, llm.Max},
-		Alias:      `(?:auto-)?glm-5[.\-]3`,
-	},
+	// group/auto-glm-5-3-flash routes with a dash for the version dot.
+	glmPreset("glm-5.3-flash", `(?:auto-)?glm-5[.\-]3-flash`),
+	glmPreset("glm-5.3", `(?:auto-)?glm-5[.\-]3`),
 }

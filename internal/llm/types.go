@@ -83,6 +83,10 @@ type ModelConfig struct {
 	// ContextWindow is the model's context window in tokens.
 	// Zero disables session compaction (safe default).
 	ContextWindow int
+	// InputLimit is the model's maximum input tokens when lower than
+	// ContextWindow (for models whose context window reserves output capacity).
+	// Zero means input may use the full ContextWindow.
+	InputLimit int
 	// MaxTokens is the model's output limit in tokens. Compaction summaries
 	// use it as their cap; zero falls back to a default.
 	MaxTokens int
@@ -94,6 +98,19 @@ type ModelConfig struct {
 	Think ThinkConfig
 	// RequestParameters overrides options after endpoint adaptation.
 	RequestParameters RequestParameters
+}
+
+// CompactionWindow returns the token ceiling used to trigger proactive
+// compaction: InputLimit when it is tighter than ContextWindow, otherwise
+// ContextWindow. Zero when ContextWindow <= 0 (compaction disabled).
+func (c ModelConfig) CompactionWindow() int {
+	if c.ContextWindow <= 0 {
+		return 0
+	}
+	if c.InputLimit > 0 && c.InputLimit < c.ContextWindow {
+		return c.InputLimit
+	}
+	return c.ContextWindow
 }
 
 // Role identifies the participant in a chat message.

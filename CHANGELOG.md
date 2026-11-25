@@ -14,6 +14,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- Models: sync built-in preset context windows, output limits, and image-input support from `models.dev` via `make sync-models` (`internal/project/model/specs_gen.go`).
 - The composer's `@` / slash picker no longer hardcodes its selection colors:
   the highlighted row uses the shared `Selection` theme roles like the list
   picker and config form, so themes such as Pink no longer show an off-palette
@@ -26,6 +27,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Compaction: sync model input limits from `models.dev` (such as the 922K input
+  cap on 1.05M-context GPT presets) and use the input limit for proactive
+  compaction and footer context pressure while keeping the full context window
+  for summary output caps.
 - Terminal: upgrade xui to v0.1.10 so overwriting the continuation column of a
   wide glyph truncates it, keeping overlay borders intact next to CJK text.
 

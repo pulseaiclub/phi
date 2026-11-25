@@ -23,6 +23,8 @@ func TestModelAliasesInheritCapabilitiesWithoutChangingIdentity(t *testing.T) {
 				require.True(t, ok)
 				assert.Equal(t, name, p.Config.Name)
 				assert.Equal(t, original.Config.ContextWindow, p.Config.ContextWindow)
+				assert.Equal(t, original.Config.InputLimit, p.Config.InputLimit)
+				assert.Equal(t, original.Config.MaxTokens, p.Config.MaxTokens)
 				assert.Equal(t, original.Config.ImageEnabled, p.Config.ImageEnabled)
 				assert.Equal(t, original.Config.Think, p.Config.Think)
 				assert.Empty(t, p.Config.BaseURL, "a routed ID does not select a native connection")
@@ -59,7 +61,7 @@ func TestModelAliasBoundariesAndSpecificity(t *testing.T) {
 		p, ok := Lookup(name)
 		require.True(t, ok, name)
 		assert.Equal(t, name, p.Config.Name)
-		assert.Equal(t, 384_000, p.Config.MaxTokens, name)
+		assert.Equal(t, 393_216, p.Config.MaxTokens, name)
 	}
 }
 
@@ -83,6 +85,7 @@ func TestModelAliasPrefersModelOverRoutePrefix(t *testing.T) {
 			require.True(t, ok)
 			assert.Equal(t, tc.name, got.Config.Name)
 			assert.Equal(t, want.Config.ContextWindow, got.Config.ContextWindow)
+			assert.Equal(t, want.Config.InputLimit, got.Config.InputLimit)
 			assert.Equal(t, want.Config.ImageEnabled, got.Config.ImageEnabled)
 			assert.Equal(t, want.Config.Think, got.Config.Think)
 			assert.Equal(t, want.Hooks, got.Hooks)
