@@ -79,3 +79,19 @@ func TestSubagentStoreChildKeyKeepsBranchesApart(t *testing.T) {
 	require.Len(t, kids, 2)
 	require.Equal(t, status.ToolDone, kids[1].Status)
 }
+
+func TestApplyProgressReportsChange(t *testing.T) {
+	s := transcript.NewSubagentStore()
+	p := job.Progress{
+		JobID:           "job1",
+		ParentToolUseID: "parent1",
+		ToolUseID:       "c1",
+		Name:            "read",
+		Status:          "in-progress",
+		Detail:          "a.go",
+	}
+	require.True(t, s.ApplyProgress(p), "first apply should change")
+	require.False(t, s.ApplyProgress(p), "identical apply should not change")
+	p.Status = "done"
+	require.True(t, s.ApplyProgress(p), "status change should dirty")
+}
