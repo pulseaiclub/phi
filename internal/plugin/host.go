@@ -8,12 +8,14 @@ import (
 	"slices"
 
 	"github.com/pulseaiclub/lug"
-	"github.com/pulseaiclub/lug/runtime"
+
+	"github.com/pulseaiclub/phi/internal/plugin/lib"
 )
 
 type instance struct {
-	name string
-	env  *lug.Env
+	name      string
+	env       *lug.Env
+	providers []lib.Provider
 }
 
 // Host owns the environments whose startup completed successfully.
@@ -26,14 +28,11 @@ type Host struct {
 func Open(currentVersion string, output io.Writer, roots ...string) (*Host, []error) {
 	plugins, diagnostics := discover(currentVersion, roots...)
 	h := &Host{}
+	owners := make(map[string]string)
+
 	for _, p := range plugins {
-		env := newEnv(output)
-		if _, err := lug.DoFile(env, p.entry); err != nil {
-			diagnostics = append(diagnostics, fmt.Errorf("plugin %q: load %s: %w", p.name, p.entry, err))
-			continue
-		}
-		i := instance{name: p.name, env: env}
-		if err := i.hook("on_load"); err != nil {
+		i, err := load(p, output, NewRegisterProvider(p.name, owners))
+		if err != nil {
 			diagnostics = append(diagnostics, err)
 			continue
 		}
@@ -42,20 +41,61 @@ func Open(currentVersion string, output io.Writer, roots ...string) (*Host, []er
 	return h, diagnostics
 }
 
-// Lua's default print and io.write target stdout, which belongs to the JSONL
-// stream in headless mode. Route both to the caller's diagnostic writer.
-func newEnv(output io.Writer) *lug.Env {
-	env := lug.New()
-	env.Set("print", runtime.NewClosure(func(e *lug.Env, args []lug.Value) []lug.Value {
-		fmt.Fprintln(output, runtime.PrintLine(e, args))
-		return nil
-	}, "print"))
-	env.Get("io").Table().Set(lug.String("write"), runtime.NewClosure(func(e *lug.Env, args []lug.Value) []lug.Value {
-		for _, arg := range args {
-			fmt.Fprint(output, runtime.ToStringEnv(e, arg))
+// RegisterProvider stages a single plugin's declarations until startup succeeds.
+type RegisterProvider struct {
+	name    string
+	owners  map[string]string
+	pending []lib.Provider
+}
+
+func NewRegisterProvider(name string, owners map[string]string) *RegisterProvider {
+	return &RegisterProvider{name: name, owners: owners}
+}
+
+func (r *RegisterProvider) Register(provider lib.Provider) error {
+	if r.owners == nil {
+		return errors.New("providers can be registered only during plugin startup")
+	}
+	if source, exists := r.owners[provider.ID]; exists {
+		return fmt.Errorf("provider %q already registered by plugin %q", provider.ID, source)
+	}
+	for _, previous := range r.pending {
+		if previous.ID == provider.ID {
+			return fmt.Errorf("duplicate provider %q in plugin %q", provider.ID, r.name)
 		}
-		return nil
-	}, "io.write"))
+	}
+	r.pending = append(r.pending, provider)
+	return nil
+}
+
+func (r *RegisterProvider) commit() []lib.Provider {
+	providers := r.pending
+	for _, provider := range providers {
+		r.owners[provider.ID] = r.name
+	}
+	r.owners, r.pending = nil, nil
+	return providers
+}
+
+func load(p descriptor, output io.Writer, register *RegisterProvider) (instance, error) {
+	env := newEnv(output, register)
+	if _, err := lug.DoFile(env, p.entry); err != nil {
+		return instance{}, fmt.Errorf("plugin %q: load %s: %w", p.name, p.entry, err)
+	}
+	i := instance{name: p.name, env: env}
+	if err := i.hook("on_load"); err != nil {
+		return instance{}, err
+	}
+	i.providers = register.commit()
+	return i, nil
+}
+
+func newEnv(output io.Writer, register *RegisterProvider) *lug.Env {
+	env := lug.New()
+	for _, b := range builtins {
+		b.install(env, output)
+	}
+	installProviderAPI(env, register)
 	return env
 }
 
@@ -66,6 +106,32 @@ func (i instance) hook(name string) error {
 		}
 	}
 	return nil
+}
+
+// RegisteredModel keeps the upstream ID separate from the catalog key.
+type RegisteredModel struct {
+	Plugin   string
+	Provider lib.Provider
+	Model    lib.ProviderModel
+}
+
+// Models returns a snapshot keyed by the complete selection ID.
+func (h *Host) Models() map[string]RegisteredModel {
+	models := make(map[string]RegisteredModel)
+	for _, i := range h.active {
+		for _, p := range i.providers {
+			p.Models = slices.Clone(p.Models)
+			if p.Auth != nil {
+				auth := *p.Auth
+				auth.Scopes = slices.Clone(auth.Scopes)
+				p.Auth = &auth
+			}
+			for _, m := range p.Models {
+				models[p.ID+"/"+m.ID] = RegisteredModel{Plugin: i.name, Provider: p, Model: m}
+			}
+		}
+	}
+	return models
 }
 
 // Close unloads in reverse startup order. Repeated calls are harmless.
