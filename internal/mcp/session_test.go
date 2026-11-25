@@ -1,17 +1,131 @@
-package mcp_test
+package mcp
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
-
-	"github.com/pulseaiclub/phi/internal/mcp"
 )
+
+func TestSessionResetsAfterResponseIDMismatch(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_STATE_HOME", tmp)
+
+	marker := filepath.Join(tmp, "restarted")
+	tr, err := newStdioTransport("test", stdioHelper(helperStaleID, marker))
+	require.NoError(t, err)
+	sess := newSession("test", tr)
+	defer func() { _ = sess.Close() }()
+
+	_, err = sess.CallTool(t.Context(), "echo", nil)
+	require.ErrorIs(t, err, errResponseIDMismatch)
+
+	out, err := sess.CallTool(t.Context(), "echo", nil)
+	require.NoError(t, err)
+	require.Equal(t, "ok", out)
+}
+
+func TestSessionRestartsAfterCallTimeout(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_STATE_HOME", tmp)
+
+	tr, err := newStdioTransport("test", stdioHelper(helperLateReply, filepath.Join(tmp, "late")))
+	require.NoError(t, err)
+	tr.timeout = time.Second
+	sess := newSession("test", tr)
+	defer func() { _ = sess.Close() }()
+	require.NoError(t, sess.Initialize(t.Context()))
+
+	tr.timeout = 30 * time.Millisecond
+	_, err = sess.CallTool(t.Context(), "echo", nil)
+	require.EqualError(t, err, "mcp tools/call: timeout after 30ms")
+
+	tr.timeout = time.Second
+	out, err := sess.CallTool(t.Context(), "echo", nil)
+	require.NoError(t, err)
+	require.Equal(t, "ok", out)
+}
+
+func TestSessionRestartsAfterCallCancellation(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_STATE_HOME", tmp)
+
+	tr, err := newStdioTransport("test", stdioHelper(helperLateReply, filepath.Join(tmp, "late")))
+	require.NoError(t, err)
+	sess := newSession("test", tr)
+	defer func() { _ = sess.Close() }()
+	require.NoError(t, sess.Initialize(t.Context()))
+
+	ctx, cancel := context.WithCancel(t.Context())
+	callDone := make(chan error, 1)
+	go func() {
+		_, callErr := sess.CallTool(ctx, "echo", nil)
+		callDone <- callErr
+	}()
+	require.Eventually(t, func() bool {
+		_, statErr := os.Stat(filepath.Join(tmp, "late"))
+		return statErr == nil
+	}, 3*time.Second, 5*time.Millisecond)
+	cancel()
+	require.EqualError(t, <-callDone, context.Canceled.Error())
+
+	out, err := sess.CallTool(t.Context(), "echo", nil)
+	require.NoError(t, err)
+	require.Equal(t, "ok", out)
+}
+
+func TestSessionCloseDoesNotHangWhenDescendantHoldsStdout(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_STATE_HOME", tmp)
+
+	calledMarker := filepath.Join(tmp, "called")
+	tr, err := newStdioTransport("test", stdioHelper(helperHoldStdout, calledMarker))
+	require.NoError(t, err)
+	sess := newSession("test", tr)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	callDone := make(chan error, 1)
+	go func() {
+		_, cerr := sess.CallTool(ctx, "echo", nil)
+		callDone <- cerr
+	}()
+
+	require.Eventually(t, func() bool {
+		_, serr := os.Stat(calledMarker)
+		return serr == nil
+	}, 3*time.Second, 5*time.Millisecond)
+
+	cancel()
+	closeDone := make(chan error, 1)
+	go func() {
+		cerr := <-callDone
+		if cerr != nil {
+			_ = sess.Close()
+			closeDone <- cerr
+			return
+		}
+		closeDone <- sess.Close()
+	}()
+
+	select {
+	case cerr := <-closeDone:
+		require.ErrorIs(t, cerr, context.Canceled)
+	case <-time.After(3 * time.Second):
+		t.Fatal("cancel + sess.Close() hung while descendant held stdout")
+	}
+}
 
 // paginatedServer serves tools/list one page at a time and records every
 // params object it was asked for.
@@ -91,7 +205,7 @@ func TestListToolsFollowsPagination(t *testing.T) {
 		{"gamma"},
 		{"delta", "epsilon"},
 	})
-	pool := mcp.NewPool(map[string]mcp.ServerConfig{
+	pool := NewPool(map[string]ServerConfig{
 		"paged": {Transport: "http", URL: srv.URL},
 	})
 
@@ -138,7 +252,7 @@ func TestListToolsStopsOnRepeatedCursor(t *testing.T) {
 		}))
 	}))
 	t.Cleanup(srv.Close)
-	pool := mcp.NewPool(map[string]mcp.ServerConfig{
+	pool := NewPool(map[string]ServerConfig{
 		"stuck": {Transport: "http", URL: srv.URL},
 	})
 
@@ -148,7 +262,7 @@ func TestListToolsStopsOnRepeatedCursor(t *testing.T) {
 	require.LessOrEqual(t, calls, 32, "pagination must be bounded")
 }
 
-func toolNames(tools []mcp.ToolDefinition) []string {
+func toolNames(tools []ToolDefinition) []string {
 	names := make([]string, 0, len(tools))
 	for _, tool := range tools {
 		names = append(names, tool.Name)

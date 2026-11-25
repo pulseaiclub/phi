@@ -3,13 +3,11 @@ package mcp
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -270,116 +268,4 @@ func serveHoldingStdout(t *testing.T, marker string) {
 			_ = os.WriteFile(marker, []byte("called"), 0o600)
 		}
 	})
-}
-
-func TestSessionResetsAfterResponseIDMismatch(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
-	t.Setenv("XDG_STATE_HOME", tmp)
-
-	marker := filepath.Join(tmp, "restarted")
-	tr, err := newStdioTransport("test", stdioHelper(helperStaleID, marker))
-	require.NoError(t, err)
-	sess := newSession("test", tr)
-	defer func() { _ = sess.Close() }()
-
-	_, err = sess.CallTool(t.Context(), "echo", nil)
-	require.ErrorIs(t, err, errResponseIDMismatch)
-
-	out, err := sess.CallTool(t.Context(), "echo", nil)
-	require.NoError(t, err)
-	require.Equal(t, "ok", out)
-}
-
-func TestSessionRestartsAfterCallTimeout(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
-	t.Setenv("XDG_STATE_HOME", tmp)
-
-	tr, err := newStdioTransport("test", stdioHelper(helperLateReply, filepath.Join(tmp, "late")))
-	require.NoError(t, err)
-	tr.timeout = time.Second
-	sess := newSession("test", tr)
-	defer func() { _ = sess.Close() }()
-	require.NoError(t, sess.Initialize(t.Context()))
-
-	tr.timeout = 30 * time.Millisecond
-	_, err = sess.CallTool(t.Context(), "echo", nil)
-	require.EqualError(t, err, "mcp tools/call: timeout after 30ms")
-
-	tr.timeout = time.Second
-	out, err := sess.CallTool(t.Context(), "echo", nil)
-	require.NoError(t, err)
-	require.Equal(t, "ok", out)
-}
-
-func TestSessionRestartsAfterCallCancellation(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
-	t.Setenv("XDG_STATE_HOME", tmp)
-
-	tr, err := newStdioTransport("test", stdioHelper(helperLateReply, filepath.Join(tmp, "late")))
-	require.NoError(t, err)
-	sess := newSession("test", tr)
-	defer func() { _ = sess.Close() }()
-	require.NoError(t, sess.Initialize(t.Context()))
-
-	ctx, cancel := context.WithCancel(t.Context())
-	callDone := make(chan error, 1)
-	go func() {
-		_, callErr := sess.CallTool(ctx, "echo", nil)
-		callDone <- callErr
-	}()
-	require.Eventually(t, func() bool {
-		_, statErr := os.Stat(filepath.Join(tmp, "late"))
-		return statErr == nil
-	}, 3*time.Second, 5*time.Millisecond)
-	cancel()
-	require.EqualError(t, <-callDone, context.Canceled.Error())
-
-	out, err := sess.CallTool(t.Context(), "echo", nil)
-	require.NoError(t, err)
-	require.Equal(t, "ok", out)
-}
-
-func TestSessionCloseDoesNotHangWhenDescendantHoldsStdout(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
-	t.Setenv("XDG_STATE_HOME", tmp)
-
-	calledMarker := filepath.Join(tmp, "called")
-	tr, err := newStdioTransport("test", stdioHelper(helperHoldStdout, calledMarker))
-	require.NoError(t, err)
-	sess := newSession("test", tr)
-
-	ctx, cancel := context.WithCancel(t.Context())
-	callDone := make(chan error, 1)
-	go func() {
-		_, cerr := sess.CallTool(ctx, "echo", nil)
-		callDone <- cerr
-	}()
-
-	require.Eventually(t, func() bool {
-		_, serr := os.Stat(calledMarker)
-		return serr == nil
-	}, 3*time.Second, 5*time.Millisecond)
-
-	cancel()
-	closeDone := make(chan error, 1)
-	go func() {
-		cerr := <-callDone
-		if cerr != nil {
-			_ = sess.Close()
-			closeDone <- cerr
-			return
-		}
-		closeDone <- sess.Close()
-	}()
-
-	select {
-	case cerr := <-closeDone:
-		require.ErrorIs(t, cerr, context.Canceled)
-	case <-time.After(3 * time.Second):
-		t.Fatal("cancel + sess.Close() hung while descendant held stdout")
-	}
 }
