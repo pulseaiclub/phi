@@ -31,7 +31,7 @@ func Open(currentVersion string, output io.Writer, roots ...string) (*Host, []er
 	owners := make(map[string]string)
 
 	for _, p := range plugins {
-		i, err := load(p, output, NewRegisterProvider(p.name, owners))
+		i, err := load(p, output, lib.NewRegisterProvider(p.name, owners))
 		if err != nil {
 			diagnostics = append(diagnostics, err)
 			continue
@@ -41,43 +41,7 @@ func Open(currentVersion string, output io.Writer, roots ...string) (*Host, []er
 	return h, diagnostics
 }
 
-// RegisterProvider stages a single plugin's declarations until startup succeeds.
-type RegisterProvider struct {
-	name    string
-	owners  map[string]string
-	pending []lib.Provider
-}
-
-func NewRegisterProvider(name string, owners map[string]string) *RegisterProvider {
-	return &RegisterProvider{name: name, owners: owners}
-}
-
-func (r *RegisterProvider) Register(provider lib.Provider) error {
-	if r.owners == nil {
-		return errors.New("providers can be registered only during plugin startup")
-	}
-	if source, exists := r.owners[provider.ID]; exists {
-		return fmt.Errorf("provider %q already registered by plugin %q", provider.ID, source)
-	}
-	for _, previous := range r.pending {
-		if previous.ID == provider.ID {
-			return fmt.Errorf("duplicate provider %q in plugin %q", provider.ID, r.name)
-		}
-	}
-	r.pending = append(r.pending, provider)
-	return nil
-}
-
-func (r *RegisterProvider) commit() []lib.Provider {
-	providers := r.pending
-	for _, provider := range providers {
-		r.owners[provider.ID] = r.name
-	}
-	r.owners, r.pending = nil, nil
-	return providers
-}
-
-func load(p descriptor, output io.Writer, register *RegisterProvider) (instance, error) {
+func load(p descriptor, output io.Writer, register *lib.RegisterProvider) (instance, error) {
 	env := newEnv(output, register)
 	if _, err := lug.DoFile(env, p.entry); err != nil {
 		return instance{}, fmt.Errorf("plugin %q: load %s: %w", p.name, p.entry, err)
@@ -88,7 +52,7 @@ func load(p descriptor, output io.Writer, register *RegisterProvider) (instance,
 	}
 	// Commit after on_load so hook-time registrations land; a failed startup
 	// drops the plugin together with everything it declared.
-	i.providers = register.commit()
+	i.providers = register.Commit()
 	return i, nil
 }
 

@@ -162,3 +162,41 @@ func ParseProvider(v lug.Value) (Provider, error) {
 	}
 	return p, nil
 }
+
+// RegisterProvider stages a single plugin's declarations until startup succeeds.
+type RegisterProvider struct {
+	name    string
+	owners  map[string]string
+	pending []Provider
+}
+
+func NewRegisterProvider(name string, owners map[string]string) *RegisterProvider {
+	return &RegisterProvider{name: name, owners: owners}
+}
+
+func (r *RegisterProvider) Register(provider Provider) error {
+	if r.owners == nil {
+		return errors.New("providers can be registered only during plugin startup")
+	}
+	if source, exists := r.owners[provider.ID]; exists {
+		return fmt.Errorf("provider %q already registered by plugin %q", provider.ID, source)
+	}
+	for _, previous := range r.pending {
+		if previous.ID == provider.ID {
+			return fmt.Errorf("duplicate provider %q in plugin %q", provider.ID, r.name)
+		}
+	}
+	r.pending = append(r.pending, provider)
+	return nil
+}
+
+// Commit hands out the staged providers and retires the stager: after it runs,
+// further Register calls fail so plugins cannot register from on_unload.
+func (r *RegisterProvider) Commit() []Provider {
+	providers := r.pending
+	for _, provider := range providers {
+		r.owners[provider.ID] = r.name
+	}
+	r.owners, r.pending = nil, nil
+	return providers
+}
