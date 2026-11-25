@@ -1,4 +1,4 @@
-package plugin
+package lib
 
 import (
 	"fmt"
@@ -9,6 +9,7 @@ import (
 	"github.com/pulseaiclub/lug/runtime"
 )
 
+// LuaFunction is the Go implementation behind a built-in Lua function.
 type LuaFunction interface {
 	Apply(e *lug.Env, args []lug.Value) []lug.Value
 }
@@ -30,45 +31,53 @@ func registerBuiltin[T LuaFunction](name string, factory func(io.Writer) T) {
 	builtins = append(builtins, builtin{name, func(output io.Writer) LuaFunction { return factory(output) }})
 }
 
+// install binds the function under name, creating the module table for dotted
+// names ("io.write" lands in a fresh io table) so order never matters.
 func (b builtin) install(env *lug.Env, output io.Writer) {
 	fn := runtime.NewClosure(b.newFunction(output).Apply, b.name)
 	if module, field, ok := strings.Cut(b.name, "."); ok {
-		env.Get(module).Table().Set(lug.String(field), fn)
+		t := env.Get(module).Table()
+		if t == nil {
+			t = lug.NewTable()
+			env.Set(module, lug.TableVal(t))
+		}
+		t.Set(lug.String(field), fn)
 		return
 	}
 	env.Set(b.name, fn)
 }
 
-func init() { registerBuiltin("print", NewPrint) }
+func init() {
+	registerBuiltin("print", NewPrint)
+	registerBuiltin("io.write", NewIO)
+}
 
+// Print implements print: one line of space-separated arguments.
 type Print struct {
-	Output io.Writer
+	output io.Writer
 }
 
 func NewPrint(output io.Writer) *Print {
-	return &Print{
-		Output: output,
-	}
+	return &Print{output: output}
 }
 
-func (p Print) Apply(e *lug.Env, args []lug.Value) []lug.Value {
-	fmt.Fprintln(p.Output, runtime.PrintLine(e, args))
+func (p *Print) Apply(e *lug.Env, args []lug.Value) []lug.Value {
+	fmt.Fprintln(p.output, runtime.PrintLine(e, args))
 	return nil
 }
 
-func init() { registerBuiltin("io.write", NewIO) }
-
+// IO implements io.write: arguments concatenated without separators or newline.
 type IO struct {
-	Output io.Writer
+	output io.Writer
 }
 
 func NewIO(output io.Writer) *IO {
-	return &IO{Output: output}
+	return &IO{output: output}
 }
 
-func (i IO) Apply(e *lug.Env, args []lug.Value) []lug.Value {
+func (i *IO) Apply(e *lug.Env, args []lug.Value) []lug.Value {
 	for _, arg := range args {
-		fmt.Fprint(i.Output, runtime.ToStringEnv(e, arg))
+		fmt.Fprint(i.output, runtime.ToStringEnv(e, arg))
 	}
 	return nil
 }

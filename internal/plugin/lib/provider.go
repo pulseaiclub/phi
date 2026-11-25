@@ -18,20 +18,12 @@ type Provider struct {
 	API     llm.RouterType
 	BaseURL string
 	Models  []ProviderModel
-	Auth    *PKCE
 }
 
 type ProviderModel struct {
 	ID            string
 	ContextWindow int
 	MaxTokens     int
-}
-
-type PKCE struct {
-	ClientID     string
-	AuthorizeURL string
-	TokenURL     string
-	Scopes       []string
 }
 
 func declarationTable(v lug.Value, name string, fields ...string) (*lug.Table, error) {
@@ -91,50 +83,6 @@ func declarationArray(v lug.Value, field string) ([]lug.Value, error) {
 	return items, nil
 }
 
-func (p PKCE) validate() error {
-	if strings.TrimSpace(p.ClientID) == "" {
-		return errors.New("client_id: expected a non-empty string")
-	}
-	if err := checkEndpoint(p.AuthorizeURL, "authorize_url"); err != nil {
-		return err
-	}
-	if err := checkEndpoint(p.TokenURL, "token_url"); err != nil {
-		return err
-	}
-	for i, s := range p.Scopes {
-		if strings.TrimSpace(s) == "" {
-			return fmt.Errorf("scopes[%d]: expected a non-empty string", i+1)
-		}
-	}
-	return nil
-}
-
-func ParsePKCE(v lug.Value) (PKCE, error) {
-	t, err := declarationTable(v, "pkce", "client_id", "authorize_url", "token_url", "scopes")
-	if err != nil {
-		return PKCE{}, err
-	}
-	// Str returns the empty string for non-strings; validate rejects those too.
-	p := PKCE{
-		ClientID:     t.Get(lug.String("client_id")).Str(),
-		AuthorizeURL: t.Get(lug.String("authorize_url")).Str(),
-		TokenURL:     t.Get(lug.String("token_url")).Str(),
-	}
-	if scopes := t.Get(lug.String("scopes")); !scopes.IsNil() {
-		items, err := declarationArray(scopes, "scopes")
-		if err != nil {
-			return PKCE{}, err
-		}
-		for _, item := range items {
-			p.Scopes = append(p.Scopes, item.Str())
-		}
-	}
-	if err := p.validate(); err != nil {
-		return PKCE{}, err
-	}
-	return p, nil
-}
-
 func positiveInt(v lug.Value, field string) (int, error) {
 	n := v.Num()
 	// MaxInt can round up as a float64; the exclusive bound is exactly representable.
@@ -169,7 +117,7 @@ func parseProviderModel(v lug.Value) (ProviderModel, error) {
 }
 
 func ParseProvider(v lug.Value) (Provider, error) {
-	t, err := declarationTable(v, "provider", "id", "api", "base_url", "models", "auth")
+	t, err := declarationTable(v, "provider", "id", "api", "base_url", "models")
 	if err != nil {
 		return Provider{}, err
 	}
@@ -211,22 +159,6 @@ func ParseProvider(v lug.Value) (Provider, error) {
 		}
 		ids[m.ID] = true
 		p.Models = append(p.Models, m)
-	}
-	if auth := t.Get(lug.String("auth")); !auth.IsNil() {
-		var descriptor *PKCE
-		if u := auth.Userdata(); u != nil {
-			descriptor, _ = u.Data.(*PKCE)
-		}
-		if descriptor == nil {
-			return Provider{}, errors.New("auth: expected a phi.oauth2.pkce descriptor")
-		}
-		// Userdata fields are writable from Lua. Validate and snapshot at registration.
-		if err := descriptor.validate(); err != nil {
-			return Provider{}, fmt.Errorf("auth: %w", err)
-		}
-		copy := *descriptor
-		copy.Scopes = slices.Clone(copy.Scopes)
-		p.Auth = &copy
 	}
 	return p, nil
 }

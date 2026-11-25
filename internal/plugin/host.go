@@ -86,16 +86,18 @@ func load(p descriptor, output io.Writer, register *RegisterProvider) (instance,
 	if err := i.hook("on_load"); err != nil {
 		return instance{}, err
 	}
+	// Commit after on_load so hook-time registrations land; a failed startup
+	// drops the plugin together with everything it declared.
 	i.providers = register.commit()
 	return i, nil
 }
 
-func newEnv(output io.Writer, register *RegisterProvider) *lug.Env {
+func newEnv(output io.Writer, register lib.ProviderRegistry) *lug.Env {
 	env := lug.New()
-	for _, b := range builtins {
-		b.install(env, output)
-	}
-	installProviderAPI(env, register)
+	reg := lib.NewRegistry()
+	reg.Add(lib.NewBuiltinBinding(output))
+	reg.Add(lib.NewProviderBinding(register))
+	reg.BindAll(env)
 	return env
 }
 
@@ -121,11 +123,6 @@ func (h *Host) Models() map[string]RegisteredModel {
 	for _, i := range h.active {
 		for _, p := range i.providers {
 			p.Models = slices.Clone(p.Models)
-			if p.Auth != nil {
-				auth := *p.Auth
-				auth.Scopes = slices.Clone(auth.Scopes)
-				p.Auth = &auth
-			}
 			for _, m := range p.Models {
 				models[p.ID+"/"+m.ID] = RegisteredModel{Plugin: i.name, Provider: p, Model: m}
 			}

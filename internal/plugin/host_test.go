@@ -39,12 +39,6 @@ func TestHostLifecycle(t *testing.T) {
 	assert.Equal(t, "load\t1\nload c\nclose c\nclose a\n", out.String())
 }
 
-func writeLuaPlugin(t *testing.T, root, name, source string) {
-	t.Helper()
-	writePlugin(t, root, name, "name: "+name, "")
-	require.NoError(t, os.WriteFile(filepath.Join(root, name, "init.lua"), []byte(source), 0o644))
-}
-
 func TestHostProviderCatalog(t *testing.T) {
 	root := t.TempDir()
 	const register = `local function register(id)
@@ -73,16 +67,15 @@ func TestHostProviderCatalog(t *testing.T) {
 	assert.Equal(t, "OpenAI", string(chat.Provider.API))
 	assert.Equal(t, "https://api.acme.example/v1", chat.Provider.BaseURL)
 	assert.Equal(t, lib.ProviderModel{ID: "chat", ContextWindow: 128000, MaxTokens: 8192}, chat.Model)
-	require.NotNil(t, chat.Provider.Auth)
-	assert.Equal(t, lib.PKCE{
-		ClientID: "phi-cli", AuthorizeURL: "https://auth.acme.example/authorize",
-		TokenURL: "https://auth.acme.example/token", Scopes: []string{"chat"},
-	}, *chat.Provider.Auth)
 	assert.Contains(t, models, "good/first")
 	assert.Equal(t, "up/second", models["good/up/second"].Model.ID)
-	chat.Provider.Auth.Scopes[0] = "changed"
-	assert.Equal(t, []string{"chat"}, host.Models()["acme/chat"].Provider.Auth.Scopes)
 
 	assert.ErrorContains(t, host.Close(), "only during plugin startup")
 	assert.Empty(t, host.Models())
+}
+
+func writeLuaPlugin(t *testing.T, root, name, source string) {
+	t.Helper()
+	writePlugin(t, root, name, "name: "+name, "")
+	require.NoError(t, os.WriteFile(filepath.Join(root, name, "init.lua"), []byte(source), 0o644))
 }
