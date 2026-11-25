@@ -14,7 +14,7 @@ CGO      ?= 0
 # Pin digest so CI / local make use the same markdownlint image.
 MARKDOWN_LINT_IMAGE ?= avtodev/markdown-lint:v1@sha256:6aeedc2f49138ce7a1cd0adffc1b1c0321b841dc2102408967d9301c031949ee
 
-.PHONY: all build install run clean test fmt fmt-check lint lint-markdown deadcode generate generate-check check help
+.PHONY: all build install run clean test fmt fmt-check lint lint-markdown deadcode generate generate-check sync-models check help
 
 all: build
 
@@ -44,6 +44,10 @@ generate:
 # Fail if the generated wire code is stale (used by CI).
 generate-check:
 	cd ext/go/pxb && $(GO) run ../internal/pxbgen -check
+
+# Sync built-in preset specs (specs_gen.go) from models.dev.
+sync-models:
+	$(GO) run ./internal/project/model/cmd/modelgen
 
 # Rust extension SDK (ext/rust): build + test.
 test-rust:
@@ -90,6 +94,7 @@ help:
 	@echo "  make deadcode - unreachable func check (deadcode -test vs baseline)"
 	@echo "  make generate - regenerate ext/go/pxb/msg_gen.go from schema.go"
 	@echo "  make generate-check - fail if the generated wire code is stale (CI)"
+	@echo "  make sync-models - sync built-in preset specs from models.dev"
 	@echo "  make check    - fmt-check + lint + deadcode + generate-check (CI)"
 	@echo "  make test-rust - test Rust extension SDK (ext/rust)"
 	@echo "  make check-rust - format + lint Rust extension SDK (CI)"

@@ -106,7 +106,7 @@ func TestMaxTokensFieldUsesPresetAndOverride(t *testing.T) {
 
 	focus(t, e, modelKey(0, fMax))
 	r, _ := e.focused()
-	assert.Equal(t, "384k", r.display, "the preset max_tokens should be visible as the placeholder")
+	assert.Equal(t, "393k", r.display, "the preset max_tokens should be visible as the placeholder")
 
 	e.commit(modelKey(0, fMax), "64000")
 	require.NotNil(t, doc.Models[0].MaxTokens)
@@ -122,7 +122,7 @@ func TestMaxTokensFieldUsesPresetAndOverride(t *testing.T) {
 	assert.Nil(t, doc.Models[0].MaxTokens, "clearing the field should restore the preset")
 	focus(t, e, modelKey(0, fMax))
 	r, _ = e.focused()
-	assert.Equal(t, "384k", r.display)
+	assert.Equal(t, "393k", r.display)
 }
 
 func assertThinkingChoices(t *testing.T, e *ConfigEditor, want []string) {
@@ -153,11 +153,11 @@ func TestInvalidModelRetainsDefaultsAndShowsError(t *testing.T) {
 				return
 			}
 			focus(t, e, modelKey(0, "header"))
-			assert.Equal(t, "OpenAI · 1M context", e.rows[e.cursor].note)
+			assert.Equal(t, "OpenAI · 1.0M context", e.rows[e.cursor].note)
 			focus(t, e, modelKey(0, fURL))
 			assert.Equal(t, "https://api.moonshot.cn/v1", e.rows[e.cursor].display)
 			focus(t, e, modelKey(0, fCtx))
-			assert.Equal(t, "1M", e.rows[e.cursor].display)
+			assert.Equal(t, "1.0M", e.rows[e.cursor].display)
 			focus(t, e, modelKey(0, fImage))
 			assert.Equal(t, "loader default: on", e.rows[e.cursor].hint)
 			if entry.ThinkLevel != "" {

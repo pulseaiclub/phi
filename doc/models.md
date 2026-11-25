@@ -8,7 +8,8 @@ provider guessing.
 Built-in **presets** supply model capabilities and thinking defaults. Native
 IDs also supply connection defaults; gateway aliases need `base_url` and `api`.
 Explicit fields override defaults. The configured model ID is sent unchanged.
-Source of truth: [`internal/project/model`](../internal/project/model/).
+Source of truth: [`internal/project/model`](../internal/project/model/) (specs in
+`specs_gen.go` are synced from `models.dev` via `make sync-models`).
 
 ## Model selection and defaults
 
@@ -51,23 +52,23 @@ models:
 
 | Name | API | Base URL (default) | Context | Output | Images | Thinking wire |
 | ---- | --- | ------------------ | ------: | -----: | :----: | ------------- |
-| `gpt-6-astra` | OpenAIResponses | `https://api.openai.com/v1` | 272K | 128K | yes | `reasoning.effort` (max) |
-| `gpt-5.6-sol` | OpenAIResponses | `https://api.openai.com/v1` | 272K | 128K | yes | `reasoning.effort` (high) |
-| `gpt-5.6-terra` | OpenAIResponses | `https://api.openai.com/v1` | 272K | 128K | yes | `reasoning.effort` (high) |
-| `gpt-5.6-luna` | OpenAIResponses | `https://api.openai.com/v1` | 272K | 128K | yes | `reasoning.effort` (high) |
+| `gpt-6-astra` | OpenAIResponses | `https://api.openai.com/v1` | 1.05M | 128K | yes | `reasoning.effort` (max) |
+| `gpt-5.6-sol` | OpenAIResponses | `https://api.openai.com/v1` | 1.05M | 128K | yes | `reasoning.effort` (high) |
+| `gpt-5.6-terra` | OpenAIResponses | `https://api.openai.com/v1` | 1.05M | 128K | yes | `reasoning.effort` (high) |
+| `gpt-5.6-luna` | OpenAIResponses | `https://api.openai.com/v1` | 1.05M | 128K | yes | `reasoning.effort` (high) |
 | `gpt-5-chat-latest` | OpenAIResponses | `https://api.openai.com/v1` | 128K | — | yes | — |
-| `gpt-5.5` | OpenAIResponses | `https://api.openai.com/v1` | 272K | — | yes | `reasoning.effort` (high) |
-| `gpt-5.5-pro` | OpenAIResponses | `https://api.openai.com/v1` | 1.05M | — | yes | `reasoning.effort` (high) |
-| `deepseek-flash` | OpenAI | `https://api.deepseek.com` | 1M | 384K | yes | `thinking` + `reasoning_effort` |
-| `deepseek-v4-pro` | OpenAI | `https://api.deepseek.com` | 1M | 384K | no | same as Flash |
-| `gemini-2.5-pro` | Gemini | Google Generative Language | 1M | — | yes | `thinkingBudget` (token cap) |
-| `gemini-2.5-flash` | Gemini | Google Generative Language | 1M | — | yes | `thinkingBudget` |
+| `gpt-5.5` | OpenAIResponses | `https://api.openai.com/v1` | 1.05M | 128K | yes | `reasoning.effort` (high) |
+| `gpt-5.5-pro` | OpenAIResponses | `https://api.openai.com/v1` | 1.05M | 128K | yes | `reasoning.effort` (high) |
+| `deepseek-flash` | OpenAI | `https://api.deepseek.com` | 1M | 393K | yes | `thinking` + `reasoning_effort` |
+| `deepseek-v4-pro` | OpenAI | `https://api.deepseek.com` | 1M | 393K | no | same as Flash |
+| `gemini-2.5-pro` | Gemini | Google Generative Language | 1M | 65K | yes | `thinkingBudget` (token cap) |
+| `gemini-2.5-flash` | Gemini | Google Generative Language | 1M | 65K | yes | `thinkingBudget` |
 | `gemini-3-pro` | Gemini | Google Generative Language | 1M | — | yes | `thinkingLevel` (off floor `LOW`) |
-| `gemini-3-flash` | Gemini | Google Generative Language | 1M | — | yes | `thinkingLevel` (off floor `MINIMAL`) |
+| `gemini-3-flash` | Gemini | Google Generative Language | 1M | 65K | yes | `thinkingLevel` (off floor `MINIMAL`) |
 | `kimi-k3` | OpenAI | `https://api.moonshot.cn/v1` | 1M | 131K | yes | `reasoning_effort` (max) |
 | `kimi-k2.7-code` | OpenAI | `https://api.moonshot.cn/v1` | 10M | — | yes | — |
-| `glm-5.3` | OpenAI | `https://api.z.ai/api/coding/paas/v4` | 1M | 128K | no | endpoint-specific `thinking` + `reasoning_effort` |
-| `glm-5.3-flash` | OpenAI | `https://api.z.ai/api/coding/paas/v4` | 1M | 128K | yes | same as `glm-5.3` |
+| `glm-5.3` | OpenAI | `https://api.z.ai/api/coding/paas/v4` | 1M | 131K | no | endpoint-specific `thinking` + `reasoning_effort` |
+| `glm-5.3-flash` | OpenAI | `https://api.z.ai/api/coding/paas/v4` | 1M | 131K | yes | same as `glm-5.3` |
 
 Minimal config for a preset (api key only):
 
