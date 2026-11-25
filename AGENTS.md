@@ -11,9 +11,7 @@ Lean, high-performance Go terminal coding-agent harness. Layout: [doc/project-la
 ## Constraints
 
 - **No two-phase initialization.** Never create an object and then call mutating methods on it to finish initialization. Pass initial state to the constructor of the object that owns it, via arguments or options. A constructor must not configure an injected dependency through setters. Reserve setters for runtime changes.
-- **Tool loop is ExtensionPre → Run → ExtensionPost.** Don't put MCP server tool schemas on the model — MCP rides `ls` / `read` / `write` via `mcp://` URLs.
-- **Extensions are PXB subprocesses** (`phi.yaml` + native binary under `~/.phi/extensions` / `.phi/extensions`). Wire: `ext/go/pxb`. Author SDK: Go `ext/go/phi` (module `github.com/pulseaiclub/phi/ext/go`). Host: `internal/extension`. See [doc/extensions.md](doc/extensions.md).
-- **PXB message payloads are generated.** Fields are declared once in `ext/go/pxb/schema.go` (`pxb:"<tag>[,opt]"`); `make generate` writes `msg_gen.go`. Never hand-edit `msg_gen.go` or add encode/decode switches — `make check` runs `generate-check` and fails on drift. The Rust side (`ext/rust/src/pxb/msg.rs`) mirrors the same tags by hand.
+- **Don't put MCP server tool schemas on the model.** MCP rides `ls` / `read` / `write` via `mcp://` URLs.
 - **Keep `edit` fail-closed.** Edits are anchored sloppy patches (`*** SM:EDIT` / `*** SM:FIND` / `*** SM:PUT`|`*** SM:AFTER`) applied atomically; a missing or ambiguous anchor must fail with actionable guidance, never fall back to whole-file rewrite.
 - **Sub-agent transcripts stay under `~/.phi/jobs/<id>/`.** Parent context gets the wait/task summary only. Child engines have no `agent_*` tools (no nesting). Default child role is explore (no write/edit; bash allowed except hard denies).
 - **UI split:** `internal/components` render; `internal/tui` wires the shell. Non-shell pieces live under `internal/tui/controller` (Engine/Bus/Msg), `internal/tui/transcript` (Mapper); version in `internal/version`. Keep widgets dumb.
@@ -40,13 +38,12 @@ Lean, high-performance Go terminal coding-agent harness. Layout: [doc/project-la
 ```
 make help
 make test                      # go test ./...
-go test ./internal/extension -v # one package
+go test ./internal/agent -v      # one package
 make fmt                       # apply formatters
 make fmt-check                 # CI formatting gate
 make lint                      # golangci-lint
 make deadcode                  # unreachable funcs vs baseline
-make generate                  # regenerate ext/go/pxb/msg_gen.go
-make check                     # fmt-check + lint + deadcode + generate-check (CI)
+make check                     # fmt-check + lint + deadcode (CI)
 make build                     # ./phi
 ```
 

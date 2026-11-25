@@ -22,10 +22,9 @@ type ShellHooks interface {
 	ResolveErrorReply(reply controller.ErrorReply, text string)
 }
 
-// Overlays owns extension-confirm and loop-error UI that replaces the composer slot.
+// Overlays owns loop-error UI that replaces the composer slot.
 type Overlays struct {
 	theme    components.Theme
-	confirm  *confirmAskState
 	err      *ask.Dialog
 	activity *controller.ActivityHandler
 	composer overlayComposer
@@ -54,7 +53,7 @@ func (o *Overlays) SetTheme(th components.Theme) {
 
 // Active reports whether a modal overlay is showing.
 func (o *Overlays) Active() bool {
-	return o.confirm != nil || o.err != nil
+	return o.err != nil
 }
 
 // BlocksComposer reports whether composer input should be disabled.
@@ -62,8 +61,7 @@ func (o *Overlays) BlocksComposer() bool {
 	return o.Active()
 }
 
-// BlocksSessionSwitch reports modal blockers independent of activity. Extension
-// confirmations use ActivityAwaitingApproval, including its expiry handling.
+// BlocksSessionSwitch reports modal blockers independent of activity.
 func (o *Overlays) BlocksSessionSwitch() bool {
 	return o.err != nil
 }
@@ -71,10 +69,6 @@ func (o *Overlays) BlocksSessionSwitch() bool {
 // Apply routes overlay bus messages by Kind.
 func (o *Overlays) Apply(msg controller.OverlayMsg) {
 	switch msg.Kind {
-	case controller.OverlayExtConfirm:
-		o.beginExtConfirm(msg)
-	case controller.OverlayExtConfirmDismiss:
-		o.dismissExtConfirm()
 	case controller.OverlayErrorAsk:
 		o.beginErrorAsk(msg)
 	case controller.OverlayErrorDismiss:
@@ -84,31 +78,31 @@ func (o *Overlays) Apply(msg controller.OverlayMsg) {
 
 // HandleKey routes keys in the same priority order as DrawBottom.
 func (o *Overlays) HandleKey(ctx *components.EventContext, e xui.KeyEvent) bool {
-	return o.handleConfirmKey(ctx, e) || o.handleErrorKey(ctx, e)
+	return o.handleErrorKey(ctx, e)
 }
 
-// Cancel resolves pending dialogs with empty replies so waiting callers resume.
+// Cancel resolves a pending error dialog with an empty reply.
 func (o *Overlays) Cancel() {
-	o.resolveExtConfirm(controller.ExtConfirmReply{})
 	o.resolveError(controller.ErrorReply{})
 }
 
 // PreferredBottomHeight estimates rows for the bottom overlay or composer slot.
 func (o *Overlays) PreferredBottomHeight(width int, method xui.WidthMethod) (height int, overlay bool) {
-	if o.confirm != nil {
-		return o.confirm.preferredAskHeight(), true
-	}
 	if o.err != nil {
 		return o.err.PreferredHeight(width, method), true
 	}
 	return 0, false
 }
 
+// ClearActivityIf expires a transient activity.
+func (o *Overlays) ClearActivityIf(a controller.Activity) {
+	if o.activity.Current == a {
+		o.activity.Apply(controller.ActivityIdle)
+	}
+}
+
 // DrawBottom renders the overlay panel when active.
 func (o *Overlays) DrawBottom(ctx components.DrawContext, width, height int) (components.Surface, bool) {
-	if o.confirm != nil {
-		return o.drawExtConfirm(ctx, width, height), true
-	}
 	if o.err != nil {
 		return o.err.Draw(o.theme, o.theme.Destructive, width, height, ctx.Method), true
 	}

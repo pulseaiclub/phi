@@ -8,11 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	ext "github.com/pulseaiclub/phi/ext/go"
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/app"
-	"github.com/pulseaiclub/phi/internal/extension/core"
-	"github.com/pulseaiclub/phi/internal/extension/loader"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
@@ -29,7 +26,6 @@ func forkEditor(t *testing.T) *Editor {
 	for _, key := range []string{"PHI_MODEL", "PHI_API_KEY", "PHI_BASE_URL", "PHI_THINK_LEVEL"} {
 		t.Setenv(key, "")
 	}
-	t.Setenv(loader.EnvExtensions, "off")
 	require.NoError(t, os.MkdirAll(filepath.Join(home, ".phi"), 0o700))
 	config := `models:
   - name: primary
@@ -49,40 +45,6 @@ func forkEditor(t *testing.T) *Editor {
 	t.Cleanup(ctrl.Close)
 
 	return NewEditor(app.NewApp(nil), bus, ctrl, nil, components.DefaultTheme(), dir, "primary", nil, nil)
-}
-
-func TestQueuedExtensionPromptStaysWithRunnerAndSession(t *testing.T) {
-	e := forkEditor(t)
-	api := ext.NewAPI()
-	f := core.NewFiber("sender", loader.Discovered{})
-	f.Attach(api, core.FiberActive)
-	e.ctrl.Extensions().(*core.Runner).AddFiberInitial(f)
-
-	checkDelivery := func(wantStart bool) {
-		t.Helper()
-		e.drainBus()
-		started := false
-		for _, msg := range e.bus.Drain() {
-			if _, ok := msg.(controller.LoopStartedMsg); ok {
-				started = true
-			}
-		}
-		e.ctrl.Cancel()
-		assert.Equal(t, wantStart, started)
-	}
-	api.SendUserMessage("outgoing session")
-	require.NoError(t, e.ctrl.NewSession())
-	checkDelivery(false)
-	api.SendUserMessage("new session")
-	checkDelivery(true)
-	_, err := e.ctrl.ForkSession()
-	require.NoError(t, err)
-	api.SendUserMessage("forked session")
-	checkDelivery(true)
-	api.SendUserMessage("outgoing runner, same session")
-	_, _, err = e.ctrl.ReloadExtensions()
-	require.NoError(t, err)
-	checkDelivery(false)
 }
 
 func TestForkSlashSwitchesToANewSession(t *testing.T) {

@@ -10,6 +10,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Removed
 
+- Removed the PXB plugin/extension system, its SDKs, and related publishing workflows.
+
 ### Changed
 
 - The composer's `@` / slash picker no longer hardcodes its selection colors:
@@ -18,6 +20,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   blue selection bar.
 
 ### Added
+
+- Load trusted local Lua plugins with YAML manifests and startup/shutdown hooks
+  in the TUI and `phi run`. See [Lua plugins](doc/plugins.md).
 
 ### Fixed
 

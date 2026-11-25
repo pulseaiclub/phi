@@ -13,10 +13,7 @@ import (
 	"strings"
 	"time"
 
-	ext "github.com/pulseaiclub/phi/ext/go"
 	"github.com/pulseaiclub/phi/internal/agent"
-	"github.com/pulseaiclub/phi/internal/extension"
-	"github.com/pulseaiclub/phi/internal/extension/core"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/mcp"
@@ -115,10 +112,9 @@ func runHeadless(opts runOptions) error {
 		return exitCode(ExitUsage)
 	}
 	cfg.Hooks = model.HooksForConfig(primary)
+	closePlugins := startPlugins(bs.Proj)
+	defer closePlugins()
 
-	var extRunner *core.Runner
-	// Jobs share the runner, so drain them before closing it.
-	defer func() { extRunner.Close() }()
 	if bs.Config.Agents.Enabled {
 		roleModels := make(map[job.Role]llm.ModelConfig, 3)
 		for _, role := range []job.Role{job.RoleExplore, job.RoleReview, job.RoleWorker} {
@@ -130,9 +126,7 @@ func runHeadless(opts runOptions) error {
 			}
 			roleModels[role] = cfg
 		}
-		jobs, jobErr := agent.NewJobManager(bs.Proj.JobsDir(), roleModels, func() extension.Extensions {
-			return extRunner
-		})
+		jobs, jobErr := agent.NewJobManager(bs.Proj.JobsDir(), roleModels)
 		if jobErr != nil {
 			fmt.Fprintln(os.Stderr, "phi run:", jobErr)
 			return exitCode(ExitUsage)
@@ -157,11 +151,6 @@ func runHeadless(opts runOptions) error {
 		return exitCode(ExitUsage)
 	}
 
-	extRunner = loadRunExtensions(bs, core.HostConfig{
-		Host:      ext.HostOpts{Cwd: sess.Cwd(), SessionID: sess.ID()},
-		BaseTools: cfg.CoreTools(sess),
-	})
-	cfg.Extensions = extRunner
 	engine, err := cfg.NewEngine(primary, sess)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "phi run:", err)
@@ -181,26 +170,6 @@ func runHeadless(opts runOptions) error {
 	}
 
 	return exitCode(runLoop(runCtx, sess, engine, opts))
-}
-
-// loadRunExtensions discovers user + project extensions for headless `phi run`.
-// Failures are non-fatal (fail-open). Warnings go to stderr as a one-line hint.
-func loadRunExtensions(bs *runBootstrap, host core.HostConfig) *core.Runner {
-	if bs == nil || bs.Proj == nil {
-		return nil
-	}
-	r, warns, err := extension.LoadWithHost(bs.Proj.Global().ExtensionsDir(), bs.Proj.ExtensionsDir(), host)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "warning: extensions:", err)
-		return nil
-	}
-	if n := len(warns); n > 0 {
-		fmt.Fprintf(os.Stderr, "warning: extensions: %d warning(s) while loading\n", n)
-		for _, w := range warns {
-			fmt.Fprintln(os.Stderr, "  ", w.String())
-		}
-	}
-	return r
 }
 
 // runLoop consumes the same engine.Loop the TUI uses — no second loop is

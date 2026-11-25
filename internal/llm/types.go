@@ -205,7 +205,7 @@ type StreamEvent struct {
 }
 
 // ChatClient is the transport the agent loop drives a turn with: the builtin
-// HTTP client (*client.Client) or an extension-served model connection.
+// HTTP client (*client.Client).
 // Compactor rides along because compaction summarizes through the same
 // connection.
 type ChatClient interface {

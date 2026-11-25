@@ -44,9 +44,8 @@ reviews:
       instructions: |
         Review agent lifecycle and executor changes as stateful, concurrent code.
 
-        - Trace the full path from user input through extension pre-hooks, the
-          permission gate, tool execution, extension post-hooks, and final events.
-          Preserve the order: ExtensionPre -> Gate/Ask -> Run -> ExtensionPost.
+        - Trace the full path from user input through tool execution and final
+          events.
         - Check cancellation, retry, timeout, goroutine ownership, channel closure,
           session persistence, and failure recovery. Do not report success merely
           because the happy path compiles.
@@ -61,7 +60,7 @@ reviews:
         Treat this code as a security boundary.
 
         - Trace untrusted model or user input, filesystem paths, subprocess
-          arguments, network targets, extension metadata, and credentials through
+          arguments, network targets, tool metadata, and credentials through
           the complete changed flow.
         - Preserve deny-by-default behavior, least privilege, workspace-only
           restrictions, redaction, and fail-closed error handling.
@@ -73,55 +72,6 @@ reviews:
           inconsistent state.
         - Require negative-path coverage for bypasses and for secrets appearing in
           errors, logs, tool results, persisted state, or process arguments.
-
-    - path: "internal/extension/**"
-      instructions: |
-        Review extension-host changes against the PXB subprocess architecture.
-
-        - Preserve discovery precedence, project-local versus global extension
-          behavior, disabled extensions, process lifecycle, RPC timeouts, and
-          cancellation semantics.
-        - Keep extension calls inside the documented event chain. Tool calls must
-          retain ExtensionPre -> Gate/Ask -> Run -> ExtensionPost ordering.
-        - Treat extension processes as code with the user's permissions. Validate
-          executable paths and metadata, avoid leaking secrets, and fail closed on
-          malformed frames, protocol errors, timeouts, and oversized payloads.
-        - Check concurrent calls, queued confirmation requests, process teardown,
-          reload behavior, and cleanup after a failed or cancelled RPC.
-        - Add or update focused tests for the changed lifecycle or security
-          invariant rather than relying only on a compile check.
-
-    - path: "ext/go/pxb/schema.go"
-      instructions: &pxb-schema |
-        This file is the source of truth for generated Go PXB message fields.
-
-        - Review tag numbers, optional fields, wire kinds, and compatibility rules
-          as a versioned binary protocol. Existing tags must not be reused or
-          silently changed.
-        - New fields and messages must remain forward and backward compatible:
-          unknown tagged fields and unknown frame types must be safely skipped.
-        - Changes must be reflected through `make generate`; do not hand-edit
-          ext/go/pxb/msg_gen.go or add manual encode/decode switches.
-        - Check Go, Rust, and TypeScript SDK compatibility and golden/round-trip
-          coverage for every changed wire shape.
-
-    - path: "ext/go/pxb/msg_gen.go"
-      instructions: *pxb-schema
-
-    - path: "ext/{go,rust,ts}/**"
-      instructions: |
-        Review SDK changes as one cross-language public protocol surface.
-
-        - Keep Go, Rust, and TypeScript behavior byte-compatible with the PXB wire
-          format, including field tags, optional values, unknown-field handling,
-          framing, payload limits, and error behavior.
-        - Check public API compatibility, documented examples, and the SDK's own
-          tests. Do not introduce a dependency or runtime requirement without a
-          clear need for the lean extension modules.
-        - A protocol or public SDK change should include matching fixtures,
-          golden tests, or round-trip tests where the repository already uses them.
-        - Keep generated or mirrored protocol code aligned with its declared source
-          of truth. Flag hand edits that will be overwritten by generation.
 
     - path: "internal/tui/**"
       instructions: &tui-architecture |
@@ -195,8 +145,7 @@ reviews:
         - Do not execute pull-request-controlled code with base-repository secrets
           or write permissions. Treat shell interpolation and artifact handling as
           untrusted-input boundaries.
-        - Keep CI aligned with the actual gates: `make test`, nested Go SDK tests,
-          Rust tests plus fmt/clippy, TypeScript check/build, and `make check`.
+        - Keep CI aligned with the actual gates: `make test` and `make check`.
           Flag a workflow change that silently drops a platform or language check.
         - Pin third-party actions and tool versions consistently with existing
           workflows, and keep cache or generated-file behavior deterministic.
@@ -211,8 +160,7 @@ reviews:
       instructions: |
         Review dependency changes carefully.
 
-        - Keep direct dependencies lean and justified. Preserve the nested
-          `ext/go` module boundary and the local replace used by the main module.
+        - Keep direct dependencies lean and justified.
         - Require go.mod/go.sum consistency and `go mod tidy` after dependency
           changes. Check license, maintenance, transitive footprint, and startup
           or binary-size impact when a new dependency is proposed.

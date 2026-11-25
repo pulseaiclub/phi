@@ -19,7 +19,6 @@ const (
 	ActivityRetrying
 	ActivityCancelled
 	ActivityCompacting
-	ActivityAwaitingApproval
 )
 
 // ActivityHandler owns stream activity state.
@@ -55,10 +54,6 @@ func (h *ActivityHandler) Apply(a Activity) {
 // Upgrades (Idle→Streaming/Tools/…) go through Apply, which notifies.
 // The Idle fallback below sets Current directly, so it notifies explicitly.
 func (h *ActivityHandler) SyncFromSnap(snap session.Snapshot) {
-	// Don't clobber approval activity while the confirmation UI is up.
-	if h.Current == ActivityAwaitingApproval {
-		return
-	}
 	if snap.Compacting {
 		if h.Current != ActivityCompacting {
 			h.Apply(ActivityCompacting)
@@ -130,8 +125,6 @@ func activityMessage(a Activity) string {
 		return "Retrying after disconnect…"
 	case ActivityCancelled:
 		return "Stopped"
-	case ActivityAwaitingApproval:
-		return "Waiting for approval…"
 	default:
 		return ""
 	}

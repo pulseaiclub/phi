@@ -21,11 +21,8 @@ type SessionCommands struct {
 	Ctrl       *controller.EngineController
 	Transcript *transcript.TranscriptPane
 	Bus        *controller.Bus
-	// Ext re-registers extension commands after a resume or fork rebinds the
-	// engine to another session file.
-	Ext      *ExtCommands
-	composer sessionComposer
-	ui       HostUI
+	composer   sessionComposer
+	ui         HostUI
 	// SessionDir / SessionID override Ctrl for tests when set.
 	SessionDir func() string
 	SessionID  func() string
@@ -36,7 +33,6 @@ func NewSessionCommands(
 	ctrl *controller.EngineController,
 	tr *transcript.TranscriptPane,
 	bus *controller.Bus,
-	ext *ExtCommands,
 	composer sessionComposer,
 	ui HostUI,
 ) *SessionCommands {
@@ -44,7 +40,6 @@ func NewSessionCommands(
 		Ctrl:       ctrl,
 		Transcript: tr,
 		Bus:        bus,
-		Ext:        ext,
 		composer:   composer,
 		ui:         ui,
 	}
@@ -137,9 +132,6 @@ func (s *SessionCommands) resume(id string) {
 		publishToast(s.Bus, err.Error(), toast.ToastError, 4*time.Second)
 		return
 	}
-	if s.Ext != nil {
-		s.Ext.Sync()
-	}
 	snap := s.Ctrl.ReplaySnapshot()
 	s.Transcript.LoadReplay(snap)
 	s.Transcript.Sync()
@@ -187,7 +179,7 @@ func (s *SessionCommands) refreshPicker() {
 	s.composer.RefreshSessionList(list)
 }
 
-// NewSession starts a new empty session. Blocks while a stream or extension command is active.
+// NewSession starts a new empty session. Blocks while a stream is active.
 func (s *SessionCommands) NewSession() {
 	if s.blocked("start a new session") {
 		return
@@ -215,9 +207,6 @@ func (s *SessionCommands) Fork(args []string) {
 	if err != nil {
 		publishToast(s.Bus, err.Error(), toast.ToastError, 4*time.Second)
 		return
-	}
-	if s.Ext != nil {
-		s.Ext.Sync()
 	}
 	s.resetSessionView()
 	publishToast(s.Bus, "Forked "+session.ShortID(id), toast.ToastSuccess, 3*time.Second)

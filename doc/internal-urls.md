@@ -14,7 +14,7 @@ no I/O.
 
 The listing levels accept `cursor` and `limit` query parameters; tool endpoints
 take neither a query nor a fragment. Identifiers are case-sensitive and
-percent-decoded exactly once, so a namespaced server such as `plugin:name`
+percent-decoded exactly once, so a namespaced server such as `team:name`
 stays one opaque name instead of turning into a host/port pair.
 
 ## Who consumes it

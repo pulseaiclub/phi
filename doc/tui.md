@@ -9,8 +9,8 @@ cmd/main.go
   └─ editor.NewEditor(app, bus, ctrl, …)
        ├─ TranscriptPane   snap, list, mapper, subagents, welcome, text selection
        ├─ ComposerPane     chat, @/slash/?/! pickers, palette (input only)
-       ├─ FooterChrome     bottom row for extension status and update hints
-       ├─ Overlays         ext-confirm, error
+       ├─ FooterChrome     bottom row for status and update hints
+       ├─ Overlays         loop errors
        ├─ DiffPane         full-screen git diff review (`/diff`)
        ├─ CodePane         full-screen source viewer (`/code`)
        └─ Submitter        submit / cancel / slash / bash → Controller
@@ -24,7 +24,7 @@ cmd/main.go
 | `TranscriptPane` | `MessageList`, `Mapper`, `SubagentStore`, `welcome`, `textSel` | `theme`, `spinner` ref from editor |
 | `ComposerPane` | `ChatInput`, pickers, `palette` | callbacks `onSubmit`, `onCancel`, `onRedraw` |
 | `FooterChrome` | drawing theme | immutable `State` passed to `Draw` |
-| `Overlays` | `confirmAskState`, `errorAskState` | `activity` ref, reply callbacks |
+| `Overlays` | loop-error `*ask.Dialog` | `activity` ref, shell hooks |
 | `DiffPane` | review overlay (rows, notes, search) | `cwd`, submit/copy/toast callbacks |
 | `CodePane` | source overlay (lines, caret, selection) | `cwd`, add-to-chat/toast callbacks |
 | `Submitter` | `BashRunner` | `Controller`, `Bus`, `CommandRegistry`, pane refs |
@@ -42,9 +42,9 @@ internal/tui/
 ├── transcript/             # Mapper, SubagentStore, TranscriptPane
 ├── composer/               # ComposerPane, Wire(), Input iface
 ├── footer/                 # FooterChrome, token label helpers
-├── overlays/               # ext-confirm + error panels
+├── overlays/               # loop-error panels
 ├── submit/                 # Submitter, BashRunner
-├── commands/               # registry, builtins, SessionCommands, BranchCommands, ExtCommands
+├── commands/               # registry, builtins, SessionCommands, BranchCommands
 └── pathutil/               # short path + git branch labels
 ```
 
@@ -55,10 +55,10 @@ internal/tui/
 | `transcript` | Projects `session.Event` → message list; sub-agent rows; copy selection |
 | `composer` | Keyboard routing for chat, `/` slash, `?` shortcuts, `@` mention, `!` shell completion, Ctrl+K palette |
 | `footer` | Status label helpers and bottom footer row renderer |
-| `overlays` | Modal ext-confirm / error panels; replaces composer when active |
+| `overlays` | Modal loop-error panel; replaces composer when active |
 | `components/pane` | Full-screen source viewer (`/code`) and Git diff review (`/diff`) |
 | `submit` | User submit path: agent prompt, slash commands, `!bash`, cancel |
-| `commands` | Slash/palette registry; session load/new; extension command bridge |
+| `commands` | Slash/palette registry, builtins, and session load/new |
 | `pathutil` | Cwd shortening and git branch labels for composer chrome |
 
 Dumb rendering widgets stay in `internal/components/` (chat, input, palette, mention, transcript blocks, …).
@@ -75,8 +75,7 @@ vx, theme, cwd
 redraw := controller.NewRedrawRelay()
 bus    := controller.NewBus(redraw.Fire)
 ctrl   := controller.NewController(bus, proj)
-modelNames include ctrl.Extensions().ExtensionModels()
-ui     := editor.NewEditor(app, bus, ctrl, vx, theme, cwd, model, skillPaths, contextWindow, modelNames)
+ui     := editor.NewEditor(app, bus, ctrl, vx, theme, cwd, model, skillPaths, modelNames)
 redraw.Bind(ui.RequestRedraw)
 ui.StartUpdateCheck(...)
 ui.StartBranchWatch()
@@ -86,7 +85,7 @@ app.Run(ui)
 Inside `NewEditor`, panes are built first, then the collaborators assemble in
 dependency order: registry → command Context → `Submitter` →
 `commands.NewBuiltinRegistry`, which wires the domain handlers (`SessionCommands`,
-`BranchCommands`, `ExtCommands`, settings/skills/diff) completely at construction —
+`BranchCommands`, settings/skills/diff) completely at construction —
 no late `Bind` pass, no post-construction callback fields. Shell callbacks
 aggregate in `commands.HostUI` (implemented by `Editor`), composer callbacks in
 `BuiltinComposer` and the per-domain composer interfaces; overlay hooks in
@@ -125,7 +124,7 @@ toast) run inline — no pane state needs a lock.
 
 ## Bus: publish and drain
 
-**Publish** (any goroutine): widgets, `Controller`, background tasks (`StartBranchWatch`, `StartUpdateCheck`), extension commands.
+**Publish** (any goroutine): widgets, `Controller`, background tasks (`StartBranchWatch`, `StartUpdateCheck`).
 
 **Drain** (UI goroutine only, at start of `Draw`):
 
@@ -158,12 +157,10 @@ How data crosses the UI/domain boundary — one rule per direction:
 | ---------------- | ------- |
 | `SessionEventMsg`, `JobProgressMsg` | `TranscriptPane` (in `drainBus`) |
 | `SubmitMsg`, `CancelStreamMsg` | `Submitter` |
-| `OverlayMsg` (ext-confirm / error ask+dismiss) | `Overlays` |
+| `OverlayMsg` (error ask+dismiss) | `Overlays` |
 | `FooterMsg` (activity / clear-if / update hint) | `Editor` / `ActivityHandler` |
-| `ExtSessionEffectsMsg` | `Editor` (+ toast when set) |
 | `MentionResultsMsg`, `BranchLabelMsg` | `ComposerPane` |
 | `ToastMsg` | `Editor` toast overlay |
-| `ExtCommandResultMsg` | `ExtCommands` |
 
 ---
 
@@ -176,7 +173,7 @@ User Enter in composer
   → ComposerPane publishes SubmitMsg{text}
   → drainBus → Submitter.Submit
        ├─ "!cmd" prefix  → BashRunner (local shell, SessionEventMsg for output)
-       ├─ "/slash"       → CommandRegistry / SessionCommands / ExtCommands
+       ├─ "/slash"       → CommandRegistry / SessionCommands
        └─ plain text     → Controller.Submit → agent.Engine.Loop (background)
                               └─ SessionEventMsg, FooterMsg, OverlayMsg, …
 ```
@@ -229,30 +226,17 @@ Esc / composer cancel
   → FooterMsg{Kind: FooterClearIfActivity} when activity was cancelled
 ```
 
-### 4. Extension confirmation
-
-```text
-Extension requests confirmation
-  → Controller publishes OverlayMsg (ext-confirm ask)
-  → Overlays.Apply → replaces composer bottom panel
-  → user keys → Overlays → Controller reply channel
-  → OverlayMsg dismiss Kind on timeout/cancel
-```
-
-Composer input is blocked while an overlay is active (`OverlayBlocksComposer`).
-
-### 5. Slash / palette / extensions
+### 4. Slash / palette
 
 ```text
 /something or Ctrl+K
   → ComposerPane local UI OR SubmitMsg with slash text
   → Submitter.dispatchSlash → CommandRegistry
   → SessionCommands (/new) or builtins
-  → ExtCommands (async) → ExtCommandResultMsg → palette push / toast
 ```
 
 `commands.NewBuiltinRegistry` owns slash/palette registration. Domain handlers
-(`SessionCommands`, `SettingsCommands`, `ExtCommands`, …) call `Ctrl` / `Bus` /
+(`SessionCommands`, `SettingsCommands`, …) call `Ctrl` / `Bus` /
 `commands.HostUI` (the editor aggregate) / their composer slice directly — no
 Editor closures.
 
@@ -266,11 +250,10 @@ JSONL file (new id, source recorded as `parentSession`, entry ids copied
 verbatim) and reopens it through `session.OpenSession`, so the fork is read back
 by the same loader as any session. `EngineController.ForkSession` writes that
 file before anything else changes, so a failure keeps the source active; then
-the engine is rebound and only then does the session lifecycle fire with
-`reason: "fork"`. The UI refresh mirrors `/resume` (`afterSessionSwitch`):
-extension commands re-register, the transcript is rebuilt from replay (sub-agent
-rows dropped), the model label and activity state reset. The source session is
-untouched and stays in the picker.
+the engine is rebound. The UI refresh mirrors `/resume` (`afterSessionSwitch`):
+the transcript is rebuilt from replay (sub-agent rows dropped), and the model
+label and activity state reset. The source session is untouched and stays in the
+picker.
 
 The `/sessions` overlay follows this wiring: `SessionCommands.Show` lists the
 project's sessions and opens the shared `listpicker` through the
@@ -281,13 +264,12 @@ cancels) and the picker refreshes its rows in place via the composer's
 resets the engine to a fresh one, since the old JSONL file is gone. The same
 store call backs `phi sessions remove`.
 
-### 6. Background chrome
+### 5. Background chrome
 
 | Source | Msg | Target |
 | ------ | --- | ------ |
 | `StartBranchWatch` | `BranchLabelMsg` | composer bottom-right label |
 | `StartUpdateCheck` | `FooterMsg` (update available) | editor-owned footer state |
-| Extension session lifecycle | `ExtSessionEffectsMsg` | editor-owned footer state + toast |
 
 ---
 
@@ -297,7 +279,7 @@ store call backs `phi sessions remove`.
 | ----- | -------------- |
 | `internal/components/*` | Draw/handle only; no bus, no engine |
 | `internal/tui/*` | State, routing, session projection, submit |
-| `internal/tui/controller` | Agent engine, jobs, extensions/MCP |
+| `internal/tui/controller` | Agent engine, jobs, MCP |
 | `cmd` | Config, xui, bus/controller construction, `NewEditor` |
 
 Reference implementation patterns: panda `interactive.go` (assembly), `message.go` (transcript), `submit.go` (submit/cancel/bash).

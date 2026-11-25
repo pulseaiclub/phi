@@ -31,7 +31,6 @@ type HostUI interface {
 	OpenDiff(args []string)
 	OpenCode(args []string)
 	ResetActivity()
-	SetExtensionStatus(status string)
 	StreamActive() bool
 }
 
@@ -41,7 +40,6 @@ type Builtin struct {
 	Sessions *SessionCommands
 	Branches *BranchCommands
 	Skills   *SkillsCommands
-	Ext      *ExtCommands
 }
 
 // NewBuiltinRegistry registers every builtin domain on r and wires their
@@ -50,7 +48,6 @@ type Builtin struct {
 // the domains — so every handler is complete at return, with no late Bind.
 func NewBuiltinRegistry(
 	r *CommandRegistry,
-	commandCtx Context,
 	bus *controller.Bus,
 	ctrl *controller.EngineController,
 	composer BuiltinComposer,
@@ -59,18 +56,8 @@ func NewBuiltinRegistry(
 	modelNames []string,
 	skillPaths []string,
 	ui HostUI,
-	submitter extSubmitter,
 ) *Builtin {
-	ext := &ExtCommands{
-		Registry:   r,
-		Ctrl:       ctrl,
-		Composer:   composer,
-		Bus:        bus,
-		CommandCtx: commandCtx,
-		Submitter:  submitter,
-		ui:         ui,
-	}
-	sessions := NewSessionCommands(ctrl, tr, bus, ext, composer, ui)
+	sessions := NewSessionCommands(ctrl, tr, bus, composer, ui)
 	branches := NewBranchCommands(bus, cwd, composer, ui)
 	settings := &SettingsCommands{
 		Ctrl:       ctrl,
@@ -89,10 +76,9 @@ func NewBuiltinRegistry(
 	sessions.Register(r)
 	branches.Register(r)
 	settings.Register(r)
-	ext.Register(r)
 	skills.Register(r)
 	diff.Register(r)
 	code.Register(r)
 
-	return &Builtin{Registry: r, Sessions: sessions, Branches: branches, Skills: skills, Ext: ext}
+	return &Builtin{Registry: r, Sessions: sessions, Branches: branches, Skills: skills}
 }

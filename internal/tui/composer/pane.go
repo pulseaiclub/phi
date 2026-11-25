@@ -186,8 +186,7 @@ func (c *ComposerPane) HidePalette() {
 }
 
 // refreshRootCommands re-derives the Ctrl+K surface from the live registry
-// before it opens. Extension reloads write the same registry, so both paths
-// rebuild from one source instead of the pane holding an outward callback.
+// before it opens, instead of the pane holding an outward callback.
 func (c *ComposerPane) refreshRootCommands() {
 	if c.commands == nil || c.paletteCtx == nil {
 		return

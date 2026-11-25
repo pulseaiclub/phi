@@ -116,7 +116,6 @@ func branchEditor(t *testing.T) *Editor {
 	registry := commands.NewCommandRegistry()
 	builtins := commands.NewBuiltinRegistry(
 		registry,
-		commands.NewContext(bus, nil),
 		bus,
 		nil,
 		e.composer,
@@ -125,7 +124,6 @@ func branchEditor(t *testing.T) *Editor {
 		nil,
 		nil,
 		e,
-		nil,
 	)
 	e.commands = builtins.Registry
 

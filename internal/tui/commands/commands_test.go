@@ -112,41 +112,6 @@ func TestAgentsCommand_RoleModels(t *testing.T) {
 	assert.Equal(t, "cheap", gotName)
 }
 
-func TestExtensionsCommand_ListAndReload(t *testing.T) {
-	var reloaded bool
-	var pushedTitle string
-	var pushed []palette.PaletteCommand
-	cmd := ExtensionsPalette(
-		func() []palette.PaletteCommand {
-			return []palette.PaletteCommand{{
-				ID:       "ext-demo",
-				Verb:     "demo  [project]",
-				Disabled: true,
-			}}
-		},
-		func() { reloaded = true },
-		func(title string, cmds []palette.PaletteCommand) {
-			pushedTitle = title
-			pushed = cmds
-		},
-	)
-
-	assert.Equal(t, "extensions", cmd.Noun)
-	assert.Equal(t, "manage", cmd.Verb)
-	require.Len(t, cmd.Submenu, 2)
-
-	cmd.Submenu[0].Run() // list → PushSubmenu
-	assert.Equal(t, "Extensions", pushedTitle)
-	require.NotEmpty(t, pushed)
-	assert.Equal(t, "ext-demo", pushed[0].ID)
-
-	cmd.Submenu[1].Run() // reload
-	assert.True(t, reloaded)
-
-	// A nil push must not panic when the list row runs.
-	ExtensionsPalette(nil, nil, nil)
-}
-
 func TestFilterSlashCommands(t *testing.T) {
 	r := NewCommandRegistry()
 	(&SessionCommands{}).Register(r)
@@ -230,15 +195,15 @@ func TestCommandRegistry_BuildPalette(t *testing.T) {
 		},
 	})
 	r.Register(Command{
-		Name: "extensions",
+		Name: "sessions-submenu",
 		Build: func(Context) palette.PaletteCommand {
 			return palette.PaletteCommand{
-				ID:           "extensions",
-				Noun:         "extensions",
-				Verb:         "manage",
-				SubmenuTitle: "Extensions",
+				ID:           "sessions-submenu",
+				Noun:         "sessions",
+				Verb:         "browse",
+				SubmenuTitle: "Sessions",
 				Submenu: []palette.PaletteCommand{
-					{ID: "ext-list", Verb: "list", Run: func() { pushed = true }},
+					{ID: "session-current", Verb: "current", Run: func() { pushed = true }},
 				},
 			}
 		},
@@ -254,15 +219,15 @@ func TestCommandRegistry_BuildPalette(t *testing.T) {
 	cmds[0].Submenu[0].Run()
 	assert.Equal(t, "gpt", model)
 
-	var extCmd palette.PaletteCommand
+	var sessionCmd palette.PaletteCommand
 	for _, c := range cmds {
-		if c.ID == "extensions" {
-			extCmd = c
+		if c.ID == "sessions-submenu" {
+			sessionCmd = c
 			break
 		}
 	}
-	require.Equal(t, "extensions", extCmd.ID)
-	extCmd.Submenu[0].Run()
+	require.Equal(t, "sessions-submenu", sessionCmd.ID)
+	sessionCmd.Submenu[0].Run()
 	assert.True(t, pushed)
 }
 
@@ -284,19 +249,6 @@ func TestCommandRegistry_RegisterReplace(t *testing.T) {
 	assert.Equal(t, "replaced", r.SlashCommands()[0].Description)
 }
 
-func TestCommandRegistry_ExtCommandsDoNotReplaceBuiltins(t *testing.T) {
-	r := NewCommandRegistry()
-	(&SessionCommands{}).Register(r)
-	assert.False(t, r.registerExt(Command{Name: "new", Slash: true, Insert: "/hijack"}))
-	assert.Equal(t, "/new", r.LookupInsert("new"))
-
-	assert.True(t, r.registerExt(Command{Name: "review", Slash: true, Insert: "/review"}))
-	assert.Equal(t, "/review", r.LookupInsert("review"))
-	r.clearExtCommands()
-	assert.Empty(t, r.LookupInsert("review"))
-	assert.Equal(t, "/new", r.LookupInsert("new"))
-}
-
 func TestCommandRegistry_NeedsArgs(t *testing.T) {
 	r := NewCommandRegistry()
 	r.Register(Command{
@@ -312,7 +264,7 @@ func TestCommandRegistry_NeedsArgs(t *testing.T) {
 	_, ok = r.IncompleteSlash("/plan on")
 	assert.False(t, ok)
 
-	assert.True(t, r.registerExt(Command{Name: "review", Slash: true, NeedsArgs: true}))
+	r.Register(Command{Name: "review", Slash: true, NeedsArgs: true})
 	assert.Equal(t, "/review ", r.LookupInsert("review"))
 }
 

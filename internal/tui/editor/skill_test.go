@@ -72,7 +72,6 @@ Do the work.
 	registry := commands.NewCommandRegistry()
 	builtins := commands.NewBuiltinRegistry(
 		registry,
-		commands.NewContext(bus, nil),
 		bus,
 		nil,
 		e.composer,
@@ -81,7 +80,6 @@ Do the work.
 		nil,
 		[]string{filepath.Join(dir, "skills")},
 		e,
-		nil,
 	)
 	e.commands = builtins.Registry
 

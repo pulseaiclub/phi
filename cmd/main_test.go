@@ -23,7 +23,6 @@ func TestNoArgCommandsRejectPositionalArgs(t *testing.T) {
 		{[]string{"sessions", "delete", "abc"}, `unknown command "delete"`},
 		{[]string{"mcp", "list", "extra"}, `unexpected argument "extra"`},
 		{[]string{"mcp", "doctor", "extra"}, `unexpected argument "extra"`},
-		{[]string{"plugin", "list", "extra"}, `unexpected argument "extra"`},
 		{[]string{"config", "extra"}, `unexpected argument "extra"`},
 		{[]string{"update", "--check", "extra"}, `unexpected argument "extra"`},
 	}
@@ -44,7 +43,7 @@ func TestRootDispatchHelpAndUnknown(t *testing.T) {
 	assert.Contains(t, he.Help, "usage: phi")
 	assert.Contains(t, he.Help, "run")
 	assert.Contains(t, he.Help, "sessions")
-	assert.Contains(t, he.Help, "phi plugin …       install/list/update/remove extensions (see 'phi plugin --help')")
+	assert.NotContains(t, he.Help, "plugin")
 
 	err = root().Dispatch([]string{"bogus"})
 	var ue *cli.UsageError

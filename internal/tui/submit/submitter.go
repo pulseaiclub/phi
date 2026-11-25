@@ -208,7 +208,6 @@ func (s *Submitter) StreamActive() bool {
 		controller.ActivityStreaming,
 		controller.ActivityTools,
 		controller.ActivityCompacting,
-		controller.ActivityAwaitingApproval,
 		controller.ActivityRetrying:
 		return true
 	default:

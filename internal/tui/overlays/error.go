@@ -36,9 +36,6 @@ func (o *Overlays) beginErrorAsk(msg controller.OverlayMsg) {
 	if o.err != nil {
 		o.resolveError(controller.ErrorReply{})
 	}
-	if o.confirm != nil {
-		o.resolveExtConfirm(controller.ExtConfirmReply{})
-	}
 	if o.composer != nil {
 		o.composer.HideCompleters()
 		o.composer.HidePalette()
@@ -56,9 +53,6 @@ func (o *Overlays) dismissError() {
 	o.err = nil
 	if !was {
 		return
-	}
-	if o.activity != nil && o.activity.Current == controller.ActivityAwaitingApproval {
-		o.activity.Apply(controller.ActivityIdle)
 	}
 	if o.composer != nil {
 		o.composer.FocusChat()

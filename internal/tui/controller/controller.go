@@ -10,55 +10,15 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/extension"
-	"github.com/pulseaiclub/phi/internal/extension/loader"
-
-	ext "github.com/pulseaiclub/phi/ext/go"
 	"github.com/pulseaiclub/phi/internal/agent"
-	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/debuglog"
-	"github.com/pulseaiclub/phi/internal/extension/core"
-	"github.com/pulseaiclub/phi/internal/extension/ui"
 	"github.com/pulseaiclub/phi/internal/job"
-
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/project/model"
 	"github.com/pulseaiclub/phi/internal/session"
-	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
-
-// ExtRunner is the controller's handle on the extension host: the management
-// surface the TUI drives, the models and slash commands it consults, and the
-// engine-facing dispatch surface handed to agent.EngineConfig. The
-// production implementation is *core.Runner.
-type ExtRunner interface {
-	extension.Extensions
-
-	// Lifecycle management.
-	Loaded() []loader.Discovered
-	ListExtensions() map[string]core.FiberState
-	UnloadExtension(name string) error
-	ReloadExtension(name string) error
-	Close()
-
-	// Engine wiring.
-	SetBaseTools(base []tooldef.Tool)
-	SetMeta(sessionID, cwd string)
-
-	// Models and slash commands.
-	ExtensionModels() []core.ModelRoute
-	CommandEntries() []ext.CommandEntry
-	RunCommand(name, args string) (core.CommandOutcome, error)
-
-	// Session lifecycle events.
-	EmitSessionStart(ev ext.SessionStartEvent) ext.SessionEffects
-	EmitSessionShutdown(ev ext.SessionShutdownEvent) ext.SessionEffects
-	EmitSessionBeforeSwitch(ev ext.SessionBeforeSwitchEvent) ext.SessionEffects
-}
-
-const defaultAskTimeoutSec = 120
 
 // EngineController owns agent.Engine lifecycle and stream cancellation.
 // It talks to the UI only by publishing Msg values onto the Bus.
@@ -86,9 +46,7 @@ type EngineController struct {
 	jobs       *job.Manager
 	unsubJobs  func()
 
-	askTimeoutSec int
 	agentsEnabled atomic.Bool
-	extRunner     atomic.Pointer[core.Runner]
 	mcpPool       *mcp.Pool
 
 	lastJobProgress sync.Map // progressSlot → progressSig
@@ -107,13 +65,12 @@ func NewController(bus *Bus, proj *project.Project) (controller *EngineControlle
 	roleModels := config.Agents.Models.RoleOverrides()
 
 	c := &EngineController{
-		bus:           bus,
-		proj:          proj,
-		cwd:           cwd,
-		sessionDir:    sessionDir,
-		askTimeoutSec: defaultAskTimeoutSec,
-		modelCfg:      modelCfg,
-		roleModels:    roleModels,
+		bus:        bus,
+		proj:       proj,
+		cwd:        cwd,
+		sessionDir: sessionDir,
+		modelCfg:   modelCfg,
+		roleModels: roleModels,
 	}
 	c.agentsEnabled.Store(config.Agents.Enabled)
 
@@ -130,10 +87,7 @@ func NewController(bus *Bus, proj *project.Project) (controller *EngineControlle
 
 	jobs, err := agent.NewJobManager(
 		proj.JobsDir(),
-		roleModelConfigs(modelCfg, roleModels, nil, config),
-		func() extension.Extensions {
-			return c.Extensions()
-		},
+		roleModelConfigs(modelCfg, roleModels, config),
 	)
 	if err != nil {
 		return nil, err
@@ -158,18 +112,10 @@ func NewController(bus *Bus, proj *project.Project) (controller *EngineControlle
 		}()
 	}
 
-	r := loadStartupExtensions(proj, sess, jobs, config.Agents.Enabled, mcpPool, bus, defaultAskTimeoutSec)
-	defer func() {
-		if err != nil {
-			r.Close()
-		}
-	}()
-	eng, err := buildEngine(modelCfg, r, sess, jobs, config.Agents.Enabled, mcpPool)
+	eng, err := buildEngine(modelCfg, sess, jobs, config.Agents.Enabled, mcpPool)
 	if err != nil {
 		return nil, err
 	}
-	c.extRunner.Store(r)
-	jobs.SetRoleModels(roleModelConfigs(modelCfg, roleModels, r, config))
 	c.engine = eng
 	c.sess = sess
 	ch, cancel := c.jobs.Subscribe()
@@ -181,7 +127,6 @@ func NewController(bus *Bus, proj *project.Project) (controller *EngineControlle
 			}
 		}
 	}()
-	c.emitSessionStart("startup", "")
 	return c, nil
 }
 
@@ -219,8 +164,8 @@ func (c *EngineController) shouldPublishJobProgress(p job.Progress) bool {
 }
 
 func (c *EngineController) SetAgentsEnabled(v bool) error {
-	sess, modelCfg, r := c.sess, c.modelSnapshot(), c.Extensions()
-	cfg := c.engineConfig(modelCfg, r)
+	sess, modelCfg := c.sess, c.modelSnapshot()
+	cfg := c.engineConfig(modelCfg)
 	cfg.Jobs = nil
 	if v {
 		cfg.Jobs = c.jobs
@@ -229,7 +174,6 @@ func (c *EngineController) SetAgentsEnabled(v bool) error {
 	if err != nil {
 		return err
 	}
-	r.SetBaseTools(cfg.CoreTools(sess))
 	c.agentsEnabled.Store(v)
 	c.installEngine(eng, sess, modelCfg)
 	return nil
@@ -238,17 +182,9 @@ func (c *EngineController) SetAgentsEnabled(v bool) error {
 // AgentsEnabled reports whether sub-agent (agent_*) tools are registered.
 func (c *EngineController) AgentsEnabled() bool { return c.agentsEnabled.Load() }
 
-func lookupExtensionModel(extRunner extension.Extensions, name string) (core.ModelRoute, bool) {
-	if extRunner == nil {
-		return core.ModelRoute{}, false
-	}
-	return extRunner.LookupModel(name)
-}
-
 func roleModelConfigs(
 	parent llm.ModelConfig,
 	roleModels map[job.Role]string,
-	extRunner extension.Extensions,
 	config *project.Config,
 ) map[job.Role]llm.ModelConfig {
 	models := map[job.Role]llm.ModelConfig{
@@ -257,16 +193,8 @@ func roleModelConfigs(
 		job.RoleWorker:  parent,
 	}
 	for role, name := range roleModels {
-		if route, ok := lookupExtensionModel(extRunner, name); ok {
-			m, err := extensionModelConfig(route, config)
-			if err == nil {
-				models[role] = m
-				continue
-			}
-			debuglog.Logf("agents: extension role model %q: %v; using parent", name, err)
-		} else if m, ok := config.FindModel(name); ok {
+		if m, ok := config.FindModel(name); ok {
 			models[role] = m
-			continue
 		} else {
 			debuglog.Logf("agents: unknown role model %q for %s; using parent", name, role)
 		}
@@ -296,9 +224,7 @@ func (c *EngineController) SetRoleModel(role, name string) error {
 	name = strings.TrimSpace(name)
 	if name != "" {
 		if _, ok := c.proj.Config().FindModel(name); !ok {
-			if _, ok := c.Extensions().LookupModel(name); !ok {
-				return fmt.Errorf("unknown model %q", name)
-			}
+			return fmt.Errorf("unknown model %q", name)
 		}
 	}
 	c.modelMu.Lock()
@@ -308,14 +234,8 @@ func (c *EngineController) SetRoleModel(role, name string) error {
 	} else {
 		c.roleModels[r] = name
 	}
-	c.jobs.SetRoleModels(roleModelConfigs(c.modelCfg, c.roleModels, c.Extensions(), c.proj.Config()))
+	c.jobs.SetRoleModels(roleModelConfigs(c.modelCfg, c.roleModels, c.proj.Config()))
 	return nil
-}
-
-func (c *EngineController) refreshJobRoleModels() {
-	c.modelMu.RLock()
-	defer c.modelMu.RUnlock()
-	c.jobs.SetRoleModels(roleModelConfigs(c.modelCfg, c.roleModels, c.Extensions(), c.proj.Config()))
 }
 
 func (c *EngineController) engineJobs() *job.Manager {
@@ -325,130 +245,8 @@ func (c *EngineController) engineJobs() *job.Manager {
 	return c.jobs
 }
 
-// Extensions returns the runner handle. The value is never a nil interface —
-// the disabled state is a nil *core.Runner behind ExtRunner, whose
-// methods are nil-receiver no-ops. Use HasExtensions for the presence check.
-func (c *EngineController) Extensions() ExtRunner {
-	return c.extRunner.Load()
-}
-
-// HasExtensions reports whether a runner is actually loaded.
-func (c *EngineController) HasExtensions() bool {
-	return c.extRunner.Load() != nil
-}
-
-func (c *EngineController) ReloadExtensions() (loaded int, warns []loader.Warning, err error) {
-	sess := c.sess
-	r, warns, err := c.loadExtensions(sess)
-	if err != nil {
-		return 0, warns, err
-	}
-	modelCfg := c.modelSnapshot()
-	eng, err := c.newEngine(modelCfg, r, sess)
-	if err != nil {
-		r.Close()
-		return 0, warns, err
-	}
-	c.swapExtensionRunner(r)
-	c.installEngine(eng, sess, modelCfg)
-	if r == nil {
-		return 0, warns, nil
-	}
-	return len(r.Loaded()), warns, nil
-}
-
-func (c *EngineController) swapExtensionRunner(r *core.Runner) {
-	if prev := c.extRunner.Swap(r); prev != nil {
-		prev.Close()
-	}
-	// Previous runner's UI state died with its subprocesses.
-	c.publish(ExtSessionEffectsMsg{Status: "", StatusSet: true})
-}
-
-func (c *EngineController) ListExtensions() ([]loader.Discovered, []loader.Warning, error) {
-	return loader.Discover(c.proj.Global().ExtensionsDir(), c.proj.ExtensionsDir())
-}
-
-// ReloadExtension hot-reloads a single extension by name.
-func (c *EngineController) ReloadExtension(name string) error {
-	r := c.extRunner.Load()
-	if r == nil {
-		return errors.New("no extension runner loaded")
-	}
-	err := r.ReloadExtension(name)
-	c.refreshJobRoleModels()
-	return err
-}
-
-// UnloadExtension unloads a single extension by name.
-func (c *EngineController) UnloadExtension(name string) error {
-	r := c.extRunner.Load()
-	if r == nil {
-		return errors.New("no extension runner loaded")
-	}
-	err := r.UnloadExtension(name)
-	c.refreshJobRoleModels()
-	return err
-}
-
-// ListExtensionStates returns all extension states.
-func (c *EngineController) ListExtensionStates() map[string]core.FiberState {
-	r := c.extRunner.Load()
-	if r == nil {
-		return nil
-	}
-	return r.ListExtensions()
-}
-
-func loadStartupExtensions(
-	proj *project.Project,
-	sess *agent.Session,
-	jobs *job.Manager,
-	agentsEnabled bool,
-	mcpPool *mcp.Pool,
-	bus *Bus,
-	askTimeoutSec int,
-) *core.Runner {
-	base := agent.EngineConfig{MCP: mcpPool}
-	if agentsEnabled {
-		base.Jobs = jobs
-	}
-	host := ext.HostOpts{
-		UI: ui.BusUI{
-			NotifyFn: func(message, kind string) { publishExtNotify(bus, message, kind) },
-			SetStatusFn: func(_, text string) {
-				bus.Publish(ExtSessionEffectsMsg{Status: text, StatusSet: true})
-			},
-			ConfirmFn: func(req ext.ConfirmRequest) ext.ConfirmReply {
-				return askExtConfirm(bus, req, askTimeoutDuration(askTimeoutSec))
-			},
-		},
-		Cwd: sess.Cwd(), SessionID: sess.ID(), HasUI: true,
-		RefreshTools: func() { bus.Publish(ExtTopologyChangedMsg{}) },
-	}
-	r, warns, err := extension.LoadWithHost(
-		proj.Global().ExtensionsDir(),
-		proj.ExtensionsDir(),
-		core.HostConfig{
-			Host: host, BaseTools: base.CoreTools(sess),
-			OnChange: func() { bus.Publish(ExtTopologyChangedMsg{}) },
-			OnPrompt: func(r *core.Runner, sessionID, text string) {
-				bus.Publish(ExtPromptMsg{runner: r, sessionID: sessionID, text: text})
-			},
-		},
-	)
-	for _, w := range warns {
-		debuglog.Logf("extension: %s", w.String())
-	}
-	if err != nil {
-		debuglog.Logf("extension: load failed: %v", err)
-	}
-	return r
-}
-
 func buildEngine(
 	cfg llm.ModelConfig,
-	extRunner extension.Extensions,
 	sess *agent.Session,
 	jobs *job.Manager,
 	agentsEnabled bool,
@@ -458,134 +256,18 @@ func buildEngine(
 		jobs = nil
 	}
 	return (agent.EngineConfig{
-		Jobs: jobs, Extensions: extRunner, MCP: mcpPool, Hooks: model.HooksForConfig(cfg),
+		Jobs: jobs, MCP: mcpPool, Hooks: model.HooksForConfig(cfg),
 	}).NewEngine(cfg, sess)
 }
 
-// Startup and resume are fail-open; an explicit reload reports discovery errors.
-func (c *EngineController) loadSessionExtensions(sess *agent.Session) *core.Runner {
-	r, _, err := c.loadExtensions(sess)
-	if err != nil {
-		debuglog.Logf("extension: load failed: %v", err)
+// resolveModelConfig keeps arbitrary model names on the primary connection.
+func resolveModelConfig(cfg *project.Config, name string) llm.ModelConfig {
+	if m, ok := cfg.FindModel(name); ok {
+		return m
 	}
-	return r
-}
-
-func (c *EngineController) loadExtensions(sess *agent.Session) (*core.Runner, []loader.Warning, error) {
-	host := ext.HostOpts{
-		UI: ui.BusUI{
-			NotifyFn: c.handleExtNotify, SetStatusFn: c.handleExtStatus, ConfirmFn: c.askExtConfirm,
-		},
-		Cwd: sess.Cwd(), SessionID: sess.ID(), HasUI: true,
-		RefreshTools: c.requestTopologyRefresh,
-	}
-	base := agent.EngineConfig{Jobs: c.engineJobs(), MCP: c.mcpPool}
-	r, warns, err := extension.LoadWithHost(
-		c.proj.Global().ExtensionsDir(),
-		c.proj.ExtensionsDir(),
-		core.HostConfig{
-			Host: host, BaseTools: base.CoreTools(sess), OnChange: c.requestTopologyRefresh,
-			OnPrompt: func(r *core.Runner, sessionID, text string) {
-				c.publish(ExtPromptMsg{runner: r, sessionID: sessionID, text: text})
-			},
-		},
-	)
-	for _, w := range warns {
-		debuglog.Logf("extension: %s", w.String())
-	}
-	return r, warns, err
-}
-
-// StartExtensionPrompt runs on the UI thread, after any pending runner or session switch.
-func (c *EngineController) StartExtensionPrompt(m ExtPromptMsg) {
-	if m.runner != nil && m.runner == c.Extensions() && c.sess != nil && m.sessionID == c.SessionID() {
-		c.StartPrompt(m.text, nil, nil)
-	}
-}
-
-func (c *EngineController) handleExtNotify(message, kind string) {
-	publishExtNotify(c.bus, message, kind)
-}
-
-func (c *EngineController) handleExtStatus(_, text string) {
-	c.publish(ExtSessionEffectsMsg{Status: text, StatusSet: true})
-}
-
-func (c *EngineController) requestTopologyRefresh() {
-	c.publish(ExtTopologyChangedMsg{})
-}
-
-// SyncExtensionTools replaces the engine for future turns on the UI goroutine.
-func (c *EngineController) SyncExtensionTools() error {
-	if c.sess == nil {
-		return nil
-	}
-	modelCfg := c.modelSnapshot()
-	eng, err := c.newEngine(modelCfg, c.Extensions(), c.sess)
-	if err != nil {
-		return err
-	}
-	c.installEngine(eng, c.sess, modelCfg)
-	return nil
-}
-
-func (c *EngineController) askTimeout() time.Duration {
-	return askTimeoutDuration(c.askTimeoutSec)
-}
-
-func askTimeoutDuration(seconds int) time.Duration {
-	if seconds > 0 {
-		return time.Duration(seconds) * time.Second
-	}
-	return time.Duration(defaultAskTimeoutSec) * time.Second
-}
-
-func waitReply[T any](ctx context.Context, ch <-chan T, timeout time.Duration, onAbort func()) (T, error) {
-	var zero T
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	select {
-	case r := <-ch:
-		return r, nil
-	case <-ctx.Done():
-		onAbort()
-		return zero, ctx.Err()
-	case <-timer.C:
-		onAbort()
-		return zero, nil
-	}
-}
-
-func (c *EngineController) askExtConfirm(req ext.ConfirmRequest) ext.ConfirmReply {
-	return askExtConfirm(c.bus, req, c.askTimeout())
-}
-
-func askExtConfirm(bus *Bus, req ext.ConfirmRequest, timeout time.Duration) ext.ConfirmReply {
-	reply := make(chan ExtConfirmReply, 1)
-	bus.Publish(OverlayMsg{
-		Kind:         OverlayExtConfirm,
-		Title:        req.Title,
-		Message:      req.Message,
-		Yes:          req.Yes,
-		No:           req.No,
-		Danger:       req.Danger,
-		ConfirmReply: reply,
-	})
-	r, _ := waitReply(context.Background(), reply, timeout, func() {
-		bus.Publish(OverlayMsg{Kind: OverlayExtConfirmDismiss})
-	})
-	return ext.ConfirmReply{OK: r.OK}
-}
-
-func publishExtNotify(bus *Bus, message, kind string) {
-	toastKind := toast.ToastSuccess
-	switch strings.ToLower(kind) {
-	case "warning":
-		toastKind = toast.ToastWarning
-	case "error":
-		toastKind = toast.ToastError
-	}
-	bus.Publish(ToastMsg{Message: message, Kind: toastKind, Duration: 3 * time.Second})
+	m := cfg.Model()
+	m.Name = name
+	return m
 }
 
 // SaveDefaultModel changes the global default without rewriting any session.
@@ -602,28 +284,14 @@ func (c *EngineController) SetModel(name string) error {
 		return err
 	}
 	sess := c.sess
-	r, _, loadErr := c.loadExtensions(sess)
-	if loadErr != nil {
-		debuglog.Logf("extension: reload on SetModel: %v", loadErr)
-		r = c.extRunner.Load()
-	}
-	cfg, err := resolveModelConfig(c.proj.Config(), r, name)
-	var eng *agent.Engine
-	if err == nil {
-		eng, err = c.newEngine(cfg, r, sess)
-	}
+	cfg := resolveModelConfig(c.proj.Config(), name)
+	eng, err := c.newEngine(cfg, sess)
 	if err == nil {
 		c.Cancel()
 		err = sess.SetModel(name)
 	}
 	if err != nil {
-		if loadErr == nil {
-			r.Close()
-		}
 		return err
-	}
-	if loadErr == nil {
-		c.swapExtensionRunner(r)
 	}
 	c.installEngine(eng, sess, cfg)
 	return nil
@@ -636,7 +304,7 @@ func (c *EngineController) SetThinkLevel(mode llm.ThinkMode) error {
 	if err := model.ValidateThinking(cfg); err != nil {
 		return err
 	}
-	eng, err := c.newEngine(cfg, c.Extensions(), c.sess)
+	eng, err := c.newEngine(cfg, c.sess)
 	if err != nil {
 		return err
 	}
@@ -706,8 +374,7 @@ func (c *EngineController) Resume(id string) (cwdWarning string, err error) {
 	if id == "" {
 		return "", errors.New("empty session id")
 	}
-	prevID, err := c.preflightSessionSwitch("resume", id)
-	if err != nil {
+	if err := c.preflightSessionSwitch(); err != nil {
 		return "", err
 	}
 	cfg, err := c.resolveModel()
@@ -726,33 +393,25 @@ func (c *EngineController) Resume(id string) (cwdWarning string, err error) {
 	if err != nil {
 		return "", err
 	}
-	extRunner := c.loadSessionExtensions(sess)
 	if name := sess.ModelName(); name != "" {
-		cfg, err = resolveModelConfig(c.proj.Config(), extRunner, name)
-		if err != nil {
-			extRunner.Close()
-			return "", fmt.Errorf("restore session model %q: %w", name, err)
-		}
+		cfg = resolveModelConfig(c.proj.Config(), name)
 	}
-	eng, err := c.newEngine(cfg, extRunner, sess)
+	eng, err := c.newEngine(cfg, sess)
 	if err != nil {
-		extRunner.Close()
 		return "", err
 	}
-	c.commitSessionSwitch("resume", id)
-	c.swapExtensionRunner(extRunner)
+	c.commitSessionSwitch()
 	if sessCwd := sess.Cwd(); sessCwd != "" && c.cwd != "" && sessCwd != c.cwd {
 		cwdWarning = fmt.Sprintf("cwd %s ≠ %s", filepath.Base(sessCwd), filepath.Base(c.cwd))
 	}
-	c.activateSession(eng, sess, cfg, "resume", prevID)
+	c.activateSession(eng, sess, cfg)
 	return cwdWarning, nil
 }
 
 // NewSession starts a brand-new persisted session. Caller must ensure no agent
 // stream / local bash is in flight.
 func (c *EngineController) NewSession() error {
-	prevID, err := c.preflightSessionSwitch("new", "")
-	if err != nil {
+	if err := c.preflightSessionSwitch(); err != nil {
 		return err
 	}
 	cfg, err := c.resolveModel()
@@ -769,24 +428,21 @@ func (c *EngineController) NewSession() error {
 	if err != nil {
 		return err
 	}
-	engine, err := c.newEngine(cfg, c.Extensions(), sess)
+	engine, err := c.newEngine(cfg, sess)
 	if err != nil {
 		return err
 	}
-	c.commitSessionSwitch("new", "")
-	c.switchRunnerSession(sess)
-	c.activateSession(engine, sess, cfg, "new", prevID)
+	c.commitSessionSwitch()
+	c.activateSession(engine, sess, cfg)
 	return nil
 }
 
 // ForkSession copies the active session's current branch into a new persisted
-// session and switches the controller to it. The before-switch hook runs first
-// so a denied fork writes nothing, and the fork file exists and is bound to an
-// engine before the live session is touched: any failure leaves the source
-// session active and its history intact.
+// session and switches the controller to it. The fork file exists and is bound
+// to an engine before the live session is touched: any failure leaves the
+// source session active and its history intact.
 func (c *EngineController) ForkSession() (string, error) {
-	prevID, err := c.preflightSessionSwitch("fork", "")
-	if err != nil {
+	if err := c.preflightSessionSwitch(); err != nil {
 		return "", err
 	}
 	forked, err := c.sess.Fork()
@@ -798,26 +454,19 @@ func (c *EngineController) ForkSession() (string, error) {
 		c.discardFork(forked.ID())
 		return "", err
 	}
-	eng, err := c.newEngine(cfg, c.Extensions(), forked)
+	eng, err := c.newEngine(cfg, forked)
 	if err != nil {
 		c.discardFork(forked.ID())
 		return "", err
 	}
-	c.commitSessionSwitch("fork", forked.ID())
-	c.switchRunnerSession(forked)
-	c.activateSession(eng, forked, cfg, "fork", prevID)
+	c.commitSessionSwitch()
+	c.activateSession(eng, forked, cfg)
 	return forked.ID(), nil
 }
 
-// activateSession publishes the new session only after installing its engine, session, and model together.
-func (c *EngineController) activateSession(
-	eng *agent.Engine,
-	sess *agent.Session,
-	cfg llm.ModelConfig,
-	reason, prevID string,
-) {
+// activateSession installs the new session only after its engine, session, and model are ready together.
+func (c *EngineController) activateSession(eng *agent.Engine, sess *agent.Session, cfg llm.ModelConfig) {
 	c.installEngine(eng, sess, cfg)
-	c.emitSessionStart(reason, prevID)
 }
 
 // installEngine swaps the live engine and the session it is bound to as one unit.
@@ -827,7 +476,7 @@ func (c *EngineController) installEngine(eng *agent.Engine, sess *agent.Session,
 	c.engine = eng
 	c.sess = sess
 	c.modelCfg = cfg
-	c.jobs.SetRoleModels(roleModelConfigs(cfg, c.roleModels, c.Extensions(), c.proj.Config()))
+	c.jobs.SetRoleModels(roleModelConfigs(cfg, c.roleModels, c.proj.Config()))
 }
 
 // discardFork drops a fork the controller never switched to, so a failed switch
@@ -838,31 +487,16 @@ func (c *EngineController) discardFork(id string) {
 	}
 }
 
-// preflightSessionSwitch asks extensions whether a switch may happen. Nothing
-// is mutated yet: a denial leaves the current session untouched.
-func (c *EngineController) preflightSessionSwitch(reason, targetID string) (prevID string, err error) {
+func (c *EngineController) preflightSessionSwitch() error {
 	if c.sessionDir == "" {
-		return "", errors.New("session directory not configured")
+		return errors.New("session directory not configured")
 	}
-	prevID = c.SessionID()
-	out := c.sessionBeforeSwitch(reason, targetID)
-	c.publishSessionEffects(out)
-	if out.Denied {
-		msg := out.Reason
-		if msg == "" {
-			msg = "session switch denied by extension"
-		}
-		return "", errors.New(msg)
-	}
-	return prevID, nil
+	return nil
 }
 
-// commitSessionSwitch retires the outgoing session: the in-flight stream is
-// cancelled and extensions see session_shutdown before the new engine is
-// installed.
-func (c *EngineController) commitSessionSwitch(reason, targetID string) {
+// commitSessionSwitch retires the outgoing session's in-flight stream.
+func (c *EngineController) commitSessionSwitch() {
 	c.Cancel()
-	c.sessionShutdown(reason, targetID)
 }
 
 func (c *EngineController) resolveModel() (llm.ModelConfig, error) {
@@ -875,26 +509,15 @@ func (c *EngineController) resolveModel() (llm.ModelConfig, error) {
 	return c.proj.Config().Model(), nil
 }
 
-func (c *EngineController) switchRunnerSession(sess *agent.Session) {
-	r := c.Extensions()
-	base := agent.EngineConfig{Jobs: c.engineJobs(), MCP: c.mcpPool}
-	r.SetBaseTools(base.CoreTools(sess))
-	r.SetMeta(sess.ID(), sess.Cwd())
-}
-
 // newEngine binds a session to a fresh engine on the controller-wide gate,
-// jobs, extensions, MCP pool and hooks. Every session switch funnels through
-// here, so a forked session runs on exactly the wiring of a resumed one.
-func (c *EngineController) newEngine(
-	cfg llm.ModelConfig,
-	extRunner extension.Extensions,
-	sess *agent.Session,
-) (*agent.Engine, error) {
-	return c.engineConfig(cfg, extRunner).NewEngine(cfg, sess)
+// jobs, MCP pool and hooks. Every session switch funnels through here, so a
+// forked session runs on exactly the wiring of a resumed one.
+func (c *EngineController) newEngine(cfg llm.ModelConfig, sess *agent.Session) (*agent.Engine, error) {
+	return c.engineConfig(cfg).NewEngine(cfg, sess)
 }
 
-func (c *EngineController) engineConfig(cfg llm.ModelConfig, r extension.Extensions) agent.EngineConfig {
-	return agent.EngineConfig{Jobs: c.engineJobs(), Extensions: r, MCP: c.mcpPool, Hooks: model.HooksForConfig(cfg)}
+func (c *EngineController) engineConfig(cfg llm.ModelConfig) agent.EngineConfig {
+	return agent.EngineConfig{Jobs: c.engineJobs(), MCP: c.mcpPool, Hooks: model.HooksForConfig(cfg)}
 }
 
 func (c *EngineController) ReplaySnapshot() session.Snapshot {
@@ -1024,7 +647,6 @@ func (c *EngineController) CurrentLoop(gen int) bool {
 }
 
 func (c *EngineController) Close() {
-	c.sessionShutdown("quit", "")
 	c.Cancel()
 	c.unsubJobs()
 	_ = c.jobs.Close(context.Background())
@@ -1032,50 +654,6 @@ func (c *EngineController) Close() {
 		_ = c.mcpPool.Close()
 		c.mcpPool = nil
 	}
-	if prev := c.extRunner.Swap(nil); prev != nil {
-		prev.Close()
-	}
-}
-
-func (c *EngineController) sessionBeforeSwitch(reason, targetID string) ext.SessionEffects {
-	if !c.HasExtensions() {
-		return ext.SessionEffects{}
-	}
-	return c.Extensions().EmitSessionBeforeSwitch(ext.SessionBeforeSwitchEvent{
-		Reason:          reason,
-		TargetSessionID: targetID,
-	})
-}
-
-func (c *EngineController) sessionShutdown(reason, targetID string) {
-	if !c.HasExtensions() {
-		return
-	}
-	c.publishSessionEffects(c.Extensions().EmitSessionShutdown(ext.SessionShutdownEvent{
-		Reason:          reason,
-		TargetSessionID: targetID,
-	}))
-}
-
-func (c *EngineController) emitSessionStart(reason, previousID string) {
-	if !c.HasExtensions() {
-		return
-	}
-	c.publishSessionEffects(c.Extensions().EmitSessionStart(ext.SessionStartEvent{
-		Reason:            reason,
-		PreviousSessionID: previousID,
-	}))
-}
-
-func (c *EngineController) publishSessionEffects(out ext.SessionEffects) {
-	if out.Toast == "" && !out.StatusSet {
-		return
-	}
-	c.publish(ExtSessionEffectsMsg{
-		Toast:     out.Toast,
-		Status:    out.Status,
-		StatusSet: out.StatusSet,
-	})
 }
 
 func (c *EngineController) waitOrDone(ctx context.Context, gen int, d time.Duration) bool {
@@ -1115,7 +693,7 @@ func (c *EngineController) runLoop(ctx context.Context, gen int, engine *agent.E
 		return
 	}
 	var loopErr error
-	// Publish completion only after the iterator's cleanup (including AgentEnd)
+	// Publish completion only after the iterator's cleanup
 	// has finished, so Retry cannot start while the failed turn is unwinding.
 	defer func() { c.finishLoop(ctx, gen, loopErr) }()
 	for ev, err := range engine.Loop(ctx, prompt.Text, agent.LoopOpts{

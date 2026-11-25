@@ -159,26 +159,25 @@ func TestCommandPaletteSaveUsesSharedConfirmation(t *testing.T) {
 	assert.False(t, p.Picker.Open)
 }
 
-// An extension sync replaces the root registry while a submenu page is on
-// screen. The page's rows must keep resolving against the snapshot they came
-// from — Enter silently canceling was the old registry-stomp behavior.
+// A root update while a submenu page is on screen must not orphan that page's
+// rows — Enter silently canceling was the old registry-stomp behavior.
 func TestSyncUnderOpenSubmenuKeepsPageRowsWorking(t *testing.T) {
 	ran := ""
 	p := &CommandPalette{Root: []PaletteCommand{{
-		ID:   "extensions",
+		ID:   "settings",
 		Verb: "manage",
 		Submenu: []PaletteCommand{
-			{ID: "extensions-list", Verb: "list", Run: func() { ran = "list" }},
-			{ID: "extensions-reload", Verb: "reload all"},
+			{ID: "settings-list", Verb: "list", Run: func() { ran = "list" }},
+			{ID: "settings-reload", Verb: "reload all"},
 		},
 	}}}
 	ctx := &components.EventContext{}
 	enter := xui.KeyEvent{Code: xui.KeyEnter, Press: true}
 	p.Show()
-	p.Handle(ctx, enter) // pushes the Extensions page
+	p.Handle(ctx, enter) // pushes the Settings page
 	require.True(t, p.Picker.Open)
 
-	p.SetRoot([]PaletteCommand{{ID: "extensions", Verb: "manage"}})
+	p.SetRoot([]PaletteCommand{{ID: "settings", Verb: "manage"}})
 	p.Handle(ctx, enter)
 	assert.Equal(t, "list", ran, "the page snapshot keeps accepting after a root sync")
 

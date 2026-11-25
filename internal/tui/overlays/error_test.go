@@ -136,19 +136,9 @@ func TestErrorAskReplacesOtherModals(t *testing.T) {
 	var replies []controller.ErrorReply
 	var texts []string
 	o := errorOverlays(&replies, &texts)
-	confirmReply := make(chan controller.ExtConfirmReply, 1)
-	o.beginExtConfirm(controller.OverlayMsg{
-		Kind:         controller.OverlayExtConfirm,
-		Title:        "Confirm",
-		ConfirmReply: confirmReply,
-	})
 	beginErrorAsk(o)
-	require.Nil(t, o.confirm, "error dialog replaces ext confirm")
+	o.beginErrorAsk(controller.OverlayMsg{Kind: controller.OverlayErrorAsk, ErrorText: "replacement"})
 	require.NotNil(t, o.err)
-	select {
-	case <-confirmReply:
-		// ext confirm resolved as dismissed
-	default:
-		require.Fail(t, "replaced ext confirm should resolve")
-	}
+	require.Equal(t, "replacement", o.err.Message)
+	require.Equal(t, []controller.ErrorReply{{}}, replies)
 }

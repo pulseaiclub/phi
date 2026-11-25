@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/components/toast"
-	"github.com/pulseaiclub/phi/internal/extension/core"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/session"
 )
@@ -79,22 +78,6 @@ type FooterMsg struct {
 
 func (FooterMsg) isMsg() {}
 
-// ExtTopologyChangedMsg reports that the loaded extensions or what they
-// register changed outside the palette — a manual reload, or an extension
-// reloading itself. The Editor re-derives the slash surface from it.
-type ExtTopologyChangedMsg struct{}
-
-func (ExtTopologyChangedMsg) isMsg() {}
-
-// ExtPromptMsg carries literal prompt text, not a composer slash command.
-type ExtPromptMsg struct {
-	runner    *core.Runner
-	sessionID string
-	text      string
-}
-
-func (ExtPromptMsg) isMsg() {}
-
 // ToastMsg asks the Editor to show a transient overlay notification.
 // Producers Publish this instead of holding a toast callback.
 type ToastMsg struct {
@@ -148,51 +131,17 @@ func (BashSuggestionsMsg) isMsg() {}
 type OverlayKind int
 
 const (
-	OverlayExtConfirm OverlayKind = iota
-	OverlayExtConfirmDismiss
-	OverlayErrorAsk
+	OverlayErrorAsk OverlayKind = iota
 	OverlayErrorDismiss
 )
 
-// OverlayMsg drives extension-confirm / loop-error UI.
-// Kind selects which fields are meaningful; reply chans must be buffered(1).
+// OverlayMsg drives loop-error UI.
 type OverlayMsg struct {
-	Kind OverlayKind
-
-	// Extension confirm
-	Title        string
-	Message      string
-	Yes          string
-	No           string
-	Danger       bool
-	ConfirmReply chan ExtConfirmReply
-
-	// Loop-error dialog
+	Kind      OverlayKind
 	ErrorText string
 }
 
 func (OverlayMsg) isMsg() {}
-
-// ExtCommandResultMsg delivers the result of an extension slash command.
-type ExtCommandResultMsg struct {
-	Gen       uint64
-	Submit    string
-	Toast     string
-	Status    string
-	StatusSet bool
-	Err       string
-}
-
-func (ExtCommandResultMsg) isMsg() {}
-
-// ExtSessionEffectsMsg applies toast/status from session lifecycle extensions.
-type ExtSessionEffectsMsg struct {
-	Toast     string
-	Status    string
-	StatusSet bool
-}
-
-func (ExtSessionEffectsMsg) isMsg() {}
 
 // JobProgressMsg carries a live sub-agent tool update for the nested tree UI.
 type JobProgressMsg struct {

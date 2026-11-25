@@ -59,8 +59,7 @@ type SessionBaseEntry struct {
 
 // SessionMessageEntry wraps an LLM message as a session tree node.
 // Usage lives here (not on llm.Message, whose Usage is json:"-" and so is
-// dropped at flush) so token counts survive persist/reload for diagnostics
-// and session lifecycle extensions.
+// dropped at flush) so token counts survive persist/reload for diagnostics.
 type SessionMessageEntry struct {
 	SessionBaseEntry
 	Message llm.Message `json:"message"`
@@ -110,7 +109,6 @@ type Compaction struct {
 	TokensBefore     int               `json:"tokensBefore"`
 	Details          CompactionDetails `json:"details,omitempty"`
 	PreserveData     map[string]any    `json:"preserveData,omitempty"`
-	FromExtension    *bool             `json:"fromExtension,omitempty"`
 }
 
 // CompactionEntry is a compaction node in the session tree.

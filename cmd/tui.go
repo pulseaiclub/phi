@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"slices"
 
 	"github.com/pulseaiclub/xui"
 
@@ -26,6 +25,9 @@ func runTUI() error {
 		fmt.Fprintln(os.Stderr, "or set PHI_MODEL and PHI_API_KEY.")
 		return exitCode(ExitUsage)
 	}
+
+	closePlugins := startPlugins(proj)
+	defer closePlugins()
 
 	// Download fd/rg in the background so a cold install does not block the
 	// first TUI frame. Failures stay non-fatal (tools fall back to PATH).
@@ -60,12 +62,6 @@ func runTUI() error {
 	modelNames := make([]string, 0, len(models))
 	for _, m := range models {
 		modelNames = append(modelNames, m.Name)
-	}
-
-	for _, route := range ctrl.Extensions().ExtensionModels() {
-		if !slices.Contains(modelNames, route.Reg.Name) {
-			modelNames = append(modelNames, route.Reg.Name)
-		}
 	}
 
 	model := proj.Config().Model()

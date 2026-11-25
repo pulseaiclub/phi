@@ -97,7 +97,6 @@ type stubHost struct {
 	opened    [][]string
 	route     []string
 	stream    bool
-	status    string
 	activityN int
 }
 
@@ -118,10 +117,6 @@ func (h *stubHost) ResetActivity() {
 	h.activityN++
 }
 
-func (h *stubHost) SetExtensionStatus(status string) {
-	h.status = status
-}
-
 func (h *stubHost) StreamActive() bool { return h.stream }
 
 func TestNewBuiltinRegistry_RegistersDomains(t *testing.T) {
@@ -132,7 +127,6 @@ func TestNewBuiltinRegistry_RegistersDomains(t *testing.T) {
 
 	b := NewBuiltinRegistry(
 		r,
-		NewContext(bus, nil),
 		bus,
 		nil,
 		comp,
@@ -141,12 +135,10 @@ func TestNewBuiltinRegistry_RegistersDomains(t *testing.T) {
 		[]string{"m1"},
 		[]string{t.TempDir()},
 		host,
-		nil,
 	)
 	require.NotNil(t, b)
 	require.NotNil(t, b.Registry)
 	require.NotNil(t, b.Sessions)
-	require.NotNil(t, b.Ext)
 
 	assert.Equal(t, "/sessions", b.Registry.LookupInsert("sessions"))
 	assert.Equal(t, "/new", b.Registry.LookupInsert("new"))
@@ -163,7 +155,6 @@ func TestNewBuiltinRegistry_RegistersDomains(t *testing.T) {
 	assert.True(t, ids["settings-model"])
 	assert.True(t, ids["settings-theme"])
 	assert.True(t, ids["settings-agents"])
-	assert.True(t, ids["extensions"])
 	assert.False(t, ids["skills"], "/skill is a slash command, not a palette entry")
 
 	assert.Equal(t, "/sessions", b.Registry.LookupInsert("sessions"))

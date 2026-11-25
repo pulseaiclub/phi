@@ -89,15 +89,8 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			return true
 		}
 
-		var content string
+		content := prompt
 		if !opts.Resume {
-			// The extension runner is nil-safe (nil = disabled), so calls are
-			// unconditional no-ops when no extensions are loaded.
-			var handled bool
-			content, handled = engine.executor.ext.EmitUserInput(prompt)
-			if handled {
-				return
-			}
 			if instr := pendingSkillsInstruction(engine.modelCfg.SkillPaths, opts.PendingSkills); instr != "" {
 				if content == "" {
 					content = instr
@@ -105,15 +98,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 					content = instr + "\n\n" + content
 				}
 			}
-			rewritten, extra := engine.executor.ext.EmitBeforeAgentStart(content)
-			content = rewritten
-			if extra != "" {
-				content = content + "\n\n" + extra
-			}
 		}
-
-		engine.executor.ext.EmitAgentStart()
-		defer engine.executor.ext.EmitAgentEnd()
 
 		if !opts.Resume {
 			if err := engine.session.Append(llm.Message{
@@ -152,14 +137,12 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 				continue
 			}
 
-			engine.executor.ext.EmitTurnStart(toolRounds)
-
 			msgs := engine.session.BuildContext()
 
 			msg, completeEvent, err := engine.streamTurn(ctx, yield, msgs)
 			if err != nil {
 				if !overflowRecovered && llm.IsContextOverflow(err) {
-					did, cerr := engine.compactNow(ctx, yield, CompactAuto)
+					did, cerr := engine.compactNow(ctx, yield)
 					if cerr == nil && did {
 						overflowRecovered = true
 						continue
@@ -186,7 +169,6 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			}
 
 			if len(msg.ToolCalls) == 0 {
-				engine.executor.ext.EmitTurnEnd(toolRounds)
 				// Turn finished — compact using this assistant's usage. The
 				// threshold reads context size the same way the composer does.
 				if _, err := engine.compactIfNeeded(ctx, yield, msg.Usage.ContextTokens()); err != nil {
@@ -196,15 +178,11 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			}
 
 			toolRounds++
-			toolMsgs, stop, _ := engine.executor.Run(ctx, msg.ToolCalls, func(td session.ToolData) bool {
+			toolMsgs := engine.executor.Run(ctx, msg.ToolCalls, func(td session.ToolData) bool {
 				return yield(td, nil)
 			})
 			if err := engine.session.Append(toolMsgs...); err != nil {
 				yield(nil, err)
-				return
-			}
-			engine.executor.ext.EmitTurnEnd(toolRounds - 1)
-			if stop {
 				return
 			}
 
@@ -221,12 +199,6 @@ func (engine *Engine) estimateContextTokens() int {
 	return compaction.EstimateContextTokens(engine.session.PathEntries())
 }
 
-// Compaction reasons reported to session_compact extension handlers.
-const (
-	CompactAuto   = "auto"
-	CompactManual = "manual"
-)
-
 // compactIfNeeded compacts only when usage crosses the context-window threshold.
 func (engine *Engine) compactIfNeeded(
 	ctx context.Context,
@@ -241,13 +213,12 @@ func (engine *Engine) compactIfNeeded(
 	if err != nil || prep.FirstKeptEntryId == "" {
 		return false, err
 	}
-	return engine.runCompact(ctx, yield, CompactAuto, prep)
+	return engine.runCompact(ctx, yield, prep)
 }
 
 // Compact compacts the session on demand, bypassing the context-window
 // threshold. It is the manual entry point behind /compact and reuses the
-// automatic path (PrepareCompact → Compact → AppendCompaction), so both
-// produce the same tree node and differ only in the reported reason.
+// automatic path (PrepareCompact → Compact → AppendCompaction).
 //
 // did is false when there is nothing worth summarizing (already compacted, or
 // no history outside the retained tail). Callers must report that state: a
@@ -261,7 +232,7 @@ func (engine *Engine) Compact(
 	}
 	return engine.compactNow(ctx, func(ev session.Event, err error) bool {
 		return err == nil && notify(ev)
-	}, CompactManual)
+	})
 }
 
 // compactNow compacts without consulting the context-window threshold. Overflow
@@ -269,7 +240,6 @@ func (engine *Engine) Compact(
 func (engine *Engine) compactNow(
 	ctx context.Context,
 	yield func(session.Event, error) bool,
-	reason string,
 ) (bool, error) {
 	if engine.client == nil {
 		return false, nil
@@ -283,7 +253,7 @@ func (engine *Engine) compactNow(
 		(len(prep.MessagesToSummarize) == 0 && len(prep.TurnPrefixMessages) == 0) {
 		return false, nil
 	}
-	return engine.runCompact(ctx, yield, reason, prep)
+	return engine.runCompact(ctx, yield, prep)
 }
 
 func (engine *Engine) prepareCompaction(settings compaction.Settings) (*compaction.CompactionPreparation, error) {
@@ -298,12 +268,10 @@ func (engine *Engine) prepareCompaction(settings compaction.Settings) (*compacti
 	return prep, nil
 }
 
-// runCompact persists a prepared compaction entry. reason is event metadata for
-// extensions; all execution decisions have already been made by the caller.
+// runCompact persists a prepared compaction entry.
 func (engine *Engine) runCompact(
 	ctx context.Context,
 	yield func(session.Event, error) bool,
-	reason string,
 	prep *compaction.CompactionPreparation,
 ) (did bool, err error) {
 	id := fmt.Sprintf("compaction-%d", time.Now().UnixNano())
@@ -338,7 +306,6 @@ func (engine *Engine) runCompact(
 	if !yield(complete, nil) {
 		return false, context.Canceled
 	}
-	engine.executor.ext.EmitSessionCompact(reason)
 	return true, nil
 }
 

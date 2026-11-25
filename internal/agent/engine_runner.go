@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/project/model"
@@ -21,14 +20,8 @@ import (
 // Child engines do not receive Jobs, so they have no agent_* tools.
 // Role (explore|worker|review) selects tools when Tools is nil.
 // The job manager supplies a model snapshot for each run.
-//
-// Extensions (or ExtensionsFn) are inherited from the parent so tool_call
-// handlers apply. Extension RegisterTool tools are not merged
-// into child engines. ExtensionsFn wins when set (live reload).
 type EngineRunner struct {
-	Tools        []tooldef.Tool // nil → SpecForRole(job.Role).Tools
-	Extensions   extension.Extensions
-	ExtensionsFn func() extension.Extensions
+	Tools []tooldef.Tool // nil → SpecForRole(job.Role).Tools
 }
 
 // Run implements [job.Runner].
@@ -115,11 +108,6 @@ func (r EngineRunner) newEngine(meta job.Meta, cfg llm.ModelConfig, spec ChildSp
 		toolList = spec.Tools
 	}
 
-	extRunner := r.Extensions
-	if r.ExtensionsFn != nil {
-		extRunner = r.ExtensionsFn()
-	}
-
 	sess, err := NewSession(
 		WithCwd(cwd),
 		WithSessionDir(filepath.Join(meta.Dir, "session")),
@@ -130,9 +118,7 @@ func (r EngineRunner) newEngine(meta job.Meta, cfg llm.ModelConfig, spec ChildSp
 		return nil, err
 	}
 	return (EngineConfig{
-		Tools:              toolList,
-		Extensions:         extRunner,
-		OmitExtensionTools: true,
-		Hooks:              model.HooksForConfig(cfg),
+		Tools: toolList,
+		Hooks: model.HooksForConfig(cfg),
 	}).NewEngine(cfg, sess)
 }

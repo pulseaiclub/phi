@@ -22,7 +22,7 @@ const (
 	modelListBodyLimit   = int64(4 << 20)
 
 	// remoteCommandTimeout bounds CLI commands that wait on external services
-	// (MCP calls/doctor, extension install/update).
+	// (MCP calls/doctor).
 	remoteCommandTimeout = 2 * time.Minute
 )
 

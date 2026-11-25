@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/agent"
-	"github.com/pulseaiclub/phi/internal/extension/loader"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/session"
@@ -86,7 +85,7 @@ func TestAgentToolsFollowSettingsAcrossModelSwitch(t *testing.T) {
 	// The installed engine is built from exactly this config, so its CoreTools
 	// are the base and agent_* tools that engine actually registers.
 	toolNames := func() []string {
-		cfg := ctrl.engineConfig(ctrl.modelSnapshot(), ctrl.Extensions())
+		cfg := ctrl.engineConfig(ctrl.modelSnapshot())
 		list := cfg.CoreTools(ctrl.sess)
 		names := make([]string, 0, len(list))
 		for _, tool := range list {
@@ -111,7 +110,6 @@ func newTestController(t *testing.T, baseURL string) *EngineController {
 	t.Setenv("PHI_MODEL", "primary")
 	t.Setenv("PHI_API_KEY", "test-key")
 	t.Setenv("PHI_BASE_URL", baseURL)
-	t.Setenv(loader.EnvExtensions, "off")
 	require.NoError(t, os.MkdirAll(filepath.Join(home, ".phi"), 0o700))
 	config := fmt.Sprintf(`models:
   - name: primary
@@ -282,7 +280,6 @@ func setupThinkingTest(t *testing.T, api llm.RouterType, baseURL string) string 
 	for _, key := range []string{"PHI_MODEL", "PHI_API_KEY", "PHI_BASE_URL", "PHI_THINK_LEVEL"} {
 		t.Setenv(key, "")
 	}
-	t.Setenv(loader.EnvExtensions, "off")
 	require.NoError(t, os.MkdirAll(filepath.Join(home, ".phi"), 0o700))
 	config := fmt.Sprintf(`models:
   - name: primary

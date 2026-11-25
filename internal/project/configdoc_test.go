@@ -47,7 +47,7 @@ func TestSetDefaultModelFailurePreservesConfig(t *testing.T) {
 		model  string
 		err    string
 	}{
-		{"unknown model", configDocFixture, "extension-only", "add it with phi config"},
+		{"unknown model", configDocFixture, "missing-model", "add it with phi config"},
 		{"missing file", "", "environment-only", "add it with phi config"},
 		{"invalid yaml", "models: [", "model-b", "parse"},
 		{"missing api key", "models:\n  - name: model-b\n", "model-b", "missing api_key"},

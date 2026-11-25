@@ -385,7 +385,7 @@ func (p *Picker) handleKey(ctx *components.EventContext, e xui.KeyEvent) {
 			return
 		}
 		// Enter is the action key here; Tab shifts the highlight, so a stray Tab
-		// can never fire the row under the cursor (e.g. an extension unload).
+		// can never fire the row under the cursor (e.g. after a list refresh).
 		if e.Mods.Has(xui.ModShift) {
 			if p.Selected > 0 {
 				p.Selected--

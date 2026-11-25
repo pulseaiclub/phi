@@ -68,13 +68,11 @@ type Editor struct {
 	spin       *status.Spinner
 	spinTick   int
 	activity   *controller.ActivityHandler
-	extStatus  string
 	updateHint string
 
 	ctrl *controller.EngineController
 
 	commands  *commands.CommandRegistry
-	extCmds   *commands.ExtCommands
 	submitter *submit.Submitter
 }
 
@@ -129,9 +127,9 @@ func NewEditor(
 		e.publishToast,
 	)
 
-	// Assembly order matters once: the registry has no domain deps, the
-	// submitter needs that registry, the domains need the submitter. Every
-	// collaborator lands in a constructor — no late Bind, no setter callbacks.
+	// Assembly order matters once: the registry has no domain deps, and the
+	// submitter needs that registry. Every collaborator lands in a constructor
+	// — no late Bind, no setter callbacks.
 	registry := commands.NewCommandRegistry()
 	cmdCtx := commands.NewContext(e.bus, e.composer.PushPalette)
 	e.submitter = submit.NewSubmitter(
@@ -146,7 +144,6 @@ func NewEditor(
 	)
 	builtins := commands.NewBuiltinRegistry(
 		registry,
-		cmdCtx,
 		e.bus,
 		e.ctrl,
 		e.composer,
@@ -155,10 +152,8 @@ func NewEditor(
 		modelNames,
 		skillPaths,
 		e,
-		e.submitter,
 	)
 	e.commands = builtins.Registry
-	e.extCmds = builtins.Ext
 
 	e.composer.Wire(composer.WireDeps{
 		Transcript:            e.transcript,
@@ -180,7 +175,6 @@ func NewEditor(
 	// clickable; keep it from taking the keyboard while the palette is open.
 	e.App.ModalInput = e.composer.PaletteOpen
 
-	e.extCmds.Sync()
 	return e
 }
 
@@ -194,8 +188,6 @@ func (e *Editor) Update(m controller.Msg) {
 	switch msg := m.(type) {
 	case controller.SubmitMsg:
 		e.submitter.Submit(msg.Text)
-	case controller.ExtPromptMsg:
-		e.ctrl.StartExtensionPrompt(msg)
 	case controller.CancelStreamMsg:
 		e.submitter.Cancel()
 	case controller.MentionResultsMsg:
@@ -237,25 +229,9 @@ func (e *Editor) Update(m controller.Msg) {
 		case "think_level":
 			e.composer.SetModelLabel(e.ctrl.ModelName(), msg.Value)
 		}
-	case controller.ExtSessionEffectsMsg:
-		if msg.StatusSet {
-			e.extStatus = msg.Status
-		}
-		if msg.Toast != "" {
-			e.toast.Show(msg.Toast, toast.ToastSuccess, 3*time.Second)
-		}
 	case controller.BranchLabelMsg:
 		e.composer.SetBranchLabel(msg.Text)
 		e.vx.QueueRefresh()
-	case controller.ExtCommandResultMsg:
-		e.extCmds.Apply(msg)
-	case controller.ExtTopologyChangedMsg:
-		// Extensions changed underneath us (a reload): the agent still holds the old
-		// tool schemas and the palette the commands of the process that died.
-		if err := e.ctrl.SyncExtensionTools(); err != nil {
-			e.toast.Show(err.Error(), toast.ToastError, 4*time.Second)
-		}
-		e.extCmds.Sync()
 	case controller.JobProgressMsg:
 		// Applied in drainBus so we can skip Sync when the tree is unchanged.
 	}
@@ -348,11 +324,6 @@ func (e *Editor) syncStatusSlot() {
 // the transcript (HostUI).
 func (e *Editor) ResetActivity() {
 	e.activity.Apply(controller.ActivityIdle)
-}
-
-// SetExtensionStatus shows an extension-set footer status (HostUI).
-func (e *Editor) SetExtensionStatus(status string) {
-	e.extStatus = status
 }
 
 // StreamActive reports whether input that would collide with the agent or a
@@ -623,10 +594,7 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	} else {
 		chatSurf = e.composer.DrawChat(ctx, maxSize.Width, chatH)
 	}
-	footerSurf := e.footer.Draw(ctx, maxSize.Width, footer.State{
-		ExtensionStatus: e.extStatus,
-		UpdateHint:      e.updateHint,
-	})
+	footerSurf := e.footer.Draw(ctx, maxSize.Width, footer.State{UpdateHint: e.updateHint})
 
 	root.Children = []components.SubSurface{
 		{Origin: components.Point{X: 0, Y: 0}, Surface: listSurf},

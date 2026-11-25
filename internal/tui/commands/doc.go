@@ -4,7 +4,7 @@
 //
 //	r := commands.NewCommandRegistry()
 //	submitter := submit.NewSubmitter(..., r, ...)
-//	builtins := commands.NewBuiltinRegistry(r, ctx, bus, ctrl, composer, ..., ui, submitter)
+//	builtins := commands.NewBuiltinRegistry(r, bus, ctrl, composer, ..., ui)
 //
 // The registry has no domain deps, so it is built first; the submitter needs
 // only that registry; the domains take the rest. Everything arrives through

@@ -30,5 +30,5 @@ In scope examples:
 Out of scope examples:
 
 - Issues that require a malicious model provider already trusted by the user
-- Vulnerabilities only present in third-party MCP servers or extensions you installed
+- Vulnerabilities only present in third-party MCP servers you installed
 - Social engineering of API keys stored in the user’s own config

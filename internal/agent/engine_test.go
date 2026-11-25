@@ -36,7 +36,7 @@ func newLoopEngine(
 	tools ...tooldef.Tool,
 ) *Engine {
 	t.Helper()
-	executor := NewExecutor(tooldef.NewRegistry(tools), sess.Cwd(), nil)
+	executor := NewExecutor(tooldef.NewRegistry(tools), sess.Cwd())
 	engine, err := NewEngine(cfg, sess, client, executor)
 	require.NoError(t, err)
 	return engine
@@ -173,7 +173,6 @@ func TestRunCompactUsesModelOutputLimit(t *testing.T) {
 			did, err := engine.compactNow(
 				t.Context(),
 				func(session.Event, error) bool { return true },
-				CompactAuto,
 			)
 			require.NoError(t, err)
 			require.True(t, did)
@@ -604,7 +603,7 @@ func runCompactWith(
 			failed = c.Failed
 		}
 		return true
-	}, CompactAuto)
+	})
 	return sess, did, failed, complete, err
 }
 
@@ -667,7 +666,7 @@ func TestCompactIgnoresThreshold(t *testing.T) {
 		llm.ModelConfig{Name: "fake", BaseURL: "http://unused.test", ContextWindow: 1_000_000},
 		sess,
 		fakeCompactClient{},
-		NewExecutor(tooldef.NewRegistry(nil), sess.Cwd(), nil),
+		NewExecutor(tooldef.NewRegistry(nil), sess.Cwd()),
 	)
 	require.NoError(t, err)
 
@@ -714,7 +713,7 @@ func TestCompactDropsSummaryAfterCancel(t *testing.T) {
 		llm.ModelConfig{Name: "fake", BaseURL: "http://unused.test", ContextWindow: 1_000_000},
 		sess,
 		fakeCompactClient{},
-		NewExecutor(tooldef.NewRegistry(nil), sess.Cwd(), nil),
+		NewExecutor(tooldef.NewRegistry(nil), sess.Cwd()),
 	)
 	require.NoError(t, err)
 
@@ -751,7 +750,7 @@ func TestCompactReportsNothingToCompact(t *testing.T) {
 		llm.ModelConfig{Name: "fake", BaseURL: "http://unused.test", ContextWindow: 1_000_000},
 		sess,
 		fakeCompactClient{},
-		NewExecutor(tooldef.NewRegistry(nil), sess.Cwd(), nil),
+		NewExecutor(tooldef.NewRegistry(nil), sess.Cwd()),
 	)
 	require.NoError(t, err)
 	var compacted bool
@@ -776,7 +775,7 @@ func TestCompactEmptySessionDoesNotPanic(t *testing.T) {
 		llm.ModelConfig{Name: "fake", BaseURL: "http://unused.test", ContextWindow: 1_000_000},
 		sess,
 		fakeCompactClient{},
-		NewExecutor(tooldef.NewRegistry(nil), sess.Cwd(), nil),
+		NewExecutor(tooldef.NewRegistry(nil), sess.Cwd()),
 	)
 	require.NoError(t, err)
 	engine.client = fakeCompactClient{compact: func(context.Context) error { return nil }}
@@ -947,7 +946,7 @@ func TestLoopStopsDuringCompaction(t *testing.T) {
 				return errors.New("summary failed")
 			}}
 			engine, err := NewEngine(llm.ModelConfig{Name: "stub", ContextWindow: 40_000}, sess, client,
-				NewExecutor(tooldef.NewRegistry(nil), sess.Cwd(), nil))
+				NewExecutor(tooldef.NewRegistry(nil), sess.Cwd()))
 			require.NoError(t, err)
 			var events int
 			for event, err := range engine.Loop(t.Context(), "go", LoopOpts{}) {
@@ -993,7 +992,7 @@ func TestLoopStopsToolBatchWithoutRunningTools(t *testing.T) {
 				}}),
 			}}
 			engine, err := NewEngine(llm.ModelConfig{Name: "stub"}, sess, client,
-				NewExecutor(tooldef.NewRegistry([]tooldef.Tool{tool}), sess.Cwd(), nil))
+				NewExecutor(tooldef.NewRegistry([]tooldef.Tool{tool}), sess.Cwd()))
 			require.NoError(t, err)
 			var toolEvents int
 			for event, err := range engine.Loop(t.Context(), "go", LoopOpts{}) {

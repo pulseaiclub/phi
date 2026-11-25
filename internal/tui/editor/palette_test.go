@@ -14,7 +14,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/components/chrome"
 	"github.com/pulseaiclub/phi/internal/components/palette"
-	"github.com/pulseaiclub/phi/internal/extension/loader"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/session"
@@ -29,7 +28,6 @@ func TestPaletteReopenReflectsThinkingSelectionAndModelSwitch(t *testing.T) {
 	for _, key := range []string{"PHI_MODEL", "PHI_API_KEY", "PHI_BASE_URL", "PHI_THINK_LEVEL"} {
 		t.Setenv(key, "")
 	}
-	t.Setenv(loader.EnvExtensions, "off")
 	require.NoError(t, os.MkdirAll(filepath.Join(home, ".phi"), 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(home, ".phi", "config.yaml"), []byte(`models:
   - name: primary
@@ -170,7 +168,6 @@ func TestModelPaletteSavesDefaultAndRestoresSession(t *testing.T) {
 	for _, key := range []string{"PHI_MODEL", "PHI_API_KEY", "PHI_BASE_URL", "PHI_THINK_LEVEL"} {
 		t.Setenv(key, "")
 	}
-	t.Setenv(loader.EnvExtensions, "off")
 	configDir := filepath.Join(home, ".phi")
 	require.NoError(t, os.MkdirAll(configDir, 0o700))
 	configPath := filepath.Join(configDir, "config.yaml")

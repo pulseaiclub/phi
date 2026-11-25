@@ -3,13 +3,13 @@
 ## Purpose
 
 Phi is a tool-building community for people who work with terminal agents, Go,
-extensions, and related developer tools. We want discussions and contributions
-around the project to be useful, direct, and safe for everyone taking part.
+and related developer tools. We want discussions and contributions around the
+project to be useful, direct, and safe for everyone taking part.
 
 This policy explains the conduct we expect from participants and the actions
 maintainers may take when that standard is not met. It applies to contributors,
-maintainers, users, extension authors, sponsors, and anyone participating in a
-space connected with phi.
+maintainers, users, sponsors, and anyone participating in a space connected with
+phi.
 
 ## What good participation looks like
 
@@ -49,7 +49,7 @@ The following behavior is not welcome in project spaces:
   gave feedback, or declined an interaction.
 - Misleading claims made to damage a person, project, or contributor's
   reputation.
-- Submitting malicious code, unsafe extension behavior, or instructions intended
+- Submitting malicious code, unsafe tool behavior, or instructions intended
   to compromise another person's system or data.
 - Ignoring a maintainer's reasonable request to stop behavior covered by this
   policy.
@@ -61,7 +61,7 @@ reason when doing so will help the discussion.
 ## Where this applies
 
 This policy applies to the GitHub repository, issues, pull requests, reviews,
-discussions, documentation, release and extension work, and the official phi
+discussions, documentation, release work, and the official phi
 Discord server. It also applies in other settings when someone is acting as a
 representative of the project, such as using a project role at an event or in a
 public announcement.

@@ -10,12 +10,3 @@ phi-debug.log
 # local lint report, not committed
 lint-report.md
 .phi/
-
-# Rust extension SDK build output
-ext/rust/target/
-ext/rust/Cargo.lock
-
-# TypeScript extension SDK build output
-ext/ts/node_modules/
-ext/ts/dist/
-ext/ts/package-lock.json
