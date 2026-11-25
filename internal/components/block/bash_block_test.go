@@ -11,6 +11,70 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/status"
 )
 
+func TestBashBlockRendersOutput(t *testing.T) {
+	var lines []string
+	for range 20 {
+		lines = append(lines, "file.go")
+	}
+	b := &BashBlock{
+		Command:  "ls",
+		Output:   strings.Join(lines, "\n"),
+		Status:   status.ToolDone,
+		Expanded: true,
+		Theme:    components.DefaultTheme(),
+	}
+	s := b.Draw(components.DrawContext{Max: components.Size{Width: 60, Height: 40}})
+	joined := components.SurfaceText(s)
+	require.Contains(t, joined, "$")
+	require.Contains(t, joined, "ls")
+	require.NotContains(t, joined, "Show more")
+	require.NotContains(t, joined, "lines truncated")
+	require.Contains(t, joined, "file.go")
+}
+
+func TestCommandChainLayoutAndResize(t *testing.T) {
+	command := "go fmt ./... && go test ./... && go build ./cmd"
+	bash := &BashBlock{Command: command, Status: status.ToolDone}
+	agent := &AgentBlock{
+		Name: "agent_spawn", Expanded: true,
+		Children: []ChildTool{{Name: "bash", Detail: command, Status: status.ToolDone}},
+	}
+	for _, tc := range []struct {
+		widget components.Widget
+		prefix string
+		indent string
+		skip   int
+	}{
+		{bash, "$ ", "  ", 0},
+		{agent, "╰── ✓ bash ", "           ", 1},
+	} {
+		for _, width := range []int{40, 100, 40} {
+			s := tc.widget.Draw(components.DrawContext{Max: components.Size{Width: width}, Method: xui.WidthUnicode})
+			lines := strings.Split(strings.TrimSuffix(components.SurfaceText(s), "\n"), "\n")[tc.skip:]
+			for i := range lines {
+				lines[i] = strings.TrimRight(lines[i], " ")
+			}
+			want := []string{tc.prefix + command}
+			if width == 40 && tc.widget == bash {
+				want = []string{
+					tc.prefix + "go fmt ./... && go test ./... && go bu",
+					tc.indent + "ild ./cmd",
+				}
+			} else if width == 40 {
+				want = []string{
+					tc.prefix + "go fmt ./... && go test ./...",
+					"            && go build ./cmd",
+				}
+			}
+			require.Equal(t, want, lines)
+		}
+	}
+	require.Equal(t, command, bash.Command)
+	require.Equal(t, "$ "+command, bash.CopyText())
+	require.Equal(t, command, agent.Children[0].Detail)
+	require.Contains(t, agent.CopyText(), command)
+}
+
 func TestBashCommandContinuation(t *testing.T) {
 	b := &BashBlock{Command: "printf 'abcdefghij'\n  echo done", Status: status.ToolDone}
 	s := b.Draw(components.DrawContext{Max: components.Size{Width: 14}, Method: xui.WidthUnicode})

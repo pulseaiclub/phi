@@ -177,3 +177,142 @@ func TestAssistantBlockDraw(t *testing.T) {
 		})
 	}
 }
+
+const blockCacheMarkdown = "## Rendering 缓存\n\nA **bold** response with `inline code`, 中文换行 and 👩‍💻.\n\n" +
+	"```go\npackage main\n\nfunc main() {\n\tprintln(\"你好，世界\")\n}\n```\n"
+
+func assertBlockCacheSurface(
+	t *testing.T,
+	widget components.Widget,
+	ctx components.DrawContext,
+	want components.Surface,
+) {
+	t.Helper()
+	got := widget.Draw(ctx)
+	assert.Equal(t, want.Size, got.Size)
+	assert.Equal(t, want.Buffer, got.Buffer)
+	assert.Same(t, widget, got.Widget)
+	require.NotEmpty(t, got.Buffer)
+	for i := range got.Buffer {
+		got.Buffer[i].Char = "!"
+		got.Buffer[i].Style = components.DefaultTheme().Destructive
+	}
+	again := widget.Draw(ctx)
+	assert.Equal(t, want.Buffer, again.Buffer, "surface mutations must not alter cached rendering")
+	assert.NotSame(t, &got.Buffer[0], &again.Buffer[0])
+}
+
+func TestAssistantBlockCacheTransitions(t *testing.T) {
+	a := &AssistantBlock{Text: blockCacheMarkdown, State: session.StateComplete}
+	ctx := components.DrawContext{Max: components.Size{Width: 48}, Method: xui.WidthUnicode}
+	a.Draw(ctx)
+	steps := []struct {
+		name   string
+		change func()
+	}{
+		{"warm", func() {}},
+		{"stream text", func() { a.Text += "\nMore 中文 text." }},
+		{"error", func() { a.State = session.StateError }},
+		{"cancelled", func() { a.State = session.StateCancelled }},
+		{"complete", func() { a.State = session.StateComplete }},
+		{"theme", func() { a.Theme = components.DefaultTheme(); a.Theme.Foreground = a.Theme.Destructive }},
+		{"default theme", func() { a.Theme = components.Theme{} }},
+		{"narrow", func() { ctx.Max.Width = 13 }},
+		{"method", func() { ctx.Method = xui.WidthMethod(1) }},
+		{"fallback width", func() { ctx.Max.Width = 0 }},
+		{"empty error", func() { a.Text = ""; a.State = session.StateError }},
+		{"empty cancelled", func() { a.State = session.StateCancelled }},
+		{"restore", func() { a.Text = blockCacheMarkdown }},
+	}
+	for _, step := range steps {
+		t.Run(step.name, func(t *testing.T) {
+			step.change()
+			fresh := &AssistantBlock{Text: a.Text, State: a.State, Theme: a.Theme}
+			assertBlockCacheSurface(t, a, ctx, fresh.Draw(ctx))
+		})
+	}
+}
+
+func BenchmarkAssistantBlockCache(b *testing.B) {
+	for _, mode := range []string{"cold", "warm", "resize", "streaming"} {
+		b.Run(mode, func(b *testing.B) {
+			a := &AssistantBlock{Text: strings.Repeat(blockCacheMarkdown, 4), State: session.StateComplete}
+			ctx := components.DrawContext{Max: components.Size{Width: 80}, Method: xui.WidthUnicode}
+			base := a.Text
+			a.Draw(ctx)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				switch mode {
+				case "cold":
+					a.cache.Clear()
+				case "resize":
+					ctx.Max.Width = 60 + i%2*20
+				case "streaming":
+					a.Text = base + strings.Repeat("新", i%64+1)
+				}
+				a.Draw(ctx)
+			}
+		})
+	}
+}
+
+const cjkHowTo = `【怎么做】
+1. 翻出几篇你满意的笔记，找出共同点：标题怎么起、开头几句话说什么、分几段、写多少字
+2. 把规律一条条写清楚。越具体越好：别写"写得好一点"，要写"每段1-2行，全篇不超过800字"
+3. 把每次会变的部分用{{占位符}}代替，比如{{主题}}
+4. 让AI照着写一篇试试，哪里不对就改说明书，改到满意为止`
+
+func TestCJKSampleNoBlankGapsAfterClearRender(t *testing.T) {
+	th := components.DefaultTheme()
+	a := &AssistantBlock{Text: cjkHowTo, Theme: th}
+	const w = 80
+	s := a.Draw(components.DrawContext{Max: components.Size{Width: w, Height: 20}, Method: xui.WidthUnicode})
+
+	screen := xui.NewScreen(w, s.Size.Height+2)
+	win := xui.NewWindow(screen)
+	win.Clear()
+	s.Render(win)
+
+	txt := components.SurfaceText(s)
+	for _, want := range []string{"翻出几篇你满意的", "把每次", "笔记"} {
+		require.Contains(t, txt, want, "surface missing %q", want)
+	}
+
+	var b strings.Builder
+	_, h := screen.Size()
+	for y := range h {
+		for x := 0; x < w; {
+			c := screen.GetCell(x, y)
+			step := int(c.Width)
+			step = max(step, 1)
+			if !c.Trail && c.Char != "" && c.Char != " " {
+				b.WriteString(c.Char)
+			}
+			x += step
+		}
+		b.WriteByte('\n')
+	}
+	got := b.String()
+	for _, want := range []string{"翻出几篇你满意的", "把每次"} {
+		require.Contains(t, got, want, "screen missing %q\n%s", want, got)
+	}
+
+	screen.MarkRefresh()
+	for _, d := range screen.Diff() {
+		require.False(t, d.Cell.Trail, "Diff emitted Trail at (%d,%d)", d.X, d.Y)
+	}
+}
+
+func TestUserAndAssistant(t *testing.T) {
+	u := &UserBlock{Text: "hello", Theme: components.DefaultTheme()}
+	us := u.Draw(components.DrawContext{Max: components.Size{Width: 40, Height: 5}})
+	usText := components.SurfaceText(us)
+	require.True(t, strings.Contains(usText, "$ hello") || strings.Contains(usText, "hello"),
+		"user: %q", usText)
+	a := &AssistantBlock{Text: "see `xui` and examples/", Theme: components.DefaultTheme()}
+	as := a.Draw(components.DrawContext{Max: components.Size{Width: 60, Height: 5}})
+	txt := components.SurfaceText(as)
+	require.Contains(t, txt, "xui")
+	require.Contains(t, txt, "examples")
+}
