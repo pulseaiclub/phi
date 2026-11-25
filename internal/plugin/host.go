@@ -28,10 +28,10 @@ type Host struct {
 func Open(currentVersion string, output io.Writer, roots ...string) (*Host, []error) {
 	plugins, diagnostics := discover(currentVersion, roots...)
 	h := &Host{}
-	owners := make(map[string]string)
+	l := loader{output: output, ledger: lib.NewOwnerLedger()}
 
 	for _, p := range plugins {
-		i, err := load(p, output, lib.NewRegisterProvider(p.name, owners))
+		i, err := l.load(p)
 		if err != nil {
 			diagnostics = append(diagnostics, err)
 			continue
@@ -41,8 +41,17 @@ func Open(currentVersion string, output io.Writer, roots ...string) (*Host, []er
 	return h, diagnostics
 }
 
-func load(p descriptor, output io.Writer, register *lib.RegisterProvider) (instance, error) {
-	env := newEnv(output, register)
+// loader carries the host-side services every plugin environment is built
+// from, so a new runtime capability becomes a field here instead of another
+// parameter threaded through Open and load.
+type loader struct {
+	output io.Writer
+	ledger *lib.OwnerLedger
+}
+
+func (l loader) load(p descriptor) (instance, error) {
+	register := lib.NewRegisterProvider(p.name, l.ledger)
+	env := l.newEnv(register)
 	if _, err := lug.DoFile(env, p.entry); err != nil {
 		return instance{}, fmt.Errorf("plugin %q: load %s: %w", p.name, p.entry, err)
 	}
@@ -56,10 +65,10 @@ func load(p descriptor, output io.Writer, register *lib.RegisterProvider) (insta
 	return i, nil
 }
 
-func newEnv(output io.Writer, register lib.ProviderRegistry) *lug.Env {
+func (l loader) newEnv(register lib.ProviderRegistry) *lug.Env {
 	env := lug.New()
 	reg := lib.NewRegistry()
-	reg.Add(lib.NewBuiltinBinding(output))
+	reg.Add(lib.NewBuiltinBinding(l.output))
 	reg.Add(lib.NewProviderBinding(register))
 	reg.BindAll(env)
 	return env

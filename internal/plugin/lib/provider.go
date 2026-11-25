@@ -163,14 +163,40 @@ func ParseProvider(v lug.Value) (Provider, error) {
 	return p, nil
 }
 
+// OwnerLedger tracks which plugin claimed each provider ID so a later plugin
+// cannot shadow an earlier one. All reads and writes go through its methods;
+// the map never leaves the type. The zero value is an empty ledger.
+type OwnerLedger struct {
+	byID map[string]string
+}
+
+func NewOwnerLedger() *OwnerLedger {
+	return &OwnerLedger{byID: make(map[string]string)}
+}
+
+// owner reports the plugin that claimed id.
+func (o *OwnerLedger) owner(id string) (string, bool) {
+	source, ok := o.byID[id]
+	return source, ok
+}
+
+// record makes plugin the sole owner of id. Register rejects collisions up
+// front, so recording at commit time cannot fail.
+func (o *OwnerLedger) record(id, plugin string) {
+	if o.byID == nil {
+		o.byID = make(map[string]string)
+	}
+	o.byID[id] = plugin
+}
+
 // RegisterProvider stages a single plugin's declarations until startup succeeds.
 type RegisterProvider struct {
 	name    string
-	owners  map[string]string
+	owners  *OwnerLedger
 	pending []Provider
 }
 
-func NewRegisterProvider(name string, owners map[string]string) *RegisterProvider {
+func NewRegisterProvider(name string, owners *OwnerLedger) *RegisterProvider {
 	return &RegisterProvider{name: name, owners: owners}
 }
 
@@ -178,7 +204,7 @@ func (r *RegisterProvider) Register(provider Provider) error {
 	if r.owners == nil {
 		return errors.New("providers can be registered only during plugin startup")
 	}
-	if source, exists := r.owners[provider.ID]; exists {
+	if source, exists := r.owners.owner(provider.ID); exists {
 		return fmt.Errorf("provider %q already registered by plugin %q", provider.ID, source)
 	}
 	for _, previous := range r.pending {
@@ -195,7 +221,7 @@ func (r *RegisterProvider) Register(provider Provider) error {
 func (r *RegisterProvider) Commit() []Provider {
 	providers := r.pending
 	for _, provider := range providers {
-		r.owners[provider.ID] = r.name
+		r.owners.record(provider.ID, r.name)
 	}
 	r.owners, r.pending = nil, nil
 	return providers
