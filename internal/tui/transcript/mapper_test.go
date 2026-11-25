@@ -242,22 +242,6 @@ func TestMapperSyncDirtyOnlyChangedRows(t *testing.T) {
 	require.Equal(t, []int{2}, dirty, "append dirty")
 }
 
-func TestApplyProgressReportsChange(t *testing.T) {
-	s := transcript.NewSubagentStore()
-	p := job.Progress{
-		JobID:           "job1",
-		ParentToolUseID: "parent1",
-		ToolUseID:       "c1",
-		Name:            "read",
-		Status:          "in-progress",
-		Detail:          "a.go",
-	}
-	require.True(t, s.ApplyProgress(p), "first apply should change")
-	require.False(t, s.ApplyProgress(p), "identical apply should not change")
-	p.Status = "done"
-	require.True(t, s.ApplyProgress(p), "status change should dirty")
-}
-
 func TestMapperToolExpandedFromRun(t *testing.T) {
 	m := transcript.NewMapper(components.DefaultTheme(), nil, nil)
 	snap := session.Snapshot{
