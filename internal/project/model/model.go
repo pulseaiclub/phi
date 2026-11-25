@@ -118,8 +118,8 @@ var (
 	thinkMax  = llm.ThinkConfig{Enabled: true, Mode: llm.Max}
 )
 
-// withSyncedSpec fills empty ContextWindow, MaxTokens, and ImageEnabled from
-// generated models.dev specs while honoring explicit per-preset overrides.
+// withSyncedSpec fills zero ContextWindow and MaxTokens from generated
+// models.dev specs (preserving non-zero overrides) and sets ImageEnabled.
 func withSyncedSpec(cfg llm.ModelConfig) llm.ModelConfig {
 	spec, ok := syncedSpecs[cfg.Name]
 	if !ok {
@@ -172,11 +172,11 @@ func glmPreset(name, alias string) Preset {
 	}
 }
 
-// presets is the built-in catalog, keyed by model name. ContextWindow,
-// MaxTokens, and ImageEnabled are synced from models.dev into specs_gen.go via
-// `make sync-models` (mapped in sources.json) unless explicitly overridden on
-// the entry below. Connection defaults, thinking hooks, and alias rules remain
-// hand-maintained.
+// presets is the built-in catalog, keyed by model name. Entries mapped in
+// sources.json pull ContextWindow, MaxTokens, and ImageEnabled from
+// specs_gen.go (`make sync-models`); non-zero ContextWindow/MaxTokens fields
+// below act as explicit overrides. Connection defaults, thinking hooks, and
+// alias rules remain hand-maintained.
 var presets = []Preset{
 	// Source: https://platform.openai.com/docs/models
 	openAIPreset("gpt-6-astra", thinkMax),
@@ -253,14 +253,16 @@ var presets = []Preset{
 		Alias:      `(?:auto-)?kimi-k3`,
 		thinkModes: []llm.ThinkMode{llm.Low, llm.High, llm.Max},
 	},
+	// Coding-plan 10M tier; models.dev only lists the 256 KiB standard tier with
+	// limit.output equal to context, so keep this entry hand-maintained.
 	{
-		Config: withSyncedSpec(llm.ModelConfig{
-			Name:    "kimi-k2.7-code",
-			BaseURL: "https://api.moonshot.cn/v1",
-			// Coding-plan tier keeps the 10M window vs models.dev's 256 KiB standard tier.
+		Config: llm.ModelConfig{
+			Name:          "kimi-k2.7-code",
+			BaseURL:       "https://api.moonshot.cn/v1",
 			ContextWindow: 10_000_000,
+			ImageEnabled:  true,
 			API:           llm.OpenAI,
-		}),
+		},
 	},
 
 	// GLM on the z.ai coding plan. Both presets are forced-thinking; endpoint

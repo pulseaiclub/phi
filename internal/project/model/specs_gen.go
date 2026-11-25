@@ -22,6 +22,5 @@ var syncedSpecs = map[string]modelSpec{
 	"gpt-5.6-sol":      {ContextWindow: 1_050_000, MaxTokens: 128_000, ImageEnabled: true},
 	"gpt-5.6-terra":    {ContextWindow: 1_050_000, MaxTokens: 128_000, ImageEnabled: true},
 	"gpt-6-astra":      {ContextWindow: 1_050_000, MaxTokens: 128_000, ImageEnabled: true},
-	"kimi-k2.7-code":   {ContextWindow: 262_144, MaxTokens: 262_144, ImageEnabled: true},
 	"kimi-k3":          {ContextWindow: 1_048_576, MaxTokens: 1_048_576, ImageEnabled: true},
 }

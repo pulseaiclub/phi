@@ -181,6 +181,11 @@ func TestSummaryMaxTokens(t *testing.T) {
 		want   int
 	}{
 		{name: "no limit and no window uses the default", want: defaultSummaryMaxTokens},
+		{
+			name:   "large window with unset output limit keeps the default",
+			limits: OutputLimits{ContextWindow: 10_000_000},
+			want:   defaultSummaryMaxTokens,
+		},
 		{name: "model limit is used as is", limits: OutputLimits{MaxTokens: 128_000}, want: 128_000},
 		{
 			name:   "large window leaves the model limit",

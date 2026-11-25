@@ -246,14 +246,21 @@ func TestSyncedSpecsMatchSources(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &sources))
 	require.Len(t, syncedSpecs, len(sources))
 
-	presetNames := make(map[string]struct{}, len(presets))
+	byName := make(map[string]Preset, len(presets))
 	for _, p := range presets {
-		presetNames[p.Config.Name] = struct{}{}
+		byName[p.Config.Name] = p
 		assert.Positive(t, p.Config.ContextWindow, p.Config.Name)
 	}
 	for name := range sources {
-		assert.Contains(t, presetNames, name)
-		assert.Contains(t, syncedSpecs, name)
+		p, ok := byName[name]
+		require.True(t, ok, "source %q must match a built-in preset", name)
+		spec, ok := syncedSpecs[name]
+		require.True(t, ok, "source %q must exist in syncedSpecs", name)
+		assert.Equal(t, spec.ContextWindow, p.Config.ContextWindow, name)
+		assert.Equal(t, spec.ImageEnabled, p.Config.ImageEnabled, name)
+		if name != "kimi-k3" {
+			assert.Equal(t, spec.MaxTokens, p.Config.MaxTokens, name)
+		}
 	}
 }
 
@@ -264,9 +271,16 @@ func TestSyncedSpecPreservesExplicitOverrides(t *testing.T) {
 	assert.Equal(t, 131_072, k3.Config.MaxTokens)
 	assert.True(t, k3.Config.ImageEnabled)
 
+	custom := withSyncedSpec(llm.ModelConfig{Name: "kimi-k3", ContextWindow: 500_000})
+	assert.Equal(t, 500_000, custom.ContextWindow)
+	assert.Equal(t, 1_048_576, custom.MaxTokens)
+
+	// Coding-plan 10M tier stays hand-maintained so it does not inherit the
+	// standard tier's 262K output limit for compaction summaries.
+	assert.NotContains(t, syncedSpecs, "kimi-k2.7-code")
 	k27, ok := Lookup("kimi-k2.7-code")
 	require.True(t, ok)
 	assert.Equal(t, 10_000_000, k27.Config.ContextWindow)
-	assert.Equal(t, 262_144, k27.Config.MaxTokens)
+	assert.Zero(t, k27.Config.MaxTokens)
 	assert.True(t, k27.Config.ImageEnabled)
 }

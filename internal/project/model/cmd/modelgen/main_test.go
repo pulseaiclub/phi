@@ -126,10 +126,15 @@ func TestRunErrors(t *testing.T) {
 			sourcesPath := filepath.Join(dir, "sources.json")
 			require.NoError(t, os.WriteFile(sourcesPath, []byte(tt.sources), 0o644))
 			outPath := filepath.Join(dir, "specs_gen.go")
+			const existing = "// existing\n"
+			require.NoError(t, os.WriteFile(outPath, []byte(existing), 0o644))
 
 			var errBuf bytes.Buffer
 			err := run(t.Context(), sourcesPath, srv.URL, outPath, &errBuf)
 			require.ErrorContains(t, err, tt.wantErr)
+			got, readErr := os.ReadFile(outPath)
+			require.NoError(t, readErr)
+			assert.Equal(t, existing, string(got))
 		})
 	}
 }
