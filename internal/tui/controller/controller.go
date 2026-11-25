@@ -659,10 +659,10 @@ func (c *EngineController) ModelName() string {
 	return c.modelSnapshot().Name
 }
 
-// ContextWindow returns the active model's context window in tokens, so the
-// UI can re-render context pressure after a model switch.
+// ContextWindow returns the active model's effective compaction window in
+// tokens, so the UI context-pressure indicator matches the compaction threshold.
 func (c *EngineController) ContextWindow() int {
-	return c.modelSnapshot().ContextWindow
+	return c.modelSnapshot().CompactionWindow()
 }
 
 func (c *EngineController) modelSnapshot() llm.ModelConfig {

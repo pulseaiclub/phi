@@ -418,6 +418,16 @@ models:
     api_key: sk-pro
     context_window: 50000
     max_tokens: 64000
+  - name: gpt-5.5
+    api_key: sk-gpt
+  - name: gpt-5.5-same-window
+    preset: gpt-5.5
+    api_key: sk-gpt
+    context_window: 1050000
+  - name: gpt-5.5-custom-window
+    preset: gpt-5.5
+    api_key: sk-gpt
+    context_window: 2000000
   - name: custom-model
     api_key: sk-custom
     base_url: https://custom.example/v1
@@ -442,6 +452,27 @@ models:
 	assert.Equal(t, 50_000, pro.ContextWindow, "explicit context_window overrides preset")
 	assert.Equal(t, 64_000, pro.MaxTokens, "explicit max_tokens overrides preset")
 	assert.False(t, pro.ImageEnabled, "v4-pro has no image understanding")
+
+	// gpt-5.5 inherits both total context window and tighter input limit;
+	// restating the preset window preserves InputLimit, while a different
+	// context_window override clears it.
+	gpt, ok := cfg.FindModel("gpt-5.5")
+	require.True(t, ok)
+	assert.Equal(t, 1_050_000, gpt.ContextWindow)
+	assert.Equal(t, 922_000, gpt.InputLimit)
+	assert.Equal(t, 922_000, gpt.CompactionWindow())
+
+	gptSame, ok := cfg.FindModel("gpt-5.5-same-window")
+	require.True(t, ok)
+	assert.Equal(t, 1_050_000, gptSame.ContextWindow)
+	assert.Equal(t, 922_000, gptSame.InputLimit, "restating the preset context_window keeps InputLimit")
+	assert.Equal(t, 922_000, gptSame.CompactionWindow())
+
+	gptCustom, ok := cfg.FindModel("gpt-5.5-custom-window")
+	require.True(t, ok)
+	assert.Equal(t, 2_000_000, gptCustom.ContextWindow)
+	assert.Zero(t, gptCustom.InputLimit, "different context_window clears preset input limit")
+	assert.Equal(t, 2_000_000, gptCustom.CompactionWindow())
 
 	// Unknown names keep the generic OpenAI fallback and no preset.
 	custom, ok := cfg.FindModel("custom-model")

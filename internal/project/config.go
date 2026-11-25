@@ -219,6 +219,9 @@ func ResolveModelDoc(m ModelDoc) (llm.ModelConfig, error) {
 		if pc.ContextWindow > 0 {
 			cfg.ContextWindow = pc.ContextWindow
 		}
+		if pc.InputLimit > 0 {
+			cfg.InputLimit = pc.InputLimit
+		}
 		if pc.MaxTokens > 0 {
 			cfg.MaxTokens = pc.MaxTokens
 		}
@@ -230,6 +233,12 @@ func ResolveModelDoc(m ModelDoc) (llm.ModelConfig, error) {
 	}
 	if m.ContextWindow != nil && *m.ContextWindow > 0 {
 		cfg.ContextWindow = *m.ContextWindow
+		// Only drop the preset's InputLimit when the user actually changes the
+		// window size; restating the preset value (or reporting it from an
+		// extension registration) keeps the preset input cap intact.
+		if !ok || *m.ContextWindow != preset.Config.ContextWindow {
+			cfg.InputLimit = 0
+		}
 	}
 	if m.MaxTokens != nil && *m.MaxTokens > 0 {
 		cfg.MaxTokens = *m.MaxTokens

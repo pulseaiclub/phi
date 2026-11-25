@@ -927,6 +927,87 @@ func TestLoopCompactsMidTurnBeforeNextRequest(t *testing.T) {
 	require.Contains(t, second, strings.Repeat("d", 32))
 }
 
+// When a model declares an InputLimit tighter than ContextWindow (e.g. OpenAI
+// GPT's 922K input cap on a 1.05M total window), proactive compaction triggers
+// against InputLimit while summary generation still budgets output against the
+// full ContextWindow.
+func TestLoopCompactsAtInputLimitKeepingTotalContextWindow(t *testing.T) {
+	tests := []struct {
+		name        string
+		usage       int
+		wantCompact bool
+	}{
+		{name: "below input limit threshold skips compaction", usage: 30_000, wantCompact: false},
+		{name: "above input limit threshold compacts proactively", usage: 40_000, wantCompact: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var compactHits, streamHits atomic.Int32
+			var compactMaxTokens float64
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body map[string]any
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				if stream, _ := body["stream"].(bool); stream {
+					streamHits.Add(1)
+					w.Header().Set("Content-Type", "text/event-stream")
+					_, _ = fmt.Fprint(w, sseTextChunk("done"))
+					_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+					return
+				}
+				compactHits.Add(1)
+				compactMaxTokens, _ = body["max_tokens"].(float64)
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"choices": []any{map[string]any{
+						"message":       map[string]any{"role": "assistant", "content": "summarized"},
+						"finish_reason": "stop",
+					}},
+				})
+			}))
+			defer server.Close()
+
+			sess, err := NewSession(WithCwd(t.TempDir()))
+			require.NoError(t, err)
+			require.NoError(t, sess.Append(
+				llm.Message{Role: llm.RoleUser, Content: compactionSeed},
+				llm.Message{Role: llm.RoleAssistant, Content: compactionSeed},
+				llm.Message{Role: llm.RoleUser, Content: compactionSeed},
+				llm.Message{Role: llm.RoleAssistant, Content: compactionSeed, Usage: llm.Usage{TotalTokens: tt.usage}},
+			))
+
+			// InputLimit 50k => threshold 33,616; ContextWindow 1.05M => 128k output cap unclamped.
+			cfg := llm.ModelConfig{
+				Name:          "fake",
+				BaseURL:       server.URL,
+				APIKey:        "x",
+				ContextWindow: 1_050_000,
+				InputLimit:    50_000,
+				MaxTokens:     128_000,
+			}
+			engine := newHTTPLoopEngine(t, cfg, sess)
+
+			var sawCompact bool
+			for ev, err := range engine.Loop(t.Context(), "continue", LoopOpts{}) {
+				require.NoError(t, err)
+				if _, ok := ev.(session.CompactionStarted); ok {
+					sawCompact = true
+				}
+			}
+
+			assert.Equal(t, tt.wantCompact, sawCompact)
+			assert.Equal(t, int32(1), streamHits.Load())
+			if tt.wantCompact {
+				assert.Equal(t, int32(1), compactHits.Load())
+				assert.InDelta(t, 128_000, compactMaxTokens, 0.5,
+					"summary output budget must still use total ContextWindow, not InputLimit")
+			} else {
+				assert.Zero(t, compactHits.Load())
+			}
+		})
+	}
+}
+
 func TestLoopStopsDuringCompaction(t *testing.T) {
 	for _, stopAtStart := range []bool{true, false} {
 		name := "failed completion"

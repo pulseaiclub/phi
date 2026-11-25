@@ -227,14 +227,14 @@ const (
 	CompactManual = "manual"
 )
 
-// compactIfNeeded compacts only when usage crosses the context-window threshold.
+// compactIfNeeded compacts only when usage crosses the model's compaction window.
 func (engine *Engine) compactIfNeeded(
 	ctx context.Context,
 	yield func(session.Event, error) bool,
 	usage int,
 ) (bool, error) {
 	settings := compaction.DefaultSettings()
-	if engine.client == nil || !compaction.ShouldCompact(usage, engine.modelCfg.ContextWindow, settings) {
+	if engine.client == nil || !compaction.ShouldCompact(usage, engine.modelCfg.CompactionWindow(), settings) {
 		return false, nil
 	}
 	prep, err := engine.prepareCompaction(settings)
