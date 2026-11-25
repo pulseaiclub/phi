@@ -73,8 +73,8 @@ models:
 When the **Input** column is set (for example, OpenAI's 922K input cap on
 1.05M-context GPT presets), proactive compaction and the footer context-pressure
 indicator use that input limit while summary output budgeting keeps the full
-context window. Setting an explicit `context_window` override in `config.yaml`
-clears the preset input limit.
+context window. Setting a different `context_window` in `config.yaml` clears the
+preset input limit.
 
 Minimal config for a preset (api key only):
 
