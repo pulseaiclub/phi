@@ -219,6 +219,9 @@ func ResolveModelDoc(m ModelDoc) (llm.ModelConfig, error) {
 		if pc.ContextWindow > 0 {
 			cfg.ContextWindow = pc.ContextWindow
 		}
+		if pc.InputLimit > 0 {
+			cfg.InputLimit = pc.InputLimit
+		}
 		if pc.MaxTokens > 0 {
 			cfg.MaxTokens = pc.MaxTokens
 		}
@@ -230,6 +233,9 @@ func ResolveModelDoc(m ModelDoc) (llm.ModelConfig, error) {
 	}
 	if m.ContextWindow != nil && *m.ContextWindow > 0 {
 		cfg.ContextWindow = *m.ContextWindow
+		// A custom context_window replaces the preset's window geometry, so drop
+		// any preset InputLimit rather than applying it to the overridden window.
+		cfg.InputLimit = 0
 	}
 	if m.MaxTokens != nil && *m.MaxTokens > 0 {
 		cfg.MaxTokens = *m.MaxTokens

@@ -1,5 +1,5 @@
-// Command modelgen syncs built-in preset specs (ContextWindow, MaxTokens,
-// ImageEnabled) from models.dev into specs_gen.go.
+// Command modelgen syncs built-in preset specs (ContextWindow, InputLimit,
+// MaxTokens, ImageEnabled) from models.dev into specs_gen.go.
 //
 // It intentionally does not import internal/project/model so it can regenerate
 // specs_gen.go even when the generated file is missing or stale.
@@ -39,6 +39,7 @@ const (
 type syncedSpec struct {
 	name          string
 	contextWindow int
+	inputLimit    int
 	maxTokens     int
 	imageEnabled  bool
 }
@@ -51,6 +52,7 @@ type catalogModel struct {
 	Status string `json:"status"`
 	Limit  struct {
 		Context int `json:"context"`
+		Input   int `json:"input"`
 		Output  int `json:"output"`
 	} `json:"limit"`
 	Modalities struct {
@@ -165,6 +167,15 @@ func resolveSpecs(
 		if entry.Limit.Context <= 0 {
 			return nil, fmt.Errorf("preset %q (%s): invalid context window %d", name, catalogID, entry.Limit.Context)
 		}
+		if entry.Limit.Input < 0 || entry.Limit.Input > entry.Limit.Context {
+			return nil, fmt.Errorf(
+				"preset %q (%s): invalid input limit %d (context %d)",
+				name,
+				catalogID,
+				entry.Limit.Input,
+				entry.Limit.Context,
+			)
+		}
 		if entry.Limit.Output < 0 {
 			return nil, fmt.Errorf("preset %q (%s): invalid output limit %d", name, catalogID, entry.Limit.Output)
 		}
@@ -178,9 +189,14 @@ func resolveSpecs(
 				return nil, err
 			}
 		}
+		inputLimit := entry.Limit.Input
+		if inputLimit == entry.Limit.Context {
+			inputLimit = 0
+		}
 		specs = append(specs, syncedSpec{
 			name:          name,
 			contextWindow: entry.Limit.Context,
+			inputLimit:    inputLimit,
 			maxTokens:     entry.Limit.Output,
 			imageEnabled:  slices.Contains(entry.Modalities.Input, "image"),
 		})
@@ -194,11 +210,24 @@ func renderSpecs(specs []syncedSpec) ([]byte, error) {
 	buf.WriteString("package model\n\n")
 	buf.WriteString("type modelSpec struct {\n")
 	buf.WriteString("\tContextWindow int\n")
+	buf.WriteString("\tInputLimit    int\n")
 	buf.WriteString("\tMaxTokens     int\n")
 	buf.WriteString("\tImageEnabled  bool\n")
 	buf.WriteString("}\n\n")
 	buf.WriteString("var syncedSpecs = map[string]modelSpec{\n")
 	for _, s := range specs {
+		if s.inputLimit > 0 {
+			fmt.Fprintf(
+				&buf,
+				"\t%q: {ContextWindow: %s, InputLimit: %s, MaxTokens: %s, ImageEnabled: %t},\n",
+				s.name,
+				formatInt(s.contextWindow),
+				formatInt(s.inputLimit),
+				formatInt(s.maxTokens),
+				s.imageEnabled,
+			)
+			continue
+		}
 		fmt.Fprintf(
 			&buf,
 			"\t%q: {ContextWindow: %s, MaxTokens: %s, ImageEnabled: %t},\n",

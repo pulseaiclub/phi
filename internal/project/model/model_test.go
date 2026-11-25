@@ -17,43 +17,50 @@ func TestLookupGPTPresets(t *testing.T) {
 	tests := []struct {
 		name          string
 		contextWindow int
+		inputLimit    int
 		maxTokens     int
 		thinking      llm.ThinkConfig
 	}{
 		{
 			name:          "gpt-6-astra",
 			contextWindow: 1_050_000,
+			inputLimit:    922_000,
 			maxTokens:     128_000,
 			thinking:      llm.ThinkConfig{Enabled: true, Mode: llm.Max},
 		},
 		{
 			name:          "gpt-5.6-sol",
 			contextWindow: 1_050_000,
+			inputLimit:    922_000,
 			maxTokens:     128_000,
 			thinking:      llm.ThinkConfig{Enabled: true, Mode: llm.High},
 		},
 		{
 			name:          "gpt-5.6-terra",
 			contextWindow: 1_050_000,
+			inputLimit:    922_000,
 			maxTokens:     128_000,
 			thinking:      llm.ThinkConfig{Enabled: true, Mode: llm.High},
 		},
 		{
 			name:          "gpt-5.6-luna",
 			contextWindow: 1_050_000,
+			inputLimit:    922_000,
 			maxTokens:     128_000,
 			thinking:      llm.ThinkConfig{Enabled: true, Mode: llm.High},
 		},
-		{name: "gpt-5-chat-latest", contextWindow: 128_000, maxTokens: 0, thinking: llm.ThinkConfig{}},
+		{name: "gpt-5-chat-latest", contextWindow: 128_000, inputLimit: 0, maxTokens: 0, thinking: llm.ThinkConfig{}},
 		{
 			name:          "gpt-5.5",
 			contextWindow: 1_050_000,
+			inputLimit:    922_000,
 			maxTokens:     128_000,
 			thinking:      llm.ThinkConfig{Enabled: true, Mode: llm.High},
 		},
 		{
 			name:          "gpt-5.5-pro",
 			contextWindow: 1_050_000,
+			inputLimit:    922_000,
 			maxTokens:     128_000,
 			thinking:      llm.ThinkConfig{Enabled: true, Mode: llm.High},
 		},
@@ -65,6 +72,7 @@ func TestLookupGPTPresets(t *testing.T) {
 			require.True(t, ok)
 			assert.Equal(t, "https://api.openai.com/v1", p.Config.BaseURL)
 			assert.Equal(t, tt.contextWindow, p.Config.ContextWindow)
+			assert.Equal(t, tt.inputLimit, p.Config.InputLimit)
 			assert.Equal(t, tt.maxTokens, p.Config.MaxTokens)
 			assert.True(t, p.Config.ImageEnabled)
 			assert.Equal(t, llm.OpenAIResponses, p.Config.API)
@@ -257,6 +265,7 @@ func TestSyncedSpecsMatchSources(t *testing.T) {
 		spec, ok := syncedSpecs[name]
 		require.True(t, ok, "source %q must exist in syncedSpecs", name)
 		assert.Equal(t, spec.ContextWindow, p.Config.ContextWindow, name)
+		assert.Equal(t, spec.InputLimit, p.Config.InputLimit, name)
 		assert.Equal(t, spec.ImageEnabled, p.Config.ImageEnabled, name)
 		if name != "kimi-k3" {
 			assert.Equal(t, spec.MaxTokens, p.Config.MaxTokens, name)
@@ -271,9 +280,11 @@ func TestSyncedSpecPreservesExplicitOverrides(t *testing.T) {
 	assert.Equal(t, 131_072, k3.Config.MaxTokens)
 	assert.True(t, k3.Config.ImageEnabled)
 
-	custom := withSyncedSpec(llm.ModelConfig{Name: "kimi-k3", ContextWindow: 500_000})
-	assert.Equal(t, 500_000, custom.ContextWindow)
-	assert.Equal(t, 1_048_576, custom.MaxTokens)
+	custom := withSyncedSpec(llm.ModelConfig{Name: "gpt-5.5", ContextWindow: 2_000_000})
+	assert.Equal(t, 2_000_000, custom.ContextWindow)
+	assert.Zero(t, custom.InputLimit, "overriding ContextWindow skips the synced InputLimit")
+	assert.Equal(t, 2_000_000, custom.CompactionWindow())
+	assert.Equal(t, 128_000, custom.MaxTokens)
 
 	// Coding-plan 10M tier stays hand-maintained so it does not inherit the
 	// standard tier's 262K output limit for compaction summaries.

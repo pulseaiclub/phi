@@ -929,3 +929,11 @@ func TestCancelCancelsRunningCompaction(t *testing.T) {
 	require.ErrorIs(t, ctx.Err(), context.Canceled, "Cancel must reach the compaction context")
 	ctrl.endCompaction()
 }
+
+func TestContextWindowUsesCompactionWindow(t *testing.T) {
+	ctrl := &EngineController{modelCfg: llm.ModelConfig{ContextWindow: 1_050_000, InputLimit: 922_000}}
+	assert.Equal(t, 922_000, ctrl.ContextWindow())
+
+	ctrl.modelCfg = llm.ModelConfig{ContextWindow: 1_048_576}
+	assert.Equal(t, 1_048_576, ctrl.ContextWindow())
+}

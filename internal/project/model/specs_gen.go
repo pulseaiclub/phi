@@ -4,6 +4,7 @@ package model
 
 type modelSpec struct {
 	ContextWindow int
+	InputLimit    int
 	MaxTokens     int
 	ImageEnabled  bool
 }
@@ -16,11 +17,11 @@ var syncedSpecs = map[string]modelSpec{
 	"gemini-3-flash":   {ContextWindow: 1_048_576, MaxTokens: 65_536, ImageEnabled: true},
 	"glm-5.3":          {ContextWindow: 1_000_000, MaxTokens: 131_072, ImageEnabled: false},
 	"glm-5.3-flash":    {ContextWindow: 1_000_000, MaxTokens: 131_072, ImageEnabled: true},
-	"gpt-5.5":          {ContextWindow: 1_050_000, MaxTokens: 128_000, ImageEnabled: true},
-	"gpt-5.5-pro":      {ContextWindow: 1_050_000, MaxTokens: 128_000, ImageEnabled: true},
-	"gpt-5.6-luna":     {ContextWindow: 1_050_000, MaxTokens: 128_000, ImageEnabled: true},
-	"gpt-5.6-sol":      {ContextWindow: 1_050_000, MaxTokens: 128_000, ImageEnabled: true},
-	"gpt-5.6-terra":    {ContextWindow: 1_050_000, MaxTokens: 128_000, ImageEnabled: true},
-	"gpt-6-astra":      {ContextWindow: 1_050_000, MaxTokens: 128_000, ImageEnabled: true},
+	"gpt-5.5":          {ContextWindow: 1_050_000, InputLimit: 922_000, MaxTokens: 128_000, ImageEnabled: true},
+	"gpt-5.5-pro":      {ContextWindow: 1_050_000, InputLimit: 922_000, MaxTokens: 128_000, ImageEnabled: true},
+	"gpt-5.6-luna":     {ContextWindow: 1_050_000, InputLimit: 922_000, MaxTokens: 128_000, ImageEnabled: true},
+	"gpt-5.6-sol":      {ContextWindow: 1_050_000, InputLimit: 922_000, MaxTokens: 128_000, ImageEnabled: true},
+	"gpt-5.6-terra":    {ContextWindow: 1_050_000, InputLimit: 922_000, MaxTokens: 128_000, ImageEnabled: true},
+	"gpt-6-astra":      {ContextWindow: 1_050_000, InputLimit: 922_000, MaxTokens: 128_000, ImageEnabled: true},
 	"kimi-k3":          {ContextWindow: 1_048_576, MaxTokens: 1_048_576, ImageEnabled: true},
 }

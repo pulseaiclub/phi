@@ -118,8 +118,10 @@ var (
 	thinkMax  = llm.ThinkConfig{Enabled: true, Mode: llm.Max}
 )
 
-// withSyncedSpec fills zero ContextWindow and MaxTokens from generated
-// models.dev specs (preserving non-zero overrides) and sets ImageEnabled.
+// withSyncedSpec fills zero ContextWindow, InputLimit, and MaxTokens from
+// generated models.dev specs (preserving non-zero overrides) and sets ImageEnabled.
+// An explicit ContextWindow override skips the synced InputLimit so the two
+// limits never come from different tiers.
 func withSyncedSpec(cfg llm.ModelConfig) llm.ModelConfig {
 	spec, ok := syncedSpecs[cfg.Name]
 	if !ok {
@@ -127,6 +129,9 @@ func withSyncedSpec(cfg llm.ModelConfig) llm.ModelConfig {
 	}
 	if cfg.ContextWindow == 0 {
 		cfg.ContextWindow = spec.ContextWindow
+		if cfg.InputLimit == 0 {
+			cfg.InputLimit = spec.InputLimit
+		}
 	}
 	if cfg.MaxTokens == 0 {
 		cfg.MaxTokens = spec.MaxTokens
@@ -173,10 +178,10 @@ func glmPreset(name, alias string) Preset {
 }
 
 // presets is the built-in catalog, keyed by model name. Entries mapped in
-// sources.json pull ContextWindow, MaxTokens, and ImageEnabled from
-// specs_gen.go (`make sync-models`); non-zero ContextWindow/MaxTokens fields
-// below act as explicit overrides. Connection defaults, thinking hooks, and
-// alias rules remain hand-maintained.
+// sources.json pull ContextWindow, InputLimit, MaxTokens, and ImageEnabled from
+// specs_gen.go (`make sync-models`); non-zero limit fields below act as
+// explicit overrides. Connection defaults, thinking hooks, and alias rules
+// remain hand-maintained.
 var presets = []Preset{
 	// Source: https://platform.openai.com/docs/models
 	openAIPreset("gpt-6-astra", thinkMax),
