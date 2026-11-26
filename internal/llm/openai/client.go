@@ -7,6 +7,7 @@ import (
 	"errors"
 	"iter"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/pulseaiclub/phi/internal/llm"
@@ -115,6 +116,20 @@ type streamChoice struct {
 	Message *llm.Message    `json:"message,omitempty"`
 }
 
+// wireToolCalls drops Gemini's thought signature, which this wire marshals
+// verbatim otherwise: a session that switches from Gemini to an
+// OpenAI-compatible model would send an unknown field on every replayed call.
+func wireToolCalls(calls []llm.ToolCall) []llm.ToolCall {
+	if !slices.ContainsFunc(calls, func(c llm.ToolCall) bool { return c.ThoughtSignature != "" }) {
+		return calls
+	}
+	out := slices.Clone(calls)
+	for i := range out {
+		out[i].ThoughtSignature = ""
+	}
+	return out
+}
+
 // toAPIMessage converts a normalized message. With attached images the
 // content becomes the OpenAI content-parts array (text + image_url data
 // URLs); otherwise it stays a plain string, keeping the wire shape stable.
@@ -122,7 +137,7 @@ func toAPIMessage(m llm.Message) apiMessage {
 	out := apiMessage{
 		Role:             m.Role,
 		ReasoningContent: m.ReasoningContent,
-		ToolCalls:        m.ToolCalls,
+		ToolCalls:        wireToolCalls(m.ToolCalls),
 		ToolCallID:       m.ToolCallID,
 	}
 	if len(m.Images) == 0 {

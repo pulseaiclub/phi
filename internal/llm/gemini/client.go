@@ -28,6 +28,8 @@ type part struct {
 	InlineData       *inlineData       `json:"inlineData,omitempty"`
 	FunctionCall     *functionCall     `json:"functionCall,omitempty"`
 	FunctionResponse *functionResponse `json:"functionResponse,omitempty"`
+	// ThoughtSignature sits beside functionCall on the same part, not inside it.
+	ThoughtSignature string `json:"thoughtSignature,omitempty"`
 }
 
 type inlineData struct {
@@ -264,6 +266,7 @@ func toAssistantMessage(m llm.Message) content {
 				Name: tc.Function.Name,
 				Args: toolArgs(tc.Function.Arguments),
 			},
+			ThoughtSignature: tc.ThoughtSignature,
 		})
 	}
 	if len(c.Parts) == 0 {
@@ -449,6 +452,7 @@ func toLLMToolCall(p part, index int) llm.ToolCall {
 			Name:      p.FunctionCall.Name,
 			Arguments: string(args),
 		},
+		ThoughtSignature: p.ThoughtSignature,
 	}
 	return toolCall
 }

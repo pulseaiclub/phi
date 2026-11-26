@@ -128,3 +128,21 @@ func TestBuildRequestDoesNotInferDeepSeekThinking(t *testing.T) {
 	assert.Nil(t, req.Thinking)
 	assert.Equal(t, "high", req.ReasoningEffort)
 }
+
+func TestBuildRequestDropsThoughtSignature(t *testing.T) {
+	cfg := llm.ModelConfig{Name: "gpt-4o", APIKey: "k", BaseURL: "https://api.openai.com/v1"}
+	calls := []llm.ToolCall{{
+		ID: "read", Type: "function", ThoughtSignature: "sig-a",
+		Function: llm.Function{Name: "read", Arguments: `{"path":"a.go"}`},
+	}}
+	req := BuildRequest(cfg, "", []llm.Message{
+		{Role: llm.RoleUser, Content: "hi"},
+		{Role: llm.RoleAssistant, ToolCalls: calls},
+	}, nil)
+
+	body, err := json.Marshal(req)
+	require.NoError(t, err)
+	assert.NotContains(t, string(body), "thought_signature")
+	assert.Contains(t, string(body), `"name":"read"`)
+	assert.Equal(t, "sig-a", calls[0].ThoughtSignature, "the session's copy keeps its signature")
+}
