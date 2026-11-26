@@ -6,17 +6,20 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/pulseaiclub/phi/internal/tui/configui"
 	"github.com/pulseaiclub/phi/internal/util"
 )
 
 const (
 	defaultOpenAIBaseURL = "https://api.openai.com/v1"
+	defaultGeminiBaseURL = "https://generativelanguage.googleapis.com/v1beta"
 	anthropicAPIVersion  = "2023-06-01"
 	modelListTimeout     = 15 * time.Second
 	modelListBodyLimit   = int64(4 << 20)
@@ -27,30 +30,28 @@ const (
 )
 
 type modelListResponse struct {
-	Data   []modelListItem `json:"data"`
-	Models []modelListItem `json:"models"`
+	Data   []json.RawMessage `json:"data"`
+	Models []json.RawMessage `json:"models"`
 }
 
-type modelListItem struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	DisplayName string `json:"display_name"`
-}
-
-// fetchModelIDs asks a provider which models it advertises, so `phi config` can
-// fill a model name from a list instead of a typed-in guess. It runs on a
-// background goroutine owned by the config overlay.
-func fetchModelIDs(ctx context.Context, baseURL, apiKey, api, model string) ([]string, error) {
+// fetchModels asks a provider which models it advertises (and any capability
+// limits it reports), so `phi config` can pick a model ID and prefill unset
+// fields. It runs on a background goroutine owned by the config overlay.
+func fetchModels(ctx context.Context, baseURL, apiKey, api, model string) ([]configui.ModelInfo, error) {
 	baseURL = strings.TrimSpace(baseURL)
 	anthropic := isAnthropicAPI(api, baseURL, model)
+	gemini := !anthropic && isGeminiAPI(api, baseURL)
 	if baseURL == "" {
-		if anthropic {
+		switch {
+		case anthropic:
 			baseURL = "https://api.anthropic.com"
-		} else {
+		case gemini:
+			baseURL = defaultGeminiBaseURL
+		default:
 			baseURL = defaultOpenAIBaseURL
 		}
 	}
-	endpoint, err := modelListEndpoint(baseURL, anthropic)
+	endpoint, err := modelListEndpoint(baseURL, anthropic, gemini)
 	if err != nil {
 		return nil, err
 	}
@@ -62,12 +63,7 @@ func fetchModelIDs(ctx context.Context, baseURL, apiKey, api, model string) ([]s
 		return nil, fmt.Errorf("build model list request: %w", err)
 	}
 	request.Header.Set("Accept", "application/json")
-	if anthropic {
-		request.Header.Set("X-Api-Key", strings.TrimSpace(apiKey))
-		request.Header.Set("Anthropic-Version", anthropicAPIVersion)
-	} else {
-		request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(apiKey))
-	}
+	setModelListAuth(request.Header, baseURL, apiKey, anthropic, gemini)
 
 	response, err := modelListHTTPClient().Do(request)
 	if err != nil {
@@ -94,8 +90,10 @@ func fetchModelIDs(ctx context.Context, baseURL, apiKey, api, model string) ([]s
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, fmt.Errorf("decode model list: %w", err)
 	}
-	models := collectModelIDs(append(payload.Data, payload.Models...))
-	sort.Strings(models)
+	models := collectModelInfos(append(payload.Data, payload.Models...), gemini)
+	slices.SortFunc(models, func(a, b configui.ModelInfo) int {
+		return strings.Compare(a.ID, b.ID)
+	})
 	return models, nil
 }
 
@@ -131,9 +129,36 @@ func isAnthropicAPI(api, baseURL, model string) bool {
 		strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "claude")
 }
 
+func setModelListAuth(header http.Header, baseURL, apiKey string, anthropic, gemini bool) {
+	key := strings.TrimSpace(apiKey)
+	switch {
+	case anthropic:
+		header.Set("X-Api-Key", key)
+		header.Set("Anthropic-Version", anthropicAPIVersion)
+	case gemini && !strings.Contains(strings.ToLower(baseURL), "aiplatform.googleapis.com"):
+		if key != "" {
+			header.Set("x-goog-api-key", key)
+		}
+	default:
+		header.Set("Authorization", "Bearer "+key)
+	}
+}
+
+func isGeminiAPI(api, baseURL string) bool {
+	switch strings.TrimSpace(api) {
+	case "Gemini":
+		return true
+	case "OpenAI", "OpenAIResponses", "Anthropic":
+		return false
+	}
+	lower := strings.ToLower(baseURL)
+	return strings.Contains(lower, "generativelanguage.googleapis.com") && !strings.Contains(lower, "/openai")
+}
+
 // modelListEndpoint resolves the /models URL for a base URL, tolerating a base
-// that already ends in /models or /v1.
-func modelListEndpoint(baseURL string, anthropic bool) (string, error) {
+// that already ends in /models or /v1. Gemini defaults to pageSize=50, so set
+// the API maximum (1000) to avoid silent truncation.
+func modelListEndpoint(baseURL string, anthropic, gemini bool) (string, error) {
 	u, err := url.Parse(strings.TrimSpace(baseURL))
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return "", errors.New("base URL must be an absolute HTTP(S) URL")
@@ -151,30 +176,154 @@ func modelListEndpoint(baseURL string, anthropic bool) (string, error) {
 	}
 	u.Path = path
 	u.RawPath = ""
-	u.RawQuery = ""
+	if gemini {
+		u.RawQuery = "pageSize=1000"
+	} else {
+		u.RawQuery = ""
+	}
 	u.Fragment = ""
 	return u.String(), nil
 }
 
-func collectModelIDs(items []modelListItem) []string {
+func collectModelInfos(items []json.RawMessage, stripGeminiPrefix bool) []configui.ModelInfo {
 	seen := make(map[string]struct{}, len(items))
-	models := make([]string, 0, len(items))
-	for _, item := range items {
-		id := strings.TrimSpace(item.ID)
-		if id == "" {
-			id = strings.TrimSpace(item.Name)
-		}
-		if id == "" {
-			id = strings.TrimSpace(item.DisplayName)
-		}
-		if id == "" {
+	models := make([]configui.ModelInfo, 0, len(items))
+	for _, raw := range items {
+		info, ok := parseModelListItem(raw, stripGeminiPrefix)
+		if !ok {
 			continue
 		}
-		if _, ok := seen[id]; ok {
+		if _, dup := seen[info.ID]; dup {
 			continue
 		}
-		seen[id] = struct{}{}
-		models = append(models, id)
+		seen[info.ID] = struct{}{}
+		models = append(models, info)
 	}
 	return models
+}
+
+// parseModelListItem extracts the model ID and any explicitly advertised limits
+// from one /models entry. Optional fields are decoded individually so gateways
+// using non-standard shapes (e.g. string "architecture" or array "capabilities")
+// never break model listing.
+func parseModelListItem(raw json.RawMessage, stripGeminiPrefix bool) (configui.ModelInfo, bool) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return configui.ModelInfo{}, false
+	}
+	id := firstNonEmpty(
+		jsonString(fields["id"]),
+		jsonString(fields["name"]),
+		jsonString(fields["display_name"]),
+	)
+	if stripGeminiPrefix {
+		id = strings.TrimPrefix(id, "models/")
+	}
+	if id == "" {
+		return configui.ModelInfo{}, false
+	}
+
+	var topProvider map[string]json.RawMessage
+	if rawTP := fields["top_provider"]; len(rawTP) > 0 {
+		_ = json.Unmarshal(rawTP, &topProvider)
+	}
+
+	return configui.ModelInfo{
+		ID: id,
+		ContextWindow: firstPositive(
+			jsonPositiveInt(fields["context_length"]),
+			jsonPositiveInt(topProvider["context_length"]),
+			jsonPositiveInt(fields["max_model_len"]),
+			jsonPositiveInt(fields["context_window"]),
+			jsonPositiveInt(fields["max_input_tokens"]),
+			jsonPositiveInt(fields["inputTokenLimit"]),
+		),
+		MaxTokens: firstPositive(
+			jsonPositiveInt(fields["max_completion_tokens"]),
+			jsonPositiveInt(topProvider["max_completion_tokens"]),
+			jsonPositiveInt(fields["max_output_tokens"]),
+			jsonPositiveInt(fields["max_tokens"]),
+			jsonPositiveInt(fields["outputTokenLimit"]),
+		),
+		ImageEnabled: parseModelImageSupport(fields),
+	}, true
+}
+
+func parseModelImageSupport(fields map[string]json.RawMessage) *bool {
+	if rawCaps := fields["capabilities"]; len(rawCaps) > 0 {
+		var caps struct {
+			ImageInput *struct {
+				Supported *bool `json:"supported"`
+			} `json:"image_input"`
+		}
+		if json.Unmarshal(rawCaps, &caps) == nil && caps.ImageInput != nil && caps.ImageInput.Supported != nil {
+			v := *caps.ImageInput.Supported
+			return &v
+		}
+	}
+	if rawArch := fields["architecture"]; len(rawArch) > 0 {
+		var arch struct {
+			InputModalities []string `json:"input_modalities"`
+		}
+		if json.Unmarshal(rawArch, &arch) == nil && len(arch.InputModalities) > 0 {
+			hasImage := slices.ContainsFunc(arch.InputModalities, func(mod string) bool {
+				return strings.EqualFold(strings.TrimSpace(mod), "image")
+			})
+			return &hasImage
+		}
+	}
+	if rawVision := fields["supports_vision"]; len(rawVision) > 0 {
+		var supported *bool
+		if json.Unmarshal(rawVision, &supported) == nil && supported != nil {
+			return supported
+		}
+	}
+	return nil
+}
+
+func jsonString(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(raw, &s) != nil {
+		return ""
+	}
+	return strings.TrimSpace(s)
+}
+
+func jsonPositiveInt(raw json.RawMessage) int {
+	if len(raw) == 0 {
+		return 0
+	}
+	var n int
+	if json.Unmarshal(raw, &n) == nil {
+		if n > 0 {
+			return n
+		}
+		return 0
+	}
+	var f float64
+	if json.Unmarshal(raw, &f) == nil && f >= 1 && f < float64(math.MaxInt) && math.Trunc(f) == f {
+		return int(f)
+	}
+	return 0
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func firstPositive(values ...int) int {
+	for _, v := range values {
+		if v > 0 {
+			return v
+		}
+	}
+	return 0
 }

@@ -185,13 +185,142 @@ func TestEditsRefreshThinkingChoices(t *testing.T) {
 
 func TestFetchedModelRefreshesCachedRows(t *testing.T) {
 	e := newTestEditor(t, &project.ConfigDoc{Models: []project.ModelDoc{{Name: "custom"}}})
-	e.fetch = fetchState{done: true, index: 0, name: "custom", ids: []string{"group/auto-kimi-k3"}}
+	e.fetch = fetchState{done: true, index: 0, name: "custom", models: []ModelInfo{{ID: "group/auto-kimi-k3"}}}
 	drawForm(t, e)
 	require.True(t, e.picker.Open)
 	press(e, xui.KeyEnter, 0)
 	assert.Equal(t, "group/auto-kimi-k3", e.doc.Models[0].Name)
 	assert.Contains(t, components.SurfaceText(drawForm(t, e)), "group/auto-kimi-k3")
 	assertThinkingChoices(t, e, []string{"", "low", "high", "max"})
+}
+
+func TestFetchPrefillsUnsetFieldsWithoutOverwriting(t *testing.T) {
+	imgOn, imgOff := true, false
+
+	t.Run("unknown model prefills unset fields and shows metadata in picker and footer", func(t *testing.T) {
+		doc := &project.ConfigDoc{Models: []project.ModelDoc{{Name: "custom"}}}
+		e := newTestEditor(t, doc)
+		e.fetch = fetchState{
+			done:  true,
+			index: 0,
+			name:  "custom",
+			models: []ModelInfo{
+				{ID: "qwen/qwen3-coder", ContextWindow: 262_144, MaxTokens: 32_768, ImageEnabled: &imgOn},
+				// One unusually long model ID must not crush metadata details on other rows.
+				{ID: "vendor/very-long-gateway-model-name-with-many-qualifiers-and-tags:free"},
+			},
+		}
+		text := components.SurfaceText(drawForm(t, e))
+		require.True(t, e.picker.Open)
+		assert.Contains(t, text, "262k context · 32k output · image")
+
+		press(e, xui.KeyEnter, 0)
+		m := doc.Models[0]
+		assert.Equal(t, "qwen/qwen3-coder", m.Name)
+		require.NotNil(t, m.ContextWindow)
+		assert.Equal(t, 262_144, *m.ContextWindow)
+		require.NotNil(t, m.MaxTokens)
+		assert.Equal(t, 32_768, *m.MaxTokens)
+		require.NotNil(t, m.ImageEnabled)
+		assert.True(t, *m.ImageEnabled)
+		assert.Contains(t, components.SurfaceText(drawForm(t, e)), "prefilled context window, max tokens, image input")
+	})
+
+	t.Run("existing user values are never overwritten", func(t *testing.T) {
+		existing := 64_000
+		doc := &project.ConfigDoc{Models: []project.ModelDoc{{Name: "custom", ContextWindow: &existing}}}
+		e := newTestEditor(t, doc)
+		e.fetch = fetchState{
+			done:  true,
+			index: 0,
+			name:  "custom",
+			models: []ModelInfo{
+				{ID: "qwen/qwen3-coder", ContextWindow: 262_144, MaxTokens: 32_768, ImageEnabled: &imgOff},
+			},
+		}
+		drawForm(t, e)
+		press(e, xui.KeyEnter, 0)
+		assert.Equal(t, 64_000, *doc.Models[0].ContextWindow)
+		require.NotNil(t, doc.Models[0].MaxTokens)
+		assert.Equal(t, 32_768, *doc.Models[0].MaxTokens)
+		assert.Nil(t, doc.Models[0].ImageEnabled, "false matches the unknown-model default and stays unset")
+	})
+
+	t.Run("preset-matching limits stay unset while gateway caps are prefilled", func(t *testing.T) {
+		doc := &project.ConfigDoc{Models: []project.ModelDoc{{Name: "custom"}}}
+		e := newTestEditor(t, doc)
+		e.fetch = fetchState{
+			done: true, index: 0, name: "custom",
+			models: []ModelInfo{{
+				ID: "openai/gpt-6.2-astra", ContextWindow: 1_050_000, MaxTokens: 128_000, ImageEnabled: &imgOn,
+			}},
+		}
+		drawForm(t, e)
+		press(e, xui.KeyEnter, 0)
+		assert.Equal(t, "openai/gpt-6.2-astra", doc.Models[0].Name)
+		assert.Nil(t, doc.Models[0].ContextWindow, "preset-identical context_window stays unset")
+		assert.Nil(t, doc.Models[0].MaxTokens, "preset-identical max_tokens stays unset")
+		assert.Nil(t, doc.Models[0].ImageEnabled, "preset-identical image_enabled stays unset")
+
+		e.fetch = fetchState{
+			done: true, index: 0, name: "openai/gpt-6.2-astra",
+			models: []ModelInfo{{
+				ID: "anthropic/claude-sonnet-4.6", ContextWindow: 200_000, MaxTokens: 32_000, ImageEnabled: &imgOff,
+			}},
+		}
+		drawForm(t, e)
+		press(e, xui.KeyEnter, 0)
+		require.NotNil(t, doc.Models[0].ContextWindow)
+		assert.Equal(t, 200_000, *doc.Models[0].ContextWindow)
+		require.NotNil(t, doc.Models[0].MaxTokens)
+		assert.Equal(t, 32_000, *doc.Models[0].MaxTokens)
+		require.NotNil(t, doc.Models[0].ImageEnabled)
+		assert.False(t, *doc.Models[0].ImageEnabled, "explicit false overrides a vision-enabled preset")
+	})
+
+	t.Run("larger advertised limits stay visible and preserve the preset input limit", func(t *testing.T) {
+		doc := &project.ConfigDoc{Models: []project.ModelDoc{{Name: "custom"}}}
+		e := newTestEditor(t, doc)
+		e.openModelPicker(0, []ModelInfo{{ID: "openai/gpt-6.2-astra", ContextWindow: 2_000_000, MaxTokens: 256_000}})
+		assert.Contains(t, components.SurfaceText(drawForm(t, e)), "2M context · 256k output")
+		press(e, xui.KeyEnter, 0)
+
+		m := doc.Models[0]
+		assert.Nil(t, m.ContextWindow)
+		assert.Nil(t, m.MaxTokens)
+		cfg, err := project.ResolveModelDoc(m)
+		require.NoError(t, err)
+		assert.Equal(t, 922_000, cfg.InputLimit)
+	})
+
+	t.Run("minimal preset entry resolves preset base_url and api when fetching", func(t *testing.T) {
+		doc := &project.ConfigDoc{Models: []project.ModelDoc{{Name: "gemini-4-neon", APIKey: "k"}}}
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("USERPROFILE", home)
+		gotCh := make(chan [2]string, 1)
+		redrawCh := make(chan struct{}, 1)
+		list := ModelLister(func(_ context.Context, baseURL, _, api, _ string) ([]ModelInfo, error) {
+			gotCh <- [2]string{baseURL, api}
+			return []ModelInfo{{ID: "gemini-4-neon"}}, nil
+		})
+		e := New(doc, filepath.Join(home, ".phi", "config.yaml"), filepath.Join(home, ".phi", "skills"),
+			components.DarkTheme(), list, func() { redrawCh <- struct{}{} })
+		focus(t, e, modelKey(0, fName))
+		e.fetchModels()
+		select {
+		case got := <-gotCh:
+			assert.Equal(t, "https://generativelanguage.googleapis.com/v1beta", got[0])
+			assert.Equal(t, "Gemini", got[1])
+		case <-time.After(time.Second):
+			require.FailNow(t, "fetch did not invoke ModelLister")
+		}
+		select {
+		case <-redrawCh:
+		case <-time.After(time.Second):
+			require.FailNow(t, "fetch goroutine did not finish")
+		}
+	})
 }
 
 func TestCursorSkipsNonSelectableRows(t *testing.T) {
@@ -663,10 +792,10 @@ func TestFetchDiscardedWhenModelMoves(t *testing.T) {
 	t.Setenv("USERPROFILE", home)
 	fetchStarted := make(chan struct{})
 	releaseFetch := make(chan struct{})
-	list := ModelLister(func(_ context.Context, _, _, _, _ string) ([]string, error) {
+	list := ModelLister(func(_ context.Context, _, _, _, _ string) ([]ModelInfo, error) {
 		close(fetchStarted)
 		<-releaseFetch
-		return []string{"alpha", "beta"}, nil
+		return []ModelInfo{{ID: "alpha"}, {ID: "beta"}}, nil
 	})
 	e := New(doc, filepath.Join(home, ".phi", "config.yaml"), filepath.Join(home, ".phi", "skills"),
 		components.DarkTheme(), list, func() {})
