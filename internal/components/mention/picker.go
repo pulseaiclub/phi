@@ -1,8 +1,6 @@
 package mention
 
 import (
-	"strings"
-
 	"github.com/pulseaiclub/xui"
 
 	"github.com/pulseaiclub/phi/internal/components"
@@ -14,6 +12,15 @@ type Item struct {
 	Path        string // primary label without Prefix (file path or command name)
 	Description string // optional secondary hint shown after the label
 }
+
+// Frame metrics. The selection bar floats one cell inside the border on every
+// side so it reads as a highlight inside a card, not a stripe welded to the
+// frame; text sits one cell further in, off the bar's edge.
+const (
+	barX   = 2 // first selection-bar column: border, gutter, bar
+	padL   = 3 // first text column: one cell inside the bar
+	rowPad = 1 // blank rows between the border and the first / last row
+)
 
 // Picker is a floating list anchored above the composer.
 // Query lives in the composer; this widget only navigates and accepts.
@@ -231,51 +238,30 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 		boxW = min(boxW, 60)
 	}
 
-	maxVisible := p.maxItems()
-	availAbove := p.AnchorBottomY - 1
-	availAbove = max(availAbove, 3)
-	if maxVisible > availAbove-2 { // borders
-		maxVisible = availAbove - 2
-	}
-	if maxVisible < 1 {
-		maxVisible = 1
-	}
-
 	nItems := len(p.Items)
-	visible := nItems
-	if visible == 0 {
-		visible = 1 // status row
-	}
-	if visible > maxVisible {
-		visible = maxVisible
-	}
+	rows := max(nItems, 1) // no items: one status row
+	rows = min(rows, p.maxItems())
 
-	boxH := 2 + visible // borders + rows
-	if boxH > availAbove {
-		boxH = availAbove
-		visible = boxH - 2
-		if visible < 1 {
-			visible = 1
-			boxH = 3
-		}
+	// Padding gives the list air. It is the first thing to go when the anchor
+	// leaves no room, before any row does.
+	availAbove := max(p.AnchorBottomY-1, 3)
+	padV := rowPad
+	if 2+2*padV+rows > availAbove {
+		padV = 0
 	}
+	rows = min(rows, availAbove-2) // borders + rows must fit above the anchor
+	visible, boxH := rows, 2+2*padV+rows
 
 	scroll := 0
 	if nItems > 0 && p.Selected >= visible {
 		scroll = p.Selected - visible + 1
 	}
-	if scroll < 0 {
-		scroll = 0
-	}
-	if nItems > 0 && scroll > nItems-visible {
-		scroll = nItems - visible
-		scroll = max(scroll, 0)
-	}
+	scroll = min(max(scroll, 0), max(nItems-visible, 0))
 
 	panel := components.NewSurface(boxW, boxH, p)
 	fillStyle := xui.Style{Fg: th.Foreground.Fg}
-	for y := 0; y < boxH; y++ {
-		for x := 0; x < boxW; x++ {
+	for y := range boxH {
+		for x := range boxW {
 			panel.SetCell(x, y, xui.Cell{Char: " ", Width: 1, Style: fillStyle})
 		}
 	}
@@ -283,9 +269,8 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 
 	// Selection chrome rides the theme roles shared with listpicker / configui.
 	selBg := th.SelectionBg.Bg
-
-	padL := 1
-	listY := 1
+	innerW := boxW - 2*padL
+	listY := 1 + padV
 	prefix := p.Prefix
 	if prefix == "" && !p.NoPrefix {
 		prefix = "@"
@@ -295,18 +280,18 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 		if msg == "" {
 			msg = "No matches"
 		}
-		panel.Print(padL+1, listY, components.TruncateToWidth(msg, boxW-3, ctx.Method), th.Muted, ctx.Method)
+		panel.Print(padL, listY, components.TruncateToWidth(msg, innerW, ctx.Method), th.Muted, ctx.Method)
 	} else {
 		pathSt := th.ToolName
 		descSt := th.Muted
 		selFg := th.SelectionFg
 		selFg.Bg, selFg.Bold = selBg, true
-		selMuted := th.Muted
-		selMuted.Bg = selBg
-		innerW := boxW - 3
-		const minDescW = 8
-		gap := "  "
-		gapW := xui.StringWidth(gap, ctx.Method)
+		// Muted is tuned for the page background and sinks into SelectionBg; the
+		// selected hint takes the selection fg, with bold on the label alone
+		// keeping the two columns apart.
+		selDesc := selFg
+		selDesc.Bold = false
+		const minDescW, gapW = 8, 2
 		// Align every hint into one column so the list reads top-down instead of
 		// zig-zag. Capping the column keeps one long label from squeezing the
 		// hints to nothing: rows past the cap just get a shorter hint.
@@ -317,42 +302,31 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 			}
 			colW = max(colW, xui.StringWidth(prefix+it.Path, ctx.Method))
 		}
-		colW = min(colW, innerW-gapW-minDescW)
-		colW = max(colW, 0)
-		for row := 0; row < visible; row++ {
+		colW = max(min(colW, innerW-gapW-minDescW), 0)
+		for row := range visible {
 			fi := row + scroll
-			if fi < 0 || fi >= nItems {
+			if fi >= nItems {
 				break
 			}
 			item := p.Items[fi]
-			sel := fi == p.Selected
 			y := listY + row
 			label := prefix + item.Path
-			st := pathSt
-			dst := descSt
-			if sel {
-				for x := 1; x < boxW-1; x++ {
+			st, dst := pathSt, descSt
+			if fi == p.Selected {
+				for x := barX; x < boxW-barX; x++ {
 					panel.SetCell(x, y, xui.Cell{Char: " ", Width: 1, Style: xui.Style{Bg: selBg}})
 				}
-				st = selFg
-				dst = selMuted
+				st, dst = selFg, selDesc
 			}
 			labelW := xui.StringWidth(label, ctx.Method)
 			descBudget := innerW - max(labelW, colW) - gapW
 			if item.Description == "" || descBudget < minDescW {
-				panel.Print(padL+1, y, components.TruncateToWidth(label, innerW, ctx.Method), st, ctx.Method)
+				panel.Print(padL, y, components.TruncateToWidth(label, innerW, ctx.Method), st, ctx.Method)
 				continue
 			}
-			panel.Print(padL+1, y, label, st, ctx.Method)
-			pad := strings.Repeat(" ", max(colW-labelW, 0))
-			panel.Print(padL+1+labelW, y, gap+pad, dst, ctx.Method)
-			panel.Print(
-				padL+1+labelW+gapW+len(pad),
-				y,
-				components.TruncateToWidth(item.Description, descBudget, ctx.Method),
-				dst,
-				ctx.Method,
-			)
+			panel.Print(padL, y, label, st, ctx.Method)
+			panel.Print(padL+max(labelW, colW)+gapW, y,
+				components.TruncateToWidth(item.Description, descBudget, ctx.Method), dst, ctx.Method)
 		}
 	}
 
