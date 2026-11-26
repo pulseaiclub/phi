@@ -131,6 +131,10 @@ type ToolCall struct {
 	ID       string   `json:"id"`
 	Type     string   `json:"type"`
 	Function Function `json:"function"`
+	// ThoughtSignature is Gemini's opaque signature for this call. Gemini 3+
+	// rejects a replayed functionCall that lost it, so it is stored with the
+	// call it arrived on. Other providers leave it empty and never send it.
+	ThoughtSignature string `json:"thought_signature,omitempty"`
 }
 
 // Function describes the tool name and JSON arguments.

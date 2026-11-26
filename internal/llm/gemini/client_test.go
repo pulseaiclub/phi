@@ -398,3 +398,145 @@ func TestStreamFormatsAPIError(t *testing.T) {
 	require.Error(t, gotErr)
 	assert.Equal(t, "gemini API error (401): API key not valid. Please pass a valid API key.", gotErr.Error())
 }
+
+func TestProcessStreamKeepsThoughtSignaturePerCall(t *testing.T) {
+	// Gemini signs only the first call of a parallel batch; the second must stay unsigned.
+	sse := `data: {"candidates":[{"content":{"parts":[` +
+		`{"functionCall":{"name":"read","args":{"path":"a.go"}},"thoughtSignature":"sig-a"},` +
+		`{"functionCall":{"name":"read","args":{"path":"b.go"}}}]}}]}` + "\n\n"
+
+	var deltas []llm.ToolCall
+	var done *llm.StreamEvent
+	for _, ev := range processForTest(sse) {
+		require.NotEqual(t, llm.StreamEventTypeError, ev.Type, "stream error: %s", ev.Err)
+		switch ev.Type {
+		case llm.StreamEventTypeDelta:
+			deltas = append(deltas, ev.Delta.ToolCalls...)
+		case llm.StreamEventTypeDone:
+			done = &ev
+		}
+	}
+
+	require.Len(t, deltas, 2)
+	assert.Equal(t, "sig-a", deltas[0].ThoughtSignature)
+	assert.Empty(t, deltas[1].ThoughtSignature)
+	require.NotNil(t, done)
+	require.Len(t, done.Final.ToolCalls, 2)
+	assert.Equal(t, "sig-a", done.Final.ToolCalls[0].ThoughtSignature)
+	assert.Empty(t, done.Final.ToolCalls[1].ThoughtSignature)
+}
+
+func TestBuildRequestReplaysThoughtSignature(t *testing.T) {
+	req := BuildRequest("", []llm.Message{
+		{Role: llm.RoleUser, Content: "hi"},
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+			{
+				ID: "read", Type: "function", ThoughtSignature: "sig-a",
+				Function: llm.Function{Name: "read", Arguments: `{"path":"a.go"}`},
+			},
+			{
+				Index: 1, ID: "read", Type: "function",
+				Function: llm.Function{Name: "read", Arguments: `{"path":"b.go"}`},
+			},
+		}},
+	}, nil)
+
+	require.Len(t, req.Contents, 2)
+	parts := req.Contents[1].Parts
+	require.Len(t, parts, 2)
+	require.NotNil(t, parts[0].FunctionCall)
+	assert.Equal(t, "sig-a", parts[0].ThoughtSignature, "signature stays on its own functionCall part")
+	assert.Empty(t, parts[1].ThoughtSignature, "signature must not spread to the unsigned call")
+
+	body, err := json.Marshal(req)
+	require.NoError(t, err)
+	assert.Contains(t, string(body),
+		`{"functionCall":{"name":"read","args":{"path":"a.go"}},"thoughtSignature":"sig-a"}`)
+	assert.Equal(t, 1, strings.Count(string(body), `"thoughtSignature"`))
+}
+
+func unsignedCall(path string) llm.ToolCall {
+	return llm.ToolCall{
+		ID: "read", Type: "function",
+		Function: llm.Function{Name: "read", Arguments: `{"path":"` + path + `"}`},
+	}
+}
+
+func toolResult(out string) llm.Message {
+	return llm.Message{Role: llm.RoleTool, ToolCallID: "read", Content: out}
+}
+
+func TestBuildRequestSignsUnsignedCurrentTurn(t *testing.T) {
+	// History from another provider: nothing in the turn is signed.
+	req := BuildRequest("", []llm.Message{
+		{Role: llm.RoleUser, Content: "hi"},
+		{Role: llm.RoleAssistant, Content: "reading", ToolCalls: []llm.ToolCall{
+			unsignedCall("a.go"), unsignedCall("b.go"),
+		}},
+		toolResult("a"), toolResult("b"),
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{unsignedCall("c.go")}},
+	}, nil)
+
+	require.Len(t, req.Contents, 4)
+	step1 := req.Contents[1].Parts
+	require.Len(t, step1, 3)
+	assert.Empty(t, step1[0].ThoughtSignature, "text part is never signed")
+	assert.Equal(t, skipThoughtSignature, step1[1].ThoughtSignature, "first call of the step")
+	assert.Empty(t, step1[2].ThoughtSignature, "later parallel calls stay bare")
+	assert.Equal(t, skipThoughtSignature, req.Contents[3].Parts[0].ThoughtSignature, "each step's first call")
+}
+
+func TestBuildRequestKeepsRealSignatureOnParallelStep(t *testing.T) {
+	signed := unsignedCall("a.go")
+	signed.ThoughtSignature = "sig-a"
+	calls := []llm.ToolCall{signed, unsignedCall("b.go")}
+	req := BuildRequest("", []llm.Message{
+		{Role: llm.RoleUser, Content: "hi"},
+		{Role: llm.RoleAssistant, ToolCalls: calls},
+	}, nil)
+
+	parts := req.Contents[1].Parts
+	assert.Equal(t, "sig-a", parts[0].ThoughtSignature)
+	assert.Empty(t, parts[1].ThoughtSignature)
+	body, err := json.Marshal(req)
+	require.NoError(t, err)
+	assert.NotContains(t, string(body), skipThoughtSignature)
+	assert.Empty(t, calls[1].ThoughtSignature, "the session's tool calls are not modified")
+}
+
+func TestBuildRequestLeavesPreviousTurnsBare(t *testing.T) {
+	req := BuildRequest("", []llm.Message{
+		{Role: llm.RoleUser, Content: "first"},
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{unsignedCall("a.go")}},
+		toolResult("a"),
+		{Role: llm.RoleAssistant, Content: "done"},
+		{Role: llm.RoleUser, Content: "second"},
+	}, nil)
+
+	body, err := json.Marshal(req)
+	require.NoError(t, err)
+	assert.NotContains(t, string(body), "thoughtSignature")
+}
+
+func TestThoughtSignatureSurvivesSessionRoundTrip(t *testing.T) {
+	sse := `data: {"candidates":[{"content":{"parts":[` +
+		`{"functionCall":{"name":"read","args":{"path":"a.go"}},"thoughtSignature":"sig-a"}]}}]}` + "\n\n"
+	var final *llm.Message
+	for _, ev := range processForTest(sse) {
+		if ev.Type == llm.StreamEventTypeDone {
+			final = ev.Final
+		}
+	}
+	require.NotNil(t, final)
+
+	// Sessions persist llm.Message as JSON, so the signature has to survive that encoding.
+	saved, err := json.Marshal(final)
+	require.NoError(t, err)
+	var loaded llm.Message
+	require.NoError(t, json.Unmarshal(saved, &loaded))
+
+	req := BuildRequest("", []llm.Message{{Role: llm.RoleUser, Content: "hi"}, loaded}, nil)
+	require.Len(t, req.Contents, 2)
+	require.Len(t, req.Contents[1].Parts, 1)
+	assert.Equal(t, "sig-a", req.Contents[1].Parts[0].ThoughtSignature)
+}
