@@ -17,6 +17,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the highlighted row uses the shared `Selection` theme roles like the list
   picker and config form, so themes such as Pink no longer show an off-palette
   blue selection bar.
+- Composer pickers (`@` / `/` / `?` / `!`): restyle the floating list so the
+  selection bar sits a cell inside the frame with blank rows above and below
+  the list, and the highlighted hint stays readable on the selection bar.
 
 ### Added
 
