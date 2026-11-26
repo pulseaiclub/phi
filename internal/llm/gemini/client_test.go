@@ -182,7 +182,7 @@ func TestApplyLevelThinking(t *testing.T) {
 		for _, tc := range testcases {
 			t.Run(tc.name, func(t *testing.T) {
 				var req GeminiRequest
-				req.ApplyLevelThinking(llm.ThinkConfig{}, tc.off)
+				req.ApplyLevelThinking(llm.ThinkConfig{}, tc.off, false)
 				require.NotNil(t, req.GenerationConfig)
 				body, err := json.Marshal(req.GenerationConfig.ThinkingConfig)
 				require.NoError(t, err)
@@ -192,16 +192,28 @@ func TestApplyLevelThinking(t *testing.T) {
 	})
 	t.Run("enabled", func(t *testing.T) {
 		testcases := []struct {
-			mode llm.ThinkMode
-			want string
+			name       string
+			mode       llm.ThinkMode
+			off        string
+			allowXHigh bool
+			want       string
 		}{
-			{mode: llm.Medium, want: `"thinkingLevel":"MEDIUM"`},
-			{mode: llm.High, want: `"thinkingLevel":"HIGH"`},
+			{name: "medium", mode: llm.Medium, off: "MINIMAL", want: `"thinkingLevel":"MEDIUM"`},
+			{name: "high", mode: llm.High, off: "MINIMAL", want: `"thinkingLevel":"HIGH"`},
+			{name: "minimal_clamped_to_low", mode: llm.Minimal, off: "LOW", want: `"thinkingLevel":"LOW"`},
+			{
+				name:       "xhigh_capped_to_high",
+				mode:       llm.XHigh,
+				off:        "LOW",
+				allowXHigh: false,
+				want:       `"thinkingLevel":"HIGH"`,
+			},
+			{name: "xhigh_allowed", mode: llm.XHigh, off: "LOW", allowXHigh: true, want: `"thinkingLevel":"XHIGH"`},
 		}
 		for _, tc := range testcases {
-			t.Run(string(tc.mode), func(t *testing.T) {
+			t.Run(tc.name, func(t *testing.T) {
 				var req GeminiRequest
-				req.ApplyLevelThinking(llm.ThinkConfig{Enabled: true, Mode: tc.mode}, "MINIMAL")
+				req.ApplyLevelThinking(llm.ThinkConfig{Enabled: true, Mode: tc.mode}, tc.off, tc.allowXHigh)
 				require.NotNil(t, req.GenerationConfig)
 				body, err := json.Marshal(req.GenerationConfig.ThinkingConfig)
 				require.NoError(t, err)

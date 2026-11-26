@@ -34,8 +34,10 @@ The rightmost recognized model wins; slashes inside `:` or `[...]` qualifiers
 are ignored. Specific variants take precedence over their families; arbitrary
 variant suffixes do not match.
 
-Also recognized: `group/auto-glm-5-3-flash`, `group/auto-kimi-k3`, and
-DeepSeek V4.1 Flash aliases (using the `deepseek-flash` preset).
+Also recognized: `group/auto-glm-5-4`, `group/auto-glm-5-3-flash`,
+`group/auto-kimi-k3`, `group/auto-kimi-k3-1-pro`, dot/dash Claude routes such as
+`anthropic/claude-opus-5.5` and `anthropic/claude-sonnet-4.6`, and DeepSeek V4.1
+Flash aliases (using the `deepseek-flash` preset).
 
 For an opaque route, `preset` selects capabilities and request hooks:
 
@@ -52,7 +54,18 @@ models:
 
 | Name | API | Base URL (default) | Context | Input | Output | Images | Thinking wire |
 | ---- | --- | ------------------ | ------: | ----: | -----: | :----: | ------------- |
+| `claude-fable-5-2` | Anthropic | `https://api.anthropic.com` | 1M | — | 128K | yes | `adaptive` + `output_config.effort` (`low..max`) |
+| `claude-opus-5-5` | Anthropic | `https://api.anthropic.com` | 1M | — | 128K | yes | `adaptive` + `output_config.effort` (`low..max`) |
+| `claude-sonnet-5-5` | Anthropic | `https://api.anthropic.com` | 1M | — | 128K | yes | `adaptive` + `output_config.effort` (`low..max`) |
+| `claude-haiku-5-5` | Anthropic | `https://api.anthropic.com` | 1M | — | 128K | yes | `adaptive` + `output_config.effort` (`off`, `low..max`) |
+| `claude-opus-4-6` | Anthropic | `https://api.anthropic.com` | 1M | — | 128K | yes | `adaptive` + `output_config.effort` (`off`, `low..high`, `max`) |
+| `claude-sonnet-4-6` | Anthropic | `https://api.anthropic.com` | 1M | — | 128K | yes | `adaptive` + `output_config.effort` (`off`, `low..high`, `max`) |
+| `gpt-6.2-astra` | OpenAIResponses | `https://api.openai.com/v1` | 1.05M | 922K | 128K | yes | `reasoning.effort` (max, `low..max`) |
+| `gpt-6.2-sol` | OpenAIResponses | `https://api.openai.com/v1` | 1.05M | 922K | 128K | yes | `reasoning.effort` (high, `low..max`) |
+| `gpt-6.1-sol` | OpenAIResponses | `https://api.openai.com/v1` | 1.05M | 922K | 128K | yes | `reasoning.effort` (high, `low..max`) |
+| `gpt-6.1-terra` | OpenAIResponses | `https://api.openai.com/v1` | 1.05M | 922K | 128K | yes | `reasoning.effort` (high, `off`, `low..max`) |
 | `gpt-6-astra` | OpenAIResponses | `https://api.openai.com/v1` | 1.05M | 922K | 128K | yes | `reasoning.effort` (max) |
+| `gpt-6-luna` | OpenAIResponses | `https://api.openai.com/v1` | 1.05M | 922K | 128K | yes | `reasoning.effort` (high, `off`, `low..max`) |
 | `gpt-5.6-sol` | OpenAIResponses | `https://api.openai.com/v1` | 1.05M | 922K | 128K | yes | `reasoning.effort` (high) |
 | `gpt-5.6-terra` | OpenAIResponses | `https://api.openai.com/v1` | 1.05M | 922K | 128K | yes | `reasoning.effort` (high) |
 | `gpt-5.6-luna` | OpenAIResponses | `https://api.openai.com/v1` | 1.05M | 922K | 128K | yes | `reasoning.effort` (high) |
@@ -61,12 +74,19 @@ models:
 | `gpt-5.5-pro` | OpenAIResponses | `https://api.openai.com/v1` | 1.05M | 922K | 128K | yes | `reasoning.effort` (high) |
 | `deepseek-flash` | OpenAI | `https://api.deepseek.com` | 1M | — | 393K | yes | `thinking` + `reasoning_effort` |
 | `deepseek-v4-pro` | OpenAI | `https://api.deepseek.com` | 1M | — | 393K | no | same as Flash |
-| `gemini-2.5-pro` | Gemini | Google Generative Language | 1M | — | 65K | yes | `thinkingBudget` (token cap) |
-| `gemini-2.5-flash` | Gemini | Google Generative Language | 1M | — | 65K | yes | `thinkingBudget` |
+| `gemini-4-carbon` | Gemini | Google Generative Language | 1M | — | 32K | yes | `thinkingLevel` (medium, `LOW..HIGH`) |
+| `gemini-4-argon` | Gemini | Google Generative Language | 1M | — | 32K | yes | `thinkingLevel` (medium, `LOW..HIGH`) |
+| `gemini-4-neon` | Gemini | Google Generative Language | 1M | — | 65K | yes | `thinkingLevel` (high, `LOW..XHIGH`) |
+| `gemini-4-hydrogen` | Gemini | Google Generative Language | 1M | — | 65K | yes | `thinkingLevel` (high, `LOW..XHIGH`) |
+| `gemini-3.8-flash` | Gemini | Google Generative Language | 1M | — | 65K | yes | `thinkingLevel` (`LOW..HIGH`) |
 | `gemini-3-pro` | Gemini | Google Generative Language | 1M | — | — | yes | `thinkingLevel` (off floor `LOW`) |
 | `gemini-3-flash` | Gemini | Google Generative Language | 1M | — | 65K | yes | `thinkingLevel` (off floor `MINIMAL`) |
+| `gemini-2.5-pro` | Gemini | Google Generative Language | 1M | — | 65K | yes | `thinkingBudget` (token cap) |
+| `gemini-2.5-flash` | Gemini | Google Generative Language | 1M | — | 65K | yes | `thinkingBudget` |
+| `kimi-k3.1-pro` | OpenAI | `https://api.moonshot.cn/v1` | 1M | — | 131K | yes | `reasoning_effort` (max) |
 | `kimi-k3` | OpenAI | `https://api.moonshot.cn/v1` | 1M | — | 131K | yes | `reasoning_effort` (max) |
 | `kimi-k2.7-code` | OpenAI | `https://api.moonshot.cn/v1` | 10M | — | — | yes | — |
+| `glm-5.4` | OpenAI | `https://api.z.ai/api/coding/paas/v4` | 1M | — | 131K | yes | same as `glm-5.3` |
 | `glm-5.3` | OpenAI | `https://api.z.ai/api/coding/paas/v4` | 1M | — | 131K | no | endpoint-specific `thinking` + `reasoning_effort` |
 | `glm-5.3-flash` | OpenAI | `https://api.z.ai/api/coding/paas/v4` | 1M | — | 131K | yes | same as `glm-5.3` |
 
@@ -180,12 +200,21 @@ Provider-agnostic knobs on each model (and session UI):
 | `PHI_THINK_LEVEL` | env override on the default model (`off` disables) |
 
 How that maps on the wire depends on the provider / preset interceptor
-(OpenAI `reasoning_effort`, Anthropic thinking budget, Gemini budget or level).
+(OpenAI `reasoning_effort`, Anthropic thinking budget or adaptive `effort`,
+Gemini budget or level).
 
-GLM 5.3 and Kimi K3 support `low`, `high`, `max`; DeepSeek also supports `off`.
-OpenCode Go Chat allows `low` / `high` / `max` for Flash and `high` / `max` for Pro.
-Configuration loading rejects unsupported levels, including disabling required
-thinking. Both pickers show supported levels; custom models use the generic list.
+Claude Fable 5.2, Opus/Sonnet 5.5, GPT-6.2 Astra/Sol, and GPT-6.1 Sol support
+`low`, `medium`, `high`, `xhigh`, `max`; Claude Haiku 5.5, GPT-6.1 Terra, and
+GPT-6 Luna also support `off` (sending `thinking.type: "disabled"` on Claude and
+`reasoning.effort: "none"` on OpenAI Responses), while Claude 4.6 supports
+`off`, `low`, `medium`, `high`, `max`. Gemini 4 Neon/Hydrogen support `low`,
+`medium`, `high`, `xhigh`;
+Gemini 4 Carbon/Argon and Gemini 3.8 Flash support `low`, `medium`, `high`.
+GLM 5.3/5.4 and Kimi K3/K3.1 Pro support `low`, `high`, `max`; DeepSeek also
+supports `off`. OpenCode Go Chat allows `low` / `high` / `max` for Flash and
+`high` / `max` for Pro. Configuration loading rejects unsupported levels,
+including disabling required thinking. Both pickers show supported levels;
+custom models use the generic list.
 
 ```yaml
 models:

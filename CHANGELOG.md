@@ -20,6 +20,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Models: add built-in presets for Claude Fable 5.2, Claude 5.5
+  (Opus/Sonnet/Haiku), and Claude 4.6 (Opus/Sonnet) with adaptive thinking,
+  GPT-6.2 (Astra/Sol), GPT-6.1 (Sol/Terra), and GPT-6 Luna, Gemini 4
+  (Carbon/Argon/Neon/Hydrogen) and 3.8 Flash, GLM-5.4, and Kimi K3.1 Pro,
+  synced from `models.dev`.
+
 ### Fixed
 
 - Compaction: sync model input limits from `models.dev` (such as the 922K input
