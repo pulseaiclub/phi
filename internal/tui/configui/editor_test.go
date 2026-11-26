@@ -278,22 +278,45 @@ func TestFetchPrefillsUnsetFieldsWithoutOverwriting(t *testing.T) {
 		assert.False(t, *doc.Models[0].ImageEnabled, "explicit false overrides a vision-enabled preset")
 	})
 
-	t.Run("larger advertised limits stay visible and preserve the preset input limit", func(t *testing.T) {
-		doc := &project.ConfigDoc{Models: []project.ModelDoc{{Name: "custom"}}}
-		e := newTestEditor(t, doc)
-		e.openModelPicker(0, []ModelInfo{{ID: "openai/gpt-6.2-astra", ContextWindow: 2_000_000, MaxTokens: 256_000}})
-		assert.Contains(t, components.SurfaceText(drawForm(t, e)), "2M context · 256k output")
-		press(e, xui.KeyEnter, 0)
+	t.Run("gateway window only prefills below preset compaction cap", func(t *testing.T) {
+		for _, tc := range []struct {
+			advertised     int
+			wantCompaction int
+			wantSet        bool
+		}{
+			{advertised: 1_000_000, wantCompaction: 922_000, wantSet: false},
+			{advertised: 200_000, wantCompaction: 200_000, wantSet: true},
+		} {
+			doc := &project.ConfigDoc{Models: []project.ModelDoc{{Name: "custom"}}}
+			e := newTestEditor(t, doc)
+			e.openModelPicker(
+				0,
+				[]ModelInfo{{ID: "openai/gpt-6.2-astra", ContextWindow: tc.advertised, MaxTokens: 256_000}},
+				"",
+				"",
+			)
+			assert.Contains(
+				t,
+				components.SurfaceText(drawForm(t, e)),
+				humanTokens(tc.advertised)+" context · 256k output",
+			)
+			press(e, xui.KeyEnter, 0)
 
-		m := doc.Models[0]
-		assert.Nil(t, m.ContextWindow)
-		assert.Nil(t, m.MaxTokens)
-		cfg, err := project.ResolveModelDoc(m)
-		require.NoError(t, err)
-		assert.Equal(t, 922_000, cfg.InputLimit)
+			m := doc.Models[0]
+			if tc.wantSet {
+				require.NotNil(t, m.ContextWindow)
+				assert.Equal(t, tc.advertised, *m.ContextWindow)
+			} else {
+				assert.Nil(t, m.ContextWindow)
+			}
+			assert.Nil(t, m.MaxTokens)
+			cfg, err := project.ResolveModelDoc(m)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantCompaction, cfg.CompactionWindow())
+		}
 	})
 
-	t.Run("minimal preset entry resolves preset base_url and api when fetching", func(t *testing.T) {
+	t.Run("minimal preset entry preserves discovered endpoint for unrecognized model", func(t *testing.T) {
 		doc := &project.ConfigDoc{Models: []project.ModelDoc{{Name: "gemini-4-neon", APIKey: "k"}}}
 		home := t.TempDir()
 		t.Setenv("HOME", home)
@@ -302,7 +325,7 @@ func TestFetchPrefillsUnsetFieldsWithoutOverwriting(t *testing.T) {
 		redrawCh := make(chan struct{}, 1)
 		list := ModelLister(func(_ context.Context, baseURL, _, api, _ string) ([]ModelInfo, error) {
 			gotCh <- [2]string{baseURL, api}
-			return []ModelInfo{{ID: "gemini-4-neon"}}, nil
+			return []ModelInfo{{ID: "gemma-4-27b-it", ContextWindow: 131_072, MaxTokens: 8_192}}, nil
 		})
 		e := New(doc, filepath.Join(home, ".phi", "config.yaml"), filepath.Join(home, ".phi", "skills"),
 			components.DarkTheme(), list, func() { redrawCh <- struct{}{} })
@@ -319,6 +342,51 @@ func TestFetchPrefillsUnsetFieldsWithoutOverwriting(t *testing.T) {
 		case <-redrawCh:
 		case <-time.After(time.Second):
 			require.FailNow(t, "fetch goroutine did not finish")
+		}
+
+		drawForm(t, e)
+		require.True(t, e.picker.Open)
+		press(e, xui.KeyEnter, 0)
+		cfg, err := project.ResolveModelDoc(doc.Models[0])
+		require.NoError(t, err)
+		assert.Equal(t, "gemma-4-27b-it", cfg.Name)
+		assert.Equal(t, "https://generativelanguage.googleapis.com/v1beta", cfg.BaseURL)
+		assert.Equal(t, llm.Gemini, cfg.API)
+		assert.Equal(t, 131_072, cfg.ContextWindow)
+	})
+
+	t.Run("stale fetch is discarded when connection or api key changes in flight", func(t *testing.T) {
+		for _, tc := range []struct {
+			name   string
+			model  project.ModelDoc
+			result fetchState
+		}{
+			{
+				name:  "base_url changed",
+				model: project.ModelDoc{Name: "custom", BaseURL: "https://new.example/v1"},
+				result: fetchState{
+					done: true, index: 0, name: "custom", baseURL: "https://old.example/v1",
+					models: []ModelInfo{{ID: "custom", ContextWindow: 32_768}},
+				},
+			},
+			{
+				name:  "api_key changed",
+				model: project.ModelDoc{Name: "custom", BaseURL: "https://gw.example/v1", APIKey: "new-key"},
+				result: fetchState{
+					done: true, index: 0, name: "custom", apiKey: "old-key", baseURL: "https://gw.example/v1",
+					models: []ModelInfo{{ID: "custom", ContextWindow: 32_768}},
+				},
+			},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				doc := &project.ConfigDoc{Models: []project.ModelDoc{tc.model}}
+				e := newTestEditor(t, doc)
+				e.fetch = tc.result
+				e.pollFetch()
+				assert.False(t, e.picker.Open)
+				assert.Contains(t, e.status, "changed while fetching")
+				assert.Nil(t, doc.Models[0].ContextWindow)
+			})
 		}
 	})
 }
