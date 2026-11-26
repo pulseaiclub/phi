@@ -30,7 +30,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - Gemini: keep each tool call's `thoughtSignature` and send it back on the same
   `functionCall` part in the next request, so Gemini 3+ models no longer reject
-  tool-call follow-ups with `400 INVALID_ARGUMENT`.
+  tool-call follow-ups with `400 INVALID_ARGUMENT`. A step in the current turn
+  whose first call has no signature (history from another provider, or a session
+  saved before this fix) gets Google's `skip_thought_signature_validator`
+  placeholder instead.
 - Compaction: sync model input limits from `models.dev` (such as the 922K input
   cap on 1.05M-context GPT presets) and use the input limit for proactive
   compaction and footer context pressure while keeping the full context window

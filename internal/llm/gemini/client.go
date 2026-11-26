@@ -9,6 +9,7 @@ import (
 	"iter"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/pulseaiclub/phi/internal/llm"
@@ -20,6 +21,10 @@ const (
 	// finishReasonMaxTokens is the Gemini finish reason for a candidate that hit
 	// the output cap: the text is a prefix, not a finished answer.
 	finishReasonMaxTokens = "MAX_TOKENS"
+	// skipThoughtSignature is the placeholder Google documents for a
+	// functionCall that never had a signature, such as history from another
+	// provider or a session saved before signatures were kept.
+	skipThoughtSignature = "skip_thought_signature_validator"
 )
 
 type part struct {
@@ -219,10 +224,42 @@ func BuildRequest(
 			req.Contents = append(req.Contents, c)
 		}
 	}
+	signCurrentTurn(req.Contents)
 	req.Tools = []struct {
 		FunctionDeclarations []functionDeclaration `json:"functionDeclarations"`
 	}{{FunctionDeclarations: toToolMessage(tools)}}
 	return req
+}
+
+// signCurrentTurn gives the first functionCall of each model step in the
+// current turn the placeholder signature when it has none. Gemini 3+ rejects
+// such a step with a 400, while it accepts the later calls of a parallel step
+// bare (only the first is ever signed), so those are left as received. The
+// turn starts at the last user content that is not only tool results; earlier
+// turns are not validated, so they are not touched.
+func signCurrentTurn(contents []content) {
+	start := -1
+	for i, c := range slices.Backward(contents) {
+		if c.Role == "user" && lastFunctionResponseContent(contents[i:i+1]) == nil {
+			start = i
+			break
+		}
+	}
+	for i := start + 1; i < len(contents); i++ {
+		if contents[i].Role != "model" {
+			continue
+		}
+		for j := range contents[i].Parts {
+			p := &contents[i].Parts[j]
+			if p.FunctionCall == nil {
+				continue
+			}
+			if p.ThoughtSignature == "" {
+				p.ThoughtSignature = skipThoughtSignature
+			}
+			break
+		}
+	}
 }
 
 // lastFunctionResponseContent returns the trailing user content holding

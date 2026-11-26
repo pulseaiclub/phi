@@ -455,13 +455,62 @@ func TestBuildRequestReplaysThoughtSignature(t *testing.T) {
 	assert.Equal(t, 1, strings.Count(string(body), `"thoughtSignature"`))
 }
 
-func TestBuildRequestWithoutThoughtSignatureOmitsField(t *testing.T) {
+func unsignedCall(path string) llm.ToolCall {
+	return llm.ToolCall{
+		ID: "read", Type: "function",
+		Function: llm.Function{Name: "read", Arguments: `{"path":"` + path + `"}`},
+	}
+}
+
+func toolResult(out string) llm.Message {
+	return llm.Message{Role: llm.RoleTool, ToolCallID: "read", Content: out}
+}
+
+func TestBuildRequestSignsUnsignedCurrentTurn(t *testing.T) {
+	// History from another provider: nothing in the turn is signed.
 	req := BuildRequest("", []llm.Message{
 		{Role: llm.RoleUser, Content: "hi"},
-		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
-			ID: "read", Type: "function",
-			Function: llm.Function{Name: "read", Arguments: `{"path":"a.go"}`},
-		}}},
+		{Role: llm.RoleAssistant, Content: "reading", ToolCalls: []llm.ToolCall{
+			unsignedCall("a.go"), unsignedCall("b.go"),
+		}},
+		toolResult("a"), toolResult("b"),
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{unsignedCall("c.go")}},
+	}, nil)
+
+	require.Len(t, req.Contents, 4)
+	step1 := req.Contents[1].Parts
+	require.Len(t, step1, 3)
+	assert.Empty(t, step1[0].ThoughtSignature, "text part is never signed")
+	assert.Equal(t, skipThoughtSignature, step1[1].ThoughtSignature, "first call of the step")
+	assert.Empty(t, step1[2].ThoughtSignature, "later parallel calls stay bare")
+	assert.Equal(t, skipThoughtSignature, req.Contents[3].Parts[0].ThoughtSignature, "each step's first call")
+}
+
+func TestBuildRequestKeepsRealSignatureOnParallelStep(t *testing.T) {
+	signed := unsignedCall("a.go")
+	signed.ThoughtSignature = "sig-a"
+	calls := []llm.ToolCall{signed, unsignedCall("b.go")}
+	req := BuildRequest("", []llm.Message{
+		{Role: llm.RoleUser, Content: "hi"},
+		{Role: llm.RoleAssistant, ToolCalls: calls},
+	}, nil)
+
+	parts := req.Contents[1].Parts
+	assert.Equal(t, "sig-a", parts[0].ThoughtSignature)
+	assert.Empty(t, parts[1].ThoughtSignature)
+	body, err := json.Marshal(req)
+	require.NoError(t, err)
+	assert.NotContains(t, string(body), skipThoughtSignature)
+	assert.Empty(t, calls[1].ThoughtSignature, "the session's tool calls are not modified")
+}
+
+func TestBuildRequestLeavesPreviousTurnsBare(t *testing.T) {
+	req := BuildRequest("", []llm.Message{
+		{Role: llm.RoleUser, Content: "first"},
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{unsignedCall("a.go")}},
+		toolResult("a"),
+		{Role: llm.RoleAssistant, Content: "done"},
+		{Role: llm.RoleUser, Content: "second"},
 	}, nil)
 
 	body, err := json.Marshal(req)
