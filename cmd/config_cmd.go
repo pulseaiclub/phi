@@ -60,7 +60,7 @@ func runConfigEditor() error {
 		path,
 		proj.Global().SkillsDir(),
 		components.DefaultTheme(),
-		fetchModelIDs,
+		fetchModels,
 		application.RequestRedraw,
 	)
 	if err := application.Run(ui); err != nil {

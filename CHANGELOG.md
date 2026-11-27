@@ -27,6 +27,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - Add the `GeminiInteractions` transport for streaming Gemini responses and
   continuing tool calls with Google's stored interaction IDs.
+- Config: prefill unset `context_window`, `max_tokens`, and `image_enabled`
+  fields in `phi config` when fetching `/models` from endpoints that report
+  model metadata (OpenRouter, Anthropic, Gemini, vLLM, and compatible proxies),
+  and support fetching Gemini `/v1beta/models`. Advertised token limits
+  only override existing preset limits when the gateway reports a smaller value.
 - Models: add built-in presets for Claude Fable 5.2, Claude 5.5
   (Opus/Sonnet/Haiku), and Claude 4.6 (Opus/Sonnet) with adaptive thinking,
   GPT-6.2 (Astra/Sol), GPT-6.1 (Sol/Terra), and GPT-6 Luna, Gemini 4
