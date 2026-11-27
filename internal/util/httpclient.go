@@ -16,7 +16,7 @@ const (
 	httpDialTimeout           = 30 * time.Second
 	httpKeepAlive             = 30 * time.Second
 	httpTLSHandshakeTimeout   = 10 * time.Second
-	httpResponseHeaderTimeout = 3 * time.Minute
+	httpResponseHeaderTimeout = 6 * time.Minute
 	httpExpectContinueTimeout = 1 * time.Second
 )
 
