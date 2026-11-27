@@ -281,28 +281,13 @@ func lastFunctionResponseContent(contents []content) *content {
 	return nil
 }
 
-func marshalToolParams(params *core.FunctionParameters) json.RawMessage {
-	if params == nil {
-		return json.RawMessage(`{"type":"object"}`)
-	}
-	raw, err := json.Marshal(struct {
-		Type       string      `json:"type"`
-		Properties core.Object `json:"properties"`
-		Required   []string    `json:"required,omitempty"`
-	}{params.Type, params.Properties, params.Required})
-	if err != nil {
-		return json.RawMessage(`{"type":"object"}`)
-	}
-	return raw
-}
-
 func toToolMessage(tools []core.ToolDefinition) []functionDeclaration {
 	decls := make([]functionDeclaration, 0, len(tools))
 	for _, t := range tools {
 		decls = append(decls, functionDeclaration{
 			Name:        t.Name,
 			Description: t.Description,
-			Parameters:  marshalToolParams(t.Params),
+			Parameters:  llm.MarshalToolParams(t.Params, `{"type":"object"}`),
 		})
 	}
 	return decls

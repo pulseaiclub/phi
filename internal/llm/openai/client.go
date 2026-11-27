@@ -217,7 +217,7 @@ func BuildRequest(cfg core.ModelConfig, system string, messages []core.Message, 
 		apiTools[i] = apiTool{Type: "function", Function: apiFunction{
 			Name:        t.Name,
 			Description: t.Description,
-			Parameters:  marshalToolParams(t.Params),
+			Parameters:  llm.MarshalToolParams(t.Params, "null"),
 		}}
 	}
 
@@ -407,19 +407,4 @@ func hasStreamDelta(delta core.StreamDelta, msg *message) bool {
 func responseText(content any) string {
 	text, _ := content.(string)
 	return text
-}
-
-func marshalToolParams(params *core.FunctionParameters) json.RawMessage {
-	if params == nil {
-		return json.RawMessage("null")
-	}
-	raw, err := json.Marshal(struct {
-		Type       string      `json:"type"`
-		Properties core.Object `json:"properties"`
-		Required   []string    `json:"required,omitempty"`
-	}{params.Type, params.Properties, params.Required})
-	if err != nil {
-		return json.RawMessage("null")
-	}
-	return raw
 }

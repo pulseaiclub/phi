@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/pulseaiclub/phi/internal/core"
+	"github.com/pulseaiclub/phi/internal/llm"
 )
 
 // messageJSON is the stable session/extension representation of a domain message.
@@ -187,35 +188,23 @@ func unmarshalToolCalls(data []byte) ([]core.ToolCall, error) {
 	return calls, nil
 }
 
-// marshalToolDefinitions converts domain tools to the extension wire shape.
-func marshalToolDefinitions(tools []core.ToolDefinition) ([]byte, error) {
-	wire := make([]struct {
-		Name        string          `json:"name"`
-		Description string          `json:"description"`
-		Parameters  json.RawMessage `json:"parameters"`
-	}, 0, len(tools))
-	for _, tool := range tools {
-		wire = append(wire, struct {
-			Name        string          `json:"name"`
-			Description string          `json:"description"`
-			Parameters  json.RawMessage `json:"parameters"`
-		}{tool.Name, tool.Description, marshalToolParams(tool.Params, "null")})
-	}
-	return json.Marshal(wire)
+// toolJSON is the extension wire shape of one tool definition. Readable is
+// host-only scheduling metadata and never crosses the boundary.
+type toolJSON struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Parameters  json.RawMessage `json:"parameters"`
 }
 
-// marshalToolParams converts a domain schema to a provider JSON schema.
-func marshalToolParams(params *core.FunctionParameters, empty string) json.RawMessage {
-	if params == nil {
-		return json.RawMessage(empty)
+// marshalToolDefinitions encodes domain tools for the extension boundary.
+func marshalToolDefinitions(tools []core.ToolDefinition) ([]byte, error) {
+	out := make([]toolJSON, 0, len(tools))
+	for _, tool := range tools {
+		out = append(out, toolJSON{
+			Name:        tool.Name,
+			Description: tool.Description,
+			Parameters:  llm.MarshalToolParams(tool.Params, "null"),
+		})
 	}
-	raw, err := json.Marshal(struct {
-		Type       string      `json:"type"`
-		Properties core.Object `json:"properties"`
-		Required   []string    `json:"required,omitempty"`
-	}{params.Type, params.Properties, params.Required})
-	if err != nil || len(raw) == 0 {
-		return json.RawMessage(empty)
-	}
-	return raw
+	return json.Marshal(out)
 }

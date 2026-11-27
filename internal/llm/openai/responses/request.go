@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/pulseaiclub/phi/internal/core"
+	"github.com/pulseaiclub/phi/internal/llm"
 )
 
 const responsesPath = "/responses"
@@ -101,7 +102,7 @@ func BuildRequest(cfg core.ModelConfig, system string, messages []core.Message, 
 			Type:        "function",
 			Name:        t.Name,
 			Description: t.Description,
-			Parameters:  marshalToolParams(t.Params),
+			Parameters:  llm.MarshalToolParams(t.Params, ""),
 			Strict:      false,
 		}
 	}
@@ -180,21 +181,6 @@ func callID(id string) string {
 		return before
 	}
 	return id
-}
-
-func marshalToolParams(params *core.FunctionParameters) json.RawMessage {
-	if params == nil {
-		return nil
-	}
-	raw, err := json.Marshal(struct {
-		Type       string      `json:"type"`
-		Properties core.Object `json:"properties"`
-		Required   []string    `json:"required,omitempty"`
-	}{params.Type, params.Properties, params.Required})
-	if err != nil {
-		return nil
-	}
-	return raw
 }
 
 // NewCompactRequest builds a summary request with the streaming reasoning settings.

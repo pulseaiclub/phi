@@ -90,7 +90,7 @@ func BuildRequest(
 		tool := anthropicTool{
 			Name:        t.Name,
 			Description: t.Description,
-			InputSchema: marshalToolParams(t.Params),
+			InputSchema: llm.MarshalToolParams(t.Params, "{}"),
 		}
 		if i == len(tools)-1 {
 			tool.CacheControl = cc
@@ -225,21 +225,6 @@ func BuildRequest(
 		req.nativeInput = snapshotNativeInput(&req)
 	}
 	return req
-}
-
-func marshalToolParams(params *core.FunctionParameters) json.RawMessage {
-	if params == nil {
-		return json.RawMessage("{}")
-	}
-	raw, err := json.Marshal(struct {
-		Type       string      `json:"type"`
-		Properties core.Object `json:"properties"`
-		Required   []string    `json:"required,omitempty"`
-	}{params.Type, params.Properties, params.Required})
-	if err != nil {
-		return json.RawMessage("{}")
-	}
-	return raw
 }
 
 func normalizeToolCallID(id string) string {
