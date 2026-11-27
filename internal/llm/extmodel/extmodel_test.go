@@ -33,12 +33,13 @@ func TestStreamAssemblesFinalMessage(t *testing.T) {
 		{Type: "delta", Reasoning: "thin"},
 		{Type: "delta", Reasoning: "king", Content: "hel"},
 		{Type: "delta", Content: "lo"},
-		{Type: "delta", ToolCalls: mustJSON(t, []core.ToolCall{
-			{Index: 0, ID: "call1", Type: "function", Function: core.Function{Name: "read", Arguments: `{"pa`}},
-		})},
-		{Type: "delta", ToolCalls: mustJSON(t, []core.ToolCall{
-			{Index: 0, Function: core.Function{Arguments: `th":"x"}`}},
-		})},
+		{
+			Type: "delta",
+			ToolCalls: []byte(
+				`[{"index":0,"id":"call1","type":"function","function":{"name":"read","arguments":"{\"pa"},"thought_signature":"signature"}]`,
+			),
+		},
+		{Type: "delta", ToolCalls: []byte(`[{"index":0,"function":{"arguments":"th\":\"x\"}"}}]`)},
 		{Type: "done", UsageJSON: mustUsageJSON(t, core.Usage{PromptTokens: 3, CompletionTokens: 4, TotalTokens: 7})},
 	}
 	c := New(
@@ -65,8 +66,60 @@ func TestStreamAssemblesFinalMessage(t *testing.T) {
 	assert.Equal(t, "thinking", final.ReasoningContent)
 	require.Len(t, final.ToolCalls, 1)
 	assert.Equal(t, "read", final.ToolCalls[0].Function.Name)
+	assert.Equal(t, "signature", final.ToolCalls[0].ThoughtSignature)
 	assert.JSONEq(t, `{"path":"x"}`, final.ToolCalls[0].Function.Arguments)
 	assert.Equal(t, 7, final.Usage.TotalTokens)
+}
+
+func TestStreamPartialUsage(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		update string
+		want   core.Usage
+	}{
+		{"omitted fields", `{"completion_tokens":10}`, core.Usage{
+			PromptTokens: 100, CompletionTokens: 10,
+			PromptTokensDetails: &core.PromptTokensDetails{CachedTokens: 50, CacheWriteTokens: 20},
+		}},
+		{"nested fields", `{"prompt_tokens_details":{"cache_write_tokens":30}}`, core.Usage{
+			PromptTokens:        100,
+			PromptTokensDetails: &core.PromptTokensDetails{CachedTokens: 50, CacheWriteTokens: 30},
+		}},
+		{"explicit zero", `{"prompt_tokens":0,"prompt_tokens_details":{"cached_tokens":0}}`, core.Usage{
+			PromptTokensDetails: &core.PromptTokensDetails{CacheWriteTokens: 20},
+		}},
+		{"empty object", `{}`, core.Usage{
+			PromptTokens:        100,
+			PromptTokensDetails: &core.PromptTokensDetails{CachedTokens: 50, CacheWriteTokens: 20},
+		}},
+		{"null usage", `null`, core.Usage{
+			PromptTokens:        100,
+			PromptTokensDetails: &core.PromptTokensDetails{CachedTokens: 50, CacheWriteTokens: 20},
+		}},
+		{"null details", `{"prompt_tokens_details":null}`, core.Usage{PromptTokens: 100}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			frames := []pxb.ModelStreamEvent{
+				{
+					Type: "delta",
+					UsageJSON: []byte(
+						`{"prompt_tokens":100,"prompt_tokens_details":{"cached_tokens":50,"cache_write_tokens":20}}`,
+					),
+				},
+				{Type: "done", UsageJSON: []byte(tt.update)},
+			}
+			c := New("echo", func(context.Context, pxb.ModelInvoke) (iter.Seq2[pxb.ModelStreamEvent, error], error) {
+				return sliceSeq(frames), nil
+			}, core.ModelConfig{}, nil, "")
+			events, err := deltaEvents(c.Stream(t.Context(), nil))
+			require.NoError(t, err)
+			require.NotEmpty(t, events)
+			final := events[len(events)-1]
+			require.Equal(t, core.StreamEventTypeDone, final.Type)
+			require.NotNil(t, final.Final)
+			assert.Equal(t, tt.want, final.Final.Usage)
+		})
+	}
 }
 
 func TestStreamErrorAndProtocolViolations(t *testing.T) {
@@ -278,11 +331,4 @@ func mustUsageJSON(t *testing.T, usage core.Usage) []byte {
 	data, err := marshalUsage(usage)
 	require.NoError(t, err)
 	return data
-}
-
-func mustJSON(t *testing.T, v any) []byte {
-	t.Helper()
-	b, err := json.Marshal(v)
-	require.NoError(t, err)
-	return b
 }

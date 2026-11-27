@@ -150,7 +150,19 @@ func marshalUsage(usage core.Usage) ([]byte, error) {
 
 // unmarshalUsage decodes stable token usage into the domain type.
 func unmarshalUsage(data []byte, usage *core.Usage) error {
-	var wire usageJSON
+	// Extensions can report partial usage on successive frames. Seed a copy so
+	// omitted fields survive and invalid input cannot mutate accumulated usage.
+	wire := usageJSON{
+		CompletionTokens: usage.CompletionTokens,
+		PromptTokens:     usage.PromptTokens,
+		TotalTokens:      usage.TotalTokens,
+	}
+	if usage.PromptTokensDetails != nil {
+		wire.PromptTokensDetails = &usageDetailsJSON{
+			CachedTokens:     usage.PromptTokensDetails.CachedTokens,
+			CacheWriteTokens: usage.PromptTokensDetails.CacheWriteTokens,
+		}
+	}
 	if err := json.Unmarshal(data, &wire); err != nil {
 		return err
 	}
