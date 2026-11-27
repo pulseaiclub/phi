@@ -267,9 +267,16 @@ func (s *Session) BuildContext() []llm.Message {
 		case session.EntryMessage:
 			m := entry.(session.SessionMessageEntry)
 			msg := m.Message
-			if compactionID != "" {
+			if state := msg.ProviderState; compactionID != "" && state != nil {
 				// Retained messages were generated before the summary replaced their prefix.
 				msg.ProviderState = nil
+				if state.Provider == llm.GeminiInteractions && len(state.Data.Items) > 0 {
+					// Gemini's signed steps describe this retained turn independently of the server's history.
+					local := *state
+					local.Data.Prefix = ""
+					local.Data.InteractionID = ""
+					msg.ProviderState = &local
+				}
 			}
 			msgs = append(msgs, msg)
 		}

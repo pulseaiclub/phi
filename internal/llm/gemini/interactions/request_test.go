@@ -59,6 +59,7 @@ func TestRequestToolContinuation(t *testing.T) {
 	assert.JSONEq(t, `{"type":"function_result","call_id":"a","name":"read","result":"file"}`, string(follow.Input[1]))
 
 	local := cfg
+	local.Name = "gemini-other"
 	local.RequestParameters = llm.RequestParameters{"store": false}
 	stateless, err := buildRequest(local, "system", history, tools, true, 0)
 	require.NoError(t, err)
@@ -67,6 +68,14 @@ func TestRequestToolContinuation(t *testing.T) {
 	assert.Equal(t, items, stateless.Input[1:4])
 	assert.Equal(t, follow.Input, stateless.Input[4:])
 	assert.Empty(t, stateless.providerState("discard", items, assistant).Data.InteractionID)
+
+	restarted, err := follow.withHistory(history, false)
+	require.NoError(t, err)
+	assert.Empty(t, restarted.PreviousInteractionID)
+	assert.True(t, restarted.Store)
+	assert.Equal(t, stateless.Input, restarted.Input)
+	assert.Equal(t, "ix-1", follow.PreviousInteractionID)
+	assert.Len(t, follow.Input, 2)
 
 	history[2].ProviderState = nil // A legacy session has only normalized messages.
 	fallback, err := buildRequest(cfg, "system", history, tools, true, 0)
@@ -132,14 +141,59 @@ func TestRequestContinuationBelongsToCurrentHistory(t *testing.T) {
 				return
 			}
 			assert.Empty(t, r.PreviousInteractionID)
-			if change == "later assistant" {
-				// Older valid local steps remain replayable even though their remote ID is stale.
+			if change == "model" || change == "later assistant" {
+				// Gemini can replay these native steps even when the server-side anchor is ineligible.
 				assert.Len(t, r.Input, len(msgs)+1)
+				assert.Equal(t, assistant.ProviderState.Data.Items, r.Input[1:3])
 				return
 			}
 			assert.Len(t, r.Input, len(msgs))
 			for _, step := range r.Input {
 				assert.NotContains(t, string(step), "private")
+			}
+		})
+	}
+}
+
+func TestRequestCompactedStepReplay(t *testing.T) {
+	cfg := llm.ModelConfig{Name: "gemini", RequestParameters: llm.RequestParameters{"store": false}}
+	first, err := buildRequest(cfg, "", nil, nil, true, 0)
+	require.NoError(t, err)
+	reply := llm.Message{Role: llm.RoleAssistant, Content: "answer"}
+	items := []json.RawMessage{
+		json.RawMessage(`{"type":"thought","signature":"signed"}`),
+		json.RawMessage(`{"type":"model_output","content":[{"type":"text","text":"answer"}]}`),
+	}
+	state := first.providerState("", items, reply)
+	for _, tc := range []struct {
+		name           string
+		legacy, edited bool
+	}{
+		{name: "retained"},
+		{name: "edited", edited: true},
+		{name: "legacy retained", legacy: true},
+		{name: "legacy edited", legacy: true, edited: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			retained := *state
+			retained.Data.Prefix = ""
+			if tc.legacy {
+				retained.Data.MessageDigest = ""
+			}
+			m := reply
+			m.ProviderState = &retained
+			if tc.edited {
+				m.Content = "replacement"
+			}
+			messages := []llm.Message{{Role: llm.RoleUser, Content: "summary"}, m}
+			r, err := buildRequest(cfg, "", messages, nil, true, 0)
+			require.NoError(t, err)
+			assert.Empty(t, r.PreviousInteractionID)
+			if tc.edited {
+				require.Len(t, r.Input, 2)
+				assert.Contains(t, string(r.Input[1]), "replacement")
+			} else {
+				assert.Equal(t, items, r.Input[1:])
 			}
 		})
 	}

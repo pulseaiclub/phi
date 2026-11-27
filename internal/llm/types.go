@@ -285,8 +285,10 @@ type ProviderState struct {
 
 // ProviderData holds provider-native history used to continue a turn.
 type ProviderData struct {
-	// Prefix binds Items to the system, tools, and message history they depend on.
+	// Prefix identifies the request history associated with this state.
 	Prefix        string            `json:"prefix,omitempty"`
 	Items         []json.RawMessage `json:"items,omitempty"`
 	InteractionID string            `json:"interaction_id,omitempty"`
+	// MessageDigest binds Gemini's native steps to their normalized assistant turn after compaction.
+	MessageDigest string `json:"message_digest,omitempty"`
 }

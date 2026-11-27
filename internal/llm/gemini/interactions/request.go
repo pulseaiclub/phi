@@ -118,6 +118,13 @@ func buildRequest(
 		r.GenerationConfig = &generation
 	}
 
+	return r.withHistory(messages, true)
+}
+
+func (r request) withHistory(messages []llm.Message, allowRemote bool) (request, error) {
+	r.Input = nil
+	r.PreviousInteractionID = ""
+	r.prefix = [sha256.Size]byte{}
 	// Gemini chains only inputs and outputs. The system instruction and tools apply to this request.
 	native := make([]bool, len(messages))
 	start := 0
@@ -130,11 +137,18 @@ func buildRequest(
 			continue
 		}
 		state := m.ProviderState
-		native[i] = state != nil && state.Provider == llm.GeminiInteractions &&
-			state.Model == r.Model && state.Endpoint == r.endpoint && state.Data.Prefix == hex.EncodeToString(r.prefix[:])
 		// A newer assistant reply supersedes any older continuation, even after switching providers.
 		start, r.PreviousInteractionID = 0, ""
-		if store && native[i] && state.Data.InteractionID != "" {
+		if state == nil || state.Provider != llm.GeminiInteractions || state.Endpoint != r.endpoint {
+			continue
+		}
+		sameHistory := state.Data.Prefix == hex.EncodeToString(r.prefix[:])
+		native[i] = sameHistory
+		if state.Data.Prefix == "" && len(state.Data.Items) > 0 {
+			// Compaction replaced the prefix, but an unchanged tool turn still needs its original signature.
+			native[i] = matchesRetainedTurn(m, state.Data)
+		}
+		if allowRemote && r.Store && sameHistory && state.Model == r.Model && state.Data.InteractionID != "" {
 			start, r.PreviousInteractionID = i+1, state.Data.InteractionID
 		}
 	}
@@ -160,6 +174,26 @@ func buildRequest(
 	return r, nil
 }
 
+func matchesRetainedTurn(m llm.Message, data llm.ProviderData) bool {
+	digest := messageDigest([sha256.Size]byte{}, m)
+	if data.MessageDigest != "" {
+		return data.MessageDigest == hex.EncodeToString(digest[:])
+	}
+	// Older sessions only saved the prefix. Recover the original assistant message from their saved steps.
+	raw, err := json.Marshal(struct {
+		Steps []json.RawMessage `json:"steps"`
+	}{data.Items})
+	if err != nil {
+		return false
+	}
+	var captured streamState
+	if err := captured.snapshot(raw, func(llm.StreamEvent, error) bool { return true }); err != nil {
+		return false
+	}
+	event, _, err := captured.final()
+	return err == nil && messageDigest([sha256.Size]byte{}, *event.Final) == digest
+}
+
 // Keep the continuation bound to the local branch, including edits to the assistant reply itself.
 // Omitting ProviderState keeps opaque output out of the hash and its cost linear in normalized history.
 func messageDigest(prefix [sha256.Size]byte, m llm.Message) [sha256.Size]byte {
@@ -180,9 +214,15 @@ func (r *request) providerState(id string, items []json.RawMessage, final llm.Me
 		return nil
 	}
 	sum := messageDigest(r.prefix, final)
+	digest := messageDigest([sha256.Size]byte{}, final)
 	return &llm.ProviderState{
 		Provider: llm.GeminiInteractions, Model: r.Model, Endpoint: r.endpoint,
-		Data: llm.ProviderData{Prefix: hex.EncodeToString(sum[:]), InteractionID: id, Items: items},
+		Data: llm.ProviderData{
+			Prefix:        hex.EncodeToString(sum[:]),
+			InteractionID: id,
+			Items:         items,
+			MessageDigest: hex.EncodeToString(digest[:]),
+		},
 	}
 }
 
