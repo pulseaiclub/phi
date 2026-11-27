@@ -8,7 +8,8 @@
 | `internal/agent/`        | Agent engine, executor, jobs                     |
 | `internal/agent/prompt/` | System prompt templates + Skills/MCP catalogs    |
 | `internal/components/`   | TUI widgets (chat, input, palette, mention, diffview, codeview, …) |
-| `internal/llm/`          | LLM clients (OpenAI-compatible + Anthropic + Gemini), streaming, skills |
+| `internal/core/`         | Provider-neutral domain types (`Message`, `ToolCall`, `Usage`, `StreamEvent`, `ModelConfig`) |
+| `internal/llm/`          | Client interfaces (`ChatClient`, `Compactor`), provider adapters (openai, anthropic, gemini), HTTP helpers |
 | `internal/llm/extmodel/` | Extension-served model connection adapted to `llm.ChatClient` |
 | `internal/project/`      | Workspace layout and config                    |
 | `internal/project/model/` | Built-in model presets + request interceptors |
