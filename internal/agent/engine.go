@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/llm/skills"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/session/compaction"
+	"github.com/pulseaiclub/phi/internal/skills"
 )
 
 // Engine drives the agent loop: stream → tools → stream…

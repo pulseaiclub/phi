@@ -9,7 +9,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/pulseaiclub/phi/internal/llm/skills"
+	"github.com/pulseaiclub/phi/internal/skills"
 )
 
 var (
