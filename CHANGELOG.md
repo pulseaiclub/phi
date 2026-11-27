@@ -18,6 +18,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- docs: add Turkish README translation (`README.tr.md`) and link it in `README.md` and `README.zh-CN.md`.
+
 ### Fixed
 
 ### Security
