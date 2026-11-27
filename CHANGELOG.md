@@ -12,6 +12,21 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+### Added
+
+### Fixed
+
+### Security
+
+<!-- Released section -->
+<!-- Don't change this section unless doing release -->
+
+## [0.30.2] - 2026-11-27
+
+### Removed
+
+### Changed
+
 - Models: sync built-in preset context windows, output limits, and image-input support from `models.dev` via `make sync-models` (`internal/project/model/specs_gen.go`).
 - The composer's `@` / slash picker no longer hardcodes its selection colors:
   the highlighted row uses the shared `Selection` theme roles like the list
@@ -52,9 +67,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   wide glyph truncates it, keeping overlay borders intact next to CJK text.
 
 ### Security
-
-<!-- Released section -->
-<!-- Don't change this section unless doing release -->
 
 ## [0.30.1] - 2026-11-21
 
@@ -1686,7 +1698,8 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.30.1...HEAD
+[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.30.2...HEAD
+[0.30.2]: https://github.com/pulseaiclub/phi/releases/tag/v0.30.2
 [0.30.1]: https://github.com/pulseaiclub/phi/releases/tag/v0.30.1
 [0.30.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.30.0
 [0.29.9]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.9
