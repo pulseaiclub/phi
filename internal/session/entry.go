@@ -110,10 +110,10 @@ type BashExecution struct {
 func (SessionMessageEntry) GetType() string { return EntryMessage }
 
 // GetID implements MessageEntry.
-func (s SessionMessageEntry) GetID() string { return s.ID }
+func (e SessionMessageEntry) GetID() string { return e.ID }
 
 // GetParent implements MessageEntry.
-func (s SessionMessageEntry) GetParent() *string { return s.ParentID }
+func (e SessionMessageEntry) GetParent() *string { return e.ParentID }
 
 // ModelChangeEntry records a model selection on one conversation branch.
 type ModelChangeEntry struct {

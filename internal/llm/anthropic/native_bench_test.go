@@ -59,7 +59,7 @@ func BenchmarkNativeSignedContinuation(b *testing.B) {
 				}
 				require.NotNil(b, final)
 				require.NotNil(b, final.ProviderState)
-				messages = append(messages, core.Message(*final), core.Message{
+				messages = append(messages, *final, core.Message{
 					Role: core.RoleTool, ToolCallID: final.ToolCalls[0].ID, Content: "file",
 				})
 			}

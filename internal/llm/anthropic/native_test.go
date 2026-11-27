@@ -46,7 +46,7 @@ func nativeResponse(t *testing.T, cfg core.ModelConfig, req AnthropicRequest) co
 	require.NotNil(t, state)
 	state.Data.Items = done.Final.ProviderState.Data.Items
 	done.Final.ProviderState = state
-	return core.Message(*done.Final)
+	return *done.Final
 }
 
 func TestNativeContentOrder(t *testing.T) {
@@ -297,7 +297,7 @@ func TestNativeStableRequestRewrite(t *testing.T) {
 					assert.Equal(t, cached.Data.Prefix, previous.ProviderState.Data.Prefix)
 					assert.Empty(t, cached.Data.Items, "streaming must not mutate the cached prefix")
 				}
-				messages = append(messages, core.Message(*previous), core.Message{
+				messages = append(messages, *previous, core.Message{
 					Role: core.RoleTool, ToolCallID: previous.ToolCalls[0].ID, Content: "file",
 				})
 			}
