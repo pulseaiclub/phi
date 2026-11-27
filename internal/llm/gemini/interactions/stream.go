@@ -345,8 +345,35 @@ func (p *streamStep) visibleText() string {
 			text.WriteString(value)
 		}
 	}
-	text.WriteString(p.text.String())
 	return text.String()
+}
+
+func (p *streamStep) appendPart(key string, part map[string]any) {
+	parts, _ := p.native[key].([]any)
+	p.native[key] = append(parts, part)
+	p.text.Reset()
+}
+
+// An annotation can follow an image and still refer to the preceding text.
+// A text delta after that image starts a new text part.
+func (p *streamStep) textPart(forAnnotation bool) map[string]any {
+	key := "content"
+	if p.native["type"] == "thought" {
+		key = "summary"
+	}
+	parts, _ := p.native[key].([]any)
+	for _, part := range slices.Backward(parts) {
+		content, _ := part.(map[string]any)
+		if content["type"] == "text" {
+			return content
+		}
+		if !forAnnotation {
+			break
+		}
+	}
+	part := map[string]any{"type": "text", "text": ""}
+	p.appendPart(key, part)
+	return part
 }
 
 func emitThought(value string, yield func(llm.StreamEvent, error) bool) error {
@@ -363,7 +390,14 @@ func (s *streamState) applyDelta(p *streamStep, delta map[string]any, yield func
 	switch delta["type"] {
 	case "text":
 		value, _ := delta["text"].(string)
+		part := p.textPart(false)
+		if p.text.Len() == 0 {
+			// The starting snapshot can already contain part of this text.
+			prior, _ := part["text"].(string)
+			p.text.WriteString(prior)
+		}
 		p.text.WriteString(value)
+		part["text"] = p.text.String()
 		if p.native["type"] == "model_output" {
 			offset := s.stepOutputLen
 			s.stepOutputLen += len(value)
@@ -372,13 +406,22 @@ func (s *streamState) applyDelta(p *streamStep, delta map[string]any, yield func
 		if p.native["type"] == "thought" {
 			return emitThought(value, yield)
 		}
+	case "image":
+		if p.native["type"] == "model_output" {
+			p.appendPart("content", delta)
+		}
+	case "text_annotation_delta":
+		if annotations, _ := delta["annotations"].([]any); len(annotations) > 0 && p.native["type"] == "model_output" {
+			part := p.textPart(true)
+			prior, _ := part["annotations"].([]any)
+			part["annotations"] = append(prior, annotations...)
+		}
 	case "thought_summary":
 		content, ok := delta["content"].(map[string]any)
 		if !ok {
 			return errors.New("gemini interactions: thought summary delta is missing its content item")
 		}
-		parts, _ := p.native["summary"].([]any)
-		p.native["summary"] = append(parts, content)
+		p.appendPart("summary", content)
 		if content["type"] == "text" {
 			value, _ := content["text"].(string)
 			return emitThought(value, yield)
@@ -399,14 +442,6 @@ func (s *streamState) applyDelta(p *streamStep, delta map[string]any, yield func
 
 func (p *streamStep) replay() (map[string]any, error) {
 	item := maps.Clone(p.native)
-	if p.text.Len() > 0 {
-		key := "content"
-		if item["type"] == "thought" {
-			key = "summary"
-		}
-		parts, _ := item[key].([]any)
-		item[key] = append(slices.Clone(parts), map[string]any{"type": "text", "text": p.text.String()})
-	}
 	if item["type"] == "function_call" {
 		if p.args.Len() > 0 {
 			var args map[string]any

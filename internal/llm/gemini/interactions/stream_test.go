@@ -165,6 +165,41 @@ func TestThoughtSummaryReplaysOrderedContent(t *testing.T) {
 		{"type":"image","mime_type":"image/png","data":"opaque"},{"type":"text","text":"again","annotations":[]}]}`, string(items[0]))
 }
 
+func TestStreamReplaysModelOutputImagesAndAnnotations(t *testing.T) {
+	var s streamState
+	var r streamRecording
+	const firstCitation = `{"type":"url_citation","url":"https://one.example","start_index":0,"end_index":4}`
+	const secondCitation = `{"type":"file_citation","file_name":"page","start_index":1,"end_index":3}`
+	const img = `{"type":"image","mime_type":"image/png","data":"AQID","resolution":"high"}`
+	require.NoError(t, s.read(streamFrames(
+		`{"event_type":"step.start","index":0,"step":{"type":"model_output","content":[{"type":"text","text":"be"}]}}`,
+		`{"event_type":"step.delta","index":0,"delta":{"type":"text","text":"fore"}}`,
+		`{"event_type":"step.delta","index":0,"delta":`+img+`}`,
+		`{"event_type":"step.delta","index":0,"delta":{"type":"text_annotation_delta","annotations":[`+firstCitation+`]}}`,
+		`{"event_type":"step.delta","index":0,"delta":{"type":"text","text":"af"}}`,
+		`{"event_type":"step.delta","index":0,"delta":{"type":"text_annotation_delta","annotations":[`+secondCitation+`]}}`,
+		`{"event_type":"step.delta","index":0,"delta":{"type":"text","text":"ter"}}`,
+		`{"event_type":"interaction.completed","interaction":{"id":"turn","status":"completed"}}`,
+	), r.yield))
+	done, items, err := s.final()
+	require.NoError(t, err)
+	assert.Equal(t, "beforeafter", r.text.String())
+	assert.Equal(t, r.text.String(), done.Final.Content)
+
+	cfg := llm.ModelConfig{Name: "gemini", RequestParameters: llm.RequestParameters{"store": false}}
+	history := []llm.Message{{Role: llm.RoleUser, Content: "show me"}}
+	first, err := buildRequest(cfg, "", history, nil, true, 0)
+	require.NoError(t, err)
+	done.Final.ProviderState = first.providerState(s.ID, items, *done.Final)
+	history = append(history, *done.Final, llm.Message{Role: llm.RoleUser, Content: "continue"})
+	follow, err := buildRequest(cfg, "", history, nil, true, 0)
+	require.NoError(t, err)
+	require.Len(t, follow.Input, 3)
+	assert.JSONEq(t, `{"type":"model_output","content":[
+		{"type":"text","text":"before","annotations":[`+firstCitation+`]},`+img+`,
+		{"type":"text","text":"after","annotations":[`+secondCitation+`]}]}`, string(follow.Input[1]))
+}
+
 func TestStreamClearsStaleCursor(t *testing.T) {
 	var s streamState
 	var r streamRecording
