@@ -278,14 +278,16 @@ func TestFetchPrefillsUnsetFieldsWithoutOverwriting(t *testing.T) {
 		assert.False(t, *doc.Models[0].ImageEnabled, "explicit false overrides a vision-enabled preset")
 	})
 
-	t.Run("gateway window only prefills below preset compaction cap", func(t *testing.T) {
+	t.Run("tighter gateway window prefills total window while keeping preset input cap", func(t *testing.T) {
 		for _, tc := range []struct {
 			advertised     int
+			wantCtx        int
 			wantCompaction int
 			wantSet        bool
 		}{
-			{advertised: 1_000_000, wantCompaction: 922_000, wantSet: false},
-			{advertised: 200_000, wantCompaction: 200_000, wantSet: true},
+			{advertised: 1_000_000, wantCtx: 1_000_000, wantCompaction: 922_000, wantSet: true},
+			{advertised: 200_000, wantCtx: 200_000, wantCompaction: 200_000, wantSet: true},
+			{advertised: 2_000_000, wantCtx: 1_050_000, wantCompaction: 922_000, wantSet: false},
 		} {
 			doc := &project.ConfigDoc{Models: []project.ModelDoc{{Name: "custom"}}}
 			e := newTestEditor(t, doc)
@@ -305,13 +307,14 @@ func TestFetchPrefillsUnsetFieldsWithoutOverwriting(t *testing.T) {
 			m := doc.Models[0]
 			if tc.wantSet {
 				require.NotNil(t, m.ContextWindow)
-				assert.Equal(t, tc.advertised, *m.ContextWindow)
+				assert.Equal(t, tc.wantCtx, *m.ContextWindow)
 			} else {
 				assert.Nil(t, m.ContextWindow)
 			}
 			assert.Nil(t, m.MaxTokens)
 			cfg, err := project.ResolveModelDoc(m)
 			require.NoError(t, err)
+			assert.Equal(t, tc.wantCtx, cfg.ContextWindow)
 			assert.Equal(t, tc.wantCompaction, cfg.CompactionWindow())
 		}
 	})

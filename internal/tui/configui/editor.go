@@ -740,7 +740,7 @@ func (e *ConfigEditor) applyFetchedModel(index int, chosen ModelInfo, fetchBaseU
 		m.API = fetchAPI
 	}
 	var filled []string
-	if shouldPrefillLimit(m.ContextWindow, chosen.ContextWindow, preset.Config.CompactionWindow()) {
+	if shouldPrefillLimit(m.ContextWindow, chosen.ContextWindow, preset.Config.ContextWindow) {
 		v := chosen.ContextWindow
 		m.ContextWindow = &v
 		filled = append(filled, "context window")
