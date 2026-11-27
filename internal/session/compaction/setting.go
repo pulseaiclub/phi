@@ -58,7 +58,7 @@ func EstimateContextTokens(entries []session.MessageEntry) int {
 		if entry.GetType() != session.EntryMessage {
 			continue
 		}
-		total += estimateMessageTokens(entry.(session.SessionMessageEntry).Message)
+		total += entry.(session.SessionMessageEntry).Message.EstimatedTokens()
 	}
 	return total
 }

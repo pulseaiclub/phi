@@ -30,7 +30,7 @@ func Stream(ctx context.Context, client *http.Client, cfg llm.ModelConfig, syste
 			yield(llm.StreamEvent{}, err)
 			return
 		}
-		done, _, err := run(ctx, client, cfg, req, yield)
+		done, _, err := run(ctx, client, cfg, req, messages, yield)
 		if !errors.Is(err, errStreamStopped) {
 			yield(done, err)
 		}
@@ -49,7 +49,7 @@ func Compact(
 	if err != nil {
 		return llm.CompactResult{}, err
 	}
-	done, truncated, err := run(ctx, client, cfg, req, func(llm.StreamEvent, error) bool { return true })
+	done, truncated, err := run(ctx, client, cfg, req, input, func(llm.StreamEvent, error) bool { return true })
 	if err != nil {
 		return llm.CompactResult{}, err
 	}
@@ -60,6 +60,7 @@ func Compact(
 }
 
 func run(ctx context.Context, client *http.Client, cfg llm.ModelConfig, original request,
+	messages []llm.Message,
 	yield func(llm.StreamEvent, error) bool,
 ) (llm.StreamEvent, bool, error) {
 	req := original
@@ -97,7 +98,20 @@ func run(ctx context.Context, client *http.Client, cfg llm.ModelConfig, original
 		reasoning.WriteString(part.Final.ReasoningContent)
 		calls = append(calls, part.Final.ToolCalls...)
 		items = append(items, steps...)
-		addUsage(&usage, part.Final.Usage)
+		segment := part.Final.Usage
+		if original.Background && segment.BilledTokens() > 0 {
+			// A background resource counts the same input again on every server-side hop.
+			initial := state.initialInput
+			if initial == 0 {
+				initial = estimatePrompt(original, messages)
+			}
+			output := segment.CompletionTokens
+			if output == 0 {
+				output = part.Final.EstimatedTokens()
+			}
+			segment.OccupiedTokens = initial + output
+		}
+		addUsage(&usage, segment)
 		if state.Status != "requires_continuation" {
 			if state.Status == "requires_action" && len(calls) == 0 {
 				return llm.StreamEvent{}, false, errors.New(
@@ -128,15 +142,32 @@ func run(ctx context.Context, client *http.Client, cfg llm.ModelConfig, original
 }
 
 func addUsage(total *llm.Usage, segment llm.Usage) {
+	if occupied := segment.ContextTokens(); occupied > 0 {
+		total.OccupiedTokens = occupied
+	}
 	total.PromptTokens += segment.PromptTokens
 	total.CompletionTokens += segment.CompletionTokens
-	total.TotalTokens += segment.TotalTokens
+	total.TotalTokens += segment.BilledTokens()
 	if segment.PromptTokensDetails != nil {
 		if total.PromptTokensDetails == nil {
 			total.PromptTokensDetails = &llm.PromptTokensDetails{}
 		}
 		total.PromptTokensDetails.CachedTokens += segment.CachedTokens()
 	}
+}
+
+func estimatePrompt(req request, messages []llm.Message) int {
+	chars := len(req.SystemInstruction)
+	for _, t := range req.Tools {
+		chars += len(t.Name) + len(t.Description) + len(t.Parameters)
+	}
+	tokens := (chars + 3) / 4
+	for _, m := range messages {
+		if m.Role != llm.RoleSystem {
+			tokens += m.EstimatedTokens()
+		}
+	}
+	return tokens
 }
 
 func runSegment(ctx context.Context, client *http.Client, cfg llm.ModelConfig, req *request,

@@ -82,7 +82,7 @@ func findCutIndex(
 			continue
 		}
 
-		messageTokens := estimateMessageTokens(entry.(session.SessionMessageEntry).Message)
+		messageTokens := entry.(session.SessionMessageEntry).Message.EstimatedTokens()
 		if messageTokens == 0 {
 			continue
 		}
@@ -100,26 +100,6 @@ func findCutIndex(
 	}
 
 	return cutIndex
-}
-
-// estimatedImageChars is the stand-in size for one attached image. Images
-// arrive base64-encoded, so their string length says nothing about the tokens
-// the model spends on them.
-const estimatedImageChars = 4800
-
-// estimateMessageTokens estimates one message's size with a chars/4 heuristic.
-// The budget is spent per message, so this must never fall back to provider
-// usage: an assistant message reports the size of the whole conversation up to
-// that turn (and only assistant messages report anything), so accumulating it
-// overflows keepRecentTokens on the newest message and collapses the cut to
-// the last entry.
-func estimateMessageTokens(msg llm.Message) int {
-	chars := len(msg.Content) + len(msg.ReasoningContent)
-	for _, call := range msg.ToolCalls {
-		chars += len(call.Function.Name) + len(call.Function.Arguments)
-	}
-	chars += len(msg.Images) * estimatedImageChars
-	return (chars + 3) / 4
 }
 
 // collectCutPoints returns the indices of every user/assistant message

@@ -11,7 +11,7 @@ import (
 )
 
 func TestFormatContextLabel(t *testing.T) {
-	u := session.TokenUsage{PromptTokens: 5120, TotalTokens: 6000}
+	u := session.TokenUsage{PromptTokens: 5120, TotalTokens: 96000, OccupiedTokens: 6000}
 	got := formatContextLabel(u, 128000)
 	require.Equal(t, "4%/128k", got)
 	require.Empty(t, formatContextLabel(session.TokenUsage{}, 128000), "empty usage should hide label")
@@ -37,6 +37,7 @@ func TestFormatUsageStats(t *testing.T) {
 		PromptTokens:     1200,
 		CompletionTokens: 800,
 		TotalTokens:      2000,
+		OccupiedTokens:   1500,
 	})
 	require.Equal(t, "↑1.2k ↓800 Σ2.0k", got)
 

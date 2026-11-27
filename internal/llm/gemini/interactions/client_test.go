@@ -30,13 +30,13 @@ func TestContinuationRequests(t *testing.T) {
 				if len(requests) == 1 {
 					_, _ = io.WriteString(
 						w,
-						`{"id":"part-1","status":"requires_continuation","continuation_token":"cursor","steps":[{"type":"model_output","content":[{"type":"text","text":"first "}]}]}`,
+						`{"id":"part-1","status":"requires_continuation","continuation_token":"cursor","usage":{"total_tokens":150000},"steps":[{"type":"model_output","content":[{"type":"text","text":"first "}]}]}`,
 					)
 					return
 				}
 				_, _ = io.WriteString(
 					w,
-					`{"id":"part-2","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"second"}]}]}`,
+					`{"id":"part-2","status":"completed","usage":{"total_tokens":210000},"steps":[{"type":"model_output","content":[{"type":"text","text":"second"}]}]}`,
 				)
 			}))
 			defer server.Close()
@@ -53,6 +53,8 @@ func TestContinuationRequests(t *testing.T) {
 			}
 			require.Len(t, finals, 1)
 			require.Equal(t, "first second", finals[0].Content)
+			require.Equal(t, 360_000, finals[0].Usage.TotalTokens)
+			require.Equal(t, 210_000, finals[0].Usage.ContextTokens())
 			require.Len(t, requests, 2)
 			require.JSONEq(t, `"cursor"`, string(requests[1]["continuation_token"]))
 			require.JSONEq(t, `"instructions"`, string(requests[1]["system_instruction"]))
@@ -65,6 +67,41 @@ func TestContinuationRequests(t *testing.T) {
 				require.NotContains(t, requests[1], "previous_interaction_id")
 				require.Empty(t, finals[0].ProviderState.Data.InteractionID)
 			}
+		})
+	}
+}
+
+func TestBackgroundUsage(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		usage string
+		want  int
+	}{
+		{"initial input reported", `"initial_input_tokens":1000,`, 201_000},
+		{"estimate original prompt", "", 200_002},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `{"id":"job","status":"completed","output_text":"done","usage":{`+tc.usage+
+					`"total_input_tokens":397216,"total_output_tokens":150000,"total_thought_tokens":50000,"total_tokens":597216}}`)
+			}))
+			defer server.Close()
+			cfg := llm.ModelConfig{
+				API: llm.GeminiInteractions, BaseURL: server.URL, Name: "gemini",
+				RequestParameters: llm.RequestParameters{"background": true},
+			}
+			history := []llm.Message{{Role: llm.RoleUser, Content: "abcd"}}
+			var final *llm.Message
+			for event, err := range Stream(t.Context(), server.Client(), cfg, "test", history, nil) {
+				require.NoError(t, err)
+				if event.Final != nil {
+					final = event.Final
+				}
+			}
+			require.NotNil(t, final)
+			require.Equal(t, 597_216, final.Usage.TotalTokens)
+			require.Equal(t, tc.want, final.Usage.ContextTokens())
 		})
 	}
 }

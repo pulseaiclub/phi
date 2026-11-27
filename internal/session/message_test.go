@@ -68,7 +68,8 @@ func TestContextTokensMatchesProviderUsage(t *testing.T) {
 			PromptTokens: 12, CompletionTokens: 7,
 			PromptTokensDetails: &llm.PromptTokensDetails{CachedTokens: 900, CacheWriteTokens: 50},
 		},
-		"empty": {},
+		"empty":          {},
+		"continued turn": {TotalTokens: 360_000, OccupiedTokens: 210_000},
 	}
 	for name, provider := range cases {
 		assert.Equal(t, provider.ContextTokens(), TokenUsageFrom(provider).ContextTokens(), name)

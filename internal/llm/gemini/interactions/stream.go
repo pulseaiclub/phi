@@ -20,6 +20,7 @@ type streamState struct {
 	ID, Status, ContinuationToken, LastEventID string
 	steps                                      map[int]*streamStep
 	usage                                      llm.Usage
+	initialInput                               int
 	announced                                  map[string]bool
 }
 
@@ -31,11 +32,12 @@ type streamStep struct {
 }
 
 type interactionUsage struct {
-	Input   int `json:"total_input_tokens"`
-	Cached  int `json:"total_cached_tokens"`
-	Output  int `json:"total_output_tokens"`
-	Thought int `json:"total_thought_tokens"`
-	Total   int `json:"total_tokens"`
+	InitialInput int `json:"initial_input_tokens"`
+	Input        int `json:"total_input_tokens"`
+	Cached       int `json:"total_cached_tokens"`
+	Output       int `json:"total_output_tokens"`
+	Thought      int `json:"total_thought_tokens"`
+	Total        int `json:"total_tokens"`
 }
 
 type interactionError struct {
@@ -234,6 +236,9 @@ func (s *streamState) update(id, status, token string, u *interactionUsage) {
 		s.ContinuationToken = token
 	}
 	if u != nil {
+		if u.InitialInput > 0 {
+			s.initialInput = u.InitialInput
+		}
 		s.usage = llm.Usage{
 			PromptTokens: max(0, u.Input-u.Cached), CompletionTokens: u.Output + u.Thought, TotalTokens: u.Total,
 		}

@@ -2,6 +2,7 @@ package llm
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -54,6 +55,36 @@ func TestModelConfigCompactionWindow(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, tt.cfg.CompactionWindow())
+		})
+	}
+}
+
+func TestMessageEstimatedTokens(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  Message
+		want int
+	}{
+		{"empty message", Message{}, 0},
+		{"rounds up to 4 chars per token", Message{Role: RoleUser, Content: "abcde"}, 2},
+		{"tool result content counts", Message{Role: RoleTool, Content: strings.Repeat("a", 200)}, 50},
+		{"reasoning counts", Message{Role: RoleAssistant, ReasoningContent: strings.Repeat("t", 400)}, 100},
+		{
+			"tool call name and arguments count",
+			Message{Role: RoleAssistant, ToolCalls: []ToolCall{
+				{Function: Function{Name: "read", Arguments: `{"path":"a.go"}`}},
+			}},
+			5, // 4 + 16 chars
+		},
+		{
+			"images use a fixed stand-in",
+			Message{Role: RoleUser, Images: []Image{{Data: "x", MimeType: "image/png"}}},
+			1200,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.msg.EstimatedTokens())
 		})
 	}
 }
