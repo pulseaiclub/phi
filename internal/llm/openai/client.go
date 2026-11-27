@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"iter"
 	"net/http"
 	"strings"
@@ -300,8 +301,12 @@ func CompactRequest(
 	if len(resp.Choices) == 0 {
 		return llm.CompactResult{}, errors.New("LLM API error: empty choices")
 	}
+	msg, err := resp.Choices[0].Message.domain()
+	if err != nil {
+		return llm.CompactResult{}, err
+	}
 	return llm.CompactResult{
-		Text:      responseText(resp.Choices[0].Message.Content),
+		Text:      msg.Content,
 		Truncated: resp.Choices[0].FinishReason == finishReasonLength,
 	}, nil
 }
@@ -363,19 +368,18 @@ func StreamChatCompletion(
 			sc := chunk.Choices[0]
 			delta := sc.Delta.domain()
 			acc.applyDelta(delta)
+			var msg *core.Message
 			if sc.Message != nil {
-				var msg core.Message
-				if content, ok := sc.Message.Content.(string); ok {
-					msg.Content = content
+				whole, err := sc.Message.domain()
+				if err != nil {
+					yield(core.StreamEvent{}, err)
+					return
 				}
-				msg.ReasoningContent = sc.Message.ReasoningContent
-				for _, call := range sc.Message.ToolCalls {
-					msg.ToolCalls = append(msg.ToolCalls, domainToolCall(call))
-				}
-				acc.applyMessage(&msg)
+				msg = &whole
+				acc.applyMessage(msg)
 			}
 
-			if hasStreamDelta(delta, sc.Message) {
+			if hasStreamDelta(delta, msg) {
 				if !yield(core.StreamEvent{
 					Type:  core.StreamEventTypeDelta,
 					Delta: delta,
@@ -392,19 +396,35 @@ func StreamChatCompletion(
 	}
 }
 
-func hasStreamDelta(delta core.StreamDelta, msg *message) bool {
+func hasStreamDelta(delta core.StreamDelta, msg *core.Message) bool {
 	if delta.Content != "" || delta.ReasoningContent != "" || delta.Role != "" || len(delta.ToolCalls) > 0 {
 		return true
 	}
 	if msg == nil {
 		return false
 	}
-	return strings.TrimSpace(responseText(msg.Content)) != "" ||
+	return strings.TrimSpace(msg.Content) != "" ||
 		strings.TrimSpace(msg.ReasoningContent) != "" ||
 		len(msg.ToolCalls) > 0
 }
 
-func responseText(content any) string {
-	text, _ := content.(string)
-	return text
+// domain converts a wire message back to the normalized shape. Content is a
+// string on every OpenAI-compatible endpoint phi targets (content parts only
+// travel host→provider), so any other shape is a protocol violation and is
+// reported rather than read as an empty reply.
+func (m message) domain() (core.Message, error) {
+	content, ok := m.Content.(string)
+	if !ok && m.Content != nil {
+		return core.Message{}, fmt.Errorf("LLM API error: message content is %T, want string", m.Content)
+	}
+	out := core.Message{
+		Role:             m.Role,
+		Content:          content,
+		ReasoningContent: m.ReasoningContent,
+		ToolCallID:       m.ToolCallID,
+	}
+	for _, call := range m.ToolCalls {
+		out.ToolCalls = append(out.ToolCalls, domainToolCall(call))
+	}
+	return out, nil
 }

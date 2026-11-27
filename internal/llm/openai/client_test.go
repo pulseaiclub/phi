@@ -2,6 +2,8 @@ package openai
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -152,4 +154,51 @@ func TestBuildRequestDropsThoughtSignature(t *testing.T) {
 	assert.NotContains(t, string(body), "thought_signature")
 	assert.Contains(t, string(body), `"name":"read"`)
 	assert.Equal(t, "sig-a", calls[0].ThoughtSignature, "the session's copy keeps its signature")
+}
+
+// Some gateways answer with content parts even for plain text; that must fail
+// loudly instead of persisting an empty summary.
+func TestCompactRequestRejectsNonStringContent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(
+			[]byte(`{"choices":[{"message":{"role":"assistant","content":[{"type":"text","text":"summary"}]},` +
+				`"finish_reason":"stop"}]}`),
+		)
+	}))
+	defer srv.Close()
+
+	cfg := core.ModelConfig{Name: "gateway-model", BaseURL: srv.URL}
+	_, err := CompactRequest(t.Context(), srv.Client(), cfg, NewCompactRequest(cfg, "summarize", 0))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "message content is []interface {}, want string")
+}
+
+func TestMessageDomainContent(t *testing.T) {
+	withCalls := message{
+		Role:    core.RoleAssistant,
+		Content: "hi",
+		ToolCalls: []apiToolCall{{
+			ID: "c1", Type: "function", Function: apiFunction{Name: "read", Arguments: "{}"},
+		}},
+	}
+	got, err := withCalls.domain()
+	require.NoError(t, err)
+	assert.Equal(t, core.Message{
+		Role:    core.RoleAssistant,
+		Content: "hi",
+		ToolCalls: []core.ToolCall{{
+			ID: "c1", Type: "function", Function: core.Function{Name: "read", Arguments: "{}"},
+		}},
+	}, got)
+
+	// A tool-call-only reply carries content: null, which is an empty string.
+	toolOnly := message{Content: nil}
+	got, err = toolOnly.domain()
+	require.NoError(t, err)
+	assert.Empty(t, got.Content)
+
+	parts := message{Content: []any{map[string]any{"type": "text", "text": "summary"}}}
+	_, err = parts.domain()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "message content is []interface {}, want string")
 }
