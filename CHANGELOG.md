@@ -12,6 +12,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- docs: `doc/project-layout.md` now lists every package under `internal/` and all
+  three author SDKs (`ext/go`, `ext/rust`, `ext/ts`), and no longer claims the job
+  manager lives in `internal/agent/`.
+
 ### Added
 
 ### Fixed
