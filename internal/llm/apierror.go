@@ -18,11 +18,14 @@ type APIError struct {
 	Provider   string
 	StatusCode int
 	Message    string
+	Cause      error
 }
 
 func (e *APIError) Error() string {
 	return fmt.Sprintf("%s API error (%d): %s", e.Provider, e.StatusCode, e.Message)
 }
+
+func (e *APIError) Unwrap() error { return e.Cause }
 
 // FormatAPIError builds a compact, human-readable error for a non-2xx
 // provider response: "<provider> API error (<status>): <message>". Provider

@@ -18,6 +18,7 @@ var errStreamStopped = errors.New("interaction stream consumer stopped")
 
 type streamState struct {
 	ID, Status, ContinuationToken, LastEventID string
+	stored                                     bool
 	steps                                      map[int]*streamStep
 	output                                     strings.Builder
 	stepOutputLen                              int
@@ -86,11 +87,13 @@ func decodeFrame(raw []byte, dst any) error {
 
 func (s *streamState) read(r io.Reader, yield func(llm.StreamEvent, error) bool) error {
 	first := true
+	terminated := false
 	for raw, err := range util.ParseDataStream(r) {
 		if err != nil {
 			return err
 		}
 		if bytes.Equal(bytes.TrimSpace(raw), []byte("[DONE]")) {
+			terminated = true
 			break
 		}
 		var frame streamFrame
@@ -155,8 +158,10 @@ func (s *streamState) read(r io.Reader, yield func(llm.StreamEvent, error) bool)
 		}
 		first = false
 	}
-	// Some streams close after a terminal status update. When a completed event
-	// follows instead, consume it above to retain its full steps and final usage.
+	// A status update can precede the final usage and steps. A stored stream can recover them.
+	if !terminated && s.stored && s.ID != "" && s.LastEventID != "" {
+		return io.ErrUnexpectedEOF
+	}
 	switch s.Status {
 	case "requires_continuation":
 		return nil

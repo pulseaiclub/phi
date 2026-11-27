@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -287,6 +288,69 @@ data: {"event_type":"interaction.completed","event_id":"e6","interaction":{"id":
 	require.Equal(t, 1, gets)
 }
 
+func TestStreamEndsAfterCompletionFrame(t *testing.T) {
+	const status = `{"event_type":"interaction.status_update","interaction_id":"turn","status":"completed","event_id":"last","usage":{"total_tokens":5}}`
+	const resource = `{"id":"turn","status":"completed","output_text":"final","usage":{"total_tokens":19}}`
+	const completed = `{"event_type":"interaction.completed","interaction":` + resource + `}`
+	for _, tc := range []struct {
+		name      string
+		store     bool
+		frames    []string
+		wantReads []string
+		wantUsage int
+	}{
+		{"disconnect", true, []string{status}, []string{"last"}, 19},
+		{"empty resume", true, []string{status}, []string{"last", ""}, 19},
+		{"completion frame", true, []string{status, completed}, nil, 19},
+		{"done marker", true, []string{status, "[DONE]"}, nil, 5},
+		{"stateless terminal status", false, []string{status}, nil, 5},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var reads []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				if r.Method == http.MethodPost {
+					_, _ = io.Copy(w, streamFrames(tc.frames...))
+					return
+				}
+				q := r.URL.Query()
+				reads = append(reads, q.Get("last_event_id"))
+				if len(reads) > len(tc.wantReads) || r.URL.Path != "/v1beta/interactions/turn" ||
+					q.Get("include_input") != "false" {
+					http.Error(w, "unexpected follow-up", http.StatusBadRequest)
+					return
+				}
+				if q.Get("stream") == "true" {
+					if len(tc.wantReads) == 1 {
+						_, _ = io.Copy(w, streamFrames(completed))
+					}
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, resource)
+			}))
+			defer server.Close()
+			cfg := llm.ModelConfig{
+				BaseURL: server.URL, API: llm.GeminiInteractions, Name: "gemini",
+				RequestParameters: llm.RequestParameters{"store": tc.store},
+			}
+			var final *llm.Message
+			for event, err := range Stream(t.Context(), server.Client(), cfg, "", []llm.Message{{Role: llm.RoleUser, Content: "go"}}, nil) {
+				require.NoError(t, err)
+				if event.Final != nil {
+					final = event.Final
+				}
+			}
+			require.NotNil(t, final)
+			require.Equal(t, tc.wantReads, reads)
+			require.Equal(t, tc.wantUsage, final.Usage.TotalTokens)
+			if tc.wantUsage == 19 {
+				require.Equal(t, "final", final.Content)
+			}
+		})
+	}
+}
+
 func TestCompactHonorsOutputCap(t *testing.T) {
 	var body map[string]json.RawMessage
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -327,6 +391,52 @@ func TestBackgroundCreateDoesNotRetryGatewayFailure(t *testing.T) {
 	}
 	require.Error(t, streamErr)
 	require.Equal(t, 1, posts)
+}
+
+func TestBackgroundPollTruncatedBody(t *testing.T) {
+	for _, status := range []int{http.StatusForbidden, http.StatusOK} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			t.Parallel()
+			var polls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if r.Method == http.MethodPost {
+					_, _ = io.WriteString(w, `{"id":"job","status":"in_progress"}`)
+					return
+				}
+				if polls.Add(1) == 1 {
+					w.Header().Set("Content-Length", "100")
+					w.WriteHeader(status)
+					_, _ = io.WriteString(w, "{")
+					return
+				}
+				_, _ = io.WriteString(w, `{"id":"job","status":"completed","output_text":"done"}`)
+			}))
+			defer server.Close()
+
+			cfg := llm.ModelConfig{
+				API: llm.GeminiInteractions, Name: "gemini", BaseURL: server.URL,
+				RequestParameters: llm.RequestParameters{"background": true},
+			}
+			var final *llm.Message
+			var streamErr error
+			for event, err := range Stream(t.Context(), server.Client(), cfg, "", []llm.Message{{Role: llm.RoleUser, Content: "go"}}, nil) {
+				final, streamErr = event.Final, err
+			}
+			if status == http.StatusOK {
+				require.NoError(t, streamErr)
+				require.NotNil(t, final)
+				require.Equal(t, "done", final.Content)
+				require.EqualValues(t, 2, polls.Load())
+				return
+			}
+			var rejection *llm.APIError
+			require.ErrorAs(t, streamErr, &rejection)
+			require.Equal(t, http.StatusForbidden, rejection.StatusCode)
+			require.ErrorIs(t, rejection, io.ErrUnexpectedEOF)
+			require.EqualValues(t, 1, polls.Load())
+		})
+	}
 }
 
 func TestForegroundResumeRequiresStoredStreamAndCursor(t *testing.T) {

@@ -258,7 +258,7 @@ func runSegment(ctx context.Context, client *http.Client, cfg llm.ModelConfig, r
 	if err != nil {
 		return nil, err
 	}
-	state := new(streamState)
+	state := &streamState{stored: req.Store}
 	// Redirects can forward both the API key and the conversation to another origin.
 	direct := *client
 	direct.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
@@ -302,15 +302,22 @@ func runSegment(ctx context.Context, client *http.Client, cfg llm.ModelConfig, r
 			return err
 		}
 		raw, err := io.ReadAll(resp.Body)
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			if err != nil {
+				return &llm.APIError{
+					Provider: provider, StatusCode: resp.StatusCode,
+					Message: fmt.Sprintf("read error response body: %v", err), Cause: err,
+				}
+			}
+			return requestError(resp.StatusCode, raw, anchor)
+		}
 		if err != nil {
 			return err
-		}
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			return requestError(resp.StatusCode, raw, anchor)
 		}
 		return state.snapshot(raw, yield)
 	}
 	err = read(http.MethodPost, endpoint.String(), bytes.NewReader(body), req.Stream)
+	var resumedCursor string
 follow:
 	for state.shouldFollow(req, err) {
 		select {
@@ -323,8 +330,10 @@ follow:
 		q := target.Query()
 		// Input steps are already in the session and must not become part of the reply.
 		q.Set("include_input", "false")
-		resume := req.Stream && state.LastEventID != ""
+		// If a terminal stream has no more events at this cursor, fetch the final resource.
+		resume := req.Stream && state.LastEventID != "" && (state.LastEventID != resumedCursor || state.active())
 		if resume {
+			resumedCursor = state.LastEventID
 			q.Set("stream", "true")
 			q.Set("last_event_id", state.LastEventID)
 		}
@@ -355,6 +364,10 @@ func (s *streamState) shouldFollow(req *request, err error) bool {
 		return req.Background && s.active()
 	}
 	if !req.Background && (!req.Stream || s.LastEventID == "") {
+		return false
+	}
+	// GET status retries have already run. Only a disconnect during a successful response warrants resuming.
+	if _, rejected := errors.AsType[*llm.APIError](err); rejected {
 		return false
 	}
 	if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
