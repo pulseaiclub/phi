@@ -59,7 +59,6 @@ func TestRequestToolContinuation(t *testing.T) {
 	assert.JSONEq(t, `{"type":"function_result","call_id":"a","name":"read","result":"file"}`, string(follow.Input[1]))
 
 	local := cfg
-	local.Name = "gemini-other"
 	local.RequestParameters = llm.RequestParameters{"store": false}
 	stateless, err := buildRequest(local, "system", history, tools, true, 0)
 	require.NoError(t, err)
@@ -68,6 +67,14 @@ func TestRequestToolContinuation(t *testing.T) {
 	assert.Equal(t, items, stateless.Input[1:4])
 	assert.Equal(t, follow.Input, stateless.Input[4:])
 	assert.Empty(t, stateless.providerState("discard", items, assistant).Data.InteractionID)
+
+	t.Run("stateless model switch", func(t *testing.T) {
+		other := local
+		other.Name = "gemini-other"
+		switched, err := buildRequest(other, "system", history, tools, true, 0)
+		require.NoError(t, err)
+		assert.Equal(t, stateless.Input, switched.Input)
+	})
 
 	restarted, err := follow.withHistory(history, false)
 	require.NoError(t, err)
@@ -86,6 +93,44 @@ func TestRequestToolContinuation(t *testing.T) {
 		assert.JSONEq(t, string(call), string(fallback.Input[i+1]))
 	}
 	assert.Equal(t, follow.Input, fallback.Input[3:])
+}
+
+func TestRequestSkipsMalformedToolCallAndResult(t *testing.T) {
+	const validArgs = `{"n":9007199254740993,"path":"a"}`
+	assistant := llm.Message{
+		Role: llm.RoleAssistant, Content: "reading files",
+		ToolCalls: []llm.ToolCall{
+			{ID: "broken", Function: llm.Function{Name: "read", Arguments: `{"path":`}},
+			{ID: "valid", Function: llm.Function{Name: "read", Arguments: validArgs}},
+			{ID: "list", Function: llm.Function{Name: "read", Arguments: `[]`}},
+		},
+		ProviderState: &llm.ProviderState{Provider: llm.OpenAIResponses},
+	}
+	history := []llm.Message{
+		assistant,
+		{Role: llm.RoleTool, ToolCallID: "valid", Content: "file"},
+		{Role: llm.RoleTool, ToolCallID: "list", Content: "invalid arguments"},
+		{Role: llm.RoleTool, ToolCallID: "broken", Content: "invalid arguments"},
+		{Role: llm.RoleUser, Content: "continue"},
+	}
+	req, err := buildRequest(llm.ModelConfig{Name: "gemini"}, "", history, nil, true, 0)
+	require.NoError(t, err)
+	require.Empty(t, req.PreviousInteractionID)
+	require.Len(t, req.Input, 4)
+	assert.JSONEq(t, `{"type":"model_output","content":[{"type":"text","text":"reading files"}]}`, string(req.Input[0]))
+	var call inputStep
+	require.NoError(t, json.Unmarshal(req.Input[1], &call))
+	assert.Equal(t, "function_call", call.Type)
+	assert.Equal(t, "valid", call.ID)
+	var args struct {
+		N    int64
+		Path string
+	}
+	require.NoError(t, json.Unmarshal(call.Arguments, &args))
+	assert.Equal(t, int64(9007199254740993), args.N)
+	assert.Equal(t, "a", args.Path)
+	assert.JSONEq(t, `{"type":"function_result","call_id":"valid","name":"read","result":"file"}`, string(req.Input[2]))
+	assert.JSONEq(t, `{"type":"user_input","content":[{"type":"text","text":"continue"}]}`, string(req.Input[3]))
 }
 
 func TestRequestContinuationBelongsToCurrentHistory(t *testing.T) {

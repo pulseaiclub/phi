@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/url"
 	"strings"
 
@@ -152,22 +151,22 @@ func (r request) withHistory(messages []llm.Message, allowRemote bool) (request,
 			start, r.PreviousInteractionID = i+1, state.Data.InteractionID
 		}
 	}
-	names := make(map[string]string)
+	calls := make(map[string]replayCall)
 	if start > 0 {
 		for _, tc := range messages[start-1].ToolCalls {
-			names[tc.ID] = tc.Function.Name
+			calls[tc.ID] = replayCall{name: tc.Function.Name}
 		}
 	}
 	for i := start; i < len(messages); i++ {
 		m := messages[i]
 		for _, tc := range m.ToolCalls {
-			names[tc.ID] = tc.Function.Name
+			calls[tc.ID] = replayCall{name: tc.Function.Name}
 		}
 		if native[i] && len(m.ProviderState.Data.Items) > 0 {
 			r.Input = append(r.Input, m.ProviderState.Data.Items...)
 			continue
 		}
-		if err := r.appendMessage(m, names); err != nil {
+		if err := r.appendMessage(m, calls); err != nil {
 			return request{}, err
 		}
 	}
@@ -244,7 +243,12 @@ func (r *request) appendStep(step inputStep) error {
 	return err
 }
 
-func (r *request) appendMessage(m llm.Message, names map[string]string) error {
+type replayCall struct {
+	name    string
+	skipped bool
+}
+
+func (r *request) appendMessage(m llm.Message, calls map[string]replayCall) error {
 	switch m.Role {
 	case llm.RoleUser, llm.RoleAssistant:
 		step := inputStep{Type: "user_input"}
@@ -270,7 +274,9 @@ func (r *request) appendMessage(m llm.Message, names map[string]string) error {
 				args = "{}"
 			}
 			if args[0] != '{' || !json.Valid([]byte(args)) {
-				return fmt.Errorf("gemini interactions: function call %q arguments must be a JSON object", tc.ID)
+				// Another provider can persist partial arguments after an interrupted turn.
+				calls[tc.ID] = replayCall{skipped: true}
+				continue
 			}
 			if err := r.appendStep(inputStep{
 				Type: "function_call", ID: tc.ID, Name: tc.Function.Name, Arguments: json.RawMessage(args),
@@ -279,11 +285,15 @@ func (r *request) appendMessage(m llm.Message, names map[string]string) error {
 			}
 		}
 	case llm.RoleTool:
+		call := calls[m.ToolCallID]
+		if call.skipped {
+			return nil
+		}
 		if m.ToolCallID == "" {
 			return errors.New("gemini interactions: function result is missing a call ID")
 		}
 		return r.appendStep(inputStep{
-			Type: "function_result", CallID: m.ToolCallID, Name: names[m.ToolCallID], Result: &m.Content,
+			Type: "function_result", CallID: m.ToolCallID, Name: call.name, Result: &m.Content,
 		})
 	}
 	return nil
