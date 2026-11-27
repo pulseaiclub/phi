@@ -6,8 +6,11 @@ import (
 	"github.com/pulseaiclub/phi/internal/core"
 )
 
-// sessionMessageWire is the stable on-disk message shape. Domain types stay
-// serialization-neutral so persistence changes remain explicit here.
+// sessionMessageWire is the stable on-disk message shape, owned by this
+// package. Domain types stay serialization-neutral so persistence changes
+// remain explicit here. The extension protocol (internal/llm/extmodel) keeps
+// its own copy on purpose: session files must keep loading regardless of how
+// the protocol evolves, and vice versa.
 type sessionMessageWire struct {
 	Role             core.Role             `json:"role"`
 	Content          string                `json:"content"`

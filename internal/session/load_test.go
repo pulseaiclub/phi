@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
@@ -138,6 +139,127 @@ func TestSessionPersistUsageRoundTrip(t *testing.T) {
 	assert.Equal(t, 7, entry.Usage.CompletionTokens)
 	assert.Equal(t, 19, entry.Usage.TotalTokens)
 	assert.Equal(t, 5, entry.Usage.CachedTokens())
+}
+
+// ProviderState, thought signatures, and cache-write usage only survive a
+// reload because SessionMessageEntry spells out its own JSON methods.
+func TestSessionMessageEntryJSONRoundTrip(t *testing.T) {
+	orig := SessionMessageEntry{
+		SessionBaseEntry: SessionBaseEntry{
+			Type: EntryMessage, ID: "m1",
+			Timestamp: time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC),
+		},
+		Message: core.Message{
+			Role:             core.RoleAssistant,
+			Content:          "done",
+			ReasoningContent: "thinking",
+			ToolCalls: []core.ToolCall{{
+				Index: 0, ID: "call_1", Type: "function",
+				Function:         core.Function{Name: "read", Arguments: `{"path":"foo.go"}`},
+				ThoughtSignature: "sig",
+			}},
+			Images: []core.Image{{Data: "QUJD", MimeType: "image/png"}},
+			ProviderState: &core.ProviderState{
+				Provider: core.ProviderAnthropic,
+				Model:    "claude-sonnet-4-5",
+				Endpoint: "https://api.anthropic.com",
+				Data: core.ProviderData{
+					Prefix: "abc",
+					Items:  []json.RawMessage{json.RawMessage(`{"type":"text","text":"hi"}`)},
+				},
+			},
+		},
+		Usage: core.Usage{
+			CompletionTokens: 3, PromptTokens: 5, TotalTokens: 11,
+			PromptTokensDetails: &core.PromptTokensDetails{CachedTokens: 2, CacheWriteTokens: 1},
+		},
+	}
+
+	body, err := json.Marshal(orig)
+	require.NoError(t, err)
+	for _, key := range []string{
+		`"thought_signature":"sig"`, `"provider_state"`, `"cache_write_tokens":1`, `"mimeType":"image/png"`,
+	} {
+		assert.Contains(t, string(body), key)
+	}
+
+	var got SessionMessageEntry
+	require.NoError(t, json.Unmarshal(body, &got))
+	assert.Equal(t, orig, got)
+}
+
+// Session files written before the core split embedded llm.Message with JSON
+// tags; the explicit wire DTO must keep decoding that shape byte for byte.
+func TestSessionMessageEntryDecodesLegacyFormat(t *testing.T) {
+	const legacy = `{"type":"EntryMessage","id":"m1","parentID":null,"timestamp":"2025-01-02T03:04:05Z",` +
+		`"message":{"role":"assistant","content":"done","reasoning_content":"thinking",` +
+		`"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read","arguments":"{}"},` +
+		`"thought_signature":"sig"}],"provider_state":{"provider":"Anthropic","model":"claude-sonnet-4-5",` +
+		`"endpoint":"https://api.anthropic.com","data":{"prefix":"abc","items":[{"type":"text","text":"hi"}]}}},` +
+		`"usage":{"completion_tokens":3,"prompt_tokens":5,"total_tokens":11,` +
+		`"prompt_tokens_details":{"cached_tokens":2,"cache_write_tokens":1}}}`
+
+	var entry SessionMessageEntry
+	require.NoError(t, json.Unmarshal([]byte(legacy), &entry))
+	assert.Equal(t, EntryMessage, entry.GetType())
+	assert.Equal(t, "m1", entry.GetID())
+	assert.Nil(t, entry.GetParent())
+	assert.Equal(t, time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC), entry.Timestamp)
+
+	msg := entry.Message
+	assert.Equal(t, core.RoleAssistant, msg.Role)
+	assert.Equal(t, "thinking", msg.ReasoningContent)
+	require.Len(t, msg.ToolCalls, 1)
+	assert.Equal(t, core.ToolCall{
+		Index: 0, ID: "call_1", Type: "function",
+		Function:         core.Function{Name: "read", Arguments: "{}"},
+		ThoughtSignature: "sig",
+	}, msg.ToolCalls[0])
+	require.NotNil(t, msg.ProviderState)
+	assert.Equal(t, core.ProviderAnthropic, msg.ProviderState.Provider)
+	assert.Equal(t, "claude-sonnet-4-5", msg.ProviderState.Model)
+	assert.Equal(t, core.ProviderData{
+		Prefix: "abc",
+		Items:  []json.RawMessage{json.RawMessage(`{"type":"text","text":"hi"}`)},
+	}, msg.ProviderState.Data)
+
+	assert.Equal(t, 11, entry.Usage.TotalTokens)
+	assert.Equal(t, 2, entry.Usage.CachedTokens())
+	assert.Equal(t, 1, entry.Usage.CacheWriteTokens())
+}
+
+// The manager writes entries through an interface value, so this pins that
+// the value-receiver MarshalJSON is reached on the real persist path.
+func TestSessionPersistProviderStateRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	require.NoError(t, err)
+
+	_, err = m.Append(core.Message{
+		Role:    core.RoleAssistant,
+		Content: "done",
+		ToolCalls: []core.ToolCall{{
+			ID: "call_1", Type: "function",
+			Function:         core.Function{Name: "read", Arguments: "{}"},
+			ThoughtSignature: "sig",
+		}},
+		ProviderState: &core.ProviderState{
+			Provider: core.ProviderAnthropic,
+			Model:    "claude-sonnet-4-5",
+			Endpoint: "https://api.anthropic.com",
+			Data: core.ProviderData{
+				Prefix: "abc",
+				Items:  []json.RawMessage{json.RawMessage(`{"type":"text","text":"hi"}`)},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	loaded, err := OpenSession(m.File())
+	require.NoError(t, err)
+	ctx := loaded.BuildContext()
+	require.Len(t, ctx, 1)
+	assert.Equal(t, m.BuildContext()[0].(SessionMessageEntry).Message, ctx[0].(SessionMessageEntry).Message)
 }
 
 // A resumed session must show its own token counts, so replay has to read

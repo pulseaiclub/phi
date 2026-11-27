@@ -7,7 +7,12 @@ import (
 	"github.com/pulseaiclub/phi/internal/llm"
 )
 
-// messageJSON is the stable session/extension representation of a domain message.
+// messageJSON is the extension-protocol representation of a domain message:
+// what ModelInvoke.MessagesJSON carries and what stream deltas echo back. It
+// is a public contract for extension authors. The session file format in
+// internal/session keeps its own, deliberately separate copy: the two match
+// today, but a persistence migration must not silently change the protocol,
+// nor a protocol change leak into session files.
 type messageJSON struct {
 	Role             core.Role          `json:"role"`
 	Content          string             `json:"content"`

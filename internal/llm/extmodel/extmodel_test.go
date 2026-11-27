@@ -134,20 +134,55 @@ func TestCompactCollectsText(t *testing.T) {
 	assert.False(t, res.Truncated)
 }
 
+// The message shape is a public contract for extension authors (they decode
+// ModelInvoke.MessagesJSON themselves), so it is pinned literally, not only
+// round-tripped. It is intentionally not shared with the session file format.
 func TestMessageWireRoundTrip(t *testing.T) {
-	orig := core.Message{
+	full := core.Message{
+		Role: core.RoleAssistant, Content: "done", ReasoningContent: "thinking",
+		ToolCalls: []core.ToolCall{{
+			ID: "call_1", Type: "function",
+			Function:         core.Function{Name: "read", Arguments: `{"path":"foo.go"}`},
+			ThoughtSignature: "sig",
+		}},
+		ProviderState: &core.ProviderState{
+			Provider: core.ProviderAnthropic,
+			Model:    "claude-sonnet-4-5",
+			Endpoint: "https://api.anthropic.com",
+			Data: core.ProviderData{
+				Prefix: "abc",
+				Items:  []json.RawMessage{json.RawMessage(`{"type":"text","text":"hi"}`)},
+			},
+		},
+	}
+	body, err := json.Marshal(messageToJSON(full))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"role":"assistant","content":"done","reasoning_content":"thinking",`+
+		`"tool_calls":[{"id":"call_1","type":"function","function":{"name":"read","arguments":"{\"path\":\"foo.go\"}"},`+
+		`"thought_signature":"sig"}],"provider_state":{"provider":"Anthropic","model":"claude-sonnet-4-5",`+
+		`"endpoint":"https://api.anthropic.com","data":{"prefix":"abc","items":[{"type":"text","text":"hi"}]}}}`,
+		string(body))
+
+	var got messageJSON
+	require.NoError(t, json.Unmarshal(body, &got))
+	assert.Equal(t, full, messageFromJSON(got))
+
+	withImage := core.Message{
 		Role:    core.RoleUser,
 		Content: "what is this?",
 		Images:  []core.Image{{Data: "QUJD", MimeType: "image/png"}},
 	}
-	body, err := json.Marshal(messageToJSON(orig))
+	body, err = json.Marshal(messageToJSON(withImage))
 	require.NoError(t, err)
 	assert.Contains(t, string(body), `"images"`)
 	assert.Contains(t, string(body), `"mimeType"`)
-
-	var got messageJSON
-	require.NoError(t, json.Unmarshal(body, &got))
-	assert.Equal(t, orig, messageFromJSON(got))
+	var gotImage messageJSON
+	require.NoError(
+		t,
+		json.Unmarshal(body, &gotImage),
+		"decode into a fresh value; Unmarshal merges into reused structs",
+	)
+	assert.Equal(t, withImage, messageFromJSON(gotImage))
 
 	body, err = json.Marshal(messageToJSON(core.Message{Role: core.RoleUser, Content: "hi"}))
 	require.NoError(t, err)
