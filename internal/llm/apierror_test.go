@@ -91,6 +91,9 @@ func TestFormatAPIError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := FormatAPIError(tt.provider, tt.status, []byte(tt.body))
 			require.Error(t, err)
+			var apiErr *APIError
+			require.ErrorAs(t, err, &apiErr)
+			assert.Equal(t, tt.status, apiErr.StatusCode)
 			assert.Equal(t, tt.want, err.Error())
 		})
 	}

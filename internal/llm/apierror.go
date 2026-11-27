@@ -13,13 +13,24 @@ import (
 // non-JSON error page can never flood the terminal or the session history.
 const maxAPIErrorBodyChars = 2000
 
+// APIError retains the HTTP status so callers can distinguish a rejected request from a missing resource.
+type APIError struct {
+	Provider   string
+	StatusCode int
+	Message    string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("%s API error (%d): %s", e.Provider, e.StatusCode, e.Message)
+}
+
 // FormatAPIError builds a compact, human-readable error for a non-2xx
 // provider response: "<provider> API error (<status>): <message>". Provider
 // JSON error envelopes are unwrapped to their message so raw JSON never
 // reaches the UI; the trimmed raw body (capped) is the fallback for bodies
 // with no recognizable envelope.
 func FormatAPIError(provider string, status int, body []byte) error {
-	return fmt.Errorf("%s API error (%d): %s", provider, status, APIErrorMessage(body))
+	return &APIError{Provider: provider, StatusCode: status, Message: APIErrorMessage(body)}
 }
 
 // APIErrorMessage unwraps a provider error without inventing an HTTP status
