@@ -19,6 +19,8 @@ var errStreamStopped = errors.New("interaction stream consumer stopped")
 type streamState struct {
 	ID, Status, ContinuationToken, LastEventID string
 	steps                                      map[int]*streamStep
+	output                                     strings.Builder
+	stepOutputLen                              int
 	usage                                      llm.Usage
 	initialInput                               int
 	announced                                  map[string]bool
@@ -43,14 +45,18 @@ type interactionUsage struct {
 type interactionError struct {
 	Code    json.RawMessage `json:"code"`
 	Message string          `json:"message"`
+	Details []struct {
+		Type         string `json:"@type"`
+		ResourceName string `json:"resourceName"`
+	} `json:"details"`
 }
 
-func (e *interactionError) err() error {
-	if e == nil {
-		return nil
-	}
-	return fmt.Errorf("gemini interactions error %s: %s", e.Code, e.Message)
+func (e *interactionError) Error() string {
+	return fmt.Sprintf("gemini interactions error %s: %s", e.Code, e.Message)
 }
+
+// An error as the first event can reject a stored anchor before work starts.
+type initialStreamError struct{ *interactionError }
 
 type streamFrame struct {
 	Type              string            `json:"event_type"`
@@ -79,6 +85,7 @@ func decodeFrame(raw []byte, dst any) error {
 }
 
 func (s *streamState) read(r io.Reader, yield func(llm.StreamEvent, error) bool) error {
+	first := true
 	for raw, err := range util.ParseDataStream(r) {
 		if err != nil {
 			return err
@@ -93,16 +100,26 @@ func (s *streamState) read(r io.Reader, yield func(llm.StreamEvent, error) bool)
 		if frame.EventID != "" && frame.EventID == s.LastEventID {
 			continue
 		}
-		if frame.EventID != "" {
+		// Cursorless changes cannot be resumed from an older event without replaying them.
+		switch frame.Type {
+		case "interaction.created",
+			"interaction.completed",
+			"interaction.status_update",
+			"step.start",
+			"step.delta",
+			"step.stop":
 			s.LastEventID = frame.EventID
 		}
 
 		switch frame.Type {
 		case "error":
-			if err := frame.Error.err(); err != nil {
-				return err
+			if frame.Error == nil {
+				return errors.New("gemini interactions stream reported an error without details")
 			}
-			return errors.New("gemini interactions stream reported an error without details")
+			if first && frame.InteractionID == "" && len(frame.Interaction) == 0 {
+				return initialStreamError{frame.Error}
+			}
+			return frame.Error
 		case "interaction.created", "interaction.completed":
 			if frame.Type == "interaction.completed" {
 				// The final snapshot supersedes preliminary continuation tokens, even when it omits one.
@@ -120,17 +137,23 @@ func (s *streamState) read(r io.Reader, yield func(llm.StreamEvent, error) bool)
 			if err := s.setStep(frame.Index, frame.Step, yield); err != nil {
 				return err
 			}
+			if s.steps[frame.Index].native["type"] == "model_output" {
+				if err := s.syncStepOutput(yield); err != nil {
+					return err
+				}
+			}
 		case "step.delta":
 			step := s.steps[frame.Index]
 			if step == nil {
 				return fmt.Errorf("gemini interaction delta for unopened step %d", frame.Index)
 			}
-			if err := step.applyDelta(frame.Delta, yield); err != nil {
+			if err := s.applyDelta(step, frame.Delta, yield); err != nil {
 				return err
 			}
 		case "step.stop":
 			s.update("", "", "", frame.Usage)
 		}
+		first = false
 	}
 	// Some streams close after a terminal status update. When a completed event
 	// follows instead, consume it above to retain its full steps and final usage.
@@ -157,13 +180,13 @@ func (s *streamState) snapshot(raw []byte, yield func(llm.StreamEvent, error) bo
 	if err := json.Unmarshal(raw, &snapshot); err != nil {
 		return fmt.Errorf("decode Gemini interaction: %w", err)
 	}
-	if err := snapshot.Error.err(); err != nil {
-		return err
+	if snapshot.Error != nil {
+		return snapshot.Error
 	}
 	if len(snapshot.Errors) > 0 {
 		var details []error
-		for _, failure := range snapshot.Errors {
-			details = append(details, failure.err())
+		for i := range snapshot.Errors {
+			details = append(details, &snapshot.Errors[i])
 		}
 		return errors.Join(details...)
 	}
@@ -173,8 +196,19 @@ func (s *streamState) snapshot(raw []byte, yield func(llm.StreamEvent, error) bo
 			return err
 		}
 	}
-	if snapshot.OutputText != "" {
-		if err := s.fallbackText(snapshot.OutputText, yield); err != nil {
+	if len(snapshot.Steps) > 0 {
+		// A full snapshot may group the same output into fewer steps than the stream.
+		for i := range s.steps {
+			if i >= len(snapshot.Steps) {
+				delete(s.steps, i)
+			}
+		}
+		if err := s.syncStepOutput(yield); err != nil {
+			return err
+		}
+	}
+	if snapshot.OutputText != "" && (len(snapshot.Steps) == 0 || s.stepOutputLen == 0) {
+		if err := s.emitOutput(0, snapshot.OutputText, yield); err != nil {
 			return err
 		}
 	}
@@ -185,21 +219,33 @@ func (s *streamState) snapshot(raw []byte, yield func(llm.StreamEvent, error) bo
 	return nil
 }
 
-func (s *streamState) fallbackText(value string, yield func(llm.StreamEvent, error) bool) error {
-	next := 0
-	for i, step := range s.steps {
+func (s *streamState) syncStepOutput(yield func(llm.StreamEvent, error) bool) error {
+	var text strings.Builder
+	for _, i := range slices.Sorted(maps.Keys(s.steps)) {
+		step := s.steps[i]
 		if step.native["type"] == "model_output" {
-			return nil
+			text.WriteString(step.visibleText())
 		}
-		next = max(next, i+1)
 	}
-	if s.steps == nil {
-		s.steps = make(map[int]*streamStep)
+	s.stepOutputLen = text.Len()
+	return s.emitOutput(0, text.String(), yield)
+}
+
+// A snapshot's output_text can arrive before the indexed steps for the same text.
+// Only the suffix beyond the response-wide text already delivered is new.
+func (s *streamState) emitOutput(offset int, value string, yield func(llm.StreamEvent, error) bool) error {
+	prior := s.output.String()[offset:]
+	overlap := min(len(prior), len(value))
+	if prior[:overlap] != value[:overlap] {
+		return errors.New("gemini interactions: model output differs from previously streamed text")
 	}
-	step := &streamStep{native: map[string]any{"type": "model_output"}}
-	s.steps[next] = step
-	step.text.WriteString(value)
-	return step.emitText(value, yield)
+	if suffix := value[overlap:]; suffix != "" {
+		s.output.WriteString(suffix)
+		if !yield(llm.StreamEvent{Type: llm.StreamEventTypeDelta, Delta: llm.StreamDelta{Content: suffix}}, nil) {
+			return errStreamStopped
+		}
+	}
+	return nil
 }
 
 func (s *streamState) emitTools(yield func(llm.StreamEvent, error) bool) error {
@@ -260,7 +306,7 @@ func (s *streamState) setStep(index int, raw json.RawMessage, yield func(llm.Str
 		return fmt.Errorf("gemini interaction step %d failed: %v", index, failure["message"])
 	}
 	var delivered string
-	if old := s.steps[index]; old != nil {
+	if old := s.steps[index]; old != nil && old.native["type"] == "thought" {
 		delivered = old.visibleText()
 	}
 	if s.steps == nil {
@@ -268,8 +314,10 @@ func (s *streamState) setStep(index int, raw json.RawMessage, yield func(llm.Str
 	}
 	s.steps[index] = step
 	// The completed resource can repeat the same steps already streamed to the caller.
-	if remaining, ok := strings.CutPrefix(step.visibleText(), delivered); ok {
-		return step.emitText(remaining, yield)
+	if step.native["type"] == "thought" {
+		if remaining, ok := strings.CutPrefix(step.visibleText(), delivered); ok {
+			return emitThought(remaining, yield)
+		}
 	}
 	return nil
 }
@@ -296,34 +344,39 @@ func (p *streamStep) visibleText() string {
 	return text.String()
 }
 
-func (p *streamStep) emitText(value string, yield func(llm.StreamEvent, error) bool) error {
+func emitThought(value string, yield func(llm.StreamEvent, error) bool) error {
 	if value == "" {
 		return nil
 	}
-	var d llm.StreamDelta
-	switch p.native["type"] {
-	case "thought":
-		d.ReasoningContent = value
-	case "model_output":
-		d.Content = value
-	default:
-		return nil
-	}
-	if !yield(llm.StreamEvent{Type: llm.StreamEventTypeDelta, Delta: d}, nil) {
+	if !yield(llm.StreamEvent{Type: llm.StreamEventTypeDelta, Delta: llm.StreamDelta{ReasoningContent: value}}, nil) {
 		return errStreamStopped
 	}
 	return nil
 }
 
-func (p *streamStep) applyDelta(delta map[string]any, yield func(llm.StreamEvent, error) bool) error {
-	var value string
+func (s *streamState) applyDelta(p *streamStep, delta map[string]any, yield func(llm.StreamEvent, error) bool) error {
 	switch delta["type"] {
 	case "text":
-		value, _ = delta["text"].(string)
+		value, _ := delta["text"].(string)
+		p.text.WriteString(value)
+		if p.native["type"] == "model_output" {
+			offset := s.stepOutputLen
+			s.stepOutputLen += len(value)
+			return s.emitOutput(offset, value, yield)
+		}
+		if p.native["type"] == "thought" {
+			return emitThought(value, yield)
+		}
 	case "thought_summary":
-		content, _ := delta["content"].(map[string]any)
+		content, ok := delta["content"].(map[string]any)
+		if !ok {
+			return errors.New("gemini interactions: thought summary delta is missing its content item")
+		}
+		parts, _ := p.native["summary"].([]any)
+		p.native["summary"] = append(parts, content)
 		if content["type"] == "text" {
-			value, _ = content["text"].(string)
+			value, _ := content["text"].(string)
+			return emitThought(value, yield)
 		}
 	case "thought_signature":
 		p.native["signature"] = delta["signature"]
@@ -336,8 +389,7 @@ func (p *streamStep) applyDelta(delta map[string]any, yield func(llm.StreamEvent
 			maps.Copy(p.native, delta)
 		}
 	}
-	p.text.WriteString(value)
-	return p.emitText(value, yield)
+	return nil
 }
 
 func (p *streamStep) replay() (map[string]any, error) {
@@ -365,7 +417,7 @@ func (p *streamStep) replay() (map[string]any, error) {
 }
 
 func (s *streamState) final() (llm.StreamEvent, []json.RawMessage, error) {
-	var text, thought strings.Builder
+	var thought strings.Builder
 	var items []json.RawMessage
 	calls, err := s.toolCalls()
 	if err != nil {
@@ -380,10 +432,7 @@ func (s *streamState) final() (llm.StreamEvent, []json.RawMessage, error) {
 		if err != nil {
 			return llm.StreamEvent{}, nil, err
 		}
-		switch item["type"] {
-		case "model_output":
-			text.WriteString(step.visibleText())
-		case "thought":
+		if item["type"] == "thought" {
 			thought.WriteString(step.visibleText())
 		}
 		raw, err := json.Marshal(item)
@@ -392,7 +441,17 @@ func (s *streamState) final() (llm.StreamEvent, []json.RawMessage, error) {
 		}
 		items = append(items, raw)
 	}
-	return llm.AssistantDone(text.String(), thought.String(), calls, s.usage), items, nil
+	if suffix := s.output.String()[s.stepOutputLen:]; suffix != "" {
+		// Some snapshots only contain output_text. Synthesize only what the native steps omit.
+		raw, err := json.Marshal(
+			inputStep{Type: "model_output", Content: []map[string]string{{"type": "text", "text": suffix}}},
+		)
+		if err != nil {
+			return llm.StreamEvent{}, nil, err
+		}
+		items = append(items, raw)
+	}
+	return llm.AssistantDone(s.output.String(), thought.String(), calls, s.usage), items, nil
 }
 
 func (s *streamState) toolCalls() ([]llm.ToolCall, error) {

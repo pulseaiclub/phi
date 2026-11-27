@@ -109,6 +109,76 @@ func TestStreamResumesAndDeduplicatesFinalSnapshot(t *testing.T) {
 	assert.Contains(t, string(items[0]), `"annotations"`)
 }
 
+func TestStreamReconcilesOutputTextWithNativeSteps(t *testing.T) {
+	var s streamState
+	var r streamRecording
+	for _, snapshot := range []string{
+		`{"id":"turn","status":"in_progress","output_text":"A"}`,
+		`{"id":"turn","status":"in_progress","output_text":"AB"}`,
+	} {
+		require.NoError(t, s.snapshot([]byte(snapshot), r.yield))
+	}
+	assert.Equal(t, "AB", r.text.String())
+	require.NoError(t, s.read(streamFrames(
+		`{"event_type":"step.start","index":0,"step":{"type":"thought","summary":[{"type":"text","text":"why"}]}}`,
+		`{"event_type":"step.start","index":1,"step":{"type":"model_output","content":[{"type":"text","text":"A"}]}}`,
+		`{"event_type":"step.delta","index":1,"delta":{"type":"text","text":"BC"}}`,
+		`{"event_type":"interaction.completed","interaction":{"id":"turn","status":"completed","steps":[`+
+			`{"type":"thought","summary":[{"type":"text","text":"why"}]},`+
+			`{"type":"model_output","content":[{"type":"text","text":"AB"}]},`+
+			`{"type":"model_output","content":[{"type":"text","text":"CD"}]}]}}`,
+	), r.yield))
+	done, items, err := s.final()
+	require.NoError(t, err)
+	assert.Equal(t, "ABCD", r.text.String())
+	assert.Equal(t, "why", r.thought.String())
+	assert.Equal(t, r.text.String(), done.Final.Content)
+	require.Len(t, items, 3)
+	require.NoError(
+		t,
+		s.snapshot([]byte(`{"status":"completed","steps":[{"type":"thought","summary":[{"type":"text","text":"why"}]},
+		{"type":"model_output","content":[{"type":"text","text":"ABCD!"}]}]}`), r.yield),
+	)
+	done, items, err = s.final()
+	require.NoError(t, err)
+	assert.Equal(t, "ABCD!", r.text.String())
+	assert.Equal(t, r.text.String(), done.Final.Content)
+	assert.Len(t, items, 2)
+}
+
+func TestThoughtSummaryReplaysOrderedContent(t *testing.T) {
+	var s streamState
+	var r streamRecording
+	require.NoError(t, s.read(streamFrames(
+		`{"event_type":"step.start","index":0,"step":{"type":"thought","summary":[{"type":"text","text":"look "}]}}`,
+		`{"event_type":"step.delta","index":0,"delta":{"type":"thought_summary","content":{"type":"image","mime_type":"image/png","data":"opaque"}}}`,
+		`{"event_type":"step.delta","index":0,"delta":{"type":"thought_summary","content":{"type":"text","text":"again","annotations":[]}}}`,
+		`{"event_type":"step.delta","index":0,"delta":{"type":"thought_signature","signature":"signed"}}`,
+		`{"event_type":"interaction.completed","interaction":{"status":"completed"}}`,
+	), r.yield))
+	done, items, err := s.final()
+	require.NoError(t, err)
+	assert.Equal(t, "look again", r.thought.String())
+	assert.Equal(t, r.thought.String(), done.Final.ReasoningContent)
+	require.Len(t, items, 1)
+	assert.JSONEq(t, `{"type":"thought","signature":"signed","summary":[{"type":"text","text":"look "},
+		{"type":"image","mime_type":"image/png","data":"opaque"},{"type":"text","text":"again","annotations":[]}]}`, string(items[0]))
+}
+
+func TestStreamClearsStaleCursor(t *testing.T) {
+	var s streamState
+	var r streamRecording
+	require.ErrorIs(t, s.read(streamFrames(
+		`{"event_type":"step.start","index":0,"event_id":"e1","step":{"type":"model_output"}}`,
+		`{"event_type":"step.delta","index":0,"delta":{"type":"text","text":"hi"}}`,
+	), r.yield), io.ErrUnexpectedEOF)
+	assert.Empty(t, s.LastEventID)
+	require.ErrorIs(t, s.read(streamFrames(
+		`{"event_type":"step.stop","event_id":"e3","index":0}`,
+	), r.yield), io.ErrUnexpectedEOF)
+	assert.Equal(t, "e3", s.LastEventID)
+}
+
 func TestSnapshotKeepsServerResultsOutOfPendingCalls(t *testing.T) {
 	var s streamState
 	var r streamRecording
