@@ -363,7 +363,7 @@ Agent Skills konumları `~/.agents/skills/` ve `.agents/skills/` de okunur; böy
 ```markdown
 ---
 name: My Skill
- description: What this skill does
+description: What this skill does
 license: MIT
 compatibility: claude, openai
 disable-model-invocation: false
