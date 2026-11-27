@@ -32,7 +32,7 @@ type ModelDoc struct {
 	// ImageEnabled is a pointer so json/yaml round-trips keep "key absent"
 	// distinct from an explicit false.
 	ImageEnabled      *bool                 `yaml:"image_enabled,omitempty"`
-	API               string                `yaml:"api,omitempty"` // OpenAI | OpenAIResponses | Anthropic | Gemini
+	API               string                `yaml:"api,omitempty"` // See llm.RouterType.
 	ThinkEnabled      *bool                 `yaml:"think_enabled,omitempty"`
 	ThinkLevel        string                `yaml:"think_level,omitempty"`
 	Default           bool                  `yaml:"default,omitempty"`

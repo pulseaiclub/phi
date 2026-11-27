@@ -46,6 +46,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Add the `GeminiInteractions` transport for streaming Gemini responses and
+  continuing tool calls with Google's stored interaction IDs.
 - Config: prefill unset `context_window`, `max_tokens`, and `image_enabled`
   fields in `phi config` when fetching `/models` from endpoints that report
   model metadata (OpenRouter, Anthropic, Gemini, vLLM, and compatible proxies),

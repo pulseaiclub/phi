@@ -365,3 +365,73 @@ func TestSessionNativeCompaction(t *testing.T) {
 			"projection must leave persisted history intact")
 	}
 }
+
+func TestSessionGeminiRetainsSignedToolTurnAfterCompaction(t *testing.T) {
+	const thought = `{"type":"thought","signature":"opaque","summary":[{"type":"text","text":"read"}]}`
+	const call = `{"type":"function_call","id":"call-1","name":"read","arguments":{}}`
+	const reply = `{"id":"original","status":"requires_action","steps":[` + thought + "," + call + "]}"
+	requests := make(chan []byte, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		requests <- body
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, reply)
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	sess, err := NewSession(WithSessionDir(dir), WithPersist(true))
+	require.NoError(t, err)
+	require.NoError(t, sess.AddUser("earlier context"))
+	cfg := llm.ModelConfig{Name: "gemini-test", API: llm.GeminiInteractions, BaseURL: server.URL}
+	stream := func(s *Session) *llm.Message {
+		t.Helper()
+		client := llmclient.NewClient(cfg, llmclient.Hooks{}, nil, "")
+		var final *llm.Message
+		for ev, streamErr := range client.Stream(t.Context(), s.BuildContext()) {
+			require.NoError(t, streamErr)
+			if ev.Final != nil {
+				final = ev.Final
+			}
+		}
+		require.NotNil(t, final)
+		return final
+	}
+	first := stream(sess)
+	<-requests
+	require.NoError(t, sess.Append(*first))
+	keep := sess.LastID()
+	require.NoError(t, sess.Append(llm.Message{Role: llm.RoleTool, ToolCallID: "call-1", Content: "contents"}))
+	_, err = sess.AppendCompaction(session.Compaction{Summary: "summary", FirstKeptEntryID: keep})
+	require.NoError(t, err)
+	resumed, err := NewSession(WithResumePath(sess.File()))
+	require.NoError(t, err)
+	projected := resumed.BuildContext()
+	require.Len(t, projected, 3)
+	require.NotNil(t, projected[1].ProviderState)
+	assert.Empty(t, projected[1].ProviderState.Data.InteractionID)
+	assert.Equal(t, "original", first.ProviderState.Data.InteractionID)
+	cfg.RequestParameters = llm.RequestParameters{"store": false}
+	stream(resumed)
+	var request struct {
+		Input                 []json.RawMessage `json:"input"`
+		PreviousInteractionID string            `json:"previous_interaction_id"`
+		Store                 bool              `json:"store"`
+	}
+	require.NoError(t, json.Unmarshal(<-requests, &request))
+	assert.Empty(t, request.PreviousInteractionID)
+	assert.False(t, request.Store)
+	require.Len(t, request.Input, 4)
+	assert.Contains(t, string(request.Input[0]), "summary")
+	assert.JSONEq(t, thought, string(request.Input[1]))
+	assert.JSONEq(t, call, string(request.Input[2]))
+	assert.JSONEq(
+		t,
+		`{"type":"function_result","call_id":"call-1","name":"read","result":"contents"}`,
+		string(request.Input[3]),
+	)
+}

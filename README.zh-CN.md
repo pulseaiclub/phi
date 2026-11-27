@@ -165,7 +165,7 @@ phi config 按键
 # ~/.phi/config.yaml
 models:
   - name: gpt-4o
-    api: OpenAI             # OpenAI | OpenAIResponses | Anthropic | Gemini（空则走 OpenAI 兼容）
+    api: OpenAI             # OpenAI | OpenAIResponses | Anthropic | Gemini | GeminiInteractions（空则走 OpenAI 兼容）
     api_key: sk-...         # 或设置 PHI_API_KEY
     base_url: https://api.openai.com/v1   # 默认；PHI_BASE_URL 可覆盖
     context_window: 128000  # 可选

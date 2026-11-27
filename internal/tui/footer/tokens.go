@@ -87,7 +87,7 @@ func formatUsageStats(usage session.TokenUsage) string {
 	if usage.CacheWriteTokens > 0 {
 		parts = append(parts, "W"+components.FormatTokens(usage.CacheWriteTokens))
 	}
-	total := usage.ContextTokens()
+	total := usage.BilledTokens()
 	if total > 0 {
 		parts = append(parts, "Σ"+components.FormatTokens(total))
 	}

@@ -176,7 +176,7 @@ placeholder shows that value.
 # ~/.phi/config.yaml
 models:
   - name: gpt-4o
-    api: OpenAI             # OpenAI | OpenAIResponses | Anthropic | Gemini (empty → OpenAI-compatible)
+    api: OpenAI             # OpenAI | OpenAIResponses | Anthropic | Gemini | GeminiInteractions (empty → OpenAI-compatible)
     api_key: sk-...         # or set PHI_API_KEY
     base_url: https://api.openai.com/v1   # default; PHI_BASE_URL overrides
     context_window: 128000  # optional

@@ -30,10 +30,11 @@ type Compactor interface {
 type RouterType string
 
 const (
-	OpenAI          RouterType = "OpenAI"
-	OpenAIResponses RouterType = "OpenAIResponses"
-	Anthropic       RouterType = "Anthropic"
-	Gemini          RouterType = "Gemini"
+	OpenAI             RouterType = "OpenAI"
+	OpenAIResponses    RouterType = "OpenAIResponses"
+	Anthropic          RouterType = "Anthropic"
+	Gemini             RouterType = "Gemini"
+	GeminiInteractions RouterType = "GeminiInteractions"
 )
 
 type ThinkMode string
@@ -163,6 +164,8 @@ type PromptTokensDetails struct {
 // that fold cache into their input count (OpenAI, Gemini) are split apart when
 // parsed, so PromptTokens never means "whole prompt" in this struct.
 type Usage struct {
+	// OccupiedTokens overrides the billing total when continuation hops counted input more than once.
+	OccupiedTokens      int                  `json:"occupied_tokens,omitempty"`
 	CompletionTokens    int                  `json:"completion_tokens"`
 	PromptTokens        int                  `json:"prompt_tokens"`
 	TotalTokens         int                  `json:"total_tokens"`
@@ -185,12 +188,17 @@ func (u Usage) CacheWriteTokens() int {
 	return u.PromptTokensDetails.CacheWriteTokens
 }
 
-// ContextTokens is the size of the context this completion occupied: the
-// provider's total when it sent one, otherwise the sum of the buckets (they are
-// disjoint, so they add up to the prompt plus the reply). The context-fill
-// readout and the compaction threshold both size the window from here, so the
-// two cannot disagree about how full the context is.
+// ContextTokens sizes the context window for compaction and the context-fill display.
+// A single-hop completion can use its billing total directly.
 func (u Usage) ContextTokens() int {
+	if u.OccupiedTokens > 0 {
+		return u.OccupiedTokens
+	}
+	return u.BilledTokens()
+}
+
+// BilledTokens includes input counted again on continuation hops.
+func (u Usage) BilledTokens() int {
 	if u.TotalTokens > 0 {
 		return u.TotalTokens
 	}
@@ -272,6 +280,17 @@ type Message struct {
 	Usage Usage `json:"-"`
 }
 
+// EstimatedTokens approximates one message without counting the whole turn's provider usage.
+func (m Message) EstimatedTokens() int {
+	chars := len(m.Content) + len(m.ReasoningContent)
+	for _, call := range m.ToolCalls {
+		chars += len(call.Function.Name) + len(call.Function.Arguments)
+	}
+	// Base64 length does not measure image tokens. Budget 1,200 tokens per attachment.
+	chars += len(m.Images) * 4800
+	return (chars + 3) / 4
+}
+
 // ProviderState carries provider-specific continuation data. Normalized message
 // fields remain authoritative for rendering, other providers, and compaction.
 type ProviderState struct {
@@ -282,9 +301,12 @@ type ProviderState struct {
 	Data     ProviderData `json:"data,omitempty"`
 }
 
-// ProviderData holds Anthropic's prefix fingerprint and ordered content blocks.
+// ProviderData holds provider-native history used to continue a turn.
 type ProviderData struct {
-	// Prefix binds Items to the system, tools, and message history they depend on.
-	Prefix string            `json:"prefix,omitempty"`
-	Items  []json.RawMessage `json:"items,omitempty"`
+	// Prefix identifies the request history associated with this state.
+	Prefix        string            `json:"prefix,omitempty"`
+	Items         []json.RawMessage `json:"items,omitempty"`
+	InteractionID string            `json:"interaction_id,omitempty"`
+	// MessageDigest binds Gemini's native steps to their normalized assistant turn after compaction.
+	MessageDigest string `json:"message_digest,omitempty"`
 }

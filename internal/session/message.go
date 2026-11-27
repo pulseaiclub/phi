@@ -175,6 +175,7 @@ type TokenUsage struct {
 	CachedTokens     int // prompt cache reads (C in the composer)
 	CacheWriteTokens int // prompt cache writes (W in the composer)
 	TotalTokens      int
+	OccupiedTokens   int
 }
 
 // TokenUsageFrom converts provider usage into the UI-facing copy.
@@ -185,6 +186,7 @@ func TokenUsageFrom(u llm.Usage) TokenUsage {
 		CachedTokens:     u.CachedTokens(),
 		CacheWriteTokens: u.CacheWriteTokens(),
 		TotalTokens:      u.TotalTokens,
+		OccupiedTokens:   u.OccupiedTokens,
 	}
 }
 
@@ -194,13 +196,16 @@ func (u TokenUsage) Reported() bool {
 		u.CachedTokens > 0 || u.CacheWriteTokens > 0
 }
 
-// ContextTokens is the size of the context the last completion occupied: the
-// provider's total when it sent one, otherwise the sum of the disjoint buckets.
-// Deliberately not PromptTokens: that is only the uncached input, so a
-// cache-heavy turn would read as an almost empty window. Mirrors
-// llm.Usage.ContextTokens, and TestContextTokensMatchesProviderUsage keeps the
-// two from drifting apart.
+// ContextTokens mirrors llm.Usage.ContextTokens for the context-fill display.
 func (u TokenUsage) ContextTokens() int {
+	if u.OccupiedTokens > 0 {
+		return u.OccupiedTokens
+	}
+	return u.BilledTokens()
+}
+
+// BilledTokens includes repeated inputs on continuation hops.
+func (u TokenUsage) BilledTokens() int {
 	if u.TotalTokens > 0 {
 		return u.TotalTokens
 	}

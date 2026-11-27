@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/llm/gemini/interactions"
 	"github.com/pulseaiclub/phi/internal/tui/configui"
 	"github.com/pulseaiclub/phi/internal/util"
 )
@@ -31,8 +33,9 @@ const (
 )
 
 type modelListResponse struct {
-	Data   []json.RawMessage `json:"data"`
-	Models []json.RawMessage `json:"models"`
+	Data          []json.RawMessage `json:"data"`
+	Models        []json.RawMessage `json:"models"`
+	NextPageToken string            `json:"nextPageToken"`
 }
 
 // fetchModels asks a provider which models it advertises (and any capability
@@ -42,7 +45,9 @@ func fetchModels(ctx context.Context, baseURL, apiKey, api, model string) ([]con
 	baseURL = strings.TrimSpace(baseURL)
 	anthropic := isAnthropicAPI(api, baseURL, model)
 	gemini := !anthropic && isGeminiAPI(api, baseURL)
-	if baseURL == "" {
+	if strings.TrimSpace(api) == string(llm.GeminiInteractions) {
+		baseURL = interactions.NormalizeBaseURL(baseURL)
+	} else if baseURL == "" {
 		switch {
 		case anthropic:
 			baseURL = "https://api.anthropic.com"
@@ -66,7 +71,37 @@ func fetchModels(ctx context.Context, baseURL, apiKey, api, model string) ([]con
 	request.Header.Set("Accept", "application/json")
 	setModelListAuth(request.Header, baseURL, apiKey, anthropic, gemini)
 
-	response, err := modelListHTTPClient().Do(request)
+	client := modelListHTTPClient()
+	var items []json.RawMessage
+	seenTokens := make(map[string]bool)
+	for {
+		page, err := fetchModelPage(client, request)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, page.Data...)
+		items = append(items, page.Models...)
+		if !gemini || page.NextPageToken == "" {
+			break
+		}
+		if seenTokens[page.NextPageToken] {
+			return nil, errors.New("model list returned a repeated page token")
+		}
+		seenTokens[page.NextPageToken] = true
+		request = request.Clone(ctx)
+		query := request.URL.Query()
+		query.Set("pageToken", page.NextPageToken)
+		request.URL.RawQuery = query.Encode()
+	}
+	models := collectModelInfos(items, gemini)
+	slices.SortFunc(models, func(a, b configui.ModelInfo) int {
+		return strings.Compare(a.ID, b.ID)
+	})
+	return models, nil
+}
+
+func fetchModelPage(client *http.Client, request *http.Request) (*modelListResponse, error) {
+	response, err := client.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("fetch model list: %w", err)
 	}
@@ -91,11 +126,7 @@ func fetchModels(ctx context.Context, baseURL, apiKey, api, model string) ([]con
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, fmt.Errorf("decode model list: %w", err)
 	}
-	models := collectModelInfos(append(payload.Data, payload.Models...), gemini)
-	slices.SortFunc(models, func(a, b configui.ModelInfo) int {
-		return strings.Compare(a.ID, b.ID)
-	})
-	return models, nil
+	return &payload, nil
 }
 
 // modelListHTTPClient is the shared client with one restriction on top: a
@@ -121,7 +152,7 @@ func isAnthropicAPI(api, baseURL, model string) bool {
 	switch strings.TrimSpace(api) {
 	case "Anthropic":
 		return true
-	case "OpenAI", "OpenAIResponses", "Gemini":
+	case "OpenAI", "OpenAIResponses", "Gemini", string(llm.GeminiInteractions):
 		return false
 	}
 	// Empty api: keep legacy heuristics so an entry with only claude-ish values
@@ -147,7 +178,7 @@ func setModelListAuth(header http.Header, baseURL, apiKey string, anthropic, gem
 
 func isGeminiAPI(api, baseURL string) bool {
 	switch strings.TrimSpace(api) {
-	case "Gemini":
+	case "Gemini", string(llm.GeminiInteractions):
 		return true
 	case "OpenAI", "OpenAIResponses", "Anthropic":
 		return false

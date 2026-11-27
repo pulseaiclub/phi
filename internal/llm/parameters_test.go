@@ -60,6 +60,35 @@ func TestResponsesBackgroundParameters(t *testing.T) {
 	require.NoError(t, (RequestParameters{"background": true}).Validate(OpenAI))
 }
 
+func TestGeminiInteractionsParameters(t *testing.T) {
+	for _, tt := range []struct {
+		params RequestParameters
+		field  string
+	}{
+		{RequestParameters{"previous_interaction_id": "other"}, "previous_interaction_id"},
+		{RequestParameters{"continuation_token": "cursor"}, "continuation_token"},
+		{RequestParameters{"last_event_id": "cursor"}, "last_event_id"},
+		{RequestParameters{"generationConfig": map[string]any{}}, "use generation_config"},
+		{RequestParameters{"generation_config": nil}, "must be an object"},
+		{RequestParameters{"generation_config": map[string]any{"max_output_tokens": 10}}, "generation_config.max_output_tokens"},
+		{RequestParameters{"store": nil}, "store must be true or false"},
+		{RequestParameters{"background": "true"}, "background must be true or false"},
+		{RequestParameters{"background": true, "store": false}, "requires store=true"},
+	} {
+		require.ErrorContains(t, tt.params.Validate(GeminiInteractions), tt.field)
+	}
+	require.NoError(t, (RequestParameters{"background": true}).Validate(GeminiInteractions))
+	require.NoError(t, (RequestParameters{"store": false}).Validate(GeminiInteractions))
+	require.NoError(t, (RequestParameters{"previous_interaction_id": "vendor-id"}).Validate(OpenAI))
+
+	body, err := MarshalRequest(json.RawMessage(`{"generation_config":{"max_output_tokens":42}}`), ModelConfig{
+		API:               GeminiInteractions,
+		RequestParameters: RequestParameters{"store": false, "generation_config": map[string]any{"temperature": 0}},
+	})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"store":false,"generation_config":{"max_output_tokens":42,"temperature":0}}`, string(body))
+}
+
 func TestGeminiParameterMergeKeepsManagedLimits(t *testing.T) {
 	original := json.RawMessage(`{"generationConfig":{"maxOutputTokens":64}}`)
 	body, err := MarshalRequest(original, ModelConfig{

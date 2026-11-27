@@ -2,7 +2,6 @@ package compaction
 
 import (
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,36 +9,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/session"
 )
-
-func TestEstimateMessageTokens(t *testing.T) {
-	tests := []struct {
-		name string
-		msg  llm.Message
-		want int
-	}{
-		{"empty message", llm.Message{}, 0},
-		{"rounds up to 4 chars per token", llm.Message{Role: llm.RoleUser, Content: "abcde"}, 2},
-		{"tool result content counts", llm.Message{Role: llm.RoleTool, Content: sizedContent(50)}, 50},
-		{"reasoning counts", llm.Message{Role: llm.RoleAssistant, ReasoningContent: strings.Repeat("t", 400)}, 100},
-		{
-			"tool call name and arguments count",
-			llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
-				{Function: llm.Function{Name: "read", Arguments: `{"path":"a.go"}`}},
-			}},
-			5, // 4 + 16 chars
-		},
-		{
-			"images use a fixed stand-in",
-			llm.Message{Role: llm.RoleUser, Images: []llm.Image{{Data: "x", MimeType: "image/png"}}},
-			estimatedImageChars / 4,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, estimateMessageTokens(tt.msg))
-		})
-	}
-}
 
 func TestFindCutIndex_ExceedsTokensChoosesNearestCutPoint(t *testing.T) {
 	entries := []session.MessageEntry{

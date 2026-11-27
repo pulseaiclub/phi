@@ -8,6 +8,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/llm/anthropic"
 	"github.com/pulseaiclub/phi/internal/llm/gemini"
+	"github.com/pulseaiclub/phi/internal/llm/gemini/interactions"
 	"github.com/pulseaiclub/phi/internal/llm/openai"
 	"github.com/pulseaiclub/phi/internal/llm/openai/responses"
 	"github.com/pulseaiclub/phi/internal/util"
@@ -50,6 +51,8 @@ func (c *Client) Stream(ctx context.Context, messages []llm.Message) iter.Seq2[l
 			return errorSeq(err)
 		}
 		return gemini.Stream(ctx, c.httpClient, c.cfg, &req)
+	case llm.GeminiInteractions:
+		return interactions.Stream(ctx, c.httpClient, c.cfg, c.system, messages, c.tools)
 	case llm.OpenAIResponses:
 		req := responses.BuildRequest(c.cfg, c.system, messages, c.tools)
 		if err := applyHook(ctx, c.hooks.OpenAIResponses, req, c.cfg); err != nil {
@@ -82,6 +85,8 @@ func (c *Client) Compact(ctx context.Context, req llm.CompactRequest) (llm.Compa
 			return llm.CompactResult{}, err
 		}
 		return gemini.CompactRequest(ctx, c.httpClient, c.cfg, &greReq)
+	case llm.GeminiInteractions:
+		return interactions.Compact(ctx, c.httpClient, c.cfg, req)
 	case llm.OpenAIResponses:
 		respReq := responses.NewCompactRequest(c.cfg, req.Prompt, req.MaxTokens)
 		if err := applyHook(ctx, c.hooks.OpenAIResponses, respReq, c.cfg); err != nil {

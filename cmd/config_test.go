@@ -23,15 +23,14 @@ func modelIDs(models []configui.ModelInfo) []string {
 
 func TestFetchModels(t *testing.T) {
 	cases := []struct {
-		name        string
-		api         string
-		model       string
-		basePath    string
-		response    string
-		wantPath    string
-		wantModels  []string
-		checkAuth   func(*testing.T, *http.Request)
-		withBaseURL bool
+		name       string
+		api        string
+		model      string
+		basePath   string
+		response   string
+		wantPath   string
+		wantModels []string
+		checkAuth  func(*testing.T, *http.Request)
 	}{
 		{
 			name:       "openai compatible",
@@ -45,7 +44,6 @@ func TestFetchModels(t *testing.T) {
 				assert.Equal(t, "Bearer test-key", r.Header.Get("Authorization"))
 				assert.Empty(t, r.Header.Get("Anthropic-Version"))
 			},
-			withBaseURL: true,
 		},
 		{
 			name:       "anthropic explicit api",
@@ -59,7 +57,6 @@ func TestFetchModels(t *testing.T) {
 				assert.Equal(t, "test-key", r.Header.Get("X-Api-Key"))
 				assert.Equal(t, anthropicAPIVersion, r.Header.Get("Anthropic-Version"))
 			},
-			withBaseURL: true,
 		},
 		{
 			name:       "claude name with openai api stays openai",
@@ -73,7 +70,18 @@ func TestFetchModels(t *testing.T) {
 				assert.Equal(t, "Bearer test-key", r.Header.Get("Authorization"))
 				assert.Empty(t, r.Header.Get("X-Api-Key"))
 			},
-			withBaseURL: true,
+		},
+		{
+			name:       "gemini interactions",
+			api:        "GeminiInteractions",
+			model:      "claude-via-proxy",
+			response:   `{"models":[{"name":"models/gemini-4-hydrogen"}]}`,
+			wantPath:   "/v1beta/models",
+			wantModels: []string{"gemini-4-hydrogen"},
+			checkAuth: func(t *testing.T, r *http.Request) {
+				assert.Equal(t, "test-key", r.Header.Get("X-Goog-Api-Key"))
+				assert.Empty(t, r.Header.Get("Authorization"))
+			},
 		},
 		{
 			name:       "gemini uses x-goog-api-key and strips models prefix",
@@ -88,7 +96,6 @@ func TestFetchModels(t *testing.T) {
 				assert.Empty(t, r.Header.Get("Authorization"))
 				assert.Equal(t, "1000", r.URL.Query().Get("pageSize"))
 			},
-			withBaseURL: true,
 		},
 	}
 
@@ -104,16 +111,43 @@ func TestFetchModels(t *testing.T) {
 			}))
 			defer server.Close()
 
-			baseURL := ""
-			if tc.withBaseURL {
-				baseURL = server.URL + tc.basePath
-			}
-			got, err := fetchModels(t.Context(), baseURL, "test-key", tc.api, tc.model)
+			got, err := fetchModels(t.Context(), server.URL+tc.basePath, "test-key", tc.api, tc.model)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantModels, modelIDs(got))
 			assert.Equal(t, int32(1), hits.Load())
 		})
 	}
+}
+
+func TestFetchGeminiModelPages(t *testing.T) {
+	const token = "next +/= page"
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		assert.Equal(t, "/v1beta/models", r.URL.Path)
+		assert.Equal(t, "key", r.Header.Get("X-Goog-Api-Key"))
+		assert.Equal(t, "1000", r.URL.Query().Get("pageSize"))
+		switch r.URL.Query().Get("pageToken") {
+		case "":
+			_, _ = w.Write([]byte(`{"models":[{"name":"models/z"}],"nextPageToken":"next +/= page"}`))
+		case token:
+			_, _ = w.Write([]byte(`{"models":[
+				{"name":"models/a","inputTokenLimit":1048576,"outputTokenLimit":65536},
+				{"name":"models/z"}
+			]}`))
+		default:
+			http.Error(w, "invalid page token", http.StatusBadRequest)
+		}
+	}))
+	defer server.Close()
+
+	models, err := fetchModels(t.Context(), server.URL+"/v1beta/interactions", "key", "GeminiInteractions", "")
+	require.NoError(t, err)
+	assert.Equal(t, []configui.ModelInfo{
+		{ID: "a", ContextWindow: 1_048_576, MaxTokens: 65_536},
+		{ID: "z"},
+	}, models)
+	assert.Equal(t, int32(2), hits.Load())
 }
 
 func TestFetchModelsDefaultsToOpenAI(t *testing.T) {
