@@ -20,6 +20,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Composer pickers (`@` / `/` / `?` / `!`): restyle the floating list so the
   selection bar sits a cell inside the frame with blank rows above and below
   the list, and the highlighted hint stays readable on the selection bar.
+- Raise the provider response-header timeout from 3 to 6 minutes, so slow
+  long-context requests are not cut off before the stream starts.
 
 ### Added
 
