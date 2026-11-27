@@ -29,8 +29,9 @@ const (
 )
 
 type modelListResponse struct {
-	Data   []modelListItem `json:"data"`
-	Models []modelListItem `json:"models"`
+	Data          []modelListItem `json:"data"`
+	Models        []modelListItem `json:"models"`
+	NextPageToken string          `json:"nextPageToken"`
 }
 
 type modelListItem struct {
@@ -77,7 +78,40 @@ func fetchModelIDs(ctx context.Context, baseURL, apiKey, api, model string) ([]s
 		request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(apiKey))
 	}
 
-	response, err := modelListHTTPClient().Do(request)
+	client := modelListHTTPClient()
+	var items []modelListItem
+	seenTokens := make(map[string]bool)
+	for {
+		page, err := fetchModelPage(client, request)
+		if err != nil {
+			return nil, err
+		}
+		if interactionsAPI {
+			for i := range page.Models {
+				page.Models[i].Name = strings.TrimPrefix(page.Models[i].Name, "models/")
+			}
+		}
+		items = append(items, page.Data...)
+		items = append(items, page.Models...)
+		if !interactionsAPI || page.NextPageToken == "" {
+			break
+		}
+		if seenTokens[page.NextPageToken] {
+			return nil, errors.New("model list returned a repeated page token")
+		}
+		seenTokens[page.NextPageToken] = true
+		request = request.Clone(ctx)
+		query := request.URL.Query()
+		query.Set("pageToken", page.NextPageToken)
+		request.URL.RawQuery = query.Encode()
+	}
+	models := collectModelIDs(items)
+	sort.Strings(models)
+	return models, nil
+}
+
+func fetchModelPage(client *http.Client, request *http.Request) (*modelListResponse, error) {
+	response, err := client.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("fetch model list: %w", err)
 	}
@@ -102,14 +136,7 @@ func fetchModelIDs(ctx context.Context, baseURL, apiKey, api, model string) ([]s
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, fmt.Errorf("decode model list: %w", err)
 	}
-	if interactionsAPI {
-		for i := range payload.Models {
-			payload.Models[i].Name = strings.TrimPrefix(payload.Models[i].Name, "models/")
-		}
-	}
-	models := collectModelIDs(append(payload.Data, payload.Models...))
-	sort.Strings(models)
-	return models, nil
+	return &payload, nil
 }
 
 // modelListHTTPClient is the shared client with one restriction on top: a

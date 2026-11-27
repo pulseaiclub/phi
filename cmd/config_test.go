@@ -94,6 +94,30 @@ func TestFetchModelIDs(t *testing.T) {
 	}
 }
 
+func TestFetchGeminiModelPages(t *testing.T) {
+	const token = "next +/= page"
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		assert.Equal(t, "/v1beta/models", r.URL.Path)
+		assert.Equal(t, "key", r.Header.Get("X-Goog-Api-Key"))
+		switch r.URL.Query().Get("pageToken") {
+		case "":
+			_, _ = w.Write([]byte(`{"models":[{"name":"models/z"}],"nextPageToken":"next +/= page"}`))
+		case token:
+			_, _ = w.Write([]byte(`{"models":[{"name":"models/a"},{"name":"models/z"}]}`))
+		default:
+			http.Error(w, "invalid page token", http.StatusBadRequest)
+		}
+	}))
+	defer server.Close()
+
+	models, err := fetchModelIDs(t.Context(), server.URL, "key", "GeminiInteractions", "")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a", "z"}, models)
+	assert.Equal(t, int32(2), hits.Load())
+}
+
 func TestFetchModelIDsDefaultsToOpenAI(t *testing.T) {
 	// No base URL and no claude-ish hints: the request must go to the public
 	// OpenAI endpoint. The DNS lookup fails here, which is fine — we only care
