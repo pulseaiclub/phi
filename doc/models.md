@@ -1,7 +1,7 @@
 # Supported models
 
 phi talks to LLMs through an **explicit** `api` field on each config entry
-(`OpenAI` | `OpenAIResponses` | `Anthropic` | `Gemini`). Empty `api` means
+(`OpenAI` | `OpenAIResponses` | `Anthropic` | `Gemini` | `GeminiInteractions`). Empty `api` means
 OpenAI-compatible `/chat/completions`. There is no name- or URL-based
 provider guessing.
 
@@ -189,6 +189,28 @@ when the stream provides both, matching round-trip needs for
 Gemini without a preset name still needs `api: Gemini` and a valid base URL;
 thinking then uses the budget style by default.
 
+## Gemini Interactions
+
+Set `api: GeminiInteractions` to use Google's `/v1beta/interactions` endpoint.
+Built-in Gemini presets use `generateContent` by default.
+
+```yaml
+models:
+  - name: gemini-4-hydrogen
+    api: GeminiInteractions
+    api_key: your-google-api-key
+    request_parameters:
+      store: true
+      background: false
+```
+
+With the default `store: true`, Google stores the interaction. Phi saves its ID
+in the session and sends the next input or tool result with
+`previous_interaction_id`. Set `store: false` to send the conversation history
+with each request. For models that support background execution, set
+`background: true` and keep `store: true`. Phi follows the interaction until
+the model finishes or requests a tool.
+
 ## Thinking level
 
 Provider-agnostic knobs on each model (and session UI):
@@ -255,9 +277,10 @@ Objects merge recursively; `null` deletes a field or object, while `false` and
 The editor preserves these options but does not expose them as editable fields.
 
 Model identity, messages, tools, streaming controls, choice count and output
-limits remain managed by phi. Gemini options must merge into `generationConfig`
-without replacing it or changing `maxOutputTokens` / `candidateCount` (including
-snake_case aliases). Anthropic validates final thinking budgets. Vendor fields
+limits remain managed by phi. Gemini options merge into `generationConfig` for
+`Gemini` and `generation_config` for `GeminiInteractions`. Phi protects output
+limits, candidate count and interaction continuation fields. Anthropic validates
+final thinking budgets. Vendor fields
 belong directly under `request_parameters`, not an `extra_body` wrapper.
 
 ## Models from extensions

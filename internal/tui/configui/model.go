@@ -160,6 +160,7 @@ var (
 		opt(string(llm.OpenAIResponses), "OpenAI Responses", "responses API"),
 		opt(string(llm.Anthropic), "Anthropic", "messages API"),
 		opt(string(llm.Gemini), "Gemini", "generateContent"),
+		opt(string(llm.GeminiInteractions), "Gemini Interactions", "stateful tool calls"),
 	}
 	thinkDescriptions = map[llm.ThinkMode]string{
 		llm.Off:     "no reasoning",

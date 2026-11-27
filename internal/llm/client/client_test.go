@@ -144,6 +144,82 @@ func TestClientStreamOpenAIResponsesEndToEnd(t *testing.T) {
 	require.Equal(t, 4, done.Final.Usage.TotalTokens)
 }
 
+func TestClientGeminiInteractionsToolRoundTrip(t *testing.T) {
+	var requests []map[string]json.RawMessage
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1beta/interactions" ||
+			r.Header.Get("x-goog-api-key") != "test-key" {
+			http.Error(w, "incorrect endpoint or API key", http.StatusBadRequest)
+			return
+		}
+		var req map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		requests = append(requests, req)
+		w.Header().Set("Content-Type", "text/event-stream")
+		if len(requests) == 1 {
+			_, _ = io.WriteString(
+				w,
+				`data: {"event_type":"interaction.completed","interaction":{"id":"first","status":"requires_action","steps":[{"type":"function_call","id":"call-1","name":"read","arguments":{"path":"main.go"}}]}}`+"\n\n",
+			)
+			return
+		}
+		_, _ = io.WriteString(
+			w,
+			`data: {"event_type":"interaction.completed","interaction":{"id":"second","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"done"}]}]}}`+"\n\n",
+		)
+	}))
+	defer srv.Close()
+	cfg := llm.ModelConfig{API: llm.GeminiInteractions, Name: "gemini-4-hydrogen", APIKey: "test-key", BaseURL: srv.URL}
+	tools := []llm.ToolDefinition{{Name: "read", Description: "Read a file"}}
+	client := NewClient(cfg, Hooks{}, tools, "system")
+	messages := []llm.Message{{Role: llm.RoleUser, Content: "read main.go"}}
+	stream := func() *llm.Message {
+		t.Helper()
+		var done *llm.Message
+		for ev, err := range client.Stream(t.Context(), messages) {
+			require.NoError(t, err)
+			if ev.Final != nil {
+				done = ev.Final
+			}
+		}
+		require.NotNil(t, done)
+		return done
+	}
+	first := stream()
+	require.Len(t, first.ToolCalls, 1)
+	require.Equal(t, "call-1", first.ToolCalls[0].ID)
+	require.JSONEq(t, `{"path":"main.go"}`, first.ToolCalls[0].Function.Arguments)
+	// Resuming a saved session must send the same continuation as a live tool turn.
+	saved, err := json.Marshal(first)
+	require.NoError(t, err)
+	var restored llm.Message
+	require.NoError(t, json.Unmarshal(saved, &restored))
+	messages = append(
+		messages,
+		restored,
+		llm.Message{Role: llm.RoleTool, ToolCallID: "call-1", Content: "package main"},
+	)
+	require.Equal(t, "done", stream().Content)
+	require.Len(t, requests, 2)
+	require.NotContains(t, requests[0], "previous_interaction_id")
+	require.JSONEq(t, `"first"`, string(requests[1]["previous_interaction_id"]))
+	require.JSONEq(
+		t,
+		`[{"type":"function_result","name":"read","call_id":"call-1","result":"package main"}]`,
+		string(requests[1]["input"]),
+	)
+	for _, req := range requests {
+		require.JSONEq(t, `"system"`, string(req["system_instruction"]))
+		require.JSONEq(t, `"gemini-4-hydrogen"`, string(req["model"]))
+		require.JSONEq(t, "true", string(req["stream"]))
+		require.JSONEq(t, "true", string(req["store"]))
+		require.Contains(t, string(req["tools"]), `"type":"function"`)
+	}
+}
+
 func TestClientCompactAnthropic(t *testing.T) {
 	var gotPath string
 	var body []byte

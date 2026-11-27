@@ -9,6 +9,7 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/llm/gemini/interactions"
 	"github.com/pulseaiclub/phi/internal/project/model"
 )
 
@@ -205,6 +206,9 @@ func ResolveModelDoc(m ModelDoc) (llm.ModelConfig, error) {
 		Name: m.Name, Preset: m.Preset, APIKey: m.APIKey, BaseURL: m.BaseURL,
 		API:               llm.RouterType(m.API),
 		RequestParameters: m.RequestParameters,
+	}
+	if cfg.API == llm.GeminiInteractions && cfg.BaseURL == "" {
+		cfg.BaseURL = interactions.DefaultBaseURL
 	}
 	// Explicit fields below override preset defaults.
 	preset, ok := model.LookupBound(m.Preset, m.Name)

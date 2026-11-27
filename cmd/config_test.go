@@ -12,14 +12,14 @@ import (
 
 func TestFetchModelIDs(t *testing.T) {
 	cases := []struct {
-		name        string
-		api         string
-		model       string
-		response    string
-		wantPath    string
-		wantModels  []string
-		checkAuth   func(*testing.T, *http.Request)
-		withBaseURL bool
+		name       string
+		api        string
+		model      string
+		response   string
+		wantPath   string
+		wantModels []string
+		checkAuth  func(*testing.T, *http.Request)
+		basePath   string
 	}{
 		{
 			name:       "openai compatible",
@@ -32,7 +32,7 @@ func TestFetchModelIDs(t *testing.T) {
 				assert.Equal(t, "Bearer test-key", r.Header.Get("Authorization"))
 				assert.Empty(t, r.Header.Get("Anthropic-Version"))
 			},
-			withBaseURL: true,
+			basePath: "/v1",
 		},
 		{
 			name:       "anthropic explicit api",
@@ -45,7 +45,7 @@ func TestFetchModelIDs(t *testing.T) {
 				assert.Equal(t, "test-key", r.Header.Get("X-Api-Key"))
 				assert.Equal(t, anthropicAPIVersion, r.Header.Get("Anthropic-Version"))
 			},
-			withBaseURL: true,
+			basePath: "/v1",
 		},
 		{
 			name:       "claude name with openai api stays openai",
@@ -58,7 +58,19 @@ func TestFetchModelIDs(t *testing.T) {
 				assert.Equal(t, "Bearer test-key", r.Header.Get("Authorization"))
 				assert.Empty(t, r.Header.Get("X-Api-Key"))
 			},
-			withBaseURL: true,
+			basePath: "/v1",
+		},
+		{
+			name:       "gemini interactions",
+			api:        "GeminiInteractions",
+			model:      "claude-via-proxy",
+			response:   `{"models":[{"name":"models/gemini-4-hydrogen"}]}`,
+			wantPath:   "/v1beta/models",
+			wantModels: []string{"gemini-4-hydrogen"},
+			checkAuth: func(t *testing.T, r *http.Request) {
+				assert.Equal(t, "test-key", r.Header.Get("X-Goog-Api-Key"))
+				assert.Empty(t, r.Header.Get("Authorization"))
+			},
 		},
 	}
 
@@ -74,11 +86,7 @@ func TestFetchModelIDs(t *testing.T) {
 			}))
 			defer server.Close()
 
-			baseURL := ""
-			if tc.withBaseURL {
-				baseURL = server.URL + "/v1"
-			}
-			got, err := fetchModelIDs(t.Context(), baseURL, "test-key", tc.api, tc.model)
+			got, err := fetchModelIDs(t.Context(), server.URL+tc.basePath, "test-key", tc.api, tc.model)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantModels, got)
 			assert.Equal(t, int32(1), hits.Load())

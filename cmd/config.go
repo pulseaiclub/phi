@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/llm/gemini/interactions"
 	"github.com/pulseaiclub/phi/internal/util"
 )
 
@@ -43,7 +45,10 @@ type modelListItem struct {
 func fetchModelIDs(ctx context.Context, baseURL, apiKey, api, model string) ([]string, error) {
 	baseURL = strings.TrimSpace(baseURL)
 	anthropic := isAnthropicAPI(api, baseURL, model)
-	if baseURL == "" {
+	interactionsAPI := strings.TrimSpace(api) == string(llm.GeminiInteractions)
+	if interactionsAPI {
+		baseURL = interactions.NormalizeBaseURL(baseURL)
+	} else if baseURL == "" {
 		if anthropic {
 			baseURL = "https://api.anthropic.com"
 		} else {
@@ -62,10 +67,13 @@ func fetchModelIDs(ctx context.Context, baseURL, apiKey, api, model string) ([]s
 		return nil, fmt.Errorf("build model list request: %w", err)
 	}
 	request.Header.Set("Accept", "application/json")
-	if anthropic {
+	switch {
+	case interactionsAPI:
+		request.Header.Set("X-Goog-Api-Key", strings.TrimSpace(apiKey))
+	case anthropic:
 		request.Header.Set("X-Api-Key", strings.TrimSpace(apiKey))
 		request.Header.Set("Anthropic-Version", anthropicAPIVersion)
-	} else {
+	default:
 		request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(apiKey))
 	}
 
@@ -93,6 +101,11 @@ func fetchModelIDs(ctx context.Context, baseURL, apiKey, api, model string) ([]s
 	var payload modelListResponse
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, fmt.Errorf("decode model list: %w", err)
+	}
+	if interactionsAPI {
+		for i := range payload.Models {
+			payload.Models[i].Name = strings.TrimPrefix(payload.Models[i].Name, "models/")
+		}
 	}
 	models := collectModelIDs(append(payload.Data, payload.Models...))
 	sort.Strings(models)
@@ -122,7 +135,7 @@ func isAnthropicAPI(api, baseURL, model string) bool {
 	switch strings.TrimSpace(api) {
 	case "Anthropic":
 		return true
-	case "OpenAI", "OpenAIResponses", "Gemini":
+	case "OpenAI", "OpenAIResponses", "Gemini", string(llm.GeminiInteractions):
 		return false
 	}
 	// Empty api: keep legacy heuristics so an entry with only claude-ish values

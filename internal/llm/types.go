@@ -30,10 +30,11 @@ type Compactor interface {
 type RouterType string
 
 const (
-	OpenAI          RouterType = "OpenAI"
-	OpenAIResponses RouterType = "OpenAIResponses"
-	Anthropic       RouterType = "Anthropic"
-	Gemini          RouterType = "Gemini"
+	OpenAI             RouterType = "OpenAI"
+	OpenAIResponses    RouterType = "OpenAIResponses"
+	Anthropic          RouterType = "Anthropic"
+	Gemini             RouterType = "Gemini"
+	GeminiInteractions RouterType = "GeminiInteractions"
 )
 
 type ThinkMode string
@@ -282,9 +283,10 @@ type ProviderState struct {
 	Data     ProviderData `json:"data,omitempty"`
 }
 
-// ProviderData holds Anthropic's prefix fingerprint and ordered content blocks.
+// ProviderData holds provider-native history used to continue a turn.
 type ProviderData struct {
 	// Prefix binds Items to the system, tools, and message history they depend on.
-	Prefix string            `json:"prefix,omitempty"`
-	Items  []json.RawMessage `json:"items,omitempty"`
+	Prefix        string            `json:"prefix,omitempty"`
+	Items         []json.RawMessage `json:"items,omitempty"`
+	InteractionID string            `json:"interaction_id,omitempty"`
 }

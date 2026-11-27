@@ -23,10 +23,10 @@ func (p RequestParameters) validatedPatch(api RouterType) (map[string]json.RawMe
 		return nil, nil
 	}
 	switch api {
-	case "", OpenAI, OpenAIResponses, Anthropic, Gemini:
+	case "", OpenAI, OpenAIResponses, Anthropic, Gemini, GeminiInteractions:
 	default:
 		return nil, fmt.Errorf(
-			"request_parameters: unsupported API %q; use OpenAI, OpenAIResponses, Anthropic or Gemini",
+			"request_parameters: unsupported API %q; use OpenAI, OpenAIResponses, Anthropic, Gemini or GeminiInteractions",
 			api,
 		)
 	}
@@ -37,6 +37,20 @@ func (p RequestParameters) validatedPatch(api RouterType) (map[string]json.RawMe
 	overlay, err := unmarshalObject(patch)
 	if err != nil {
 		return nil, err
+	}
+	if api == GeminiInteractions {
+		for _, key := range []string{"store", "background"} {
+			if value, present := p[key]; present {
+				if _, ok := value.(bool); !ok {
+					return nil, fmt.Errorf("request_parameters.%s must be true or false for GeminiInteractions", key)
+				}
+			}
+		}
+		store, explicitStore := p["store"].(bool)
+		background, _ := p["background"].(bool)
+		if explicitStore && !store && background {
+			return nil, errors.New("request_parameters.background=true requires store=true for GeminiInteractions")
+		}
 	}
 	for key, value := range overlay {
 		switch key {
@@ -58,6 +72,11 @@ func (p RequestParameters) validatedPatch(api RouterType) (map[string]json.RawMe
 			"previous_response_id",
 			"conversation":
 			return nil, fmt.Errorf("request_parameters.%s is managed by phi; remove this override", key)
+		case "previous_interaction_id", "previousInteractionId", "continuation_token", "continuationToken",
+			"last_event_id", "lastEventId":
+			if api == GeminiInteractions {
+				return nil, fmt.Errorf("request_parameters.%s is managed by phi; remove this override", key)
+			}
 		case "background":
 			// Compaction requires a completed response; phi does not poll background jobs.
 			if api == OpenAIResponses && bytes.Equal(bytes.TrimSpace(value), []byte("true")) {
@@ -71,30 +90,34 @@ func (p RequestParameters) validatedPatch(api RouterType) (map[string]json.RawMe
 					"request_parameters.extra_body is an SDK wrapper; move its fields directly under request_parameters",
 				)
 			}
-		case "generation_config":
-			// Alternate spellings could bypass the container carrying phi's output cap.
-			return nil, errors.New(
-				"request_parameters.generation_config: use generationConfig so options merge with phi's output limits",
-			)
-		case "generationConfig":
-			// Replacing this container would erase Gemini's compaction cap.
-			var options map[string]json.RawMessage
-			if err := json.Unmarshal(value, &options); err != nil || options == nil {
-				return nil, errors.New(
-					"request_parameters.generationConfig must be an object; keep phi's output limits",
-				)
-			}
-			for _, field := range []string{"maxOutputTokens", "max_output_tokens", "candidateCount", "candidate_count"} {
-				if _, ok := options[field]; ok {
-					return nil, fmt.Errorf(
-						"request_parameters.generationConfig.%s is managed by phi; remove this override",
-						field,
-					)
-				}
+		case "generation_config", "generationConfig":
+			if err := validateGenerationConfig(api, key, value); err != nil {
+				return nil, err
 			}
 		}
 	}
 	return overlay, nil
+}
+
+func validateGenerationConfig(api RouterType, key string, value json.RawMessage) error {
+	// A second spelling or a non-object could discard the provider's compaction cap.
+	want := "generationConfig"
+	if api == GeminiInteractions {
+		want = "generation_config"
+	}
+	if key != want {
+		return fmt.Errorf("request_parameters.%s: use %s so options merge with phi's output limits", key, want)
+	}
+	var options map[string]json.RawMessage
+	if err := json.Unmarshal(value, &options); err != nil || options == nil {
+		return fmt.Errorf("request_parameters.%s must be an object; keep phi's output limits", key)
+	}
+	for _, field := range []string{"maxOutputTokens", "max_output_tokens", "candidateCount", "candidate_count"} {
+		if _, ok := options[field]; ok {
+			return fmt.Errorf("request_parameters.%s.%s is managed by phi; remove this override", key, field)
+		}
+	}
+	return nil
 }
 
 // MarshalRequest applies overrides after endpoint mapping, preserving untouched JSON numbers.

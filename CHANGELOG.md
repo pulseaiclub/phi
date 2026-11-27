@@ -25,6 +25,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Add the `GeminiInteractions` transport for streaming Gemini responses and
+  continuing tool calls with Google's stored interaction IDs.
 - Models: add built-in presets for Claude Fable 5.2, Claude 5.5
   (Opus/Sonnet/Haiku), and Claude 4.6 (Opus/Sonnet) with adaptive thinking,
   GPT-6.2 (Astra/Sol), GPT-6.1 (Sol/Terra), and GPT-6 Luna, Gemini 4

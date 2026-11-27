@@ -74,6 +74,24 @@ func TestExplicitPresetBinding(t *testing.T) {
 	require.ErrorContains(t, err, "unknown preset")
 }
 
+func TestGeminiInteractionsEndpoint(t *testing.T) {
+	const google = "https://generativelanguage.googleapis.com/v1beta"
+	for _, tt := range []struct {
+		name, api, baseURL, wantURL string
+		wantAPI                     llm.RouterType
+	}{
+		{"custom", "GeminiInteractions", "", google, llm.GeminiInteractions},
+		{"custom", "GeminiInteractions", "https://proxy.example/v1beta", "https://proxy.example/v1beta", llm.GeminiInteractions},
+		{"gemini-4-hydrogen", "GeminiInteractions", "", google, llm.GeminiInteractions},
+		{"gemini-4-hydrogen", "", "", google, llm.Gemini},
+	} {
+		cfg, err := ResolveModelDoc(ModelDoc{Name: tt.name, API: tt.api, BaseURL: tt.baseURL})
+		require.NoError(t, err)
+		assert.Equal(t, tt.wantAPI, cfg.API)
+		assert.Equal(t, tt.wantURL, cfg.BaseURL)
+	}
+}
+
 func TestConfiguredModelWinsOverPHIModel(t *testing.T) {
 	p := discoverInTempHome(t)
 	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`models:
