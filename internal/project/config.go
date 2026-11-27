@@ -233,10 +233,10 @@ func ResolveModelDoc(m ModelDoc) (llm.ModelConfig, error) {
 	}
 	if m.ContextWindow != nil && *m.ContextWindow > 0 {
 		cfg.ContextWindow = *m.ContextWindow
-		// Only drop the preset's InputLimit when the user actually changes the
-		// window size; restating the preset value (or reporting it from an
-		// extension registration) keeps the preset input cap intact.
-		if !ok || *m.ContextWindow != preset.Config.ContextWindow {
+		// Keep the preset's InputLimit when tightening ContextWindow to a value
+		// still above InputLimit (e.g. a 1M gateway cap on a 1.05M / 922K
+		// preset); clear it when expanding the window or capping at/below InputLimit.
+		if !ok || *m.ContextWindow > preset.Config.ContextWindow || *m.ContextWindow <= preset.Config.InputLimit {
 			cfg.InputLimit = 0
 		}
 	}

@@ -424,6 +424,14 @@ models:
     preset: gpt-5.5
     api_key: sk-gpt
     context_window: 1050000
+  - name: gpt-5.5-tighter-window
+    preset: gpt-5.5
+    api_key: sk-gpt
+    context_window: 1000000
+  - name: gpt-5.5-small-window
+    preset: gpt-5.5
+    api_key: sk-gpt
+    context_window: 200000
   - name: gpt-5.5-custom-window
     preset: gpt-5.5
     api_key: sk-gpt
@@ -454,8 +462,8 @@ models:
 	assert.False(t, pro.ImageEnabled, "v4-pro has no image understanding")
 
 	// gpt-5.5 inherits both total context window and tighter input limit;
-	// restating the preset window preserves InputLimit, while a different
-	// context_window override clears it.
+	// restating or tightening above InputLimit preserves it, while expanding
+	// past the preset window or capping at/below InputLimit clears it.
 	gpt, ok := cfg.FindModel("gpt-5.5")
 	require.True(t, ok)
 	assert.Equal(t, 1_050_000, gpt.ContextWindow)
@@ -468,10 +476,22 @@ models:
 	assert.Equal(t, 922_000, gptSame.InputLimit, "restating the preset context_window keeps InputLimit")
 	assert.Equal(t, 922_000, gptSame.CompactionWindow())
 
+	gptTighter, ok := cfg.FindModel("gpt-5.5-tighter-window")
+	require.True(t, ok)
+	assert.Equal(t, 1_000_000, gptTighter.ContextWindow)
+	assert.Equal(t, 922_000, gptTighter.InputLimit, "tightening above InputLimit keeps InputLimit")
+	assert.Equal(t, 922_000, gptTighter.CompactionWindow())
+
+	gptSmall, ok := cfg.FindModel("gpt-5.5-small-window")
+	require.True(t, ok)
+	assert.Equal(t, 200_000, gptSmall.ContextWindow)
+	assert.Zero(t, gptSmall.InputLimit, "capping below InputLimit clears preset input limit")
+	assert.Equal(t, 200_000, gptSmall.CompactionWindow())
+
 	gptCustom, ok := cfg.FindModel("gpt-5.5-custom-window")
 	require.True(t, ok)
 	assert.Equal(t, 2_000_000, gptCustom.ContextWindow)
-	assert.Zero(t, gptCustom.InputLimit, "different context_window clears preset input limit")
+	assert.Zero(t, gptCustom.InputLimit, "larger context_window clears preset input limit")
 	assert.Equal(t, 2_000_000, gptCustom.CompactionWindow())
 
 	// Unknown names keep the generic OpenAI fallback and no preset.

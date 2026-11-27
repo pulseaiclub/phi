@@ -13,11 +13,15 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/listpicker"
 	"github.com/pulseaiclub/phi/internal/components/textfield"
 	"github.com/pulseaiclub/phi/internal/project"
+	"github.com/pulseaiclub/phi/internal/project/model"
 )
 
 const (
 	// fetchTimeout caps one provider model-list request.
 	fetchTimeout = 15 * time.Second
+	// modelPickerPrimaryWidth keeps one long gateway model ID from crushing
+	// metadata details on every row of the model picker.
+	modelPickerPrimaryWidth = 42
 )
 
 // ConfigEditor is the full-screen config form. It implements components.Widget and is
@@ -100,12 +104,15 @@ type fetchState struct {
 	active bool
 	done   bool
 	index  int
-	// name is the model's name when the fetch started; if the entry at index
-	// no longer matches it, the result is for a model that moved or was
-	// replaced while the request was in flight.
-	name string
-	ids  []string
-	err  error
+	// name, apiKey, baseURL, and api capture the resolved fetch target when the
+	// request started; if the entry moves or its credentials/connection change
+	// in flight, the result is stale and discarded.
+	name    string
+	apiKey  string
+	baseURL string
+	api     string
+	models  []ModelInfo
+	err     error
 }
 
 // Handle routes one event. Modal states own the keyboard outright; otherwise
@@ -605,30 +612,56 @@ func (e *ConfigEditor) fetchModels() {
 	if m == nil {
 		return
 	}
+	baseURL, api := resolvedFetchTarget(*m)
+	apiKey, name := m.APIKey, m.Name
 	e.fetchMu.Lock()
 	if e.fetch.active {
 		e.fetchMu.Unlock()
 		e.setStatus("already fetching models…")
 		return
 	}
-	e.fetch = fetchState{active: true, index: index, name: m.Name}
+	e.fetch = fetchState{active: true, index: index, name: name, apiKey: apiKey, baseURL: baseURL, api: api}
 	e.fetchMu.Unlock()
 
-	baseURL, apiKey, api, name := m.BaseURL, m.APIKey, m.API, m.Name
 	e.setStatus("fetching models…")
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
 		defer cancel()
-		ids, err := e.list(ctx, baseURL, apiKey, api, name)
+		models, err := e.list(ctx, baseURL, apiKey, api, name)
 		e.fetchMu.Lock()
 		// Keep active set until pollFetch consumes the result. This closes the
 		// window where a completed result is waiting but another fetch can start.
-		e.fetch = fetchState{active: true, done: true, index: index, name: name, ids: ids, err: err}
+		e.fetch = fetchState{
+			active:  true,
+			done:    true,
+			index:   index,
+			name:    name,
+			apiKey:  apiKey,
+			baseURL: baseURL,
+			api:     api,
+			models:  models,
+			err:     err,
+		}
 		e.fetchMu.Unlock()
 		if e.redraw != nil {
 			e.redraw()
 		}
 	}()
+}
+
+// resolvedFetchTarget returns the effective base URL and API for a model entry,
+// inheriting built-in preset defaults when left unset.
+func resolvedFetchTarget(m project.ModelDoc) (baseURL, api string) {
+	baseURL, api = m.BaseURL, m.API
+	if preset, ok := model.LookupBound(m.Preset, m.Name); ok {
+		if baseURL == "" {
+			baseURL = preset.Config.BaseURL
+		}
+		if api == "" {
+			api = string(preset.Config.API)
+		}
+	}
+	return baseURL, api
 }
 
 // pollFetch adopts a finished background fetch. It runs on the UI goroutine
@@ -647,20 +680,109 @@ func (e *ConfigEditor) pollFetch() {
 		e.setError("model list: " + result.err.Error())
 		return
 	}
-	if len(result.ids) == 0 {
+	if len(result.models) == 0 {
 		e.setError("model list: the provider returned no models")
 		return
 	}
 	m := e.modelAt(result.index)
-	if m == nil || m.Name != result.name {
+	if m == nil {
 		e.setError("model list: the model changed while fetching — press f again")
 		return
 	}
-	options := make([]option, 0, len(result.ids))
-	for _, id := range result.ids {
-		options = append(options, opt(id, id, "advertised by the provider"))
+	curBaseURL, curAPI := resolvedFetchTarget(*m)
+	if m.Name != result.name || m.APIKey != result.apiKey || curBaseURL != result.baseURL || curAPI != result.api {
+		e.setError("model list: the model changed while fetching — press f again")
+		return
 	}
-	e.openKeyPicker("Model list", modelKey(result.index, fName), options)
+	e.openModelPicker(result.index, result.models, result.baseURL, result.api)
+}
+
+func (e *ConfigEditor) openModelPicker(index int, models []ModelInfo, fetchBaseURL, fetchAPI string) {
+	items := make([]listpicker.Item, 0, len(models))
+	byID := make(map[string]ModelInfo, len(models))
+	for _, info := range models {
+		byID[info.ID] = info
+		items = append(items, listpicker.Item{
+			ID:      info.ID,
+			Primary: info.ID,
+			Detail:  modelOptionDetail(info),
+		})
+	}
+	key := modelKey(index, fName)
+	e.picker = listpicker.Picker{
+		Theme: e.theme,
+		OnAccept: func(item listpicker.Item) {
+			chosen, ok := byID[item.ID]
+			if !ok {
+				chosen = ModelInfo{ID: item.ID}
+			}
+			e.applyFetchedModel(index, chosen, fetchBaseURL, fetchAPI)
+		},
+	}
+	e.picker.Show(items, listpicker.ShowConfig{Title: "Model list", PrimaryWidth: modelPickerPrimaryWidth})
+	e.picker.Restore(listpicker.State{SelectedID: e.rawFor(key)})
+}
+
+// applyFetchedModel keeps explicit values, preserves preset-inherited
+// connection fields across switches to unrecognized models, and lets a gateway
+// tighten preset limits without widening compaction windows.
+func (e *ConfigEditor) applyFetchedModel(index int, chosen ModelInfo, fetchBaseURL, fetchAPI string) {
+	if err := e.applyModel(index, fName, chosen.ID); err != nil {
+		e.setError(err.Error())
+		return
+	}
+	m := e.modelAt(index)
+	preset, _ := model.LookupBound(m.Preset, m.Name)
+	if m.BaseURL == "" && fetchBaseURL != "" && preset.Config.BaseURL == "" {
+		m.BaseURL = fetchBaseURL
+	}
+	if m.API == "" && fetchAPI != "" && preset.Config.API == "" {
+		m.API = fetchAPI
+	}
+	var filled []string
+	if shouldPrefillLimit(m.ContextWindow, chosen.ContextWindow, preset.Config.ContextWindow) {
+		v := chosen.ContextWindow
+		m.ContextWindow = &v
+		filled = append(filled, "context window")
+	}
+	if shouldPrefillLimit(m.MaxTokens, chosen.MaxTokens, preset.Config.MaxTokens) {
+		v := chosen.MaxTokens
+		m.MaxTokens = &v
+		filled = append(filled, "max tokens")
+	}
+	if m.ImageEnabled == nil && chosen.ImageEnabled != nil && *chosen.ImageEnabled != preset.Config.ImageEnabled {
+		v := *chosen.ImageEnabled
+		m.ImageEnabled = &v
+		filled = append(filled, "image input")
+	}
+	e.dirty = true
+	if len(filled) > 0 {
+		e.setStatus("prefilled " + strings.Join(filled, ", "))
+	} else {
+		e.status, e.statusKind = "", statusNone
+	}
+	e.refocus(modelKey(index, fName))
+}
+
+func shouldPrefillLimit(current *int, advertised, preset int) bool {
+	return current == nil && advertised > 0 && (preset == 0 || advertised < preset)
+}
+
+func modelOptionDetail(info ModelInfo) string {
+	var parts []string
+	if info.ContextWindow > 0 {
+		parts = append(parts, humanTokens(info.ContextWindow)+" context")
+	}
+	if info.MaxTokens > 0 {
+		parts = append(parts, humanTokens(info.MaxTokens)+" output")
+	}
+	if info.ImageEnabled != nil && *info.ImageEnabled {
+		parts = append(parts, "image")
+	}
+	if len(parts) == 0 {
+		return "advertised by the provider"
+	}
+	return strings.Join(parts, " · ")
 }
 
 func (e *ConfigEditor) openKeyPicker(title, key string, options []option) {

@@ -241,19 +241,25 @@ func (e *ConfigEditor) paintFooter(s *components.Surface, method xui.WidthMethod
 		s.Print(1, ruleY, strings.Repeat("─", max(w-2, 0)), th.Border, method)
 	}
 	y := h - 2
-	// hintLine keeps the line inside the width on its own; the truncation is
-	// only there for the one-hint terminal, where nothing can be dropped.
-	hints := e.hintLine(max(w-6, 1), method)
-	printed := s.Print(2, y, components.TruncateToWidth(hints, max(w-6, 1), method), th.Muted, method)
+	avail := max(w-4, 1)
 	if e.status == "" {
+		// hintLine keeps the line inside the width on its own; the truncation is
+		// only there for the one-hint terminal, where nothing can be dropped.
+		hints := e.hintLine(max(w-6, 1), method)
+		s.Print(2, y, components.TruncateToWidth(hints, max(w-6, 1), method), th.Muted, method)
 		return
 	}
-	statusW := xui.StringWidth(e.status, method)
-	start := w - 2 - statusW
-	if start <= 4+printed {
-		return
+	// Give the active status message priority over trailing shortcut hints so
+	// save/prefill confirmations remain visible on 80-column terminals.
+	status := components.TruncateToWidth(e.status, avail, method)
+	statusW := xui.StringWidth(status, method)
+	if hintBudget := avail - statusW - 2; hintBudget > 0 {
+		hints := e.hintLine(hintBudget, method)
+		if xui.StringWidth(hints, method) <= hintBudget {
+			s.Print(2, y, hints, th.Muted, method)
+		}
 	}
-	s.Print(start, y, components.TruncateToWidth(e.status, max(w-4, 1), method), e.statusStyle(), method)
+	s.Print(w-2-statusW, y, status, e.statusStyle(), method)
 }
 
 // hintSegments lists the current state's shortcuts, most useful first. The

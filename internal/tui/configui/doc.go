@@ -8,7 +8,16 @@ package configui
 
 import "context"
 
-// ModelLister fetches the model IDs a provider advertises for one connection.
+// ModelInfo describes one model advertised by a provider's /models endpoint,
+// along with any capability limits the endpoint explicitly reported.
+type ModelInfo struct {
+	ID            string
+	ContextWindow int
+	MaxTokens     int
+	ImageEnabled  *bool
+}
+
+// ModelLister fetches the models a provider advertises for one connection.
 // It runs off the UI goroutine, so implementations must be safe for concurrent
 // use and must honor ctx.
-type ModelLister func(ctx context.Context, baseURL, apiKey, api, model string) ([]string, error)
+type ModelLister func(ctx context.Context, baseURL, apiKey, api, model string) ([]ModelInfo, error)
