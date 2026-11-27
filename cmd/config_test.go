@@ -279,9 +279,17 @@ func TestCollectModelInfosPrefersIDAndParsesMetadata(t *testing.T) {
 			`{"id":"claude-5","max_input_tokens":1000000,"max_tokens":128000,"capabilities":{"image_input":{"supported":true}}}`,
 		),
 		json.RawMessage(`{"id":"vllm-m","max_model_len":65536.0,"max_output_tokens":8192.0,"supports_vision":true}`),
-		json.RawMessage(`{"id":"custom-qwen","context_window":32768,"max_tokens":8192}`),
 		json.RawMessage(
-			`{"id":"quirky","context_length":"128k","max_tokens":0,"architecture":"qwen2","capabilities":["vision"],"supports_vision":null}`,
+			`{"id":"magpie-img","context_window":200000,"max_output_tokens":64000,"modalities":{"input":["text","image"],"output":["text"]}}`,
+		),
+		json.RawMessage(
+			`{"id":"magpie-text","context_window":131072,"modalities":{"input":["text"],"output":["text"]}}`,
+		),
+		json.RawMessage(
+			`{"id":"custom-qwen","context_window":32768,"max_tokens":8192,"input_modalities":["text","image"]}`,
+		),
+		json.RawMessage(
+			`{"id":"quirky","context_length":"128k","max_tokens":0,"architecture":"qwen2","capabilities":["vision"],"modalities":{"output":["image"]},"supports_vision":null}`,
 		),
 	}
 	got := collectModelInfos(raw, false)
@@ -293,7 +301,9 @@ func TestCollectModelInfosPrefersIDAndParsesMetadata(t *testing.T) {
 		{ID: "or-text", ContextWindow: 131_072, ImageEnabled: boolPtr(false)},
 		{ID: "claude-5", ContextWindow: 1_000_000, MaxTokens: 128_000, ImageEnabled: boolPtr(true)},
 		{ID: "vllm-m", ContextWindow: 65_536, MaxTokens: 8_192, ImageEnabled: boolPtr(true)},
-		{ID: "custom-qwen", ContextWindow: 32_768, MaxTokens: 8_192},
+		{ID: "magpie-img", ContextWindow: 200_000, MaxTokens: 64_000, ImageEnabled: boolPtr(true)},
+		{ID: "magpie-text", ContextWindow: 131_072, ImageEnabled: boolPtr(false)},
+		{ID: "custom-qwen", ContextWindow: 32_768, MaxTokens: 8_192, ImageEnabled: boolPtr(true)},
 		{ID: "quirky"},
 	}, got)
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -211,7 +212,7 @@ func parseModelListItem(raw json.RawMessage, stripGeminiPrefix bool) (configui.M
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		return configui.ModelInfo{}, false
 	}
-	id := firstNonEmpty(
+	id := cmp.Or(
 		jsonString(fields["id"]),
 		jsonString(fields["name"]),
 		jsonString(fields["display_name"]),
@@ -230,7 +231,7 @@ func parseModelListItem(raw json.RawMessage, stripGeminiPrefix bool) (configui.M
 
 	return configui.ModelInfo{
 		ID: id,
-		ContextWindow: firstPositive(
+		ContextWindow: cmp.Or(
 			jsonPositiveInt(fields["context_length"]),
 			jsonPositiveInt(topProvider["context_length"]),
 			jsonPositiveInt(fields["max_model_len"]),
@@ -238,7 +239,7 @@ func parseModelListItem(raw json.RawMessage, stripGeminiPrefix bool) (configui.M
 			jsonPositiveInt(fields["max_input_tokens"]),
 			jsonPositiveInt(fields["inputTokenLimit"]),
 		),
-		MaxTokens: firstPositive(
+		MaxTokens: cmp.Or(
 			jsonPositiveInt(fields["max_completion_tokens"]),
 			jsonPositiveInt(topProvider["max_completion_tokens"]),
 			jsonPositiveInt(fields["max_output_tokens"]),
@@ -255,21 +256,43 @@ func parseModelImageSupport(fields map[string]json.RawMessage) *bool {
 			ImageInput *struct {
 				Supported *bool `json:"supported"`
 			} `json:"image_input"`
+			SupportsVision *bool `json:"supports_vision"`
 		}
-		if json.Unmarshal(rawCaps, &caps) == nil && caps.ImageInput != nil && caps.ImageInput.Supported != nil {
-			v := *caps.ImageInput.Supported
-			return &v
+		if json.Unmarshal(rawCaps, &caps) == nil {
+			if caps.ImageInput != nil && caps.ImageInput.Supported != nil {
+				return caps.ImageInput.Supported
+			}
+			if caps.SupportsVision != nil {
+				return caps.SupportsVision
+			}
 		}
 	}
 	if rawArch := fields["architecture"]; len(rawArch) > 0 {
 		var arch struct {
 			InputModalities []string `json:"input_modalities"`
 		}
-		if json.Unmarshal(rawArch, &arch) == nil && len(arch.InputModalities) > 0 {
-			hasImage := slices.ContainsFunc(arch.InputModalities, func(mod string) bool {
-				return strings.EqualFold(strings.TrimSpace(mod), "image")
-			})
-			return &hasImage
+		if json.Unmarshal(rawArch, &arch) == nil {
+			if supported := hasImageModality(arch.InputModalities); supported != nil {
+				return supported
+			}
+		}
+	}
+	if rawMod := fields["modalities"]; len(rawMod) > 0 {
+		var mod struct {
+			Input []string `json:"input"`
+		}
+		if json.Unmarshal(rawMod, &mod) == nil {
+			if supported := hasImageModality(mod.Input); supported != nil {
+				return supported
+			}
+		}
+	}
+	if rawIn := fields["input_modalities"]; len(rawIn) > 0 {
+		var in []string
+		if json.Unmarshal(rawIn, &in) == nil {
+			if supported := hasImageModality(in); supported != nil {
+				return supported
+			}
 		}
 	}
 	if rawVision := fields["supports_vision"]; len(rawVision) > 0 {
@@ -279,6 +302,16 @@ func parseModelImageSupport(fields map[string]json.RawMessage) *bool {
 		}
 	}
 	return nil
+}
+
+func hasImageModality(modalities []string) *bool {
+	if len(modalities) == 0 {
+		return nil
+	}
+	hasImage := slices.ContainsFunc(modalities, func(mod string) bool {
+		return strings.EqualFold(strings.TrimSpace(mod), "image")
+	})
+	return &hasImage
 }
 
 func jsonString(raw json.RawMessage) string {
@@ -306,24 +339,6 @@ func jsonPositiveInt(raw json.RawMessage) int {
 	var f float64
 	if json.Unmarshal(raw, &f) == nil && f >= 1 && f < float64(math.MaxInt) && math.Trunc(f) == f {
 		return int(f)
-	}
-	return 0
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
-}
-
-func firstPositive(values ...int) int {
-	for _, v := range values {
-		if v > 0 {
-			return v
-		}
 	}
 	return 0
 }
