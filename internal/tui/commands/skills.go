@@ -6,7 +6,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/listpicker"
 	"github.com/pulseaiclub/phi/internal/components/listrows"
 	"github.com/pulseaiclub/phi/internal/components/toast"
-	"github.com/pulseaiclub/phi/internal/llm/skills"
+	"github.com/pulseaiclub/phi/internal/skills"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 

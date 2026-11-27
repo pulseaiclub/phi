@@ -3,7 +3,7 @@ package listrows
 import (
 	"github.com/pulseaiclub/phi/internal/components/chrome"
 	"github.com/pulseaiclub/phi/internal/components/listpicker"
-	"github.com/pulseaiclub/phi/internal/llm/skills"
+	"github.com/pulseaiclub/phi/internal/skills"
 )
 
 // SkillConfig returns chrome copy for the skills picker.
