@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
 type nativeBenchmarkTransport struct{ sse string }
@@ -25,26 +25,26 @@ func (t nativeBenchmarkTransport) RoundTrip(r *http.Request) (*http.Response, er
 func BenchmarkNativeSignedContinuation(b *testing.B) {
 	for _, mode := range []string{"mixed", "native_history"} {
 		b.Run(mode, func(b *testing.B) {
-			cfg := llm.ModelConfig{Name: "claude", API: llm.Anthropic, Think: llm.ThinkConfig{Enabled: true}}
+			cfg := core.ModelConfig{Name: "claude", API: core.Anthropic, Think: core.ThinkConfig{Enabled: true}}
 			client := &http.Client{}
-			var messages []llm.Message
+			var messages []core.Message
 			rounds := 1
 			fixture := nativeSSE
 			if mode == "native_history" {
 				rounds = 50
 				fixture = strings.Replace(nativeSSE, `"text":"before"`, `"text":"`+strings.Repeat("T", 4096)+`"`, 1)
 			} else {
-				messages = make([]llm.Message, 100)
+				messages = make([]core.Message, 100)
 				for i := range messages {
-					role := llm.RoleUser
+					role := core.RoleUser
 					if i%2 == 1 {
-						role = llm.RoleAssistant
+						role = core.RoleAssistant
 					}
-					messages[i] = llm.Message{Role: role, Content: strings.Repeat("synthetic text. ", 137)}
+					messages[i] = core.Message{Role: role, Content: strings.Repeat("synthetic text. ", 137)}
 				}
 			}
-			messages = append(messages, llm.Message{Role: llm.RoleUser, Content: "read"})
-			var final *llm.Message
+			messages = append(messages, core.Message{Role: core.RoleUser, Content: "read"})
+			var final *core.Message
 			for round := range rounds {
 				client.Transport = nativeBenchmarkTransport{
 					sse: strings.ReplaceAll(fixture, "toolu.native", fmt.Sprintf("toolu.%d", round)),
@@ -59,8 +59,8 @@ func BenchmarkNativeSignedContinuation(b *testing.B) {
 				}
 				require.NotNil(b, final)
 				require.NotNil(b, final.ProviderState)
-				messages = append(messages, *final, llm.Message{
-					Role: llm.RoleTool, ToolCallID: final.ToolCalls[0].ID, Content: "file",
+				messages = append(messages, core.Message(*final), core.Message{
+					Role: core.RoleTool, ToolCallID: final.ToolCalls[0].ID, Content: "file",
 				})
 			}
 			client.Transport = nativeBenchmarkTransport{sse: nativeSSE}

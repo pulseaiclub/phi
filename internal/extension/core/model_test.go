@@ -10,8 +10,8 @@ import (
 
 	ext "github.com/pulseaiclub/phi/ext/go"
 
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/extension/loader"
-	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
@@ -117,7 +117,7 @@ func TestModelToolsAndActiveFilter(t *testing.T) {
 	r.mu.Lock()
 	r.fibers["ext"] = f
 	r.mu.Unlock()
-	r.SetBaseTools([]tooldef.Tool{{Definition: llm.ToolDefinition{Name: "builtin-tool"}}})
+	r.SetBaseTools([]tooldef.Tool{{Definition: core.ToolDefinition{Name: "builtin-tool"}}})
 
 	m := r.snapshot()
 	require.Len(t, m.tools, 2)
@@ -129,7 +129,7 @@ func TestModelToolsAndActiveFilter(t *testing.T) {
 	assert.Equal(t, "ext-tool", r.snapshot().activeTools[0].Name)
 
 	// SetBaseTools copies: the caller's slice is not retained.
-	base := []tooldef.Tool{{Definition: llm.ToolDefinition{Name: "mutated"}}}
+	base := []tooldef.Tool{{Definition: core.ToolDefinition{Name: "mutated"}}}
 	r.SetBaseTools(base)
 	base[0].Definition.Name = "changed-after-the-fact"
 	assert.Equal(t, "mutated", r.snapshot().tools[0].Name)
@@ -139,7 +139,7 @@ func TestRunnerInitialHostStateIsInstalledWithoutNotification(t *testing.T) {
 	var changes int
 	r := NewRunnerWithHost("", HostConfig{
 		Host:      ext.HostOpts{Cwd: "/project", SessionID: "session-1", HasUI: true},
-		BaseTools: []tooldef.Tool{{Definition: llm.ToolDefinition{Name: "builtin"}}},
+		BaseTools: []tooldef.Tool{{Definition: core.ToolDefinition{Name: "builtin"}}},
 		OnChange:  func() { changes++ },
 	})
 	f, api := handBuiltFiber("initial")

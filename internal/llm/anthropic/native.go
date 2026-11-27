@@ -11,7 +11,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
 type nativeBlock map[string]json.RawMessage
@@ -174,7 +174,7 @@ func snapshotNativeInput(req *AnthropicRequest) *AnthropicRequest {
 	return input
 }
 
-func nativeState(input *AnthropicRequest, cfg llm.ModelConfig) *llm.ProviderState {
+func nativeState(input *AnthropicRequest, cfg core.ModelConfig) *core.ProviderState {
 	if input == nil {
 		return nil
 	}
@@ -183,12 +183,12 @@ func nativeState(input *AnthropicRequest, cfg llm.ModelConfig) *llm.ProviderStat
 	if sum == "" {
 		return nil
 	}
-	return &llm.ProviderState{
-		Provider: llm.Anthropic,
+	return &core.ProviderState{
+		Provider: core.ProviderAnthropic,
 		// Replay is selected before hooks, using the configured model identity.
 		Model:    cfg.Name,
 		Endpoint: endpointFingerprint(cfg.BaseURL),
-		Data:     llm.ProviderData{Prefix: sum},
+		Data:     core.ProviderData{Prefix: sum},
 	}
 }
 

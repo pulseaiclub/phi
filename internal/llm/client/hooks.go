@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/llm/anthropic"
 	"github.com/pulseaiclub/phi/internal/llm/gemini"
@@ -19,7 +20,7 @@ type Hooks struct {
 	Gemini          llm.RequestInterceptor[gemini.GeminiRequest]
 }
 
-func applyHook[Req any](ctx context.Context, h llm.RequestInterceptor[Req], req *Req, cfg llm.ModelConfig) error {
+func applyHook[Req any](ctx context.Context, h llm.RequestInterceptor[Req], req *Req, cfg core.ModelConfig) error {
 	if h == nil {
 		return nil
 	}

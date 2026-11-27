@@ -7,6 +7,7 @@ import (
 
 	"github.com/pulseaiclub/phi/ext/go/pxb"
 	"github.com/pulseaiclub/phi/internal/agent/prompt"
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
@@ -50,7 +51,7 @@ func (cfg EngineConfig) CoreTools(sess *Session) []tooldef.Tool {
 }
 
 // NewEngine assembles the client, executor, prompt, and tool list for a loop.
-func (cfg EngineConfig) NewEngine(model llm.ModelConfig, sess *Session) (*Engine, error) {
+func (cfg EngineConfig) NewEngine(model core.ModelConfig, sess *Session) (*Engine, error) {
 	if sess == nil {
 		return nil, errors.New("agent: session is required")
 	}

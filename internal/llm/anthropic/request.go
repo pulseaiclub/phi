@@ -3,7 +3,7 @@ package anthropic
 import (
 	"encoding/json"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
 type cacheControl struct {
@@ -28,7 +28,7 @@ type AnthropicRequest struct {
 	Tools          []anthropicTool    `json:"tools,omitempty"`
 	Thinking       *thinkingConfig    `json:"thinking,omitempty"`
 	OutputConfig   *outputConfig      `json:"output_config,omitempty"`
-	native         *llm.ProviderState
+	native         *core.ProviderState
 	nativeInput    *AnthropicRequest
 	vendorThinking bool
 	compact        bool
@@ -39,7 +39,7 @@ type outputConfig struct {
 }
 
 // ApplyVendorThinking uses budget-free GLM and DeepSeek thinking; Claude keeps budget checks.
-func (r *AnthropicRequest) ApplyVendorThinking(think llm.ThinkConfig, forced, adaptive bool) {
+func (r *AnthropicRequest) ApplyVendorThinking(think core.ThinkConfig, forced, adaptive bool) {
 	r.vendorThinking = true
 	r.OutputConfig = nil
 	r.Thinking = &thinkingConfig{Type: "disabled"}
@@ -60,25 +60,25 @@ func (r *AnthropicRequest) ApplyVendorThinking(think llm.ThinkConfig, forced, ad
 // effort; otherwise it explicitly sends thinking.type=disabled. Compaction
 // requests follow the disabled path so summaries keep their output budget. When
 // allowXHigh is false (Claude 4.6), xhigh falls back to high.
-func (r *AnthropicRequest) ApplyAdaptiveThinking(think llm.ThinkConfig, forced, allowXHigh bool) {
+func (r *AnthropicRequest) ApplyAdaptiveThinking(think core.ThinkConfig, forced, allowXHigh bool) {
 	if r.compact {
-		think = llm.ThinkConfig{Enabled: false}
+		think = core.ThinkConfig{Enabled: false}
 	}
 	r.OutputConfig = nil
-	if !think.Enabled || think.Mode == llm.Off {
+	if !think.Enabled || think.Mode == core.Off {
 		if !forced {
 			r.Thinking = &thinkingConfig{Type: "disabled"}
 			return
 		}
-		think.Mode = llm.Low
+		think.Mode = core.Low
 	}
 	effort := think.Mode
 	switch effort {
-	case llm.Minimal, "":
-		effort = llm.Low
-	case llm.XHigh:
+	case core.Minimal, "":
+		effort = core.Low
+	case core.XHigh:
 		if !allowXHigh {
-			effort = llm.High
+			effort = core.High
 		}
 	}
 	r.Thinking = &thinkingConfig{Type: "adaptive"}

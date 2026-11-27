@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
 func TestParseToolStatus(t *testing.T) {
@@ -58,15 +58,15 @@ func TestContextTokensCountsCachedPrompt(t *testing.T) {
 // readout and the compaction threshold read one each.
 func TestContextTokensMatchesProviderUsage(t *testing.T) {
 	t.Parallel()
-	cases := map[string]llm.Usage{
+	cases := map[string]core.Usage{
 		"reported total": {PromptTokens: 1480, CompletionTokens: 1789, TotalTokens: 37061},
 		"no total": {
 			PromptTokens: 1480, CompletionTokens: 1789,
-			PromptTokensDetails: &llm.PromptTokensDetails{CachedTokens: 33792},
+			PromptTokensDetails: &core.PromptTokensDetails{CachedTokens: 33792},
 		},
 		"cache write": {
 			PromptTokens: 12, CompletionTokens: 7,
-			PromptTokensDetails: &llm.PromptTokensDetails{CachedTokens: 900, CacheWriteTokens: 50},
+			PromptTokensDetails: &core.PromptTokensDetails{CachedTokens: 900, CacheWriteTokens: 50},
 		},
 		"empty": {},
 	}

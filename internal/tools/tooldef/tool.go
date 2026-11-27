@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
 // Result is what a tool returns to the model / UI.
@@ -24,7 +24,7 @@ type Handler func(ctx context.Context, input json.RawMessage) (Result, error)
 
 // Tool is a schema + implementation pair.
 type Tool struct {
-	Definition llm.ToolDefinition
+	Definition core.ToolDefinition
 	Run        Handler
 	// DetailFromArgs extracts a one-line detail for the UI before execution.
 	DetailFromArgs func(input json.RawMessage) string
@@ -58,7 +58,7 @@ func WithDetail[T any](call func(input T) string) ToolOption {
 }
 
 // WithDefinition sets the LLM-facing schema.
-func WithDefinition(definition llm.ToolDefinition) ToolOption {
+func WithDefinition(definition core.ToolDefinition) ToolOption {
 	return func(tool *Tool) {
 		tool.Definition = definition
 	}
@@ -85,8 +85,8 @@ func WithRun(run Handler) ToolOption {
 }
 
 // Definitions extracts LLM schemas from tools.
-func Definitions(tools []Tool) []llm.ToolDefinition {
-	out := make([]llm.ToolDefinition, len(tools))
+func Definitions(tools []Tool) []core.ToolDefinition {
+	out := make([]core.ToolDefinition, len(tools))
 	for i, t := range tools {
 		out[i] = t.Definition
 	}

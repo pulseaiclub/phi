@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/agent"
+	domain "github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/job"
-	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/session"
@@ -33,7 +33,7 @@ func TestRunLoopTimeoutCancelsLLMRequest(t *testing.T) {
 	sess, err := agent.NewSession(agent.WithCwd(t.TempDir()))
 	require.NoError(t, err)
 	engine, err := (agent.EngineConfig{}).NewEngine(
-		llm.ModelConfig{
+		domain.ModelConfig{
 			Name:    "fake",
 			BaseURL: server.URL,
 			APIKey:  "test",
@@ -113,7 +113,7 @@ func TestJSONLEncoderDisabled(t *testing.T) {
 
 func TestResolveRunModel(t *testing.T) {
 	cfg := &project.Config{
-		Models: []llm.ModelConfig{
+		Models: []domain.ModelConfig{
 			{Name: "default"},
 			{Name: "fast"},
 			{Name: "smart"},
@@ -137,7 +137,7 @@ func TestResolveRunModel(t *testing.T) {
 
 func TestResolveRunModelConfiguredModelWinsOverPHIModel(t *testing.T) {
 	cfg := &project.Config{
-		Models: []llm.ModelConfig{{
+		Models: []domain.ModelConfig{{
 			Name:    "local-default",
 			BaseURL: "https://local.example/v1",
 		}},

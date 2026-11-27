@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/util"
@@ -18,8 +19,8 @@ import (
 // Recent messages stay in the session tree via FirstKeptEntryId.
 type CompactionPreparation struct {
 	FirstKeptEntryId       string
-	MessagesToSummarize    []llm.Message
-	TurnPrefixMessages     []llm.Message
+	MessagesToSummarize    []core.Message
+	TurnPrefixMessages     []core.Message
 	IsMidTurnCut           bool
 	TokensBefore           int
 	PreviousSummary        string
@@ -84,7 +85,7 @@ func PrepareCompact(
 		historyEnd = cutPoint.turnStartIndex
 	}
 
-	var messagesToSummarize []llm.Message
+	var messagesToSummarize []core.Message
 	for i := start; i < historyEnd; i++ {
 		msg := getMessageFromEntry(pathEntries[i])
 		if msg != nil {
@@ -93,7 +94,7 @@ func PrepareCompact(
 	}
 
 	// Messages for turn prefix summary (if splitting a turn)
-	var turnPrefixMessages []llm.Message
+	var turnPrefixMessages []core.Message
 	if cutPoint.isMidTurnCut {
 		for i := cutPoint.turnStartIndex; i < cutPoint.firstKeptEntryIndex; i++ {
 			msg := getMessageFromEntry(pathEntries[i])
@@ -268,24 +269,24 @@ func summarizeHistory(
 	)
 }
 
-// getLastAssistantUsage reads usage from the entry, not llm.Message: the
+// getLastAssistantUsage reads usage from the entry, not core.Message: the
 // latter is json:"-" and so reads as zero for every reloaded session.
-func getLastAssistantUsage(entries []session.MessageEntry) llm.Usage {
+func getLastAssistantUsage(entries []session.MessageEntry) core.Usage {
 	for i := range slices.Backward(entries) {
 		entry := entries[i]
 		if entry.GetType() == session.EntryMessage {
 			msgEntry := entry.(session.SessionMessageEntry)
-			if msgEntry.Message.Role == llm.RoleAssistant {
+			if msgEntry.Message.Role == core.RoleAssistant {
 				return msgEntry.Usage
 			}
 		}
 	}
-	return llm.Usage{
+	return core.Usage{
 		TotalTokens: 0,
 	}
 }
 
-func getMessageFromEntry(entry session.MessageEntry) *llm.Message {
+func getMessageFromEntry(entry session.MessageEntry) *core.Message {
 	if entry.GetType() == session.EntryMessage {
 		msgEntry := entry.(session.SessionMessageEntry)
 		return &msgEntry.Message
@@ -297,15 +298,15 @@ const toolResultMaxChars = 500
 
 // SerializeConversation formats messages as a single string for summary prompts:
 // [User]: ..., [Assistant]: ..., [Assistant tool calls]: ..., [Tool result]: ...
-func SerializeConversation(messages []llm.Message) string {
+func SerializeConversation(messages []core.Message) string {
 	var parts []string
 	for _, msg := range messages {
 		switch msg.Role {
-		case llm.RoleUser:
+		case core.RoleUser:
 			if msg.Content != "" {
 				parts = append(parts, "[User]: "+msg.Content)
 			}
-		case llm.RoleAssistant:
+		case core.RoleAssistant:
 			if msg.Content != "" {
 				parts = append(parts, "[Assistant]: "+msg.Content)
 			}
@@ -316,7 +317,7 @@ func SerializeConversation(messages []llm.Message) string {
 				}
 				parts = append(parts, "[Assistant tool calls]: "+strings.Join(callStrs, "; "))
 			}
-		case llm.RoleTool:
+		case core.RoleTool:
 			if msg.Content != "" {
 				parts = append(parts, "[Tool result]: "+util.TruncateRunes(msg.Content, toolResultMaxChars, "..."))
 			}

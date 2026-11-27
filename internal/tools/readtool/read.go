@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"github.com/pulseaiclub/phi/internal/util"
@@ -33,21 +33,21 @@ compact parameter summary — read before calling a tool with write.`,
 // mcp://<server>/tools/<tool> reads; nil keeps read file-only.
 func ReadTool(pool *mcp.Pool) tooldef.Tool {
 	return tooldef.NewTool(
-		tooldef.WithDefinition(llm.ToolDefinition{
+		tooldef.WithDefinition(core.ToolDefinition{
 			Name:        "read",
 			Description: readDescription,
-			Params: &llm.FunctionParameters{
+			Params: &core.FunctionParameters{
 				Type: "object",
-				Properties: llm.Object{
-					"path": llm.Object{
+				Properties: core.Object{
+					"path": core.Object{
 						"type":        "string",
 						"description": "Path to an existing file, or mcp://<server>/tools/<tool>. Example: src/main.go",
 					},
-					"offset": llm.Object{
+					"offset": core.Object{
 						"type":        "integer",
 						"description": "First line to return, 1-based. Example: 11",
 					},
-					"limit": llm.Object{
+					"limit": core.Object{
 						"type":        "integer",
 						"description": fmt.Sprintf("Maximum lines to return; capped at %d.", readDefaultMaxLines),
 					},

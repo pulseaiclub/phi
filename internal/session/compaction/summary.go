@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/llm"
 )
 
@@ -85,7 +86,7 @@ func errEmptySummary(label string) error {
 func generateSummary(
 	ctx context.Context,
 	compactor llm.Compactor,
-	currentMessages []llm.Message,
+	currentMessages []core.Message,
 	previousSummary string,
 	limits OutputLimits,
 ) (string, error) {
@@ -110,7 +111,7 @@ func generateSummary(
 func generateTurnPrefixSummary(
 	ctx context.Context,
 	compactor llm.Compactor,
-	messages []llm.Message,
+	messages []core.Message,
 	limits OutputLimits,
 ) (string, error) {
 	conversation := SerializeConversation(messages)

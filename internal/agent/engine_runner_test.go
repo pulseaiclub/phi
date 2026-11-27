@@ -16,8 +16,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/agent"
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/job"
-	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/session"
 )
 
@@ -50,7 +50,7 @@ func TestEngineRunnerViaJobManager(t *testing.T) {
 	workdir := t.TempDir()
 
 	runner := agent.EngineRunner{}
-	mgr, err := job.New(jobsRoot, runner, job.WithRoleModels(map[job.Role]llm.ModelConfig{
+	mgr, err := job.New(jobsRoot, runner, job.WithRoleModels(map[job.Role]core.ModelConfig{
 		job.RoleExplore: {Name: "fake", BaseURL: srv.URL, APIKey: "x"},
 	}))
 	require.NoError(t, err)
@@ -118,10 +118,10 @@ func TestEngineRunnerExplicitPreset(t *testing.T) {
 	runner := agent.EngineRunner{}
 	text, err := runner.Run(t.Context(), job.RunEnv{
 		Job: job.Meta{Dir: t.TempDir(), WorkDir: t.TempDir(), Prompt: "Reply OK"},
-		Model: llm.ModelConfig{
-			Name: "opaque-route", Preset: "gemini-2.5-pro", API: llm.Gemini,
+		Model: core.ModelConfig{
+			Name: "opaque-route", Preset: "gemini-2.5-pro", API: core.Gemini,
 			BaseURL: srv.URL, APIKey: "test",
-			Think: llm.ThinkConfig{Enabled: true, Mode: llm.Low},
+			Think: core.ThinkConfig{Enabled: true, Mode: core.Low},
 		},
 		Log: func(string) {},
 	})
@@ -147,7 +147,7 @@ func TestEngineRunnerCancel(t *testing.T) {
 	defer close(block)
 
 	runner := agent.EngineRunner{}
-	mgr, err := job.New(t.TempDir(), runner, job.WithRoleModels(map[job.Role]llm.ModelConfig{
+	mgr, err := job.New(t.TempDir(), runner, job.WithRoleModels(map[job.Role]core.ModelConfig{
 		job.RoleExplore: {Name: "fake", BaseURL: srv.URL, APIKey: "x"},
 	}))
 	require.NoError(t, err)
@@ -206,7 +206,7 @@ func TestEngineRunnerChildUsesItsOwnWorkdir(t *testing.T) {
 	require.NoError(t, os.Mkdir(workdir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("child-workdir-rule"), 0o644))
 
-	mgr, err := job.New(t.TempDir(), agent.EngineRunner{}, job.WithRoleModels(map[job.Role]llm.ModelConfig{
+	mgr, err := job.New(t.TempDir(), agent.EngineRunner{}, job.WithRoleModels(map[job.Role]core.ModelConfig{
 		job.RoleExplore: {Name: "fake", BaseURL: srv.URL, APIKey: "x"},
 	}))
 	require.NoError(t, err)

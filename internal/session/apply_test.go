@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
 func TestApplyStreamingUpdates(t *testing.T) {
@@ -195,7 +195,7 @@ func TestApplyUserAppendImages(t *testing.T) {
 	var s Snapshot
 	s = Apply(s, UserAppend{
 		Text:   "Images: a.png",
-		Images: []llm.Image{{Data: "QUJD", MimeType: "image/png"}},
+		Images: []core.Image{{Data: "QUJD", MimeType: "image/png"}},
 	})
 	require.Len(t, s.Messages, 1)
 	require.Len(t, s.Messages[0].Images, 1)

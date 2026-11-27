@@ -10,24 +10,24 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
 func TestBuildRequestBasic(t *testing.T) {
-	cfg := llm.ModelConfig{Name: "gpt-5", Think: llm.ThinkConfig{Enabled: true, Mode: llm.Medium}}
-	req := BuildRequest(cfg, "sys", []llm.Message{
-		{Role: llm.RoleUser, Content: "hi"},
+	cfg := core.ModelConfig{Name: "gpt-5", Think: core.ThinkConfig{Enabled: true, Mode: core.Medium}}
+	req := BuildRequest(cfg, "sys", []core.Message{
+		{Role: core.RoleUser, Content: "hi"},
 		{
-			Role:    llm.RoleAssistant,
+			Role:    core.RoleAssistant,
 			Content: "ok",
-			ToolCalls: []llm.ToolCall{{
+			ToolCalls: []core.ToolCall{{
 				ID:       "call_1|fc_1",
 				Type:     "function",
-				Function: llm.Function{Name: "bash", Arguments: `{"cmd":"ls"}`},
+				Function: core.Function{Name: "bash", Arguments: `{"cmd":"ls"}`},
 			}},
 		},
-		{Role: llm.RoleTool, ToolCallID: "call_1|fc_1", Content: "a\nb"},
-	}, []llm.ToolDefinition{{Name: "bash", Description: "run", Params: &llm.FunctionParameters{Type: "object"}}})
+		{Role: core.RoleTool, ToolCallID: "call_1|fc_1", Content: "a\nb"},
+	}, []core.ToolDefinition{{Name: "bash", Description: "run", Params: &core.FunctionParameters{Type: "object"}}})
 
 	require.NotNil(t, req.Reasoning)
 	assert.Equal(t, "medium", req.Reasoning.Effort)
@@ -54,11 +54,18 @@ func TestBuildRequestBasic(t *testing.T) {
 	assert.Equal(t, "function", req.Tools[0].Type)
 }
 
+func TestBuildRequestNilToolParameters(t *testing.T) {
+	req := BuildRequest(core.ModelConfig{Name: "gpt-5"}, "", nil, []core.ToolDefinition{{Name: "read"}})
+	body, err := json.Marshal(req)
+	require.NoError(t, err)
+	assert.NotContains(t, string(body), `"parameters"`)
+}
+
 func TestBuildRequestImages(t *testing.T) {
-	req := BuildRequest(llm.ModelConfig{Name: "gpt-5"}, "", []llm.Message{{
-		Role:    llm.RoleUser,
+	req := BuildRequest(core.ModelConfig{Name: "gpt-5"}, "", []core.Message{{
+		Role:    core.RoleUser,
 		Content: "what?",
-		Images:  []llm.Image{{Data: "QUJD", MimeType: "image/png"}},
+		Images:  []core.Image{{Data: "QUJD", MimeType: "image/png"}},
 	}}, nil)
 
 	parts, ok := req.Input[0].Content.([]contentPart)
@@ -95,17 +102,17 @@ func TestStreamTextAndTools(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cfg := llm.ModelConfig{Name: "gpt-5", BaseURL: srv.URL, APIKey: "sk-test"}
-	req := BuildRequest(cfg, "", []llm.Message{{Role: llm.RoleUser, Content: "hi"}}, nil)
+	cfg := core.ModelConfig{Name: "gpt-5", BaseURL: srv.URL, APIKey: "sk-test"}
+	req := BuildRequest(cfg, "", []core.Message{{Role: core.RoleUser, Content: "hi"}}, nil)
 
 	var text strings.Builder
-	var done *llm.StreamEvent
+	var done *core.StreamEvent
 	for ev, err := range Stream(t.Context(), srv.Client(), cfg, req) {
 		require.NoError(t, err)
 		switch ev.Type {
-		case llm.StreamEventTypeDelta:
+		case core.StreamEventTypeDelta:
 			text.WriteString(ev.Delta.Content)
-		case llm.StreamEventTypeDone:
+		case core.StreamEventTypeDone:
 			done = &ev
 		}
 	}
@@ -143,7 +150,7 @@ func TestCompactRequest(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cfg := llm.ModelConfig{Name: "gpt-5", BaseURL: srv.URL, APIKey: "sk"}
+	cfg := core.ModelConfig{Name: "gpt-5", BaseURL: srv.URL, APIKey: "sk"}
 	res, err := CompactRequest(t.Context(), srv.Client(), cfg, NewCompactRequest(cfg, "sum", 13107))
 	require.NoError(t, err)
 	assert.Equal(t, "summary", res.Text)
@@ -160,7 +167,7 @@ func TestCompactRequestReportsIncompleteOutput(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cfg := llm.ModelConfig{Name: "gpt-5", BaseURL: srv.URL, APIKey: "sk"}
+	cfg := core.ModelConfig{Name: "gpt-5", BaseURL: srv.URL, APIKey: "sk"}
 	res, err := CompactRequest(t.Context(), srv.Client(), cfg, NewCompactRequest(cfg, "sum", 10))
 	require.NoError(t, err)
 	assert.Equal(t, "partial", res.Text)
@@ -176,7 +183,7 @@ func TestCompactRequestIgnoresOtherIncompleteReasons(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cfg := llm.ModelConfig{Name: "gpt-5", BaseURL: srv.URL, APIKey: "sk"}
+	cfg := core.ModelConfig{Name: "gpt-5", BaseURL: srv.URL, APIKey: "sk"}
 	res, err := CompactRequest(t.Context(), srv.Client(), cfg, NewCompactRequest(cfg, "sum", 10))
 	require.NoError(t, err)
 	assert.False(t, res.Truncated)

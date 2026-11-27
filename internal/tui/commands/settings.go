@@ -9,8 +9,8 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/chrome"
 	"github.com/pulseaiclub/phi/internal/components/palette"
 	"github.com/pulseaiclub/phi/internal/components/toast"
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/debuglog"
-	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
@@ -162,13 +162,13 @@ func (s *SettingsCommands) setDebug(on bool) {
 	publishToast(s.Bus, msg, toast.ToastSuccess, 3*time.Second)
 }
 
-func (s *SettingsCommands) setThinkLevel(level llm.ThinkMode) {
+func (s *SettingsCommands) setThinkLevel(level core.ThinkMode) {
 	if err := s.Ctrl.SetThinkLevel(level); err != nil {
 		publishToast(s.Bus, err.Error(), toast.ToastError, 3*time.Second)
 		return
 	}
 	label := string(level)
-	if level == llm.Off {
+	if level == core.Off {
 		label = "off"
 	}
 	if s.Composer != nil {
@@ -177,9 +177,9 @@ func (s *SettingsCommands) setThinkLevel(level llm.ThinkMode) {
 	publishToast(s.Bus, "Thinking: "+label, toast.ToastSuccess, 2*time.Second)
 }
 
-func buildThinkPalette(ctrl *controller.EngineController, set func(llm.ThinkMode)) palette.PaletteCommand {
-	levels := llm.AllThinkModes()
-	current := llm.Off
+func buildThinkPalette(ctrl *controller.EngineController, set func(core.ThinkMode)) palette.PaletteCommand {
+	levels := core.AllThinkModes()
+	current := core.Off
 	if ctrl != nil {
 		current = ctrl.ThinkLevel()
 		levels = ctrl.ThinkingModes()

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
 // Option configures a [Manager] at construction.
@@ -18,7 +18,7 @@ type Option func(*managerConfig)
 type managerConfig struct {
 	maxConcurrent      int
 	progressBufferSize int
-	roleModels         map[Role]llm.ModelConfig
+	roleModels         map[Role]core.ModelConfig
 	recovery           RecoveryMode
 	onStoreError       func(op, jobID string, err error)
 	store              Store
@@ -35,7 +35,7 @@ func WithSubscribeBufferSize(size int) Option {
 }
 
 // WithRoleModels sets the initial models for child jobs.
-func WithRoleModels(models map[Role]llm.ModelConfig) Option {
+func WithRoleModels(models map[Role]core.ModelConfig) Option {
 	return func(c *managerConfig) { c.roleModels = models }
 }
 
@@ -63,7 +63,7 @@ type Manager struct {
 	onStoreError       func(op, jobID string, err error)
 
 	mu         sync.Mutex
-	roleModels map[Role]llm.ModelConfig
+	roleModels map[Role]core.ModelConfig
 	closed     bool
 	slots      chan struct{}
 	jobs       map[string]*liveJob
@@ -74,7 +74,7 @@ type liveJob struct {
 	meta            Meta
 	parentToolUseID string
 	parentContext   ParentContext
-	model           llm.ModelConfig
+	model           core.ModelConfig
 	cancel          context.CancelFunc
 	done            chan struct{}
 }
@@ -179,7 +179,7 @@ func (m *Manager) persistEvent(meta Meta, msg string) {
 
 // SetRoleModels replaces the models used by future jobs.
 // Configs and their nested values must be treated as immutable after this call.
-func (m *Manager) SetRoleModels(models map[Role]llm.ModelConfig) {
+func (m *Manager) SetRoleModels(models map[Role]core.ModelConfig) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.roleModels = maps.Clone(models)

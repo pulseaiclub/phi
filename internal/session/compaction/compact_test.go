@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/session"
 )
 
@@ -19,13 +19,13 @@ func sizedContent(tokens int) string {
 
 // msgEntry builds a persisted message entry of `tokens` estimated tokens.
 // `usage` is the provider-reported context size, which only feeds TokensBefore
-// (llm.Message.Usage is json:"-" and does not survive a reload, so it lives on
+// (core.Message.Usage is json:"-" and does not survive a reload, so it lives on
 // the entry wrapper).
-func msgEntry(id string, role llm.Role, tokens, usage int) session.MessageEntry {
+func msgEntry(id string, role core.Role, tokens, usage int) session.MessageEntry {
 	return session.SessionMessageEntry{
 		SessionBaseEntry: session.SessionBaseEntry{ID: id},
-		Message:          llm.Message{Role: role, Content: sizedContent(tokens)},
-		Usage:            llm.Usage{TotalTokens: usage},
+		Message:          core.Message{Role: role, Content: sizedContent(tokens)},
+		Usage:            core.Usage{TotalTokens: usage},
 	}
 }
 
@@ -34,11 +34,11 @@ func msgEntry(id string, role llm.Role, tokens, usage int) session.MessageEntry 
 func editEntry(id, path string) session.MessageEntry {
 	return session.SessionMessageEntry{
 		SessionBaseEntry: session.SessionBaseEntry{ID: id},
-		Message: llm.Message{
-			Role: llm.RoleAssistant,
-			ToolCalls: []llm.ToolCall{
+		Message: core.Message{
+			Role: core.RoleAssistant,
+			ToolCalls: []core.ToolCall{
 				{
-					Function: llm.Function{
+					Function: core.Function{
 						Name:      "edit",
 						Arguments: `{"payload":"*** SM:EDIT ` + path + `\n*** SM:FIND\nx\n*** SM:PUT\ny\n"}`,
 					},
@@ -62,7 +62,7 @@ func TestPrepareCompact_EmptySession_ReturnsEmptyPreparation(t *testing.T) {
 
 func TestPrepareCompact_AlreadyCompacted_ReturnsEmptyPreparation(t *testing.T) {
 	entries := []session.MessageEntry{
-		msgEntry("e1", llm.RoleUser, 10, 0),
+		msgEntry("e1", core.RoleUser, 10, 0),
 		session.CompactionEntry{
 			SessionBaseEntry: session.SessionBaseEntry{ID: "comp1"},
 			Compaction: session.Compaction{
@@ -84,8 +84,8 @@ func TestPrepareCompact_SessionNeedsMigration_ReturnsError(t *testing.T) {
 	entries := []session.MessageEntry{
 		session.SessionMessageEntry{
 			SessionBaseEntry: session.SessionBaseEntry{ID: ""},
-			Message:          llm.Message{Role: llm.RoleUser},
-			Usage:            llm.Usage{TotalTokens: 10},
+			Message:          core.Message{Role: core.RoleUser},
+			Usage:            core.Usage{TotalTokens: 10},
 		},
 	}
 	settings := Settings{keepRecentTokens: 100}
@@ -99,9 +99,9 @@ func TestPrepareCompact_SessionNeedsMigration_ReturnsError(t *testing.T) {
 
 func TestPrepareCompact_NoPreviousCompaction_SplitsByKeepRecentTokens(t *testing.T) {
 	entries := []session.MessageEntry{
-		msgEntry("e1", llm.RoleUser, 10, 0),
-		msgEntry("e2", llm.RoleAssistant, 20, 20),
-		msgEntry("e3", llm.RoleUser, 30, 0),
+		msgEntry("e1", core.RoleUser, 10, 0),
+		msgEntry("e2", core.RoleAssistant, 20, 20),
+		msgEntry("e3", core.RoleUser, 30, 0),
 	}
 	settings := Settings{keepRecentTokens: 25}
 
@@ -112,8 +112,8 @@ func TestPrepareCompact_NoPreviousCompaction_SplitsByKeepRecentTokens(t *testing
 	assert.Equal(t, "e3", prep.FirstKeptEntryId)
 	assert.False(t, prep.IsMidTurnCut)
 	assert.Len(t, prep.MessagesToSummarize, 2)
-	assert.Equal(t, llm.RoleUser, prep.MessagesToSummarize[0].Role)
-	assert.Equal(t, llm.RoleAssistant, prep.MessagesToSummarize[1].Role)
+	assert.Equal(t, core.RoleUser, prep.MessagesToSummarize[0].Role)
+	assert.Equal(t, core.RoleAssistant, prep.MessagesToSummarize[1].Role)
 	// TokensBefore is the provider-reported context size, not the sum of the
 	// estimated message sizes the cut uses.
 	assert.Equal(t, 20, prep.TokensBefore)
@@ -126,8 +126,8 @@ func TestPrepareCompact_NoPreviousCompaction_SplitsByKeepRecentTokens(t *testing
 // over the previous one.
 func TestPrepareCompact_UnderTokenLimit_ReturnsEmptyPreparation(t *testing.T) {
 	entries := []session.MessageEntry{
-		msgEntry("e1", llm.RoleUser, 10, 0),
-		msgEntry("e2", llm.RoleAssistant, 20, 20),
+		msgEntry("e1", core.RoleUser, 10, 0),
+		msgEntry("e2", core.RoleAssistant, 20, 20),
 	}
 	settings := Settings{keepRecentTokens: 100}
 
@@ -149,10 +149,10 @@ func TestPrepareCompact_WithPreviousCompaction_SetsSummaryAndPreserveData(t *tes
 				PreserveData: map[string]any{"k": "v"},
 			},
 		},
-		msgEntry("e1", llm.RoleUser, 10, 0),
-		msgEntry("e2", llm.RoleAssistant, 10, 10),
-		msgEntry("e3", llm.RoleUser, 10, 0),
-		msgEntry("e4", llm.RoleAssistant, 10, 40),
+		msgEntry("e1", core.RoleUser, 10, 0),
+		msgEntry("e2", core.RoleAssistant, 10, 10),
+		msgEntry("e3", core.RoleUser, 10, 0),
+		msgEntry("e4", core.RoleAssistant, 10, 40),
 	}
 	// Budget reached on e3 (the last two messages cost 20), so e1+e2 are
 	// summarized and the previous summary is carried for the update prompt.
@@ -171,10 +171,10 @@ func TestPrepareCompact_WithPreviousCompaction_SetsSummaryAndPreserveData(t *tes
 
 func TestPrepareCompact_MidTurnCut_SplitsTurnPrefix(t *testing.T) {
 	entries := []session.MessageEntry{
-		msgEntry("e1", llm.RoleUser, 10, 0),
-		msgEntry("e2", llm.RoleAssistant, 10, 10),
-		msgEntry("e3", llm.RoleUser, 10, 0),
-		msgEntry("e4", llm.RoleAssistant, 30, 40),
+		msgEntry("e1", core.RoleUser, 10, 0),
+		msgEntry("e2", core.RoleAssistant, 10, 10),
+		msgEntry("e3", core.RoleUser, 10, 0),
+		msgEntry("e4", core.RoleAssistant, 30, 40),
 	}
 	settings := Settings{keepRecentTokens: 20}
 
@@ -188,9 +188,9 @@ func TestPrepareCompact_MidTurnCut_SplitsTurnPrefix(t *testing.T) {
 	assert.Equal(t, "e4", prep.FirstKeptEntryId)
 	assert.True(t, prep.IsMidTurnCut)
 	assert.Len(t, prep.MessagesToSummarize, 2)
-	assert.Equal(t, llm.RoleAssistant, prep.MessagesToSummarize[1].Role)
+	assert.Equal(t, core.RoleAssistant, prep.MessagesToSummarize[1].Role)
 	assert.Len(t, prep.TurnPrefixMessages, 1)
-	assert.Equal(t, llm.RoleUser, prep.TurnPrefixMessages[0].Role)
+	assert.Equal(t, core.RoleUser, prep.TurnPrefixMessages[0].Role)
 }
 
 // The summary cap follows the headroom compaction frees, and a summary that
@@ -198,9 +198,9 @@ func TestPrepareCompact_MidTurnCut_SplitsTurnPrefix(t *testing.T) {
 // session summary.
 func TestCompact_TruncatedSummary_ReturnsError(t *testing.T) {
 	entries := []session.MessageEntry{
-		msgEntry("e1", llm.RoleUser, 10, 0),
-		msgEntry("e2", llm.RoleAssistant, 20, 20),
-		msgEntry("e3", llm.RoleUser, 30, 0),
+		msgEntry("e1", core.RoleUser, 10, 0),
+		msgEntry("e2", core.RoleAssistant, 20, 20),
+		msgEntry("e3", core.RoleUser, 30, 0),
 	}
 	settings := Settings{reverseTokens: 16384, keepRecentTokens: 25}
 
@@ -239,15 +239,15 @@ func TestCompact_EmptyHistoryRefreshesFileOperations(t *testing.T) {
 			}
 			c := &captureCompactor{text: "Current turn context."}
 			for range 3 {
-				messages := []llm.Message{{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+				messages := []core.Message{{Role: core.RoleAssistant, ToolCalls: []core.ToolCall{
 					{
-						Function: llm.Function{
+						Function: core.Function{
 							Name:      "edit",
 							Arguments: `{"payload":"*** SM:EDIT a.go\n*** SM:FIND\nx\n*** SM:PUT\ny\n"}`,
 						},
 					},
 					{
-						Function: llm.Function{
+						Function: core.Function{
 							Name:      "edit",
 							Arguments: `{"payload":"*** SM:EDIT b.go\n*** SM:FIND\nx\n*** SM:PUT\ny\n"}`,
 						},
@@ -298,11 +298,11 @@ func TestCompact_EmptyHistoryRefreshesFileOperations(t *testing.T) {
 // turn as merely read, and dropped their siblings entirely.
 func TestPrepareCompact_MidTurnCut_CollectsTurnPrefixFileOps(t *testing.T) {
 	entries := []session.MessageEntry{
-		msgEntry("e1", llm.RoleUser, 10, 0),
+		msgEntry("e1", core.RoleUser, 10, 0),
 		editEntry("e2", "history.go"),
-		msgEntry("e3", llm.RoleUser, 10, 0),
+		msgEntry("e3", core.RoleUser, 10, 0),
 		editEntry("e4", "prefix.go"),
-		msgEntry("e5", llm.RoleAssistant, 30, 40),
+		msgEntry("e5", core.RoleAssistant, 30, 40),
 	}
 	settings := Settings{keepRecentTokens: 20}
 
@@ -320,11 +320,11 @@ func TestPrepareCompact_MidTurnCut_CollectsTurnPrefixFileOps(t *testing.T) {
 // line, and Details carries the same lists for the transcript.
 func TestCompact_AppendsFileOpsBlock(t *testing.T) {
 	entries := []session.MessageEntry{
-		msgEntry("e1", llm.RoleUser, 10, 0),
+		msgEntry("e1", core.RoleUser, 10, 0),
 		editEntry("e2", "history.go"),
-		msgEntry("e3", llm.RoleUser, 10, 0),
+		msgEntry("e3", core.RoleUser, 10, 0),
 		editEntry("e4", "prefix.go"),
-		msgEntry("e5", llm.RoleAssistant, 30, 40),
+		msgEntry("e5", core.RoleAssistant, 30, 40),
 	}
 	settings := Settings{reverseTokens: 16384, keepRecentTokens: 20}
 	prep, err := PrepareCompact(entries, settings)
@@ -349,10 +349,10 @@ func TestCompact_PreservesDataAcrossRounds(t *testing.T) {
 				PreserveData: preserveData,
 			},
 		},
-		msgEntry("e1", llm.RoleUser, 10, 0),
-		msgEntry("e2", llm.RoleAssistant, 10, 10),
-		msgEntry("e3", llm.RoleUser, 10, 0),
-		msgEntry("e4", llm.RoleAssistant, 10, 40),
+		msgEntry("e1", core.RoleUser, 10, 0),
+		msgEntry("e2", core.RoleAssistant, 10, 10),
+		msgEntry("e3", core.RoleUser, 10, 0),
+		msgEntry("e4", core.RoleAssistant, 10, 40),
 	}
 
 	settings := Settings{keepRecentTokens: 20}
@@ -373,10 +373,10 @@ func TestCompact_PreservesDataAcrossRounds(t *testing.T) {
 			SessionBaseEntry: session.SessionBaseEntry{ID: "comp1"},
 			Compaction:       comp1,
 		},
-		msgEntry("e5", llm.RoleUser, 10, 0),
-		msgEntry("e6", llm.RoleAssistant, 10, 10),
-		msgEntry("e7", llm.RoleUser, 10, 0),
-		msgEntry("e8", llm.RoleAssistant, 10, 40),
+		msgEntry("e5", core.RoleUser, 10, 0),
+		msgEntry("e6", core.RoleAssistant, 10, 10),
+		msgEntry("e7", core.RoleUser, 10, 0),
+		msgEntry("e8", core.RoleAssistant, 10, 40),
 	}
 
 	compactor2 := &captureCompactor{text: "round 2 summary"}

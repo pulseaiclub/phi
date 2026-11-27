@@ -1,3 +1,3 @@
-// Package llm defines the core types shared by LLM clients: messages, tool
-// definitions, stream events, and token usage accounting.
+// Package llm defines model client interfaces and shared HTTP request helpers.
+// Provider-neutral messages and model configuration live in internal/core.
 package llm

@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
 func TestGetStreamURL(t *testing.T) {
@@ -55,7 +55,7 @@ func TestGetURLNonStreaming(t *testing.T) {
 }
 
 func TestBuildRequestSystemInstructionWireName(t *testing.T) {
-	req := BuildRequest("be brief", []llm.Message{{Role: llm.RoleUser, Content: "hi"}}, nil)
+	req := BuildRequest("be brief", []core.Message{{Role: core.RoleUser, Content: "hi"}}, nil)
 	body, err := json.Marshal(req)
 	require.NoError(t, err)
 	// Gemini REST API expects camelCase; snake_case would be ignored or rejected.
@@ -64,11 +64,11 @@ func TestBuildRequestSystemInstructionWireName(t *testing.T) {
 }
 
 func TestBuildRequestMergesToolResults(t *testing.T) {
-	messages := []llm.Message{
-		{Role: llm.RoleUser, Content: "hi"},
-		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "read", Function: llm.Function{Name: "read"}}}},
-		{Role: llm.RoleTool, ToolCallID: "read", Content: "a"},
-		{Role: llm.RoleTool, ToolCallID: "write", Content: "b"},
+	messages := []core.Message{
+		{Role: core.RoleUser, Content: "hi"},
+		{Role: core.RoleAssistant, ToolCalls: []core.ToolCall{{ID: "read", Function: core.Function{Name: "read"}}}},
+		{Role: core.RoleTool, ToolCallID: "read", Content: "a"},
+		{Role: core.RoleTool, ToolCallID: "write", Content: "b"},
 	}
 	req := BuildRequest("", messages, nil)
 	require.Len(t, req.Contents, 3)
@@ -83,13 +83,13 @@ func TestBuildRequestToolCallArgsKeptVerbatim(t *testing.T) {
 	// 2^53+1 is the smallest integer a float64 round trip corrupts, and the key
 	// order has to survive too: the API compares the object it is given.
 	const args = `{"b":1,"a":9007199254740993}`
-	req := BuildRequest("", []llm.Message{
-		{Role: llm.RoleUser, Content: "hi"},
-		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
+	req := BuildRequest("", []core.Message{
+		{Role: core.RoleUser, Content: "hi"},
+		{Role: core.RoleAssistant, ToolCalls: []core.ToolCall{{
 			Index:    0,
 			ID:       "call_1",
 			Type:     "function",
-			Function: llm.Function{Name: "write", Arguments: args},
+			Function: core.Function{Name: "write", Arguments: args},
 		}}},
 	}, nil)
 
@@ -107,11 +107,11 @@ func TestBuildRequestToolCallArgsDropped(t *testing.T) {
 	}
 	for name, arguments := range testcases {
 		t.Run(name, func(t *testing.T) {
-			req := BuildRequest("", []llm.Message{
-				{Role: llm.RoleUser, Content: "hi"},
-				{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
+			req := BuildRequest("", []core.Message{
+				{Role: core.RoleUser, Content: "hi"},
+				{Role: core.RoleAssistant, ToolCalls: []core.ToolCall{{
 					ID:       "call_1",
-					Function: llm.Function{Name: "write", Arguments: arguments},
+					Function: core.Function{Name: "write", Arguments: arguments},
 				}}},
 			}, nil)
 
@@ -123,10 +123,10 @@ func TestBuildRequestToolCallArgsDropped(t *testing.T) {
 }
 
 func TestBuildRequestUserContent(t *testing.T) {
-	req := BuildRequest("", []llm.Message{{
-		Role:    llm.RoleUser,
+	req := BuildRequest("", []core.Message{{
+		Role:    core.RoleUser,
 		Content: "what is this",
-		Images:  []llm.Image{{MimeType: "image/png", Data: "aGVsbG8="}},
+		Images:  []core.Image{{MimeType: "image/png", Data: "aGVsbG8="}},
 	}}, nil)
 	require.Len(t, req.Contents, 1)
 	parts := req.Contents[0].Parts
@@ -140,7 +140,7 @@ func TestBuildRequestUserContent(t *testing.T) {
 func TestApplyBudgetThinking(t *testing.T) {
 	t.Run("disabled", func(t *testing.T) {
 		var req GeminiRequest
-		req.ApplyBudgetThinking(llm.ThinkConfig{})
+		req.ApplyBudgetThinking(core.ThinkConfig{})
 		require.NotNil(t, req.GenerationConfig)
 		require.NotNil(t, req.GenerationConfig.ThinkingConfig)
 		body, err := json.Marshal(req.GenerationConfig.ThinkingConfig)
@@ -149,17 +149,17 @@ func TestApplyBudgetThinking(t *testing.T) {
 	})
 	t.Run("enabled", func(t *testing.T) {
 		testcases := []struct {
-			mode llm.ThinkMode
+			mode core.ThinkMode
 			want string
 		}{
-			{mode: llm.Low, want: `"thinkingBudget":2048`},
-			{mode: llm.Medium, want: `"thinkingBudget":8192`},
-			{mode: llm.High, want: `"thinkingBudget":16384`},
+			{mode: core.Low, want: `"thinkingBudget":2048`},
+			{mode: core.Medium, want: `"thinkingBudget":8192`},
+			{mode: core.High, want: `"thinkingBudget":16384`},
 		}
 		for _, tc := range testcases {
 			t.Run(string(tc.mode), func(t *testing.T) {
 				var req GeminiRequest
-				req.ApplyBudgetThinking(llm.ThinkConfig{Enabled: true, Mode: tc.mode})
+				req.ApplyBudgetThinking(core.ThinkConfig{Enabled: true, Mode: tc.mode})
 				require.NotNil(t, req.GenerationConfig)
 				body, err := json.Marshal(req.GenerationConfig.ThinkingConfig)
 				require.NoError(t, err)
@@ -182,7 +182,7 @@ func TestApplyLevelThinking(t *testing.T) {
 		for _, tc := range testcases {
 			t.Run(tc.name, func(t *testing.T) {
 				var req GeminiRequest
-				req.ApplyLevelThinking(llm.ThinkConfig{}, tc.off, false)
+				req.ApplyLevelThinking(core.ThinkConfig{}, tc.off, false)
 				require.NotNil(t, req.GenerationConfig)
 				body, err := json.Marshal(req.GenerationConfig.ThinkingConfig)
 				require.NoError(t, err)
@@ -193,27 +193,27 @@ func TestApplyLevelThinking(t *testing.T) {
 	t.Run("enabled", func(t *testing.T) {
 		testcases := []struct {
 			name       string
-			mode       llm.ThinkMode
+			mode       core.ThinkMode
 			off        string
 			allowXHigh bool
 			want       string
 		}{
-			{name: "medium", mode: llm.Medium, off: "MINIMAL", want: `"thinkingLevel":"MEDIUM"`},
-			{name: "high", mode: llm.High, off: "MINIMAL", want: `"thinkingLevel":"HIGH"`},
-			{name: "minimal_clamped_to_low", mode: llm.Minimal, off: "LOW", want: `"thinkingLevel":"LOW"`},
+			{name: "medium", mode: core.Medium, off: "MINIMAL", want: `"thinkingLevel":"MEDIUM"`},
+			{name: "high", mode: core.High, off: "MINIMAL", want: `"thinkingLevel":"HIGH"`},
+			{name: "minimal_clamped_to_low", mode: core.Minimal, off: "LOW", want: `"thinkingLevel":"LOW"`},
 			{
 				name:       "xhigh_capped_to_high",
-				mode:       llm.XHigh,
+				mode:       core.XHigh,
 				off:        "LOW",
 				allowXHigh: false,
 				want:       `"thinkingLevel":"HIGH"`,
 			},
-			{name: "xhigh_allowed", mode: llm.XHigh, off: "LOW", allowXHigh: true, want: `"thinkingLevel":"XHIGH"`},
+			{name: "xhigh_allowed", mode: core.XHigh, off: "LOW", allowXHigh: true, want: `"thinkingLevel":"XHIGH"`},
 		}
 		for _, tc := range testcases {
 			t.Run(tc.name, func(t *testing.T) {
 				var req GeminiRequest
-				req.ApplyLevelThinking(llm.ThinkConfig{Enabled: true, Mode: tc.mode}, tc.off, tc.allowXHigh)
+				req.ApplyLevelThinking(core.ThinkConfig{Enabled: true, Mode: tc.mode}, tc.off, tc.allowXHigh)
 				require.NotNil(t, req.GenerationConfig)
 				body, err := json.Marshal(req.GenerationConfig.ThinkingConfig)
 				require.NoError(t, err)
@@ -224,11 +224,11 @@ func TestApplyLevelThinking(t *testing.T) {
 }
 
 // processForTest runs processStream and returns the yielded events.
-func processForTest(sse string) []llm.StreamEvent {
-	var events []llm.StreamEvent
-	processStream(strings.NewReader(sse), func(ev llm.StreamEvent, err error) bool {
+func processForTest(sse string) []core.StreamEvent {
+	var events []core.StreamEvent
+	processStream(strings.NewReader(sse), func(ev core.StreamEvent, err error) bool {
 		if err != nil {
-			events = append(events, llm.StreamEvent{Type: llm.StreamEventTypeError, Err: err.Error()})
+			events = append(events, core.StreamEvent{Type: core.StreamEventTypeError, Err: err.Error()})
 			return false
 		}
 		events = append(events, ev)
@@ -250,13 +250,13 @@ func TestProcessStreamTextAndUsage(t *testing.T) {
 	events := processForTest(sse)
 
 	var text strings.Builder
-	var done *llm.StreamEvent
+	var done *core.StreamEvent
 	for _, ev := range events {
-		require.NotEqual(t, llm.StreamEventTypeError, ev.Type, "stream error: %s", ev.Err)
+		require.NotEqual(t, core.StreamEventTypeError, ev.Type, "stream error: %s", ev.Err)
 		switch ev.Type {
-		case llm.StreamEventTypeDelta:
+		case core.StreamEventTypeDelta:
 			text.WriteString(ev.Delta.Content)
-		case llm.StreamEventTypeDone:
+		case core.StreamEventTypeDone:
 			done = &ev
 		}
 	}
@@ -283,14 +283,14 @@ func TestProcessStreamThinking(t *testing.T) {
 	events := processForTest(sse)
 
 	var text, reasoning strings.Builder
-	var done *llm.StreamEvent
+	var done *core.StreamEvent
 	for _, ev := range events {
-		require.NotEqual(t, llm.StreamEventTypeError, ev.Type, "stream error: %s", ev.Err)
+		require.NotEqual(t, core.StreamEventTypeError, ev.Type, "stream error: %s", ev.Err)
 		switch ev.Type {
-		case llm.StreamEventTypeDelta:
+		case core.StreamEventTypeDelta:
 			text.WriteString(ev.Delta.Content)
 			reasoning.WriteString(ev.Delta.ReasoningContent)
-		case llm.StreamEventTypeDone:
+		case core.StreamEventTypeDone:
 			done = &ev
 		}
 	}
@@ -318,12 +318,12 @@ func TestCompactUsesNonStreamingEndpoint(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	body := BuildRequest("", []llm.Message{{Role: llm.RoleUser, Content: "summarize"}}, nil)
+	body := BuildRequest("", []core.Message{{Role: core.RoleUser, Content: "summarize"}}, nil)
 	body.SetMaxOutputTokens(13107)
 	res, err := CompactRequest(
 		t.Context(),
 		srv.Client(),
-		llm.ModelConfig{Name: "gemini-2.5-flash", BaseURL: srv.URL, APIKey: "k"},
+		core.ModelConfig{Name: "gemini-2.5-flash", BaseURL: srv.URL, APIKey: "k"},
 		&body,
 	)
 	require.NoError(t, err)
@@ -344,7 +344,7 @@ func TestCompactRequestReportsTruncatedCandidate(t *testing.T) {
 	res, err := CompactRequest(
 		t.Context(),
 		srv.Client(),
-		llm.ModelConfig{Name: "gemini-2.5-flash", BaseURL: srv.URL, APIKey: "k"},
+		core.ModelConfig{Name: "gemini-2.5-flash", BaseURL: srv.URL, APIKey: "k"},
 		&GeminiRequest{Contents: []content{{Role: "user", Parts: []part{{Text: "x"}}}}},
 	)
 	require.NoError(t, err)
@@ -365,7 +365,7 @@ func TestCompactFormatsAPIError(t *testing.T) {
 	_, err := CompactRequest(
 		t.Context(),
 		srv.Client(),
-		llm.ModelConfig{Name: "gemini-2.5-flash", BaseURL: srv.URL, APIKey: "bad"},
+		core.ModelConfig{Name: "gemini-2.5-flash", BaseURL: srv.URL, APIKey: "bad"},
 		&GeminiRequest{Contents: []content{{Role: "user", Parts: []part{{Text: "summarize"}}}}},
 	)
 	require.Error(t, err)
@@ -382,12 +382,12 @@ func TestStreamFormatsAPIError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	req := BuildRequest("", []llm.Message{{Role: llm.RoleUser, Content: "hi"}}, nil)
+	req := BuildRequest("", []core.Message{{Role: core.RoleUser, Content: "hi"}}, nil)
 	var gotErr error
 	for _, err := range Stream(
 		t.Context(),
 		srv.Client(),
-		llm.ModelConfig{Name: "gemini-2.5-flash", BaseURL: srv.URL, APIKey: "bad"},
+		core.ModelConfig{Name: "gemini-2.5-flash", BaseURL: srv.URL, APIKey: "bad"},
 		&req,
 	) {
 		if err != nil {
@@ -405,14 +405,14 @@ func TestProcessStreamKeepsThoughtSignaturePerCall(t *testing.T) {
 		`{"functionCall":{"name":"read","args":{"path":"a.go"}},"thoughtSignature":"sig-a"},` +
 		`{"functionCall":{"name":"read","args":{"path":"b.go"}}}]}}]}` + "\n\n"
 
-	var deltas []llm.ToolCall
-	var done *llm.StreamEvent
+	var deltas []core.ToolCall
+	var done *core.StreamEvent
 	for _, ev := range processForTest(sse) {
-		require.NotEqual(t, llm.StreamEventTypeError, ev.Type, "stream error: %s", ev.Err)
+		require.NotEqual(t, core.StreamEventTypeError, ev.Type, "stream error: %s", ev.Err)
 		switch ev.Type {
-		case llm.StreamEventTypeDelta:
+		case core.StreamEventTypeDelta:
 			deltas = append(deltas, ev.Delta.ToolCalls...)
-		case llm.StreamEventTypeDone:
+		case core.StreamEventTypeDone:
 			done = &ev
 		}
 	}
@@ -427,16 +427,16 @@ func TestProcessStreamKeepsThoughtSignaturePerCall(t *testing.T) {
 }
 
 func TestBuildRequestReplaysThoughtSignature(t *testing.T) {
-	req := BuildRequest("", []llm.Message{
-		{Role: llm.RoleUser, Content: "hi"},
-		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+	req := BuildRequest("", []core.Message{
+		{Role: core.RoleUser, Content: "hi"},
+		{Role: core.RoleAssistant, ToolCalls: []core.ToolCall{
 			{
 				ID: "read", Type: "function", ThoughtSignature: "sig-a",
-				Function: llm.Function{Name: "read", Arguments: `{"path":"a.go"}`},
+				Function: core.Function{Name: "read", Arguments: `{"path":"a.go"}`},
 			},
 			{
 				Index: 1, ID: "read", Type: "function",
-				Function: llm.Function{Name: "read", Arguments: `{"path":"b.go"}`},
+				Function: core.Function{Name: "read", Arguments: `{"path":"b.go"}`},
 			},
 		}},
 	}, nil)
@@ -455,26 +455,26 @@ func TestBuildRequestReplaysThoughtSignature(t *testing.T) {
 	assert.Equal(t, 1, strings.Count(string(body), `"thoughtSignature"`))
 }
 
-func unsignedCall(path string) llm.ToolCall {
-	return llm.ToolCall{
+func unsignedCall(path string) core.ToolCall {
+	return core.ToolCall{
 		ID: "read", Type: "function",
-		Function: llm.Function{Name: "read", Arguments: `{"path":"` + path + `"}`},
+		Function: core.Function{Name: "read", Arguments: `{"path":"` + path + `"}`},
 	}
 }
 
-func toolResult(out string) llm.Message {
-	return llm.Message{Role: llm.RoleTool, ToolCallID: "read", Content: out}
+func toolResult(out string) core.Message {
+	return core.Message{Role: core.RoleTool, ToolCallID: "read", Content: out}
 }
 
 func TestBuildRequestSignsUnsignedCurrentTurn(t *testing.T) {
 	// History from another provider: nothing in the turn is signed.
-	req := BuildRequest("", []llm.Message{
-		{Role: llm.RoleUser, Content: "hi"},
-		{Role: llm.RoleAssistant, Content: "reading", ToolCalls: []llm.ToolCall{
+	req := BuildRequest("", []core.Message{
+		{Role: core.RoleUser, Content: "hi"},
+		{Role: core.RoleAssistant, Content: "reading", ToolCalls: []core.ToolCall{
 			unsignedCall("a.go"), unsignedCall("b.go"),
 		}},
 		toolResult("a"), toolResult("b"),
-		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{unsignedCall("c.go")}},
+		{Role: core.RoleAssistant, ToolCalls: []core.ToolCall{unsignedCall("c.go")}},
 	}, nil)
 
 	require.Len(t, req.Contents, 4)
@@ -489,10 +489,10 @@ func TestBuildRequestSignsUnsignedCurrentTurn(t *testing.T) {
 func TestBuildRequestKeepsRealSignatureOnParallelStep(t *testing.T) {
 	signed := unsignedCall("a.go")
 	signed.ThoughtSignature = "sig-a"
-	calls := []llm.ToolCall{signed, unsignedCall("b.go")}
-	req := BuildRequest("", []llm.Message{
-		{Role: llm.RoleUser, Content: "hi"},
-		{Role: llm.RoleAssistant, ToolCalls: calls},
+	calls := []core.ToolCall{signed, unsignedCall("b.go")}
+	req := BuildRequest("", []core.Message{
+		{Role: core.RoleUser, Content: "hi"},
+		{Role: core.RoleAssistant, ToolCalls: calls},
 	}, nil)
 
 	parts := req.Contents[1].Parts
@@ -505,12 +505,12 @@ func TestBuildRequestKeepsRealSignatureOnParallelStep(t *testing.T) {
 }
 
 func TestBuildRequestLeavesPreviousTurnsBare(t *testing.T) {
-	req := BuildRequest("", []llm.Message{
-		{Role: llm.RoleUser, Content: "first"},
-		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{unsignedCall("a.go")}},
+	req := BuildRequest("", []core.Message{
+		{Role: core.RoleUser, Content: "first"},
+		{Role: core.RoleAssistant, ToolCalls: []core.ToolCall{unsignedCall("a.go")}},
 		toolResult("a"),
-		{Role: llm.RoleAssistant, Content: "done"},
-		{Role: llm.RoleUser, Content: "second"},
+		{Role: core.RoleAssistant, Content: "done"},
+		{Role: core.RoleUser, Content: "second"},
 	}, nil)
 
 	body, err := json.Marshal(req)
@@ -518,24 +518,18 @@ func TestBuildRequestLeavesPreviousTurnsBare(t *testing.T) {
 	assert.NotContains(t, string(body), "thoughtSignature")
 }
 
-func TestThoughtSignatureSurvivesSessionRoundTrip(t *testing.T) {
+func TestThoughtSignatureSurvivesMessageReplay(t *testing.T) {
 	sse := `data: {"candidates":[{"content":{"parts":[` +
 		`{"functionCall":{"name":"read","args":{"path":"a.go"}},"thoughtSignature":"sig-a"}]}}]}` + "\n\n"
-	var final *llm.Message
+	var final *core.Message
 	for _, ev := range processForTest(sse) {
-		if ev.Type == llm.StreamEventTypeDone {
+		if ev.Type == core.StreamEventTypeDone {
 			final = ev.Final
 		}
 	}
 	require.NotNil(t, final)
 
-	// Sessions persist llm.Message as JSON, so the signature has to survive that encoding.
-	saved, err := json.Marshal(final)
-	require.NoError(t, err)
-	var loaded llm.Message
-	require.NoError(t, json.Unmarshal(saved, &loaded))
-
-	req := BuildRequest("", []llm.Message{{Role: llm.RoleUser, Content: "hi"}, loaded}, nil)
+	req := BuildRequest("", []core.Message{{Role: core.RoleUser, Content: "hi"}, *final}, nil)
 	require.Len(t, req.Contents, 2)
 	require.Len(t, req.Contents[1].Parts, 1)
 	assert.Equal(t, "sig-a", req.Contents[1].Parts[0].ThoughtSignature)

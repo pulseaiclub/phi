@@ -5,25 +5,23 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
-// RequestParameters is a JSON merge patch for provider request options.
-// A null value removes a field; false and zero remain explicit values.
-type RequestParameters map[string]any
-
 // Validate protects protocol fields, conversation data and output limits from overrides.
-func (p RequestParameters) Validate(api RouterType) error {
-	_, err := p.validatedPatch(api)
+func ValidateRequestParameters(p core.RequestParameters, api core.RouterType) error {
+	_, err := validatedPatch(p, api)
 	return err
 }
 
 // Encode once so validation and merging use the same snapshot, even with custom marshalers.
-func (p RequestParameters) validatedPatch(api RouterType) (map[string]json.RawMessage, error) {
+func validatedPatch(p core.RequestParameters, api core.RouterType) (map[string]json.RawMessage, error) {
 	if len(p) == 0 {
 		return nil, nil
 	}
 	switch api {
-	case "", OpenAI, OpenAIResponses, Anthropic, Gemini:
+	case "", core.OpenAI, core.OpenAIResponses, core.Anthropic, core.Gemini:
 	default:
 		return nil, fmt.Errorf(
 			"request_parameters: unsupported API %q; use OpenAI, OpenAIResponses, Anthropic or Gemini",
@@ -60,7 +58,7 @@ func (p RequestParameters) validatedPatch(api RouterType) (map[string]json.RawMe
 			return nil, fmt.Errorf("request_parameters.%s is managed by phi; remove this override", key)
 		case "background":
 			// Compaction requires a completed response; phi does not poll background jobs.
-			if api == OpenAIResponses && bytes.Equal(bytes.TrimSpace(value), []byte("true")) {
+			if api == core.OpenAIResponses && bytes.Equal(bytes.TrimSpace(value), []byte("true")) {
 				return nil, errors.New(
 					"request_parameters.background=true is unsupported for OpenAIResponses; remove it or set it to false",
 				)
@@ -98,8 +96,8 @@ func (p RequestParameters) validatedPatch(api RouterType) (map[string]json.RawMe
 }
 
 // MarshalRequest applies overrides after endpoint mapping, preserving untouched JSON numbers.
-func MarshalRequest(request any, cfg ModelConfig) ([]byte, error) {
-	overlay, err := cfg.RequestParameters.validatedPatch(cfg.API)
+func MarshalRequest(request any, cfg core.ModelConfig) ([]byte, error) {
+	overlay, err := validatedPatch(cfg.RequestParameters, cfg.API)
 	if err != nil {
 		return nil, err
 	}

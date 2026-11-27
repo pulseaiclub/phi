@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/llm/anthropic"
 	"github.com/pulseaiclub/phi/internal/llm/openai"
@@ -38,24 +39,24 @@ func TestClientStreamAnthropicEndToEnd(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(
-		llm.ModelConfig{Name: "claude-sonnet-4-20250514", BaseURL: srv.URL, APIKey: "sk-test", API: llm.Anthropic},
+		core.ModelConfig{Name: "claude-sonnet-4-20250514", BaseURL: srv.URL, APIKey: "sk-test", API: core.Anthropic},
 		Hooks{},
 		nil,
 		"be brief",
 	)
-	events := collectEvents(client.Stream(t.Context(), []llm.Message{{Role: llm.RoleUser, Content: "hello"}}))
+	events := collectEvents(client.Stream(t.Context(), []core.Message{{Role: core.RoleUser, Content: "hello"}}))
 
 	require.Equal(t, "/v1/messages", gotPath)
 	require.Equal(t, "sk-test", gotKey)
 	require.NotEmpty(t, gotVersion, "expected Anthropic-Version header")
 	var text strings.Builder
-	var done *llm.StreamEvent
+	var done *core.StreamEvent
 	for _, ev := range events {
 		require.Empty(t, ev.Err, "stream error")
 		switch ev.Type {
-		case llm.StreamEventTypeDelta:
+		case core.StreamEventTypeDelta:
 			text.WriteString(ev.Delta.Content)
-		case llm.StreamEventTypeDone:
+		case core.StreamEventTypeDone:
 			done = &ev
 		}
 	}
@@ -83,18 +84,18 @@ func TestClientStreamOpenAIEndToEnd(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewClient(llm.ModelConfig{Name: "gpt-4o", BaseURL: srv.URL, APIKey: "sk-test"}, Hooks{}, nil, "")
-	events := collectEvents(client.Stream(t.Context(), []llm.Message{{Role: llm.RoleUser, Content: "hello"}}))
+	client := NewClient(core.ModelConfig{Name: "gpt-4o", BaseURL: srv.URL, APIKey: "sk-test"}, Hooks{}, nil, "")
+	events := collectEvents(client.Stream(t.Context(), []core.Message{{Role: core.RoleUser, Content: "hello"}}))
 
 	require.Equal(t, "/chat/completions", gotPath)
 	var text strings.Builder
-	var done *llm.StreamEvent
+	var done *core.StreamEvent
 	for _, ev := range events {
 		require.Empty(t, ev.Err, "stream error")
 		switch ev.Type {
-		case llm.StreamEventTypeDelta:
+		case core.StreamEventTypeDelta:
 			text.WriteString(ev.Delta.Content)
-		case llm.StreamEventTypeDone:
+		case core.StreamEventTypeDone:
 			done = &ev
 		}
 	}
@@ -119,22 +120,22 @@ func TestClientStreamOpenAIResponsesEndToEnd(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(
-		llm.ModelConfig{Name: "gpt-5", BaseURL: srv.URL, APIKey: "sk-test", API: llm.OpenAIResponses},
+		core.ModelConfig{Name: "gpt-5", BaseURL: srv.URL, APIKey: "sk-test", API: core.OpenAIResponses},
 		Hooks{},
 		nil,
 		"",
 	)
-	events := collectEvents(client.Stream(t.Context(), []llm.Message{{Role: llm.RoleUser, Content: "hello"}}))
+	events := collectEvents(client.Stream(t.Context(), []core.Message{{Role: core.RoleUser, Content: "hello"}}))
 
 	require.Equal(t, "/responses", gotPath)
 	var text strings.Builder
-	var done *llm.StreamEvent
+	var done *core.StreamEvent
 	for _, ev := range events {
 		require.Empty(t, ev.Err, "stream error")
 		switch ev.Type {
-		case llm.StreamEventTypeDelta:
+		case core.StreamEventTypeDelta:
 			text.WriteString(ev.Delta.Content)
-		case llm.StreamEventTypeDone:
+		case core.StreamEventTypeDone:
 			done = &ev
 		}
 	}
@@ -156,7 +157,7 @@ func TestClientCompactAnthropic(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(
-		llm.ModelConfig{Name: "claude-sonnet-4-20250514", BaseURL: srv.URL, APIKey: "sk-test", API: llm.Anthropic},
+		core.ModelConfig{Name: "claude-sonnet-4-20250514", BaseURL: srv.URL, APIKey: "sk-test", API: core.Anthropic},
 		Hooks{},
 		nil,
 		"",
@@ -182,7 +183,7 @@ func TestClientCompactOpenAI(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewClient(llm.ModelConfig{Name: "gpt-4o", BaseURL: srv.URL, APIKey: "sk-test"}, Hooks{}, nil, "")
+	client := NewClient(core.ModelConfig{Name: "gpt-4o", BaseURL: srv.URL, APIKey: "sk-test"}, Hooks{}, nil, "")
 	res, err := client.Compact(t.Context(), llm.CompactRequest{Prompt: "summarize", MaxTokens: 13107})
 	require.NoError(t, err)
 	require.Equal(t, "/chat/completions", gotPath)
@@ -196,17 +197,17 @@ func TestClientCompactOpenAI(t *testing.T) {
 func TestClientCompactReportsCappedOutput(t *testing.T) {
 	cases := []struct {
 		name string
-		api  llm.RouterType
+		api  core.RouterType
 		body string
 	}{
 		{
 			name: "anthropic",
-			api:  llm.Anthropic,
+			api:  core.Anthropic,
 			body: `{"content":[{"type":"text","text":"partial"}],"stop_reason":"max_tokens"}`,
 		},
 		{
 			name: "openai",
-			api:  llm.OpenAI,
+			api:  core.OpenAI,
 			body: `{"choices":[{"message":{"role":"assistant","content":"partial"},"finish_reason":"length"}]}`,
 		},
 	}
@@ -219,7 +220,7 @@ func TestClientCompactReportsCappedOutput(t *testing.T) {
 			defer srv.Close()
 
 			client := NewClient(
-				llm.ModelConfig{Name: "m", BaseURL: srv.URL, APIKey: "sk-test", API: tc.api},
+				core.ModelConfig{Name: "m", BaseURL: srv.URL, APIKey: "sk-test", API: tc.api},
 				Hooks{},
 				nil,
 				"",
@@ -244,7 +245,7 @@ func jsonField(t *testing.T, body []byte, field string) int {
 
 type openAIExtraThinking struct{}
 
-func (openAIExtraThinking) Before(_ context.Context, req *openai.Request, _ llm.ModelConfig) error {
+func (openAIExtraThinking) Before(_ context.Context, req *openai.Request, _ core.ModelConfig) error {
 	req.Thinking = &openai.ThinkingConfig{Type: "enabled"}
 	return nil
 }
@@ -259,12 +260,12 @@ func TestClientStreamOpenAIRunsInterceptor(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(
-		llm.ModelConfig{Name: "deepseek-flash", BaseURL: srv.URL, APIKey: "sk-test"},
+		core.ModelConfig{Name: "deepseek-flash", BaseURL: srv.URL, APIKey: "sk-test"},
 		Hooks{OpenAI: openAIExtraThinking{}},
 		nil,
 		"",
 	)
-	for _, err := range client.Stream(t.Context(), []llm.Message{{Role: llm.RoleUser, Content: "hi"}}) {
+	for _, err := range client.Stream(t.Context(), []core.Message{{Role: core.RoleUser, Content: "hi"}}) {
 		require.NoError(t, err)
 	}
 	require.NotContains(t, string(body), `"extra_body"`)
@@ -273,29 +274,29 @@ func TestClientStreamOpenAIRunsInterceptor(t *testing.T) {
 
 type rejectHook struct{}
 
-func (rejectHook) Before(context.Context, *openai.Request, llm.ModelConfig) error {
+func (rejectHook) Before(context.Context, *openai.Request, core.ModelConfig) error {
 	return errors.New("blocked by hook")
 }
 
 func TestClientStreamOpenAIInterceptorError(t *testing.T) {
 	client := NewClient(
-		llm.ModelConfig{Name: "gpt-4o", BaseURL: "http://127.0.0.1:9", APIKey: "sk-test"},
+		core.ModelConfig{Name: "gpt-4o", BaseURL: "http://127.0.0.1:9", APIKey: "sk-test"},
 		Hooks{OpenAI: rejectHook{}},
 		nil,
 		"",
 	)
-	events := collectEvents(client.Stream(t.Context(), []llm.Message{{Role: llm.RoleUser, Content: "hi"}}))
+	events := collectEvents(client.Stream(t.Context(), []core.Message{{Role: core.RoleUser, Content: "hi"}}))
 	require.Len(t, events, 1)
-	require.Equal(t, llm.StreamEventTypeError, events[0].Type)
+	require.Equal(t, core.StreamEventTypeError, events[0].Type)
 	require.Contains(t, events[0].Err, "blocked by hook")
 }
 
 // collectEvents drains an iter.Seq2 into a slice.
-func collectEvents(seq func(func(llm.StreamEvent, error) bool)) []llm.StreamEvent {
-	var events []llm.StreamEvent
+func collectEvents(seq func(func(core.StreamEvent, error) bool)) []core.StreamEvent {
+	var events []core.StreamEvent
 	for ev, err := range seq {
 		if err != nil {
-			events = append(events, llm.StreamEvent{Type: llm.StreamEventTypeError, Err: err.Error()})
+			events = append(events, core.StreamEvent{Type: core.StreamEventTypeError, Err: err.Error()})
 			continue
 		}
 		events = append(events, ev)
@@ -305,26 +306,26 @@ func collectEvents(seq func(func(llm.StreamEvent, error) bool)) []llm.StreamEven
 
 type anthropicMaxTokensCutter struct{}
 
-func (anthropicMaxTokensCutter) Before(_ context.Context, req *anthropic.AnthropicRequest, _ llm.ModelConfig) error {
+func (anthropicMaxTokensCutter) Before(_ context.Context, req *anthropic.AnthropicRequest, _ core.ModelConfig) error {
 	req.MaxTokens = 4096
 	return nil
 }
 
 type anthropicBudgetRemover struct{}
 
-func (anthropicBudgetRemover) Before(_ context.Context, req *anthropic.AnthropicRequest, _ llm.ModelConfig) error {
+func (anthropicBudgetRemover) Before(_ context.Context, req *anthropic.AnthropicRequest, _ core.ModelConfig) error {
 	req.Thinking.BudgetTokens = nil
 	return nil
 }
 
 func TestClientStreamAnthropicRejectsMissingBudgetAfterHook(t *testing.T) {
-	client := NewClient(llm.ModelConfig{
-		Name: "claude-sonnet-4-20250514", BaseURL: "http://127.0.0.1:9", API: llm.Anthropic,
-		Think: llm.ThinkConfig{Enabled: true, Mode: llm.Low},
+	client := NewClient(core.ModelConfig{
+		Name: "claude-sonnet-4-20250514", BaseURL: "http://127.0.0.1:9", API: core.Anthropic,
+		Think: core.ThinkConfig{Enabled: true, Mode: core.Low},
 	}, Hooks{Anthropic: anthropicBudgetRemover{}}, nil, "")
-	events := collectEvents(client.Stream(t.Context(), []llm.Message{{Role: llm.RoleUser, Content: "hi"}}))
+	events := collectEvents(client.Stream(t.Context(), []core.Message{{Role: core.RoleUser, Content: "hi"}}))
 	require.Len(t, events, 1)
-	require.Equal(t, llm.StreamEventTypeError, events[0].Type)
+	require.Equal(t, core.StreamEventTypeError, events[0].Type)
 	require.Contains(t, events[0].Err, "thinking type enabled requires budget_tokens")
 }
 
@@ -332,12 +333,12 @@ func TestClientStreamAnthropicRejectsMissingBudgetAfterHook(t *testing.T) {
 // any HTTP call, with the specific invariant message instead of the API's
 // generic 400.
 func TestClientStreamAnthropicValidatesThinkingAfterHook(t *testing.T) {
-	client := NewClient(llm.ModelConfig{
-		Name: "claude-sonnet-4-20250514", BaseURL: "http://127.0.0.1:9", API: llm.Anthropic,
-		Think: llm.ThinkConfig{Enabled: true, Mode: llm.Medium},
+	client := NewClient(core.ModelConfig{
+		Name: "claude-sonnet-4-20250514", BaseURL: "http://127.0.0.1:9", API: core.Anthropic,
+		Think: core.ThinkConfig{Enabled: true, Mode: core.Medium},
 	}, Hooks{Anthropic: anthropicMaxTokensCutter{}}, nil, "")
-	events := collectEvents(client.Stream(t.Context(), []llm.Message{{Role: llm.RoleUser, Content: "hi"}}))
+	events := collectEvents(client.Stream(t.Context(), []core.Message{{Role: core.RoleUser, Content: "hi"}}))
 	require.Len(t, events, 1)
-	require.Equal(t, llm.StreamEventTypeError, events[0].Type)
+	require.Equal(t, core.StreamEventTypeError, events[0].Type)
 	require.Contains(t, events[0].Err, "thinking budget_tokens 8192 must be less than max_tokens 4096")
 }

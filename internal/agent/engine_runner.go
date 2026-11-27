@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/job"
-	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/project/model"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
@@ -104,7 +104,7 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 	return lastText, nil
 }
 
-func (r EngineRunner) newEngine(meta job.Meta, cfg llm.ModelConfig, spec ChildSpec) (*Engine, error) {
+func (r EngineRunner) newEngine(meta job.Meta, cfg core.ModelConfig, spec ChildSpec) (*Engine, error) {
 	cwd := meta.WorkDir
 	if cwd == "" {
 		cwd = "."

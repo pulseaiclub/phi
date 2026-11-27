@@ -3,9 +3,9 @@ package controller
 import (
 	"fmt"
 
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/extension"
-	"github.com/pulseaiclub/phi/internal/extension/core"
-	"github.com/pulseaiclub/phi/internal/llm"
+	extensioncore "github.com/pulseaiclub/phi/internal/extension/core"
 	"github.com/pulseaiclub/phi/internal/project"
 )
 
@@ -14,10 +14,10 @@ import (
 // entries, so extension models honor preset capabilities and think levels.
 // Direct-connect registrations must carry a base_url — the host would
 // otherwise dial an empty endpoint.
-func extensionModelConfig(route core.ModelRoute, cfg *project.Config) (llm.ModelConfig, error) {
+func extensionModelConfig(route extensioncore.ModelRoute, cfg *project.Config) (core.ModelConfig, error) {
 	reg := route.Reg
 	if !route.ExtConn() && reg.BaseURL == "" {
-		return llm.ModelConfig{}, fmt.Errorf("model %q: direct-connect registration needs base_url", reg.Name)
+		return core.ModelConfig{}, fmt.Errorf("model %q: direct-connect registration needs base_url", reg.Name)
 	}
 	doc := project.ModelDoc{
 		Name: reg.Name, Preset: reg.Preset, API: reg.API,
@@ -32,7 +32,7 @@ func extensionModelConfig(route core.ModelRoute, cfg *project.Config) (llm.Model
 	doc.ThinkEnabled = &thinkEnabled
 	m, err := project.ResolveModelDoc(doc)
 	if err != nil {
-		return llm.ModelConfig{}, err
+		return core.ModelConfig{}, err
 	}
 	m.SkillPaths = cfg.SkillPaths
 	return m, nil
@@ -42,7 +42,7 @@ func extensionModelConfig(route core.ModelRoute, cfg *project.Config) (llm.Model
 // config.yaml entries with the same name, matching the engine's transport
 // selection; a name known to neither keeps the primary connection and only
 // swaps the name (arbitrary-model workflow).
-func resolveModelConfig(cfg *project.Config, r extension.Extensions, name string) (llm.ModelConfig, error) {
+func resolveModelConfig(cfg *project.Config, r extension.Extensions, name string) (core.ModelConfig, error) {
 	// A nil runner means "no extensions" here — callers may not have loaded any.
 	if r != nil {
 		if route, ok := r.LookupModel(name); ok {

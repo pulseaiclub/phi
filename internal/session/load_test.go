@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
 func TestSessionPersistRoundTrip(t *testing.T) {
@@ -19,9 +19,9 @@ func TestSessionPersistRoundTrip(t *testing.T) {
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
-	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "read foo.go"})
+	_, err = m.Append(core.Message{Role: core.RoleUser, Content: "read foo.go"})
 	require.NoError(t, err)
-	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "done reading"})
+	_, err = m.Append(core.Message{Role: core.RoleAssistant, Content: "done reading"})
 	require.NoError(t, err)
 
 	path := m.File()
@@ -38,9 +38,9 @@ func TestSessionPersistRoundTrip(t *testing.T) {
 	assert.Equal(t, orig, got)
 
 	// Append continues on the same file.
-	_, err = loaded.Append(llm.Message{Role: llm.RoleUser, Content: "continue"})
+	_, err = loaded.Append(core.Message{Role: core.RoleUser, Content: "continue"})
 	require.NoError(t, err)
-	_, err = loaded.Append(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+	_, err = loaded.Append(core.Message{Role: core.RoleAssistant, Content: "ok"})
 	require.NoError(t, err)
 
 	info, err := os.Stat(path)
@@ -58,9 +58,9 @@ func TestSessionModelChangesAppendOnly(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "model-a", m.ModelName())
 
-	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "hello"})
+	_, err = m.Append(core.Message{Role: core.RoleUser, Content: "hello"})
 	require.NoError(t, err)
-	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "done"})
+	_, err = m.Append(core.Message{Role: core.RoleAssistant, Content: "done"})
 	require.NoError(t, err)
 	before, err := os.ReadFile(m.File())
 	require.NoError(t, err)
@@ -99,7 +99,7 @@ func TestSessionWithoutModelRemainsLoadable(t *testing.T) {
 	dir := t.TempDir()
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
-	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "done"})
+	_, err = m.Append(core.Message{Role: core.RoleAssistant, Content: "done"})
 	require.NoError(t, err)
 
 	loaded, err := OpenSession(m.File())
@@ -112,19 +112,19 @@ func TestSessionPersistUsageRoundTrip(t *testing.T) {
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
-	_, err = m.Append(llm.Message{
-		Role:    llm.RoleAssistant,
+	_, err = m.Append(core.Message{
+		Role:    core.RoleAssistant,
 		Content: "done",
-		Usage: llm.Usage{
+		Usage: core.Usage{
 			PromptTokens:        7,
 			CompletionTokens:    7,
 			TotalTokens:         19,
-			PromptTokensDetails: &llm.PromptTokensDetails{CachedTokens: 5},
+			PromptTokensDetails: &core.PromptTokensDetails{CachedTokens: 5},
 		},
 	})
 	require.NoError(t, err)
 
-	// In memory the wrapper mirrors msg.Usage (llm.Message.Usage is json:"-").
+	// In memory the wrapper mirrors msg.Usage (core.Message.Usage is json:"-").
 	inMem := m.BuildContext()[0].(SessionMessageEntry)
 	assert.Equal(t, 19, inMem.Usage.TotalTokens)
 
@@ -141,22 +141,22 @@ func TestSessionPersistUsageRoundTrip(t *testing.T) {
 }
 
 // A resumed session must show its own token counts, so replay has to read
-// usage from the entry (llm.Message.Usage does not survive a reload).
+// usage from the entry (core.Message.Usage does not survive a reload).
 func TestReplaySnapshotUsageAfterReload(t *testing.T) {
 	dir := t.TempDir()
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
-	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "hello"})
+	_, err = m.Append(core.Message{Role: core.RoleUser, Content: "hello"})
 	require.NoError(t, err)
-	_, err = m.Append(llm.Message{
-		Role:    llm.RoleAssistant,
+	_, err = m.Append(core.Message{
+		Role:    core.RoleAssistant,
 		Content: "done",
-		Usage: llm.Usage{
+		Usage: core.Usage{
 			PromptTokens:        7,
 			CompletionTokens:    7,
 			TotalTokens:         19,
-			PromptTokensDetails: &llm.PromptTokensDetails{CachedTokens: 5},
+			PromptTokensDetails: &core.PromptTokensDetails{CachedTokens: 5},
 		},
 	})
 	require.NoError(t, err)
@@ -182,9 +182,9 @@ func TestSessionPersistCompaction(t *testing.T) {
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
-	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "old"})
+	_, err = m.Append(core.Message{Role: core.RoleUser, Content: "old"})
 	require.NoError(t, err)
-	keptID, err := m.Append(llm.Message{Role: llm.RoleAssistant, Content: "kept"})
+	keptID, err := m.Append(core.Message{Role: core.RoleAssistant, Content: "kept"})
 	require.NoError(t, err)
 	_, err = m.AppendCompaction(Compaction{
 		Summary:          "conversation summary",
@@ -195,7 +195,7 @@ func TestSessionPersistCompaction(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "after"})
+	_, err = m.Append(core.Message{Role: core.RoleUser, Content: "after"})
 	require.NoError(t, err)
 
 	loaded, err := OpenSession(m.File())
@@ -221,7 +221,7 @@ func TestReplaySnapshotCompactionTokensBefore(t *testing.T) {
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
-	keptID, err := m.Append(llm.Message{Role: llm.RoleAssistant, Content: "kept"})
+	keptID, err := m.Append(core.Message{Role: core.RoleAssistant, Content: "kept"})
 	require.NoError(t, err)
 	_, err = m.AppendCompaction(Compaction{
 		Summary:          "conversation summary",
@@ -252,7 +252,7 @@ func TestReplaySnapshotCompactionSummary(t *testing.T) {
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
-	keptID, err := m.Append(llm.Message{Role: llm.RoleAssistant, Content: "kept"})
+	keptID, err := m.Append(core.Message{Role: core.RoleAssistant, Content: "kept"})
 	require.NoError(t, err)
 	compactionID, err := m.AppendCompaction(Compaction{
 		Summary:          "conversation summary",
@@ -323,9 +323,9 @@ func TestListSessions(t *testing.T) {
 	dir := t.TempDir()
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
-	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "list me please"})
+	_, err = m.Append(core.Message{Role: core.RoleUser, Content: "list me please"})
 	require.NoError(t, err)
-	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+	_, err = m.Append(core.Message{Role: core.RoleAssistant, Content: "ok"})
 	require.NoError(t, err)
 
 	list, err := ListSessions(dir)

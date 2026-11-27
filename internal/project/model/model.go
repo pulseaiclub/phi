@@ -7,17 +7,17 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
 )
 
 // Preset holds model defaults, request hooks and an optional gateway alias pattern.
 type Preset struct {
-	Config        llm.ModelConfig
+	Config        core.ModelConfig
 	Hooks         llmclient.Hooks
 	Alias         string
-	thinkModes    []llm.ThinkMode
-	openCodeModes []llm.ThinkMode
+	thinkModes    []core.ThinkMode
+	openCodeModes []core.ThinkMode
 }
 
 // Lookup inherits capabilities and hooks for aliases, keeping native connections separate.
@@ -106,7 +106,7 @@ func HooksFor(name string) llmclient.Hooks {
 }
 
 // HooksForConfig honors explicit preset bindings for opaque gateway IDs.
-func HooksForConfig(cfg llm.ModelConfig) llmclient.Hooks {
+func HooksForConfig(cfg core.ModelConfig) llmclient.Hooks {
 	if cfg.Preset != "" {
 		return HooksFor(cfg.Preset)
 	}
@@ -114,21 +114,21 @@ func HooksForConfig(cfg llm.ModelConfig) llmclient.Hooks {
 }
 
 var (
-	thinkMedium          = llm.ThinkConfig{Enabled: true, Mode: llm.Medium}
-	thinkHigh            = llm.ThinkConfig{Enabled: true, Mode: llm.High}
-	thinkMax             = llm.ThinkConfig{Enabled: true, Mode: llm.Max}
-	lowToMaxModes        = []llm.ThinkMode{llm.Low, llm.Medium, llm.High, llm.XHigh, llm.Max}
-	offLowToMaxModes     = []llm.ThinkMode{llm.Off, llm.Low, llm.Medium, llm.High, llm.XHigh, llm.Max}
-	claude46Modes        = []llm.ThinkMode{llm.Off, llm.Low, llm.Medium, llm.High, llm.Max}
-	geminiLowToHighModes = []llm.ThinkMode{llm.Low, llm.Medium, llm.High}
-	gemini4XHighModes    = []llm.ThinkMode{llm.Low, llm.Medium, llm.High, llm.XHigh}
+	thinkMedium          = core.ThinkConfig{Enabled: true, Mode: core.Medium}
+	thinkHigh            = core.ThinkConfig{Enabled: true, Mode: core.High}
+	thinkMax             = core.ThinkConfig{Enabled: true, Mode: core.Max}
+	lowToMaxModes        = []core.ThinkMode{core.Low, core.Medium, core.High, core.XHigh, core.Max}
+	offLowToMaxModes     = []core.ThinkMode{core.Off, core.Low, core.Medium, core.High, core.XHigh, core.Max}
+	claude46Modes        = []core.ThinkMode{core.Off, core.Low, core.Medium, core.High, core.Max}
+	geminiLowToHighModes = []core.ThinkMode{core.Low, core.Medium, core.High}
+	gemini4XHighModes    = []core.ThinkMode{core.Low, core.Medium, core.High, core.XHigh}
 )
 
 // withSyncedSpec fills zero ContextWindow, InputLimit, and MaxTokens from
 // generated models.dev specs (preserving non-zero overrides) and sets ImageEnabled.
 // An explicit ContextWindow override skips the synced InputLimit so the two
 // limits never come from different tiers.
-func withSyncedSpec(cfg llm.ModelConfig) llm.ModelConfig {
+func withSyncedSpec(cfg core.ModelConfig) core.ModelConfig {
 	spec, ok := syncedSpecs[cfg.Name]
 	if !ok {
 		return cfg
@@ -146,12 +146,12 @@ func withSyncedSpec(cfg llm.ModelConfig) llm.ModelConfig {
 	return cfg
 }
 
-func claudePreset(name, alias string, forced, allowXHigh bool, modes []llm.ThinkMode) Preset {
+func claudePreset(name, alias string, forced, allowXHigh bool, modes []core.ThinkMode) Preset {
 	return Preset{
-		Config: withSyncedSpec(llm.ModelConfig{
+		Config: withSyncedSpec(core.ModelConfig{
 			Name:    name,
 			BaseURL: "https://api.anthropic.com",
-			API:     llm.Anthropic,
+			API:     core.Anthropic,
 			Think:   thinkHigh,
 		}),
 		Hooks:      claudeAdaptiveHooks(forced, allowXHigh),
@@ -160,12 +160,12 @@ func claudePreset(name, alias string, forced, allowXHigh bool, modes []llm.Think
 	}
 }
 
-func openAIPreset(name string, think llm.ThinkConfig, hooks llmclient.Hooks, modes ...llm.ThinkMode) Preset {
+func openAIPreset(name string, think core.ThinkConfig, hooks llmclient.Hooks, modes ...core.ThinkMode) Preset {
 	return Preset{
-		Config: withSyncedSpec(llm.ModelConfig{
+		Config: withSyncedSpec(core.ModelConfig{
 			Name:    name,
 			BaseURL: "https://api.openai.com/v1",
-			API:     llm.OpenAIResponses,
+			API:     core.OpenAIResponses,
 			Think:   think,
 		}),
 		Hooks:      hooks,
@@ -173,12 +173,12 @@ func openAIPreset(name string, think llm.ThinkConfig, hooks llmclient.Hooks, mod
 	}
 }
 
-func geminiPreset(name string, think llm.ThinkConfig, hooks llmclient.Hooks, modes ...llm.ThinkMode) Preset {
+func geminiPreset(name string, think core.ThinkConfig, hooks llmclient.Hooks, modes ...core.ThinkMode) Preset {
 	return Preset{
-		Config: withSyncedSpec(llm.ModelConfig{
+		Config: withSyncedSpec(core.ModelConfig{
 			Name:    name,
 			BaseURL: "https://generativelanguage.googleapis.com/v1beta",
-			API:     llm.Gemini,
+			API:     core.Gemini,
 			Think:   think,
 		}),
 		Hooks:      hooks,
@@ -188,29 +188,29 @@ func geminiPreset(name string, think llm.ThinkConfig, hooks llmclient.Hooks, mod
 
 func kimiPreset(name, alias string) Preset {
 	return Preset{
-		Config: withSyncedSpec(llm.ModelConfig{
+		Config: withSyncedSpec(core.ModelConfig{
 			Name:    name,
 			BaseURL: "https://api.moonshot.cn/v1",
 			// Moonshot's models.dev entries set limit.output equal to the 1M context window.
 			MaxTokens: 131_072,
-			API:       llm.OpenAI,
+			API:       core.OpenAI,
 			Think:     thinkMax,
 		}),
 		Alias:      alias,
-		thinkModes: []llm.ThinkMode{llm.Low, llm.High, llm.Max},
+		thinkModes: []core.ThinkMode{core.Low, core.High, core.Max},
 	}
 }
 
 func glmPreset(name, alias string) Preset {
 	return Preset{
-		Config: withSyncedSpec(llm.ModelConfig{
+		Config: withSyncedSpec(core.ModelConfig{
 			Name:    name,
 			BaseURL: "https://api.z.ai/api/coding/paas/v4",
-			API:     llm.OpenAI,
+			API:     core.OpenAI,
 			Think:   thinkMax,
 		}),
 		Hooks:      chatHooks(true),
-		thinkModes: []llm.ThinkMode{llm.Low, llm.High, llm.Max},
+		thinkModes: []core.ThinkMode{core.Low, core.High, core.Max},
 		Alias:      alias,
 	}
 }
@@ -243,12 +243,12 @@ var presets = []Preset{
 	openAIPreset("gpt-5.6-luna", thinkHigh, llmclient.Hooks{}),
 	// Retired upstream and absent from models.dev; retained for existing configs.
 	{
-		Config: llm.ModelConfig{
+		Config: core.ModelConfig{
 			Name:          "gpt-5-chat-latest",
 			BaseURL:       "https://api.openai.com/v1",
 			ContextWindow: 128_000,
 			ImageEnabled:  true,
-			API:           llm.OpenAIResponses,
+			API:           core.OpenAIResponses,
 		},
 	},
 	openAIPreset("gpt-5.5", thinkHigh, llmclient.Hooks{}),
@@ -256,28 +256,28 @@ var presets = []Preset{
 
 	// Source: https://api-docs.deepseek.com/zh-cn/quick_start/pricing
 	{
-		Config: withSyncedSpec(llm.ModelConfig{
+		Config: withSyncedSpec(core.ModelConfig{
 			Name:    "deepseek-flash",
 			BaseURL: "https://api.deepseek.com",
-			API:     llm.OpenAI,
+			API:     core.OpenAI,
 			Think:   thinkHigh,
 		}),
 		Hooks:         chatHooks(false),
-		thinkModes:    []llm.ThinkMode{llm.Off, llm.Low, llm.High, llm.Max},
-		openCodeModes: []llm.ThinkMode{llm.Low, llm.High, llm.Max},
+		thinkModes:    []core.ThinkMode{core.Off, core.Low, core.High, core.Max},
+		openCodeModes: []core.ThinkMode{core.Low, core.High, core.Max},
 		// V4.1 Flash shares the Flash recommendation under both separators.
 		Alias: `deepseek-(?:v4[.\-]1-)?flash`,
 	},
 	{
-		Config: withSyncedSpec(llm.ModelConfig{
+		Config: withSyncedSpec(core.ModelConfig{
 			Name:    "deepseek-v4-pro",
 			BaseURL: "https://api.deepseek.com",
-			API:     llm.OpenAI,
+			API:     core.OpenAI,
 			Think:   thinkHigh,
 		}),
 		Hooks:         chatHooks(false),
-		thinkModes:    []llm.ThinkMode{llm.Off, llm.Low, llm.High, llm.Max},
-		openCodeModes: []llm.ThinkMode{llm.High, llm.Max},
+		thinkModes:    []core.ThinkMode{core.Off, core.Low, core.High, core.Max},
+		openCodeModes: []core.ThinkMode{core.High, core.Max},
 	},
 
 	// Gemini 4 — Carbon/Argon default medium (LOW..HIGH); Neon/Hydrogen default high (LOW..XHIGH).
@@ -291,12 +291,12 @@ var presets = []Preset{
 	geminiPreset("gemini-3.8-flash", thinkHigh, geminiLevelHooks("LOW", false), geminiLowToHighModes...),
 	// gemini-3-pro is absent from models.dev; retained for existing configs.
 	{
-		Config: llm.ModelConfig{
+		Config: core.ModelConfig{
 			Name:          "gemini-3-pro",
 			BaseURL:       "https://generativelanguage.googleapis.com/v1beta",
 			ContextWindow: 1_000_000,
 			ImageEnabled:  true,
-			API:           llm.Gemini,
+			API:           core.Gemini,
 			Think:         thinkHigh,
 		},
 		Hooks: geminiLevelHooks("LOW", false),
@@ -312,12 +312,12 @@ var presets = []Preset{
 	// Coding-plan 10M tier; models.dev only lists the 256 KiB standard tier with
 	// limit.output equal to context, so keep this entry hand-maintained.
 	{
-		Config: llm.ModelConfig{
+		Config: core.ModelConfig{
 			Name:          "kimi-k2.7-code",
 			BaseURL:       "https://api.moonshot.cn/v1",
 			ContextWindow: 10_000_000,
 			ImageEnabled:  true,
-			API:           llm.OpenAI,
+			API:           core.OpenAI,
 		},
 	},
 

@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
 type testInput struct {
@@ -19,7 +19,7 @@ type testInput struct {
 
 func TestNewToolTypedOptions(t *testing.T) {
 	tool := NewTool(
-		WithDefinition(llm.ToolDefinition{Name: "t"}),
+		WithDefinition(core.ToolDefinition{Name: "t"}),
 		WithDetail(func(in testInput) string { return in.Path }),
 		WithHandler(func(_ context.Context, in testInput) (Result, error) {
 			return Result{Content: strconv.Itoa(in.N)}, nil

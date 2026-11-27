@@ -8,7 +8,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
 // ConfigDoc preserves absent keys when the config editor saves ~/.phi/config.yaml.
@@ -31,12 +31,12 @@ type ModelDoc struct {
 	MaxTokens     *int   `yaml:"max_tokens,omitempty"`
 	// ImageEnabled is a pointer so json/yaml round-trips keep "key absent"
 	// distinct from an explicit false.
-	ImageEnabled      *bool                 `yaml:"image_enabled,omitempty"`
-	API               string                `yaml:"api,omitempty"` // OpenAI | OpenAIResponses | Anthropic | Gemini
-	ThinkEnabled      *bool                 `yaml:"think_enabled,omitempty"`
-	ThinkLevel        string                `yaml:"think_level,omitempty"`
-	Default           bool                  `yaml:"default,omitempty"`
-	RequestParameters llm.RequestParameters `yaml:"request_parameters,omitempty"`
+	ImageEnabled      *bool                  `yaml:"image_enabled,omitempty"`
+	API               string                 `yaml:"api,omitempty"` // OpenAI | OpenAIResponses | Anthropic | Gemini
+	ThinkEnabled      *bool                  `yaml:"think_enabled,omitempty"`
+	ThinkLevel        string                 `yaml:"think_level,omitempty"`
+	Default           bool                   `yaml:"default,omitempty"`
+	RequestParameters core.RequestParameters `yaml:"request_parameters,omitempty"`
 }
 
 // AgentsDoc is the agents block.

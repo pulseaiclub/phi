@@ -4,7 +4,7 @@ import (
 	"encoding/base64"
 	"path/filepath"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
 // Attachment is a pending image: display label plus raw bytes for the model.
@@ -22,9 +22,9 @@ func AttachmentLabel(path string) string {
 	return base
 }
 
-// ToLLM encodes r for llm.Message.Images.
-func ToLLM(r Result) llm.Image {
-	return llm.Image{
+// ToLLM encodes r for core.Message.Images.
+func ToLLM(r Result) core.Image {
+	return core.Image{
 		Data:     base64.StdEncoding.EncodeToString(r.Data),
 		MimeType: r.MimeType,
 	}

@@ -8,52 +8,52 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/util"
 )
 
 var benchSink int
 
-func benchConversation(turns, toolResultBytes int) []llm.Message {
+func benchConversation(turns, toolResultBytes int) []core.Message {
 	result := strings.Repeat("line of tool output\n", toolResultBytes/21+1)
-	msgs := make([]llm.Message, 0, turns*5)
+	msgs := make([]core.Message, 0, turns*5)
 	for i := range turns {
 		msgs = append(msgs,
-			llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("please look at item %d", i)},
-			llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+			core.Message{Role: core.RoleUser, Content: fmt.Sprintf("please look at item %d", i)},
+			core.Message{Role: core.RoleAssistant, ToolCalls: []core.ToolCall{
 				{
 					Index:    0,
 					ID:       fmt.Sprintf("call_%02d_a", i),
 					Type:     "function",
-					Function: llm.Function{Name: "read", Arguments: `{"path":"internal/llm/client/client.go"}`},
+					Function: core.Function{Name: "read", Arguments: `{"path":"internal/llm/client/client.go"}`},
 				},
 				{
 					Index:    1,
 					ID:       fmt.Sprintf("call_%02d_b", i),
 					Type:     "function",
-					Function: llm.Function{Name: "grep", Arguments: `{"pattern":"BuildRequest"}`},
+					Function: core.Function{Name: "grep", Arguments: `{"pattern":"BuildRequest"}`},
 				},
 			}},
-			llm.Message{Role: llm.RoleTool, ToolCallID: fmt.Sprintf("call_%02d_a", i), Content: result},
-			llm.Message{Role: llm.RoleTool, ToolCallID: fmt.Sprintf("call_%02d_b", i), Content: result},
-			llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("item %d is fine", i)},
+			core.Message{Role: core.RoleTool, ToolCallID: fmt.Sprintf("call_%02d_a", i), Content: result},
+			core.Message{Role: core.RoleTool, ToolCallID: fmt.Sprintf("call_%02d_b", i), Content: result},
+			core.Message{Role: core.RoleAssistant, Content: fmt.Sprintf("item %d is fine", i)},
 		)
 	}
 	return msgs
 }
 
-func benchTools(n int) []llm.ToolDefinition {
-	tools := make([]llm.ToolDefinition, 0, n)
+func benchTools(n int) []core.ToolDefinition {
+	tools := make([]core.ToolDefinition, 0, n)
 	for i := range n {
-		tools = append(tools, llm.ToolDefinition{
+		tools = append(tools, core.ToolDefinition{
 			Name:        fmt.Sprintf("tool_%02d", i),
 			Description: strings.Repeat("does a thing. ", 20),
-			Params: &llm.FunctionParameters{
+			Params: &core.FunctionParameters{
 				Type: "object",
-				Properties: llm.Object{
-					"path":    llm.Object{"type": "string", "description": "the path"},
-					"pattern": llm.Object{"type": "string", "description": "the pattern"},
-					"limit":   llm.Object{"type": "integer"},
+				Properties: core.Object{
+					"path":    core.Object{"type": "string", "description": "the path"},
+					"pattern": core.Object{"type": "string", "description": "the pattern"},
+					"limit":   core.Object{"type": "integer"},
 				},
 				Required: []string{"path"},
 			},
@@ -63,7 +63,7 @@ func benchTools(n int) []llm.ToolDefinition {
 }
 
 func BenchmarkBuildRequest(b *testing.B) {
-	cfg := llm.ModelConfig{Name: "gpt-4o", APIKey: "k", BaseURL: "https://api.openai.com/v1"}
+	cfg := core.ModelConfig{Name: "gpt-4o", APIKey: "k", BaseURL: "https://api.openai.com/v1"}
 	system := strings.Repeat("You are a coding agent working in a Go repo.\n", 100)
 	tools := benchTools(20)
 	msgs := benchConversation(20, 16*1024)
@@ -99,7 +99,7 @@ func benchStream(n int) []byte {
 // server, i.e. everything the client does except the internet: build the body,
 // marshal it, POST it, and parse the stream back.
 func BenchmarkStreamLocal(b *testing.B) {
-	cfg := llm.ModelConfig{Name: "gpt-4o", APIKey: "k"}
+	cfg := core.ModelConfig{Name: "gpt-4o", APIKey: "k"}
 	system := strings.Repeat("You are a coding agent working in a Go repo.\n", 100)
 	tools := benchTools(20)
 	msgs := benchConversation(20, 16*1024)

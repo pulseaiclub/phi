@@ -15,7 +15,7 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/chrome"
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/project"
 )
 
@@ -138,7 +138,7 @@ func assertThinkingChoices(t *testing.T, e *ConfigEditor, want []string) {
 func TestInvalidModelRetainsDefaultsAndShowsError(t *testing.T) {
 	for _, entry := range []project.ModelDoc{
 		{Name: "kimi-k3", ThinkLevel: "medium"},
-		{Name: "kimi-k3", RequestParameters: llm.RequestParameters{"messages": nil}},
+		{Name: "kimi-k3", RequestParameters: core.RequestParameters{"messages": nil}},
 		{Name: "custom", Preset: "unknown"},
 	} {
 		t.Run(entry.Name+entry.ThinkLevel+entry.Preset, func(t *testing.T) {
@@ -354,7 +354,7 @@ func TestFetchPrefillsUnsetFieldsWithoutOverwriting(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "gemma-4-27b-it", cfg.Name)
 		assert.Equal(t, "https://generativelanguage.googleapis.com/v1beta", cfg.BaseURL)
-		assert.Equal(t, llm.Gemini, cfg.API)
+		assert.Equal(t, core.Gemini, cfg.API)
 		assert.Equal(t, 131_072, cfg.ContextWindow)
 	})
 

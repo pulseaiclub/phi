@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/session/compaction"
@@ -21,12 +22,12 @@ import (
 type Engine struct {
 	client   llm.ChatClient
 	executor *Executor
-	modelCfg llm.ModelConfig
+	modelCfg core.ModelConfig
 	session  *Session
 }
 
 // NewEngine runs the supplied client and executor against a session.
-func NewEngine(model llm.ModelConfig, sess *Session, client llm.ChatClient, executor *Executor) (*Engine, error) {
+func NewEngine(model core.ModelConfig, sess *Session, client llm.ChatClient, executor *Executor) (*Engine, error) {
 	if sess == nil {
 		return nil, errors.New("agent: session is required")
 	}
@@ -45,7 +46,7 @@ type LoopOpts struct {
 	// When set, the model is instructed to read those SKILL.md files first.
 	PendingSkills []string
 	// Images are base64 attachments from the composer pending queue.
-	Images []llm.Image
+	Images []core.Image
 	// Resume continues inference from the current session without appending a
 	// new user message or running user-input preparation hooks.
 	Resume bool
@@ -116,10 +117,10 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 		defer engine.executor.ext.EmitAgentEnd()
 
 		if !opts.Resume {
-			if err := engine.session.Append(llm.Message{
-				Role:    llm.RoleUser,
+			if err := engine.session.Append(core.Message{
+				Role:    core.RoleUser,
 				Content: content,
-				Images:  append([]llm.Image(nil), opts.Images...),
+				Images:  append([]core.Image(nil), opts.Images...),
 			}); err != nil {
 				yield(nil, err)
 				return
@@ -350,30 +351,30 @@ func (engine *Engine) runCompact(
 func (engine *Engine) streamTurn(
 	ctx context.Context,
 	yield func(session.Event, error) bool,
-	messages []llm.Message,
-) (llm.Message, session.Event, error) {
+	messages []core.Message,
+) (core.Message, session.Event, error) {
 	id := fmt.Sprintf("assistant-%d", time.Now().UnixNano())
 	var thinking, text string
-	var final llm.Message
+	var final core.Message
 	gotDone := false
 
 	for event, err := range engine.client.Stream(ctx, messages) {
 		if err != nil {
 			if thinking != "" || text != "" {
-				_ = yield(emitMessage(id, session.StateError, session.StopNone, thinking, text, nil, llm.Usage{}), nil)
+				_ = yield(emitMessage(id, session.StateError, session.StopNone, thinking, text, nil, core.Usage{}), nil)
 			}
-			return llm.Message{}, nil, err
+			return core.Message{}, nil, err
 		}
 
 		switch event.Type {
-		case llm.StreamEventTypeError:
+		case core.StreamEventTypeError:
 			errText := event.Err
 			if errText == "" {
 				errText = "stream error"
 			}
-			return llm.Message{}, nil, fmt.Errorf("%s", errText)
+			return core.Message{}, nil, fmt.Errorf("%s", errText)
 
-		case llm.StreamEventTypeDelta:
+		case core.StreamEventTypeDelta:
 			if event.Delta.ReasoningContent != "" {
 				thinking += event.Delta.ReasoningContent
 			}
@@ -381,15 +382,15 @@ func (engine *Engine) streamTurn(
 				text += event.Delta.Content
 			}
 			if !yield(
-				emitMessage(id, session.StateStreaming, session.StopNone, thinking, text, nil, llm.Usage{}),
+				emitMessage(id, session.StateStreaming, session.StopNone, thinking, text, nil, core.Usage{}),
 				nil,
 			) {
-				return llm.Message{}, nil, nil
+				return core.Message{}, nil, nil
 			}
 
-		case llm.StreamEventTypeDone:
+		case core.StreamEventTypeDone:
 			if event.Final == nil {
-				return llm.Message{}, nil, errors.New("agent: stream finished with no assistant message")
+				return core.Message{}, nil, errors.New("agent: stream finished with no assistant message")
 			}
 			final = *event.Final
 			gotDone = true
@@ -405,10 +406,10 @@ func (engine *Engine) streamTurn(
 
 	if !gotDone {
 		if ctx.Err() != nil {
-			_ = yield(emitMessage(id, session.StateCancelled, session.StopNone, thinking, text, nil, llm.Usage{}), nil)
-			return llm.Message{}, nil, nil
+			_ = yield(emitMessage(id, session.StateCancelled, session.StopNone, thinking, text, nil, core.Usage{}), nil)
+			return core.Message{}, nil, nil
 		}
-		return llm.Message{}, nil, errors.New("agent: stream closed without assistant output")
+		return core.Message{}, nil, errors.New("agent: stream closed without assistant output")
 	}
 
 	reason := session.StopEndTurn
@@ -458,7 +459,7 @@ func emitMessage(
 	thinking,
 	text string,
 	tools []session.ContentBlock,
-	usage llm.Usage,
+	usage core.Usage,
 ) session.Event {
 	return session.AssistantMessageUpdate{Message: session.Message{
 		ID:         id,

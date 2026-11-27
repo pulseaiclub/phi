@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/util"
 )
@@ -42,7 +43,7 @@ func requestHeaders(apiKey string, stream bool) http.Header {
 func CompactRequest(
 	ctx context.Context,
 	httpClient *http.Client,
-	cfg llm.ModelConfig,
+	cfg core.ModelConfig,
 	req *Request,
 ) (llm.CompactResult, error) {
 	body, err := llm.MarshalRequest(req, cfg)
@@ -109,20 +110,20 @@ func (r compactResponse) outputText() string {
 func Stream(
 	ctx context.Context,
 	httpClient *http.Client,
-	cfg llm.ModelConfig,
+	cfg core.ModelConfig,
 	req *Request,
-) iter.Seq2[llm.StreamEvent, error] {
-	return func(yield func(llm.StreamEvent, error) bool) {
+) iter.Seq2[core.StreamEvent, error] {
+	return func(yield func(core.StreamEvent, error) bool) {
 		body, err := llm.MarshalRequest(req, cfg)
 		if err != nil {
-			yield(llm.StreamEvent{}, err)
+			yield(core.StreamEvent{}, err)
 			return
 		}
 
 		httpResp, err := llm.Post(ctx, httpClient, "LLM",
 			responsesURL(cfg.BaseURL), body, requestHeaders(cfg.APIKey, true))
 		if err != nil {
-			yield(llm.StreamEvent{}, err)
+			yield(core.StreamEvent{}, err)
 			return
 		}
 		defer httpResp.Body.Close()
@@ -166,19 +167,19 @@ type streamEvent struct {
 	Message string `json:"message,omitempty"`
 }
 
-func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
+func processStream(body io.Reader, yield func(core.StreamEvent, error) bool) {
 	var (
 		text      strings.Builder
 		reasoning strings.Builder
-		toolCalls []llm.ToolCall
-		usage     llm.Usage
+		toolCalls []core.ToolCall
+		usage     core.Usage
 		// active function_call being streamed (by output order)
 		activeIndex = -1
 	)
 
 	for data, parseErr := range util.ParseDataStream(body) {
 		if parseErr != nil {
-			yield(llm.StreamEvent{}, parseErr)
+			yield(core.StreamEvent{}, parseErr)
 			return
 		}
 		payload := bytes.TrimSpace(data)
@@ -197,9 +198,9 @@ func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 				continue
 			}
 			text.WriteString(ev.Delta)
-			if !yield(llm.StreamEvent{
-				Type:  llm.StreamEventTypeDelta,
-				Delta: llm.StreamDelta{Content: ev.Delta},
+			if !yield(core.StreamEvent{
+				Type:  core.StreamEventTypeDelta,
+				Delta: core.StreamDelta{Content: ev.Delta},
 			}, nil) {
 				return
 			}
@@ -209,18 +210,18 @@ func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 				continue
 			}
 			reasoning.WriteString(ev.Delta)
-			if !yield(llm.StreamEvent{
-				Type:  llm.StreamEventTypeDelta,
-				Delta: llm.StreamDelta{ReasoningContent: ev.Delta},
+			if !yield(core.StreamEvent{
+				Type:  core.StreamEventTypeDelta,
+				Delta: core.StreamDelta{ReasoningContent: ev.Delta},
 			}, nil) {
 				return
 			}
 
 		case "response.reasoning_summary_part.done":
 			reasoning.WriteString("\n\n")
-			if !yield(llm.StreamEvent{
-				Type:  llm.StreamEventTypeDelta,
-				Delta: llm.StreamDelta{ReasoningContent: "\n\n"},
+			if !yield(core.StreamEvent{
+				Type:  core.StreamEventTypeDelta,
+				Delta: core.StreamDelta{ReasoningContent: "\n\n"},
 			}, nil) {
 				return
 			}
@@ -233,20 +234,20 @@ func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 			if ev.Item.ID != "" {
 				id += "|" + ev.Item.ID
 			}
-			tc := llm.ToolCall{
+			tc := core.ToolCall{
 				Index: len(toolCalls),
 				ID:    id,
 				Type:  "function",
-				Function: llm.Function{
+				Function: core.Function{
 					Name:      ev.Item.Name,
 					Arguments: ev.Item.Arguments,
 				},
 			}
 			toolCalls = append(toolCalls, tc)
 			activeIndex = tc.Index
-			if !yield(llm.StreamEvent{
-				Type:  llm.StreamEventTypeDelta,
-				Delta: llm.StreamDelta{ToolCalls: []llm.ToolCall{tc}},
+			if !yield(core.StreamEvent{
+				Type:  core.StreamEventTypeDelta,
+				Delta: core.StreamDelta{ToolCalls: []core.ToolCall{tc}},
 			}, nil) {
 				return
 			}
@@ -256,18 +257,18 @@ func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 				continue
 			}
 			toolCalls[activeIndex].Function.Arguments += ev.Delta
-			delta := llm.ToolCall{
+			delta := core.ToolCall{
 				Index: activeIndex,
 				ID:    toolCalls[activeIndex].ID,
 				Type:  "function",
-				Function: llm.Function{
+				Function: core.Function{
 					Name:      toolCalls[activeIndex].Function.Name,
 					Arguments: ev.Delta,
 				},
 			}
-			if !yield(llm.StreamEvent{
-				Type:  llm.StreamEventTypeDelta,
-				Delta: llm.StreamDelta{ToolCalls: []llm.ToolCall{delta}},
+			if !yield(core.StreamEvent{
+				Type:  core.StreamEventTypeDelta,
+				Delta: core.StreamDelta{ToolCalls: []core.ToolCall{delta}},
 			}, nil) {
 				return
 			}
@@ -281,18 +282,18 @@ func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 				toolCalls[activeIndex].Function.Arguments = ev.Arguments
 				if strings.HasPrefix(ev.Arguments, prev) {
 					if d := ev.Arguments[len(prev):]; d != "" {
-						delta := llm.ToolCall{
+						delta := core.ToolCall{
 							Index: activeIndex,
 							ID:    toolCalls[activeIndex].ID,
 							Type:  "function",
-							Function: llm.Function{
+							Function: core.Function{
 								Name:      toolCalls[activeIndex].Function.Name,
 								Arguments: d,
 							},
 						}
-						if !yield(llm.StreamEvent{
-							Type:  llm.StreamEventTypeDelta,
-							Delta: llm.StreamDelta{ToolCalls: []llm.ToolCall{delta}},
+						if !yield(core.StreamEvent{
+							Type:  core.StreamEventTypeDelta,
+							Delta: core.StreamDelta{ToolCalls: []core.ToolCall{delta}},
 						}, nil) {
 							return
 						}
@@ -314,7 +315,7 @@ func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 				usage.CompletionTokens = u.OutputTokens
 				usage.TotalTokens = u.TotalTokens
 				if cached > 0 {
-					usage.PromptTokensDetails = &llm.PromptTokensDetails{CachedTokens: cached}
+					usage.PromptTokensDetails = &core.PromptTokensDetails{CachedTokens: cached}
 				}
 			}
 
@@ -326,7 +327,7 @@ func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 			if ev.Code != "" {
 				msg = "Error Code " + ev.Code + ": " + msg
 			}
-			yield(llm.StreamEvent{}, errors.New(msg))
+			yield(core.StreamEvent{}, errors.New(msg))
 			return
 
 		case "response.failed":
@@ -338,7 +339,7 @@ func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 					msg = "incomplete: " + d.Reason
 				}
 			}
-			yield(llm.StreamEvent{}, errors.New(msg))
+			yield(core.StreamEvent{}, errors.New(msg))
 			return
 		}
 	}

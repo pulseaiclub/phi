@@ -1,7 +1,7 @@
 package compaction
 
 import (
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/session"
 )
 
@@ -46,7 +46,7 @@ func findCutPoint(
 	// used to tell if we cut at a user message (a turn boundary).
 	cutEntry := messageEntries[cutIndex]
 	isUserMessage := cutEntry.GetType() == session.EntryMessage &&
-		cutEntry.(session.SessionMessageEntry).Message.Role == llm.RoleUser
+		cutEntry.(session.SessionMessageEntry).Message.Role == core.RoleUser
 
 	// [userMessage, cutIndex) is the orphaned turn prefix when cutting mid-turn.
 	turnStartIndex := -1
@@ -113,7 +113,7 @@ const estimatedImageChars = 4800
 // that turn (and only assistant messages report anything), so accumulating it
 // overflows keepRecentTokens on the newest message and collapses the cut to
 // the last entry.
-func estimateMessageTokens(msg llm.Message) int {
+func estimateMessageTokens(msg core.Message) int {
 	chars := len(msg.Content) + len(msg.ReasoningContent)
 	for _, call := range msg.ToolCalls {
 		chars += len(call.Function.Name) + len(call.Function.Arguments)
@@ -135,7 +135,7 @@ func collectCutPoints(entries []session.MessageEntry, startIndex, endIndex int) 
 		}
 		msgEntry := e.(session.SessionMessageEntry)
 		role := msgEntry.Message.Role
-		if role == llm.RoleUser || role == llm.RoleAssistant {
+		if role == core.RoleUser || role == core.RoleAssistant {
 			cutPoints = append(cutPoints, i)
 		}
 	}
@@ -151,7 +151,7 @@ func findTurnStartIndex(entries []session.MessageEntry, entryIndex, startIndex i
 
 		if ty == session.EntryMessage {
 			msgEntry := entry.(session.SessionMessageEntry)
-			if msgEntry.Message.Role == llm.RoleUser {
+			if msgEntry.Message.Role == core.RoleUser {
 				return i
 			}
 		}

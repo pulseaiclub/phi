@@ -1,9 +1,10 @@
 package session
 
 import (
+	"encoding/json"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
 // MessageEntry is one node in the session tree. Entries are linked by
@@ -58,17 +59,43 @@ type SessionBaseEntry struct {
 }
 
 // SessionMessageEntry wraps an LLM message as a session tree node.
-// Usage lives here (not on llm.Message, whose Usage is json:"-" and so is
-// dropped at flush) so token counts survive persist/reload for diagnostics
-// and session lifecycle extensions.
+// Usage lives here because message.Usage is transient completion metadata.
+// Its JSON methods keep token counts stable across persist/reload.
 type SessionMessageEntry struct {
 	SessionBaseEntry
-	Message llm.Message `json:"message"`
-	Usage   llm.Usage   `json:"usage,omitempty"`
+	Message core.Message `json:"-"`
+	Usage   core.Usage   `json:"-"`
 	// Bash is set for a user "!!cmd" run whose output belongs in the model
 	// context. Message carries the model-facing text; Bash tells replay to draw
 	// the row as a bash block instead of a user bubble.
 	Bash *BashExecution `json:"bash,omitempty"`
+}
+
+// MarshalJSON preserves the historical session format through explicit wire DTOs.
+func (e SessionMessageEntry) MarshalJSON() ([]byte, error) {
+	type entry SessionMessageEntry
+	return json.Marshal(struct {
+		entry
+		Message sessionMessageWire `json:"message"`
+		Usage   sessionUsageWire   `json:"usage,omitempty"`
+	}{entry: entry(e), Message: messageToWire(e.Message), Usage: usageToWire(e.Usage)})
+}
+
+// UnmarshalJSON restores the separately persisted message and usage counters.
+func (e *SessionMessageEntry) UnmarshalJSON(data []byte) error {
+	type entry SessionMessageEntry
+	var decoded struct {
+		entry
+		Message sessionMessageWire `json:"message"`
+		Usage   sessionUsageWire   `json:"usage"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*e = SessionMessageEntry(decoded.entry)
+	e.Message = decoded.Message.domain()
+	e.Usage = decoded.Usage.domain()
+	return nil
 }
 
 // BashExecution records a user-run shell command that entered the LLM context.

@@ -9,12 +9,12 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/extension/loader"
 
 	ext "github.com/pulseaiclub/phi/ext/go"
 	"github.com/pulseaiclub/phi/ext/go/pxb"
 	"github.com/pulseaiclub/phi/internal/debuglog"
-	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"github.com/pulseaiclub/phi/internal/util"
 )
@@ -308,7 +308,7 @@ func toolFromDef(def ext.Tool) tooldef.Tool {
 	params := schemaFromMap(def.Parameters)
 	exec := def.Execute
 	return tooldef.Tool{
-		Definition: llm.ToolDefinition{
+		Definition: core.ToolDefinition{
 			Name:        def.Name,
 			Description: def.Description,
 			Params:      params,
@@ -329,11 +329,11 @@ func toolFromDef(def ext.Tool) tooldef.Tool {
 	}
 }
 
-func schemaFromMap(m map[string]any) *llm.FunctionParameters {
+func schemaFromMap(m map[string]any) *core.FunctionParameters {
 	if m == nil {
-		return &llm.FunctionParameters{Type: "object", Properties: llm.Object{}}
+		return &core.FunctionParameters{Type: "object", Properties: core.Object{}}
 	}
-	fp := &llm.FunctionParameters{Type: "object", Properties: llm.Object{}}
+	fp := &core.FunctionParameters{Type: "object", Properties: core.Object{}}
 	if t, ok := m["type"].(string); ok && t != "" {
 		fp.Type = t
 	}

@@ -8,11 +8,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/ext/go/pxb"
+	domain "github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/extension/core"
 	"github.com/pulseaiclub/phi/internal/extension/create"
 
-	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/project"
 )
 
@@ -56,7 +56,7 @@ func loadResolveModelRunner(t *testing.T) *core.Runner {
 
 func testConfig() *project.Config {
 	return &project.Config{
-		Models: []llm.ModelConfig{{
+		Models: []domain.ModelConfig{{
 			Name: "primary", APIKey: "sk-p", BaseURL: "http://primary.example/v1", ContextWindow: 8,
 		}},
 		SkillPaths: []string{"/skills"},
@@ -74,7 +74,7 @@ func TestResolveModelConfigExtensionShadowing(t *testing.T) {
 	assert.Equal(t, "echo", m.Name)
 	assert.Equal(t, 1000, m.ContextWindow)
 	assert.True(t, m.ImageEnabled)
-	assert.Equal(t, llm.High, m.Think.Mode)
+	assert.Equal(t, domain.High, m.Think.Mode)
 	assert.True(t, m.Think.Enabled)
 	assert.Equal(t, []string{"/skills"}, m.SkillPaths)
 
@@ -82,7 +82,7 @@ func TestResolveModelConfigExtensionShadowing(t *testing.T) {
 	m, err = resolveModelConfig(cfg, r, "gw")
 	require.NoError(t, err)
 	assert.Equal(t, "http://127.0.0.1:9", m.BaseURL)
-	assert.Equal(t, llm.Anthropic, m.API)
+	assert.Equal(t, domain.Anthropic, m.API)
 	assert.Equal(t, "k", m.APIKey)
 	assert.Equal(t, 42, m.ContextWindow)
 

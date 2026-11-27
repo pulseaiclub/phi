@@ -13,11 +13,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	ext "github.com/pulseaiclub/phi/ext/go"
+	domain "github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/extension/core"
 	"github.com/pulseaiclub/phi/internal/extension/create"
 	"github.com/pulseaiclub/phi/internal/job"
-	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
@@ -37,7 +37,7 @@ func loadExt(t *testing.T, host core.HostConfig, mainGo string) *core.Runner {
 func TestExecutorEmitsToolName(t *testing.T) {
 	reg := tooldef.Registry{
 		"bash": {
-			Definition: llm.ToolDefinition{Name: "bash"},
+			Definition: domain.ToolDefinition{Name: "bash"},
 			Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
 				return tooldef.Result{Content: "ok"}, nil
 			},
@@ -45,9 +45,9 @@ func TestExecutorEmitsToolName(t *testing.T) {
 	}
 	ex := NewExecutor(reg, "", nil)
 	var names []string
-	_, _, _ = ex.Run(t.Context(), []llm.ToolCall{{
+	_, _, _ = ex.Run(t.Context(), []domain.ToolCall{{
 		ID:       "c1",
-		Function: llm.Function{Name: "bash", Arguments: `{"command":"pwd"}`},
+		Function: domain.Function{Name: "bash", Arguments: `{"command":"pwd"}`},
 	}}, func(td session.ToolData) bool {
 		names = append(names, td.Run.Name)
 		return true
@@ -62,7 +62,7 @@ func TestExecutorExtensionCanBlockTool(t *testing.T) {
 	var ran atomic.Int32
 	reg := tooldef.Registry{
 		"bash": {
-			Definition: llm.ToolDefinition{Name: "bash"},
+			Definition: domain.ToolDefinition{Name: "bash"},
 			Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
 				ran.Add(1)
 				return tooldef.Result{Content: "ok"}, nil
@@ -87,9 +87,9 @@ func main() {
 `)
 	ex := NewExecutor(reg, "", r)
 	var statuses []session.ToolStatus
-	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := ex.Run(t.Context(), []domain.ToolCall{{
 		ID:       "c1",
-		Function: llm.Function{Name: "bash", Arguments: `{"command":"rm -rf /"}`},
+		Function: domain.Function{Name: "bash", Arguments: `{"command":"rm -rf /"}`},
 	}}, func(td session.ToolData) bool {
 		statuses = append(statuses, td.Run.Status)
 		return true
@@ -103,7 +103,7 @@ func main() {
 func TestExecutorExtPostContextOnModelOnly(t *testing.T) {
 	reg := tooldef.Registry{
 		"bash": {
-			Definition: llm.ToolDefinition{Name: "bash"},
+			Definition: domain.ToolDefinition{Name: "bash"},
 			Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
 				return tooldef.Result{Content: "ok", Output: "ok"}, nil
 			},
@@ -124,9 +124,9 @@ func main() {
 `)
 	ex := NewExecutor(reg, "", r)
 	var uiOut string
-	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := ex.Run(t.Context(), []domain.ToolCall{{
 		ID:       "c1",
-		Function: llm.Function{Name: "bash", Arguments: `{"command":"pwd"}`},
+		Function: domain.Function{Name: "bash", Arguments: `{"command":"pwd"}`},
 	}}, func(td session.ToolData) bool {
 		if td.Run.Status == session.ToolDone {
 			uiOut = td.Run.Output
@@ -151,7 +151,7 @@ func TestExecutorToolErrorKeepsOutputEmptyForUI(t *testing.T) {
 	const errMsg = "2 lines have changed since last read"
 	reg := tooldef.Registry{
 		"edit": {
-			Definition: llm.ToolDefinition{Name: "edit"},
+			Definition: domain.ToolDefinition{Name: "edit"},
 			Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
 				return tooldef.Result{}, &staticError{msg: errMsg}
 			},
@@ -160,10 +160,10 @@ func TestExecutorToolErrorKeepsOutputEmptyForUI(t *testing.T) {
 
 	ex := NewExecutor(reg, "", nil)
 	var last session.ToolRun
-	msgs, _, _ := ex.Run(t.Context(), []llm.ToolCall{
+	msgs, _, _ := ex.Run(t.Context(), []domain.ToolCall{
 		{
 			ID: "c1",
-			Function: llm.Function{
+			Function: domain.Function{
 				Name:      "edit",
 				Arguments: `{"payload":"*** SM:EDIT a.ts\n*** SM:FIND\nx\n*** SM:PUT\ny\n"}`,
 			},
@@ -191,7 +191,7 @@ func TestExecutorRunsReadableBatchConcurrently(t *testing.T) {
 	release := make(chan struct{})
 	reg := tooldef.Registry{
 		"readA": {
-			Definition: llm.ToolDefinition{Name: "readA", Readable: true},
+			Definition: domain.ToolDefinition{Name: "readA", Readable: true},
 			Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
 				entered <- "readA"
 				<-release
@@ -199,7 +199,7 @@ func TestExecutorRunsReadableBatchConcurrently(t *testing.T) {
 			},
 		},
 		"readB": {
-			Definition: llm.ToolDefinition{Name: "readB", Readable: true},
+			Definition: domain.ToolDefinition{Name: "readB", Readable: true},
 			Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
 				entered <- "readB"
 				<-release
@@ -209,12 +209,12 @@ func TestExecutorRunsReadableBatchConcurrently(t *testing.T) {
 	}
 	ex := NewExecutor(reg, "", nil)
 	done := make(chan struct{})
-	var msgs []llm.Message
+	var msgs []domain.Message
 	go func() {
 		defer close(done)
-		msgs, _, _ = ex.Run(t.Context(), []llm.ToolCall{
-			{ID: "c1", Function: llm.Function{Name: "readA", Arguments: `{}`}},
-			{ID: "c2", Function: llm.Function{Name: "readB", Arguments: `{}`}},
+		msgs, _, _ = ex.Run(t.Context(), []domain.ToolCall{
+			{ID: "c1", Function: domain.Function{Name: "readA", Arguments: `{}`}},
+			{ID: "c2", Function: domain.Function{Name: "readB", Arguments: `{}`}},
 		}, func(session.ToolData) bool { return true })
 	}()
 
@@ -239,7 +239,7 @@ func TestExecutorMixedBatchStaysSequential(t *testing.T) {
 	release := make(chan struct{})
 	reg := tooldef.Registry{
 		"readA": {
-			Definition: llm.ToolDefinition{Name: "readA", Readable: true},
+			Definition: domain.ToolDefinition{Name: "readA", Readable: true},
 			Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
 				entered <- "readA"
 				<-release
@@ -247,7 +247,7 @@ func TestExecutorMixedBatchStaysSequential(t *testing.T) {
 			},
 		},
 		"bash": {
-			Definition: llm.ToolDefinition{Name: "bash"},
+			Definition: domain.ToolDefinition{Name: "bash"},
 			Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
 				entered <- "bash"
 				<-release
@@ -257,12 +257,12 @@ func TestExecutorMixedBatchStaysSequential(t *testing.T) {
 	}
 	ex := NewExecutor(reg, "", nil)
 	done := make(chan struct{})
-	var msgs []llm.Message
+	var msgs []domain.Message
 	go func() {
 		defer close(done)
-		msgs, _, _ = ex.Run(t.Context(), []llm.ToolCall{
-			{ID: "c1", Function: llm.Function{Name: "readA", Arguments: `{}`}},
-			{ID: "c2", Function: llm.Function{Name: "bash", Arguments: `{}`}},
+		msgs, _, _ = ex.Run(t.Context(), []domain.ToolCall{
+			{ID: "c1", Function: domain.Function{Name: "readA", Arguments: `{}`}},
+			{ID: "c2", Function: domain.Function{Name: "bash", Arguments: `{}`}},
 		}, func(session.ToolData) bool { return true })
 	}()
 
@@ -323,11 +323,11 @@ func main() {
 		Extensions:         r,
 		OmitExtensionTools: true,
 		Tools:              SpecForRole(job.RoleExplore).Tools,
-	}).NewEngine(llm.ModelConfig{Name: "test"}, childSession)
+	}).NewEngine(domain.ModelConfig{Name: "test"}, childSession)
 	require.NoError(t, err)
 	assert.Equal(t, parentTools, api.GetAllTools())
-	msgs, _, _ := child.executor.Run(t.Context(), []llm.ToolCall{{
-		ID: "child-read", Function: llm.Function{Name: "read", Arguments: `{"path":"child.txt"}`},
+	msgs, _, _ := child.executor.Run(t.Context(), []domain.ToolCall{{
+		ID: "child-read", Function: domain.Function{Name: "read", Arguments: `{"path":"child.txt"}`},
 	}}, func(session.ToolData) bool { return true })
 	require.Len(t, msgs, 1)
 	assert.Contains(t, msgs[0].Content, parent.ID()+"|"+parent.Cwd())

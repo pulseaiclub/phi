@@ -1,6 +1,6 @@
 package controller
 
-import "github.com/pulseaiclub/phi/internal/llm"
+import "github.com/pulseaiclub/phi/internal/core"
 
 // ExtConfirmReply is the user's response for an extension Confirm dialog.
 type ExtConfirmReply struct {
@@ -18,5 +18,5 @@ type ErrorReply struct {
 type LastPrompt struct {
 	Text   string
 	Skills []string
-	Images []llm.Image
+	Images []core.Image
 }

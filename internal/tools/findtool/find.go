@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"github.com/pulseaiclub/phi/internal/util/filesearch"
 )
@@ -40,21 +40,21 @@ Prefer this over bash find/ls for filename search.`,
 // FindTool returns the find tool definition + handler.
 func FindTool() tooldef.Tool {
 	return tooldef.NewTool(
-		tooldef.WithDefinition(llm.ToolDefinition{
+		tooldef.WithDefinition(core.ToolDefinition{
 			Name:        "find",
 			Description: findDescription,
-			Params: &llm.FunctionParameters{
+			Params: &core.FunctionParameters{
 				Type: "object",
-				Properties: llm.Object{
-					"path": llm.Object{
+				Properties: core.Object{
+					"path": core.Object{
 						"type":        "string",
 						"description": "Directory to search. Example: ./src",
 					},
-					"pattern": llm.Object{
+					"pattern": core.Object{
 						"type":        "string",
 						"description": "Glob pattern. Example: **/*.go",
 					},
-					"limit": llm.Object{
+					"limit": core.Object{
 						"type": "integer",
 						"description": fmt.Sprintf(
 							"Maximum results to return; capped at %d. Example: 50 (default: %d)",

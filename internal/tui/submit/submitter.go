@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/components/chat"
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/composer"
@@ -148,7 +148,7 @@ func (s *Submitter) handleUserInput(text string) {
 
 	s.composer.HideCompleters()
 
-	llmImages := make([]llm.Image, 0, len(pendingImages))
+	llmImages := make([]core.Image, 0, len(pendingImages))
 	for _, att := range pendingImages {
 		llmImages = append(llmImages, imgutil.ToLLM(att.Result))
 	}

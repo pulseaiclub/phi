@@ -90,8 +90,8 @@ type RegisterModel struct {
 }
 
 // ModelInvoke is host→ext for one chat completion on a Conn "ext" model.
-// Messages/Tools use the session-serialization JSON shapes of llm.Message and
-// llm.ToolDefinition. The invoke frame ID correlates the ModelStreamEvent
+// Messages/Tools use the host's stable JSON DTO shapes, mapped explicitly from
+// provider-neutral core domain types. The invoke frame ID correlates the ModelStreamEvent
 // stream; ModelCancel carries the same ID to best-effort stop it.
 type ModelInvoke struct {
 	Model        string `pxb:"1"`
