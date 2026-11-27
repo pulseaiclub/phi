@@ -49,6 +49,7 @@ func TestBuildRequestNilToolParameters(t *testing.T) {
 	body, err := json.Marshal(req)
 	require.NoError(t, err)
 	assert.Contains(t, string(body), `"parameters":null`)
+	assert.Contains(t, string(body), `"description":""`, "definition fields stay present when empty")
 }
 
 func TestBuildRequestNoImagesKeepsStringContent(t *testing.T) {

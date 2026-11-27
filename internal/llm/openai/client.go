@@ -26,16 +26,25 @@ type streamOptions struct {
 	IncludeUsage bool `json:"include_usage"`
 }
 
+// apiTool is one tools[] entry: a function definition. Parameters is always
+// present (null when the tool has no schema) and description is never omitted,
+// matching the shape OpenAI-compatible endpoints were receiving before the
+// core split.
 type apiTool struct {
 	Type     string      `json:"type"`
-	Function apiFunction `json:"function"`
+	Function apiToolSpec `json:"function"`
 }
 
-type apiFunction struct {
+type apiToolSpec struct {
 	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	Parameters  json.RawMessage `json:"parameters,omitempty"`
-	Arguments   string          `json:"arguments,omitempty"`
+	Description string          `json:"description"`
+	Parameters  json.RawMessage `json:"parameters"`
+}
+
+// apiFunction is the name-plus-arguments payload of a tool call, streamed or replayed.
+type apiFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
 }
 
 type apiToolCall struct {
@@ -139,7 +148,7 @@ type streamDelta struct {
 }
 
 func (d streamDelta) domain() core.StreamDelta {
-	out := core.StreamDelta{Role: d.Role, Content: d.Content, ReasoningContent: d.ReasoningContent}
+	out := core.StreamDelta{Role: core.Role(d.Role), Content: d.Content, ReasoningContent: d.ReasoningContent}
 	for _, call := range d.ToolCalls {
 		out.ToolCalls = append(out.ToolCalls, domainToolCall(call))
 	}
@@ -215,7 +224,7 @@ func BuildRequest(cfg core.ModelConfig, system string, messages []core.Message, 
 
 	apiTools := make([]apiTool, len(tools))
 	for i, t := range tools {
-		apiTools[i] = apiTool{Type: "function", Function: apiFunction{
+		apiTools[i] = apiTool{Type: "function", Function: apiToolSpec{
 			Name:        t.Name,
 			Description: t.Description,
 			Parameters:  llm.MarshalToolParams(t.Params, "null"),

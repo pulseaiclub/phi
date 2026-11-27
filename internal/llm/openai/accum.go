@@ -30,7 +30,7 @@ func newStreamAccumulator() *streamAccumulator {
 
 func (s *streamAccumulator) applyDelta(delta core.StreamDelta) {
 	if delta.Role != "" {
-		s.role = core.Role(delta.Role)
+		s.role = delta.Role
 	}
 	if delta.Content != "" {
 		s.content.WriteString(delta.Content)

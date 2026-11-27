@@ -140,7 +140,7 @@ func (u Usage) ContextTokens() int {
 
 // StreamDelta carries one incremental model output fragment.
 type StreamDelta struct {
-	Role             string
+	Role             Role
 	Content          string
 	ReasoningContent string
 	ToolCalls        []ToolCall
