@@ -889,8 +889,16 @@ func (c *ComposerPane) onQuestionChange(active bool, query string) {
 	c.Chat.QuestionOpen = true
 }
 
-// mentionSearchLimit is how many file rows the picker shows.
-const mentionSearchLimit = 20
+const (
+	// mentionSearchDebounce is the typing pause that starts a search; one search
+	// per keystroke would mean one fd process per keystroke.
+	mentionSearchDebounce = 100 * time.Millisecond
+	// mentionSearchTimeout bounds one search end to end, so a wedged fd process
+	// cannot hold the picker waiting forever.
+	mentionSearchTimeout = 3 * time.Second
+	// mentionSearchLimit is how many file rows the picker shows.
+	mentionSearchLimit = 20
+)
 
 // abandonMentionSearch drops any result still in flight and stops the work
 // behind it. Bumping the generation alone only makes the UI ignore the answer;
@@ -920,12 +928,12 @@ func (c *ComposerPane) scheduleMentionSearch(query string) {
 		defer cancel()
 		// Debounce. A newer keystroke cancels this before any work starts.
 		select {
-		case <-time.After(100 * time.Millisecond):
+		case <-time.After(mentionSearchDebounce):
 		case <-ctx.Done():
 			return
 		}
 
-		searchCtx, searchCancel := context.WithTimeout(ctx, 3*time.Second)
+		searchCtx, searchCancel := context.WithTimeout(ctx, mentionSearchTimeout)
 		defer searchCancel()
 		paths, truncated, err := filesearch.Search(searchCtx, cwd, query, mentionSearchLimit)
 

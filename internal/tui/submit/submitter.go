@@ -169,6 +169,10 @@ func (s *Submitter) handleUserInput(text string) {
 	s.ctrl.StartPrompt(promptWithRefs(text, pendingRefs), pendingSkills, llmImages)
 }
 
+// cancelledFooterLinger is how long the "cancelled" footer state stays up after
+// Cancel before it clears itself, unless a newer activity replaced it.
+const cancelledFooterLinger = 1200 * time.Millisecond
+
 // Cancel aborts overlays, bash, or the in-flight agent stream.
 func (s *Submitter) Cancel() {
 	if s.overlays != nil {
@@ -181,7 +185,7 @@ func (s *Submitter) Cancel() {
 	s.transcript.ApplySession(session.CancelStreaming{})
 	s.transcript.Sync()
 	s.activity.Apply(controller.ActivityCancelled)
-	time.AfterFunc(1200*time.Millisecond, func() {
+	time.AfterFunc(cancelledFooterLinger, func() {
 		s.bus.Publish(controller.FooterMsg{Kind: controller.FooterClearIfActivity, If: controller.ActivityCancelled})
 	})
 }

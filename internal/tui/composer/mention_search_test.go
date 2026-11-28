@@ -45,11 +45,11 @@ func TestSupersededSearchDoesNotPublish(t *testing.T) {
 	bus := controller.NewBus(nil)
 	c.bus = bus
 
-	// Cancelled well inside the 100ms debounce, so no work should start.
+	// Cancelled well inside mentionSearchDebounce, so no work should start.
 	c.scheduleMentionSearch("first")
 	c.scheduleMentionSearch("second")
 
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(mentionSearchDebounce * 5)
 
 	var queries []string
 	for _, m := range bus.Drain() {
