@@ -22,6 +22,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Claude presets that require adaptive thinking preserve signed thinking blocks
+  across tool calls even when the session has thinking turned off.
 - read: an `offset` past the last line now reports how many lines the file has
   instead of returning a bare `@file` header, and a trailing newline no longer
   counts as an extra empty line.

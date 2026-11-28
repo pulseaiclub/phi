@@ -17,6 +17,8 @@ type Hooks struct {
 	OpenAIResponses llm.RequestInterceptor[responses.Request]
 	Anthropic       llm.RequestInterceptor[anthropic.AnthropicRequest]
 	Gemini          llm.RequestInterceptor[gemini.GeminiRequest]
+	// Forced Claude presets need signed history before the request interceptor sets the effort.
+	AnthropicRequiresThinking bool
 }
 
 func applyHook[Req any](ctx context.Context, h llm.RequestInterceptor[Req], req *Req, cfg llm.ModelConfig) error {
