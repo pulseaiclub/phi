@@ -352,6 +352,54 @@ func TestCompactRequestReportsTruncatedCandidate(t *testing.T) {
 	assert.True(t, res.Truncated)
 }
 
+func TestCompactRequestSkipsThoughtParts(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		body          string
+		want          string
+		wantTruncated bool
+		wantErr       string
+	}{
+		{
+			name: "strips thought parts before summary text",
+			body: `{"candidates":[{"content":{"parts":[{"thought":true,"text":"scratchpad"},{"text":"clean summary"}]},"finishReason":"STOP"}]}`,
+			want: "clean summary",
+		},
+		{
+			name:          "preserves truncation when max tokens expires inside thoughts",
+			body:          `{"candidates":[{"content":{"parts":[{"thought":true,"text":"only thoughts"}]},"finishReason":"MAX_TOKENS"}]}`,
+			wantTruncated: true,
+		},
+		{
+			name:    "rejects non-truncated thought-only response as empty",
+			body:    `{"candidates":[{"content":{"parts":[{"thought":true,"text":"only thoughts"}]},"finishReason":"STOP"}]}`,
+			wantErr: "empty response",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprint(w, tc.body)
+			}))
+			defer srv.Close()
+
+			res, err := CompactRequest(
+				t.Context(),
+				srv.Client(),
+				llm.ModelConfig{Name: "gemini-3-flash", BaseURL: srv.URL, APIKey: "k"},
+				&GeminiRequest{Contents: []content{{Role: "user", Parts: []part{{Text: "x"}}}}},
+			)
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, res.Text)
+			assert.Equal(t, tc.wantTruncated, res.Truncated)
+		})
+	}
+}
+
 func TestCompactFormatsAPIError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)

@@ -22,6 +22,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Gemini: compaction summaries no longer include `thought` parts; a summary
+  made only of thoughts counts as empty unless the response was truncated.
 - Models: switching to or restoring an unconfigured model drops a stale
   preset binding and falls back to a thinking level the model supports.
 - Thinking: `think_enabled: false` now sets the level to `off`, the composer
