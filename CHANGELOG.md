@@ -22,6 +22,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Thinking: `think_enabled: false` now sets the level to `off`, the composer
+  label and thinking picker show `off` whenever thinking is disabled, and
+  vendor Messages requests no longer send `output_config.effort` when the
+  level is `off` or unset.
 - Claude and vendor presets that require thinking preserve signed `thinking`
   blocks across tool calls even when the session has thinking turned off.
 - read: an `offset` past the last line now reports how many lines the file has

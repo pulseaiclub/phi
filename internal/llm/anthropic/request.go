@@ -43,13 +43,14 @@ func (r *AnthropicRequest) ApplyVendorThinking(think llm.ThinkConfig, forced, ad
 	r.vendorThinking = true
 	r.OutputConfig = nil
 	r.Thinking = &thinkingConfig{Type: "disabled"}
-	if forced || think.Enabled {
+	on := think.Enabled && think.Mode != llm.Off
+	if forced || on {
 		r.Thinking.Type = "enabled"
 		if adaptive {
 			r.Thinking.Type = "adaptive"
 		}
 	}
-	if think.Enabled {
+	if on && think.Mode != "" {
 		r.OutputConfig = &outputConfig{Effort: string(think.Mode)}
 	}
 }

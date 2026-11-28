@@ -248,6 +248,9 @@ func ResolveModelDoc(m ModelDoc) (llm.ModelConfig, error) {
 	}
 	if m.ThinkEnabled != nil {
 		cfg.Think.Enabled = *m.ThinkEnabled
+		if !cfg.Think.Enabled {
+			cfg.Think.Mode = llm.Off
+		}
 	}
 	if m.ThinkLevel != "" {
 		cfg.Think.Mode = llm.ThinkMode(m.ThinkLevel)

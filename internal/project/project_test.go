@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/job"
+	"github.com/pulseaiclub/phi/internal/llm"
 )
 
 // discoverInTempHome runs Discover("") with HOME redirected to a temp dir so
@@ -418,6 +419,10 @@ models:
     api_key: sk-pro
     context_window: 50000
     max_tokens: 64000
+  - name: deepseek-flash-no-think
+    preset: deepseek-flash
+    api_key: sk-flash
+    think_enabled: false
   - name: gpt-5.5
     api_key: sk-gpt
   - name: gpt-5.5-same-window
@@ -460,6 +465,11 @@ models:
 	assert.Equal(t, 50_000, pro.ContextWindow, "explicit context_window overrides preset")
 	assert.Equal(t, 64_000, pro.MaxTokens, "explicit max_tokens overrides preset")
 	assert.False(t, pro.ImageEnabled, "v4-pro has no image understanding")
+
+	noThink, ok := cfg.FindModel("deepseek-flash-no-think")
+	require.True(t, ok)
+	assert.False(t, noThink.Think.Enabled)
+	assert.Equal(t, llm.Off, noThink.Think.Mode, "think_enabled: false sets mode to off")
 
 	// gpt-5.5 inherits both total context window and tighter input limit;
 	// restating or tightening above InputLimit preserves it, while expanding
