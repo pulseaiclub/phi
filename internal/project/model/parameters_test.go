@@ -247,3 +247,85 @@ func TestDeepSeekChatThinkingDisabled(t *testing.T) {
 	assert.Equal(t, "disabled", req.Thinking.Type)
 	assert.Empty(t, req.ReasoningEffort)
 }
+
+func TestForcedAnthropicThinkingKeepsSignedReplayWhenThinkDisabled(t *testing.T) {
+	httpClient := util.DefaultHTTPClient()
+	original := httpClient.Transport
+	t.Cleanup(func() { httpClient.Transport = original })
+
+	sse := strings.Join([]string{
+		`data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"plan","signature":"sig-1"}}`,
+		`data: {"type":"content_block_stop","index":0}`,
+		`data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_1","name":"read","input":{}}}`,
+		`data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"path\":\"a.go\"}"}}`,
+		`data: {"type":"content_block_stop","index":1}`,
+		`data: {"type":"message_stop"}`,
+	}, "\n\n") + "\n\n"
+
+	for _, tc := range []struct {
+		name         string
+		baseURL      string
+		wantThinking string
+		wantEffort   string
+	}{
+		{
+			name:         "claude-opus-5-5",
+			baseURL:      "https://api.anthropic.com",
+			wantThinking: `"thinking":{"type":"adaptive"}`,
+			wantEffort:   `"output_config":{"effort":"low"}`,
+		},
+		{
+			name:         "glm-5.3-flash",
+			baseURL:      "https://gateway.test/v1",
+			wantThinking: `"thinking":{"type":"enabled"}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var bodies []string
+			httpClient.Transport = parameterTransport(func(r *http.Request) (*http.Response, error) {
+				raw, err := io.ReadAll(r.Body)
+				require.NoError(t, err)
+				bodies = append(bodies, string(raw))
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(sse)),
+				}, nil
+			})
+
+			cfg := core.ModelConfig{
+				Name:    tc.name,
+				BaseURL: tc.baseURL,
+				APIKey:  "sk-ant",
+				API:     core.Anthropic,
+				Think:   core.ThinkConfig{Enabled: false, Mode: core.Off},
+			}
+			tools := []core.ToolDefinition{{Name: "read", Description: "read file"}}
+			client := llmclient.NewClient(cfg, HooksForConfig(cfg), tools, "sys")
+
+			user := core.Message{Role: core.RoleUser, Content: "inspect"}
+			var assistant *core.Message
+			for ev, err := range client.Stream(t.Context(), []core.Message{user}) {
+				require.NoError(t, err)
+				if ev.Final != nil {
+					assistant = ev.Final
+				}
+			}
+			require.NotNil(t, assistant)
+			require.NotNil(t, assistant.ProviderState, "turn 1 must capture signed thinking blocks")
+
+			toolResult := core.Message{Role: core.RoleTool, ToolCallID: "toolu_1", Content: "package a"}
+			for _, err := range client.Stream(t.Context(), []core.Message{user, *assistant, toolResult}) {
+				require.NoError(t, err)
+			}
+			require.Len(t, bodies, 2)
+			assert.Contains(t, bodies[1], tc.wantThinking)
+			if tc.wantEffort != "" {
+				assert.Contains(t, bodies[1], tc.wantEffort)
+			} else {
+				assert.NotContains(t, bodies[1], `"output_config"`)
+			}
+			assert.Contains(t, bodies[1], `"signature":"sig-1"`, "forced thinking must replay signed blocks")
+		})
+	}
+}

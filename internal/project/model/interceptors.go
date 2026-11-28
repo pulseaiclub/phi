@@ -31,6 +31,13 @@ type claudeAdaptiveThinking struct {
 	allowXHigh bool
 }
 
+func (h claudeAdaptiveThinking) EffectiveThinking(cfg core.ModelConfig) core.ThinkConfig {
+	if h.forced && (!cfg.Think.Enabled || cfg.Think.Mode == core.Off) {
+		return core.ThinkConfig{Enabled: true, Mode: core.Low}
+	}
+	return cfg.Think
+}
+
 func (h claudeAdaptiveThinking) Before(_ context.Context, req *anthropic.AnthropicRequest, cfg core.ModelConfig) error {
 	req.ApplyAdaptiveThinking(cfg.Think, h.forced, h.allowXHigh)
 	return nil

@@ -40,7 +40,11 @@ func NewClient(cfg core.ModelConfig, hooks Hooks, tools []core.ToolDefinition, s
 func (c *Client) Stream(ctx context.Context, messages []core.Message) iter.Seq2[core.StreamEvent, error] {
 	switch c.cfg.API {
 	case core.Anthropic:
-		req := anthropic.BuildRequest(c.cfg, c.system, messages, c.tools)
+		cfg := c.cfg
+		if r, ok := c.hooks.Anthropic.(ThinkingResolver); ok {
+			cfg.Think = r.EffectiveThinking(cfg)
+		}
+		req := anthropic.BuildRequest(cfg, c.system, messages, c.tools)
 		if err := applyHook(ctx, c.hooks.Anthropic, &req, c.cfg); err != nil {
 			return errorSeq(err)
 		}

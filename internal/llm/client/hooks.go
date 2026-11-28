@@ -20,6 +20,13 @@ type Hooks struct {
 	Gemini          llm.RequestInterceptor[gemini.GeminiRequest]
 }
 
+// ThinkingResolver reports the effective ThinkConfig when a preset hook forces
+// thinking on despite a disabled config, so request builders preserve signed
+// thinking history before Before runs.
+type ThinkingResolver interface {
+	EffectiveThinking(cfg core.ModelConfig) core.ThinkConfig
+}
+
 func applyHook[Req any](ctx context.Context, h llm.RequestInterceptor[Req], req *Req, cfg core.ModelConfig) error {
 	if h == nil {
 		return nil

@@ -522,11 +522,14 @@ func CompactRequest(
 	truncated := false
 	for _, c := range resp.Candidates {
 		for _, p := range c.Content.Parts {
+			if p.Thought {
+				continue
+			}
 			b.WriteString(p.Text)
 		}
 		truncated = truncated || c.FinishReason == finishReasonMaxTokens
 	}
-	if b.Len() == 0 {
+	if b.Len() == 0 && !truncated {
 		return llm.CompactResult{}, errors.New("gemini API error: empty response")
 	}
 	return llm.CompactResult{Text: b.String(), Truncated: truncated}, nil

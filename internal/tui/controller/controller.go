@@ -651,7 +651,11 @@ func (c *EngineController) ThinkingModes() []coretypes.ThinkMode {
 
 // ThinkLevel returns the current thinking mode.
 func (c *EngineController) ThinkLevel() coretypes.ThinkMode {
-	return c.modelSnapshot().Think.Mode
+	think := c.modelSnapshot().Think
+	if !think.Enabled && think.Mode != "" {
+		return coretypes.Off
+	}
+	return think.Mode
 }
 
 // ModelName returns the active model name.

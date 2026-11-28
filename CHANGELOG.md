@@ -18,10 +18,25 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- docs: add Turkish README translation (`README.tr.md`) and link it in `README.md` and `README.zh-CN.md`.
+
 ### Fixed
 
 - Compaction: fail with a clear error when an OpenAI-compatible gateway answers
   with content parts instead of a string, instead of reporting an empty summary.
+- Gemini: compaction summaries no longer include `thought` parts; a summary
+  made only of thoughts counts as empty unless the response was truncated.
+- Models: switching to or restoring an unconfigured model drops a stale
+  preset binding and falls back to a thinking level the model supports.
+- Thinking: `think_enabled: false` now sets the level to `off`, the composer
+  label and thinking picker show `off` whenever thinking is disabled, and
+  vendor Messages requests no longer send `output_config.effort` when the
+  level is `off` or unset.
+- Claude and vendor presets that require thinking preserve signed `thinking`
+  blocks across tool calls even when the session has thinking turned off.
+- read: an `offset` past the last line now reports how many lines the file has
+  instead of returning a bare `@file` header, and a trailing newline no longer
+  counts as an extra empty line.
 
 ### Security
 
