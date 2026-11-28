@@ -45,18 +45,30 @@ type vendorMessagesParameters struct {
 	forced bool
 }
 
+func (h vendorMessagesParameters) EffectiveThinking(cfg llm.ModelConfig) llm.ThinkConfig {
+	if h.forced && !isOpenRouterAnthropic(cfg.BaseURL) && (!cfg.Think.Enabled || cfg.Think.Mode == llm.Off) {
+		return llm.ThinkConfig{Enabled: true, Mode: llm.Low}
+	}
+	return cfg.Think
+}
+
 func (h vendorMessagesParameters) Before(
 	_ context.Context,
 	req *anthropic.AnthropicRequest,
 	cfg llm.ModelConfig,
 ) error {
-	adaptive := false
-	switch NormalizeEndpoint(cfg.BaseURL) {
-	case "https://openrouter.ai/api", "https://openrouter.ai/api/v1":
-		adaptive = true
-	}
+	adaptive := isOpenRouterAnthropic(cfg.BaseURL)
 	req.ApplyVendorThinking(cfg.Think, h.forced && !adaptive, adaptive)
 	return nil
+}
+
+func isOpenRouterAnthropic(baseURL string) bool {
+	switch NormalizeEndpoint(baseURL) {
+	case "https://openrouter.ai/api", "https://openrouter.ai/api/v1":
+		return true
+	default:
+		return false
+	}
 }
 
 func isOpenCodeChat(api llm.RouterType, endpoint string) bool {

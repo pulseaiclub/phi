@@ -651,7 +651,11 @@ func (c *EngineController) ThinkingModes() []llm.ThinkMode {
 
 // ThinkLevel returns the current thinking mode.
 func (c *EngineController) ThinkLevel() llm.ThinkMode {
-	return c.modelSnapshot().Think.Mode
+	think := c.modelSnapshot().Think
+	if !think.Enabled && think.Mode != "" {
+		return llm.Off
+	}
+	return think.Mode
 }
 
 // ModelName returns the active model name.

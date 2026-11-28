@@ -40,9 +40,8 @@ func (c *Client) Stream(ctx context.Context, messages []llm.Message) iter.Seq2[l
 	switch c.cfg.API {
 	case llm.Anthropic:
 		cfg := c.cfg
-		if c.hooks.AnthropicRequiresThinking && (!cfg.Think.Enabled || cfg.Think.Mode == llm.Off) {
-			// Adaptive thinking has no fixed token budget. The preset selects the fallback effort.
-			cfg.Think = llm.ThinkConfig{Enabled: true}
+		if r, ok := c.hooks.Anthropic.(ThinkingResolver); ok {
+			cfg.Think = r.EffectiveThinking(cfg)
 		}
 		req := anthropic.BuildRequest(cfg, c.system, messages, c.tools)
 		if err := applyHook(ctx, c.hooks.Anthropic, &req, c.cfg); err != nil {

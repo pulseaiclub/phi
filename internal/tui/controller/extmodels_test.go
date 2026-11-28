@@ -104,6 +104,36 @@ func TestResolveModelConfigExtensionShadowing(t *testing.T) {
 	m, err = resolveModelConfig(cfg, nil, "primary")
 	require.NoError(t, err)
 	assert.Equal(t, "primary", m.Name)
+
+	// Switching an unconfigured model onto a primary connection clears any old
+	// preset binding and falls back when the primary ThinkMode is unsupported.
+	offPrimary := &project.Config{
+		Models: []llm.ModelConfig{{
+			Name: "claude-sonnet-4-6", Preset: "claude-sonnet-4-6",
+			API: llm.Anthropic, BaseURL: "https://api.anthropic.com", APIKey: "sk-ant",
+			Think: llm.ThinkConfig{Enabled: false, Mode: llm.Off},
+		}},
+	}
+	m, err = resolveModelConfig(offPrimary, nil, "claude-opus-5-5")
+	require.NoError(t, err)
+	assert.Empty(t, m.Preset)
+	assert.Equal(t, llm.ThinkConfig{Enabled: true, Mode: llm.High}, m.Think)
+
+	// Unrecognized gateway names keep the primary connection's preset binding.
+	m, err = resolveModelConfig(offPrimary, nil, "opaque-route-v2")
+	require.NoError(t, err)
+	assert.Equal(t, "claude-sonnet-4-6", m.Preset)
+	assert.Equal(t, llm.ThinkConfig{Enabled: false, Mode: llm.Off}, m.Think)
+
+	xhighPrimary := &project.Config{
+		Models: []llm.ModelConfig{{
+			Name: "claude-opus-5-5", API: llm.Anthropic, BaseURL: "https://api.anthropic.com", APIKey: "sk-ant",
+			Think: llm.ThinkConfig{Enabled: true, Mode: llm.XHigh},
+		}},
+	}
+	m, err = resolveModelConfig(xhighPrimary, nil, "claude-sonnet-4-6")
+	require.NoError(t, err)
+	assert.Equal(t, llm.ThinkConfig{Enabled: true, Mode: llm.High}, m.Think)
 }
 
 func TestExtensionModelConfigValidation(t *testing.T) {
