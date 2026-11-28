@@ -22,6 +22,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Models: switching to or restoring an unconfigured model drops a stale
+  preset binding and falls back to a thinking level the model supports.
 - Thinking: `think_enabled: false` now sets the level to `off`, the composer
   label and thinking picker show `off` whenever thinking is disabled, and
   vendor Messages requests no longer send `output_config.effort` when the

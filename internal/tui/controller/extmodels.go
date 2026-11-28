@@ -7,6 +7,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/extension/core"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/project"
+	"github.com/pulseaiclub/phi/internal/project/model"
 )
 
 // extensionModelConfig converts an extension-registered model into a runtime
@@ -54,5 +55,24 @@ func resolveModelConfig(cfg *project.Config, r extension.Extensions, name string
 	}
 	m := cfg.Model()
 	m.Name = name
+	if _, ok := model.Lookup(name); ok {
+		m.Preset = ""
+	}
+	if model.ValidateThinking(m) != nil {
+		m.Think = fallbackThinking(m)
+	}
 	return m, nil
+}
+
+func fallbackThinking(m llm.ModelConfig) llm.ThinkConfig {
+	if preset, ok := model.Lookup(m.Name); ok {
+		cand := m
+		cand.Think = preset.Config.Think
+		if model.ValidateThinking(cand) == nil {
+			return preset.Config.Think
+		}
+	}
+	modes := model.ThinkingModes(m)
+	mode := modes[len(modes)-1]
+	return llm.ThinkConfig{Mode: mode, Enabled: mode != llm.Off}
 }
