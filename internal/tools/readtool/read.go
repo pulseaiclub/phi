@@ -127,10 +127,15 @@ func runRead(ctx context.Context, pool *mcp.Pool, in readInput) (tooldef.Result,
 	}
 
 	lines := strings.Split(text, "\n")
-	// Trailing empty split from final newline is fine for line numbering.
 	if text == "" {
 		out := header + "\n(empty file)"
 		return tooldef.Result{Content: out, Detail: display, Output: out}, nil
+	}
+	// A trailing newline ends the last line, it does not start another one, so
+	// drop the empty element Split leaves behind. Kept, it inflates the line
+	// count by one and renders a phantom "N|" row that no file content backs.
+	if lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
 	}
 
 	var (
@@ -140,6 +145,18 @@ func runRead(ctx context.Context, pool *mcp.Pool, in readInput) (tooldef.Result,
 	)
 	b.WriteString(header)
 	b.WriteByte('\n')
+
+	// An offset past the end matched nothing; say so instead of returning a
+	// bare header the caller cannot tell apart from an empty file.
+	if startLine > len(lines) {
+		noun := "lines"
+		if len(lines) == 1 {
+			noun = "line"
+		}
+		fmt.Fprintf(&b, "(offset %d is past the last line; this file has %d %s)\n", startLine, len(lines), noun)
+		out := b.String()
+		return tooldef.Result{Content: out, Detail: display, Output: out}, nil
+	}
 
 	for lineNo := startLine; lineNo <= len(lines); lineNo++ {
 		select {
