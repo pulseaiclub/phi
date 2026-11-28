@@ -1082,6 +1082,12 @@ func (c *EngineController) publishSessionEffects(out ext.SessionEffects) {
 	})
 }
 
+// loopStartGrace is how long runLoop waits after LoopStartedMsg before starting
+// the engine. The UI thread gets to apply ActivityWaiting before the first
+// event lands, and a cancel pressed right after submit stops the loop before
+// it sends anything.
+const loopStartGrace = 120 * time.Millisecond
+
 func (c *EngineController) waitOrDone(ctx context.Context, gen int, d time.Duration) bool {
 	timer := time.NewTimer(d)
 	defer timer.Stop()
@@ -1115,7 +1121,7 @@ func (c *EngineController) finishLoop(ctx context.Context, gen int, err error) {
 }
 
 func (c *EngineController) runLoop(ctx context.Context, gen int, engine *agent.Engine, prompt LastPrompt, resume bool) {
-	if !c.waitOrDone(ctx, gen, 120*time.Millisecond) {
+	if !c.waitOrDone(ctx, gen, loopStartGrace) {
 		return
 	}
 	var loopErr error
