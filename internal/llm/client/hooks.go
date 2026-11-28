@@ -17,8 +17,13 @@ type Hooks struct {
 	OpenAIResponses llm.RequestInterceptor[responses.Request]
 	Anthropic       llm.RequestInterceptor[anthropic.AnthropicRequest]
 	Gemini          llm.RequestInterceptor[gemini.GeminiRequest]
-	// Forced Claude presets need signed history before the request interceptor sets the effort.
-	AnthropicRequiresThinking bool
+}
+
+// ThinkingResolver reports the effective ThinkConfig when a preset hook forces
+// thinking on despite a disabled config, so request builders preserve signed
+// thinking history before Before runs.
+type ThinkingResolver interface {
+	EffectiveThinking(cfg llm.ModelConfig) llm.ThinkConfig
 }
 
 func applyHook[Req any](ctx context.Context, h llm.RequestInterceptor[Req], req *Req, cfg llm.ModelConfig) error {

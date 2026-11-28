@@ -31,16 +31,20 @@ type claudeAdaptiveThinking struct {
 	allowXHigh bool
 }
 
+func (h claudeAdaptiveThinking) EffectiveThinking(cfg llm.ModelConfig) llm.ThinkConfig {
+	if h.forced && (!cfg.Think.Enabled || cfg.Think.Mode == llm.Off) {
+		return llm.ThinkConfig{Enabled: true, Mode: llm.Low}
+	}
+	return cfg.Think
+}
+
 func (h claudeAdaptiveThinking) Before(_ context.Context, req *anthropic.AnthropicRequest, cfg llm.ModelConfig) error {
 	req.ApplyAdaptiveThinking(cfg.Think, h.forced, h.allowXHigh)
 	return nil
 }
 
 func claudeAdaptiveHooks(forced, allowXHigh bool) llmclient.Hooks {
-	return llmclient.Hooks{
-		Anthropic:                 claudeAdaptiveThinking{forced: forced, allowXHigh: allowXHigh},
-		AnthropicRequiresThinking: forced,
-	}
+	return llmclient.Hooks{Anthropic: claudeAdaptiveThinking{forced: forced, allowXHigh: allowXHigh}}
 }
 
 // geminiBudgetThinking maps ThinkMode → thinkingBudget (Gemini 2.x).
