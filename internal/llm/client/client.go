@@ -39,7 +39,12 @@ func NewClient(cfg llm.ModelConfig, hooks Hooks, tools []llm.ToolDefinition, sys
 func (c *Client) Stream(ctx context.Context, messages []llm.Message) iter.Seq2[llm.StreamEvent, error] {
 	switch c.cfg.API {
 	case llm.Anthropic:
-		req := anthropic.BuildRequest(c.cfg, c.system, messages, c.tools)
+		cfg := c.cfg
+		if c.hooks.AnthropicRequiresThinking && (!cfg.Think.Enabled || cfg.Think.Mode == llm.Off) {
+			// Adaptive thinking has no fixed token budget. The preset selects the fallback effort.
+			cfg.Think = llm.ThinkConfig{Enabled: true}
+		}
+		req := anthropic.BuildRequest(cfg, c.system, messages, c.tools)
 		if err := applyHook(ctx, c.hooks.Anthropic, &req, c.cfg); err != nil {
 			return errorSeq(err)
 		}

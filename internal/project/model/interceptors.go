@@ -37,7 +37,10 @@ func (h claudeAdaptiveThinking) Before(_ context.Context, req *anthropic.Anthrop
 }
 
 func claudeAdaptiveHooks(forced, allowXHigh bool) llmclient.Hooks {
-	return llmclient.Hooks{Anthropic: claudeAdaptiveThinking{forced: forced, allowXHigh: allowXHigh}}
+	return llmclient.Hooks{
+		Anthropic:                 claudeAdaptiveThinking{forced: forced, allowXHigh: allowXHigh},
+		AnthropicRequiresThinking: forced,
+	}
 }
 
 // geminiBudgetThinking maps ThinkMode → thinkingBudget (Gemini 2.x).

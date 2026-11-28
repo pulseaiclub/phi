@@ -2,6 +2,9 @@ package model
 
 import (
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 
@@ -10,6 +13,7 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/llm/anthropic"
+	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
 	"github.com/pulseaiclub/phi/internal/llm/gemini"
 	"github.com/pulseaiclub/phi/internal/llm/openai"
 	"github.com/pulseaiclub/phi/internal/llm/openai/responses"
@@ -188,6 +192,86 @@ func TestLookupClaudePresets(t *testing.T) {
 			assert.Empty(t, routed.Config.BaseURL)
 			assert.Equal(t, 1_000_000, routed.Config.ContextWindow)
 			assert.NotNil(t, routed.Hooks.Anthropic)
+		})
+	}
+}
+
+func TestClaudePresetSignedToolContinuation(t *testing.T) {
+	const signedTurn = `data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"look up","signature":"sig/+=="}}
+
+data: {"type":"content_block_stop","index":0}
+
+data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu.call","name":"read","input":{}}}
+
+data: {"type":"content_block_stop","index":1}
+
+data: {"type":"message_stop"}
+
+`
+	for _, tc := range []struct {
+		preset       string
+		wantThinking string
+		wantID       string
+	}{
+		{"claude-opus-5-5", "adaptive", "toolu.call"},
+		{"claude-haiku-5-5", "disabled", "toolu_call"},
+	} {
+		t.Run(tc.preset, func(t *testing.T) {
+			requests := make(chan []byte, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, err := io.ReadAll(r.Body)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				requests <- body
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(w, signedTurn)
+			}))
+			defer server.Close()
+
+			cfg := llm.ModelConfig{
+				Name: "opaque-route", Preset: tc.preset, API: llm.Anthropic,
+				BaseURL: server.URL, Think: llm.ThinkConfig{Enabled: true, Mode: llm.High},
+			}
+			tools := []llm.ToolDefinition{{Name: "read", Params: &llm.FunctionParameters{Type: "object"}}}
+			messages := []llm.Message{{Role: llm.RoleUser, Content: "read a file"}}
+			stream := func() (*llm.Message, []byte) {
+				t.Helper()
+				client := llmclient.NewClient(cfg, HooksForConfig(cfg), tools, "")
+				var final *llm.Message
+				for event, err := range client.Stream(t.Context(), messages) {
+					require.NoError(t, err)
+					if event.Final != nil {
+						final = event.Final
+					}
+				}
+				require.NotNil(t, final)
+				return final, <-requests
+			}
+			assistant, _ := stream()
+			require.NotNil(t, assistant.ProviderState)
+			require.Len(t, assistant.ToolCalls, 1)
+			messages = append(messages, *assistant, llm.Message{
+				Role: llm.RoleTool, ToolCallID: assistant.ToolCalls[0].ID, Content: "file contents",
+			})
+			cfg.Think = llm.ThinkConfig{Enabled: false, Mode: llm.Off}
+			_, body := stream()
+			var wire struct {
+				Thinking     json.RawMessage `json:"thinking"`
+				OutputConfig json.RawMessage `json:"output_config"`
+				Messages     []struct{ Content json.RawMessage }
+			}
+			require.NoError(t, json.Unmarshal(body, &wire))
+			require.Len(t, wire.Messages, 3)
+			assert.JSONEq(t, `{"type":"`+tc.wantThinking+`"}`, string(wire.Thinking))
+			blocks := `{"type":"tool_use","id":"` + tc.wantID + `","name":"read","input":{}}`
+			if tc.wantThinking == "adaptive" {
+				assert.JSONEq(t, `{"effort":"low"}`, string(wire.OutputConfig))
+				blocks = `{"type":"thinking","thinking":"look up","signature":"sig/+=="},` + blocks
+			}
+			assert.JSONEq(t, "["+blocks+"]", string(wire.Messages[1].Content))
+			assert.Contains(t, string(wire.Messages[2].Content), `"tool_use_id":"`+tc.wantID+`"`)
 		})
 	}
 }
