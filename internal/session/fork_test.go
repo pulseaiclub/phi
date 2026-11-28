@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
 // forkSource builds a persisted session with one user/assistant round so the
@@ -18,9 +18,9 @@ func forkSource(t *testing.T) *Manager {
 	dir := t.TempDir()
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true), WithModel("model-a"))
 	require.NoError(t, err)
-	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "hello"})
+	_, err = m.Append(core.Message{Role: core.RoleUser, Content: "hello"})
 	require.NoError(t, err)
-	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "hi"})
+	_, err = m.Append(core.Message{Role: core.RoleAssistant, Content: "hi"})
 	require.NoError(t, err)
 	return m
 }
@@ -62,10 +62,10 @@ func TestForkCopiesBranchAndRecordsParent(t *testing.T) {
 func TestForkLargeImageSurvivesReloadAndListing(t *testing.T) {
 	src := forkSource(t)
 	// A supported image can exceed 8 MiB after base64 encoding.
-	image := llm.Image{Data: strings.Repeat("A", 9<<20), MimeType: "image/png"}
-	_, err := src.Append(llm.Message{Role: llm.RoleUser, Content: "large image", Images: []llm.Image{image}})
+	image := core.Image{Data: strings.Repeat("A", 9<<20), MimeType: "image/png"}
+	_, err := src.Append(core.Message{Role: core.RoleUser, Content: "large image", Images: []core.Image{image}})
 	require.NoError(t, err)
-	_, err = src.Append(llm.Message{Role: llm.RoleUser, Content: "after image"})
+	_, err = src.Append(core.Message{Role: core.RoleUser, Content: "after image"})
 	require.NoError(t, err)
 
 	fork, err := src.Fork()
@@ -77,7 +77,7 @@ func TestForkLargeImageSurvivesReloadAndListing(t *testing.T) {
 		require.Len(t, entries, 5)
 		msg, ok := entries[3].(SessionMessageEntry)
 		require.True(t, ok)
-		assert.Equal(t, []llm.Image{image}, msg.Message.Images)
+		assert.Equal(t, []core.Image{image}, msg.Message.Images)
 		assert.Equal(t, src.LeafID(), loaded.LeafID())
 	}
 	list, err := ListSessions(src.config.sessionDir)
@@ -113,7 +113,7 @@ func TestForkKeepsCompactionBoundary(t *testing.T) {
 	kept := src.LeafID()
 	_, err := src.AppendCompaction(Compaction{Summary: "summarized", FirstKeptEntryID: kept, TokensBefore: 4096})
 	require.NoError(t, err)
-	_, err = src.Append(llm.Message{Role: llm.RoleUser, Content: "after compaction"})
+	_, err = src.Append(core.Message{Role: core.RoleUser, Content: "after compaction"})
 	require.NoError(t, err)
 
 	fork, err := src.Fork()
@@ -131,11 +131,11 @@ func TestForkKeepsCompactionBoundary(t *testing.T) {
 func TestForkExcludesEntriesOffTheBranch(t *testing.T) {
 	src := forkSource(t)
 	base := src.LeafID()
-	abandoned, err := src.Append(llm.Message{Role: llm.RoleUser, Content: "abandoned branch"})
+	abandoned, err := src.Append(core.Message{Role: core.RoleUser, Content: "abandoned branch"})
 	require.NoError(t, err)
 	baseID := base
 	src.leafID = &baseID // diverge: the abandoned message is no longer on the leaf path
-	_, err = src.Append(llm.Message{Role: llm.RoleUser, Content: "kept branch"})
+	_, err = src.Append(core.Message{Role: core.RoleUser, Content: "kept branch"})
 	require.NoError(t, err)
 
 	fork, err := src.Fork()
@@ -193,7 +193,7 @@ func TestForkRequiresPersistedSession(t *testing.T) {
 	dir := t.TempDir()
 	m, err := NewSessionManager(dir, WithShouldFlush(false))
 	require.NoError(t, err)
-	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "in memory"})
+	_, err = m.Append(core.Message{Role: core.RoleUser, Content: "in memory"})
 	require.NoError(t, err)
 
 	_, err = m.Fork()
@@ -226,13 +226,13 @@ func TestForkKeepsSessionsIndependent(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, before, afterFork, "forking must not touch the source file")
 
-	_, err = fork.Append(llm.Message{Role: llm.RoleUser, Content: "only in the fork"})
+	_, err = fork.Append(core.Message{Role: core.RoleUser, Content: "only in the fork"})
 	require.NoError(t, err)
 	untouched, err := os.ReadFile(src.File())
 	require.NoError(t, err)
 	assert.Equal(t, before, untouched, "fork appends stay out of the source")
 
-	_, err = src.Append(llm.Message{Role: llm.RoleUser, Content: "only in the source"})
+	_, err = src.Append(core.Message{Role: core.RoleUser, Content: "only in the source"})
 	require.NoError(t, err)
 	forkLoaded, err := OpenSession(fork.File())
 	require.NoError(t, err)

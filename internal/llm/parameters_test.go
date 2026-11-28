@@ -6,29 +6,42 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
 func TestRequestParametersValidation(t *testing.T) {
 	for _, key := range []string{"model", "messages", "tools", "stream", "stream_options", "max_tokens", "max_completion_tokens", "extra_body"} {
 		t.Run(key, func(t *testing.T) {
-			require.ErrorContains(t, (RequestParameters{key: true}).Validate(OpenAI), key)
+			require.ErrorContains(t, ValidateRequestParameters(core.RequestParameters{key: true}, core.OpenAI), key)
 		})
 	}
-	for _, api := range []RouterType{Anthropic, Gemini, OpenAIResponses} {
-		require.NoError(t, (RequestParameters{"thinking": nil}).Validate(api))
-		require.NoError(t, (RequestParameters{}).Validate(api))
+	for _, api := range []core.RouterType{core.Anthropic, core.Gemini, core.OpenAIResponses} {
+		require.NoError(t, ValidateRequestParameters(core.RequestParameters{"thinking": nil}, api))
+		require.NoError(t, ValidateRequestParameters(core.RequestParameters{}, api))
 	}
-	require.ErrorContains(t, (RequestParameters{"vendor": make(chan int)}).Validate(OpenAI), "JSON-compatible")
-	require.ErrorContains(t, (RequestParameters{"thinking": nil}).Validate("Unknown"), "unsupported API")
-	require.NoError(t, (RequestParameters{"extra_body": nil, "enable_thinking": false}).Validate(""))
+	require.ErrorContains(
+		t,
+		ValidateRequestParameters(core.RequestParameters{"vendor": make(chan int)}, core.OpenAI),
+		"JSON-compatible",
+	)
+	require.ErrorContains(
+		t,
+		ValidateRequestParameters(core.RequestParameters{"thinking": nil}, "Unknown"),
+		"unsupported API",
+	)
+	require.NoError(
+		t,
+		ValidateRequestParameters(core.RequestParameters{"extra_body": nil, "enable_thinking": false}, ""),
+	)
 }
 
 func TestGeminiParametersValidation(t *testing.T) {
 	for _, field := range []string{"maxOutputTokens", "max_output_tokens", "candidateCount", "candidate_count"} {
 		t.Run(field, func(t *testing.T) {
 			for _, value := range []any{2, nil} {
-				params := RequestParameters{"generationConfig": map[string]any{field: value}}
-				require.ErrorContains(t, params.Validate(Gemini), "generationConfig."+field)
+				params := core.RequestParameters{"generationConfig": map[string]any{field: value}}
+				require.ErrorContains(t, ValidateRequestParameters(params, core.Gemini), "generationConfig."+field)
 			}
 		})
 	}
@@ -45,25 +58,33 @@ func TestGeminiParametersValidation(t *testing.T) {
 		{"generation_config", map[string]any{"max_output_tokens": 8192}, "use generationConfig"},
 		{"generation_config", nil, "use generationConfig"},
 	} {
-		require.ErrorContains(t, (RequestParameters{tt.key: tt.value}).Validate(Gemini), tt.wantErr)
+		require.ErrorContains(
+			t,
+			ValidateRequestParameters(core.RequestParameters{tt.key: tt.value}, core.Gemini),
+			tt.wantErr,
+		)
 	}
 }
 
 func TestResponsesBackgroundParameters(t *testing.T) {
 	for _, value := range []any{true, json.RawMessage(` true `)} {
-		require.ErrorContains(t, (RequestParameters{"background": value}).Validate(OpenAIResponses),
-			"request_parameters.background=true is unsupported")
+		require.ErrorContains(
+			t,
+			ValidateRequestParameters(core.RequestParameters{"background": value}, core.OpenAIResponses),
+			"request_parameters.background=true is unsupported",
+		)
 	}
 	for _, value := range []any{false, nil} {
-		require.NoError(t, (RequestParameters{"background": value}).Validate(OpenAIResponses))
+		require.NoError(t, ValidateRequestParameters(core.RequestParameters{"background": value}, core.OpenAIResponses))
 	}
-	require.NoError(t, (RequestParameters{"background": true}).Validate(OpenAI))
+	require.NoError(t, ValidateRequestParameters(core.RequestParameters{"background": true}, core.OpenAI))
 }
 
 func TestGeminiParameterMergeKeepsManagedLimits(t *testing.T) {
 	original := json.RawMessage(`{"generationConfig":{"maxOutputTokens":64}}`)
-	body, err := MarshalRequest(original, ModelConfig{
-		API: Gemini, RequestParameters: RequestParameters{"generationConfig": map[string]any{"temperature": 0}},
+	body, err := MarshalRequest(original, core.ModelConfig{
+		API:               core.Gemini,
+		RequestParameters: core.RequestParameters{"generationConfig": map[string]any{"temperature": 0}},
 	})
 	require.NoError(t, err)
 	require.JSONEq(t, `{"generationConfig":{"maxOutputTokens":64,"temperature":0}}`, string(body))
@@ -71,7 +92,11 @@ func TestGeminiParameterMergeKeepsManagedLimits(t *testing.T) {
 
 func TestRequestParametersRejectChoiceCount(t *testing.T) {
 	for _, value := range []any{2, 1, nil} {
-		require.ErrorContains(t, (RequestParameters{"n": value}).Validate(OpenAI), "request_parameters.n")
+		require.ErrorContains(
+			t,
+			ValidateRequestParameters(core.RequestParameters{"n": value}, core.OpenAI),
+			"request_parameters.n",
+		)
 	}
 }
 
@@ -79,14 +104,14 @@ func TestRequestParametersMerge(t *testing.T) {
 	original := json.RawMessage(
 		`{"model":"custom","messages":[],"tools":[{"large":9007199254740993}],"thinking":{"type":"enabled","clear_thinking":false},"reasoning_effort":"high"}`,
 	)
-	params := RequestParameters{
+	params := core.RequestParameters{
 		"thinking":         map[string]any{"clear_thinking": nil},
 		"reasoning_effort": nil,
 		"enable_thinking":  false,
 		"temperature":      0,
 		"vendor":           map[string]any{"remove": nil, "keep": []any{"a", "b"}},
 	}
-	body, err := MarshalRequest(original, ModelConfig{RequestParameters: params})
+	body, err := MarshalRequest(original, core.ModelConfig{RequestParameters: params})
 	require.NoError(t, err)
 	assert.JSONEq(
 		t,
@@ -100,16 +125,16 @@ func TestRequestParametersMerge(t *testing.T) {
 
 func TestRequestParametersReplaceAndDelete(t *testing.T) {
 	for _, tt := range []struct {
-		patch RequestParameters
+		patch core.RequestParameters
 		want  string
 	}{
-		{RequestParameters{"thinking": nil}, `{}`},
-		{RequestParameters{"thinking": false}, `{"thinking":false}`},
-		{RequestParameters{"thinking": map[string]any{}}, `{"thinking":{"type":"enabled"}}`},
+		{core.RequestParameters{"thinking": nil}, `{}`},
+		{core.RequestParameters{"thinking": false}, `{"thinking":false}`},
+		{core.RequestParameters{"thinking": map[string]any{}}, `{"thinking":{"type":"enabled"}}`},
 	} {
 		body, err := MarshalRequest(
 			json.RawMessage(`{"thinking":{"type":"enabled"}}`),
-			ModelConfig{RequestParameters: tt.patch},
+			core.ModelConfig{RequestParameters: tt.patch},
 		)
 		require.NoError(t, err)
 		assert.JSONEq(t, tt.want, string(body))

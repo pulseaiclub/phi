@@ -5,11 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"iter"
 	"net/http"
-	"slices"
 	"strings"
 
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/util"
 )
@@ -25,23 +26,46 @@ type streamOptions struct {
 	IncludeUsage bool `json:"include_usage"`
 }
 
+// apiTool is one tools[] entry: a function definition. Parameters is always
+// present (null when the tool has no schema) and description is never omitted,
+// matching the shape OpenAI-compatible endpoints were receiving before the
+// core split.
 type apiTool struct {
-	Type     string             `json:"type"`
-	Function llm.ToolDefinition `json:"function"`
+	Type     string      `json:"type"`
+	Function apiToolSpec `json:"function"`
 }
 
-type apiMessage struct {
-	Role             llm.Role       `json:"role"`
-	Content          any            `json:"content"` // string, or []contentPart when images are attached
-	ReasoningContent string         `json:"reasoning_content,omitempty"`
-	ToolCalls        []llm.ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID       string         `json:"tool_call_id,omitempty"`
+type apiToolSpec struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Parameters  json.RawMessage `json:"parameters"`
+}
+
+// apiFunction is the name-plus-arguments payload of a tool call, streamed or replayed.
+type apiFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+type apiToolCall struct {
+	Index    int         `json:"index,omitempty"`
+	ID       string      `json:"id"`
+	Type     string      `json:"type"`
+	Function apiFunction `json:"function"`
+}
+
+type message struct {
+	Role             core.Role     `json:"role"`
+	Content          any           `json:"content"` // string, or []contentPart when images are attached
+	ReasoningContent string        `json:"reasoning_content,omitempty"`
+	ToolCalls        []apiToolCall `json:"tool_calls,omitempty"`
+	ToolCallID       string        `json:"tool_call_id,omitempty"`
 }
 
 // Request is the OpenAI-compatible chat completions body.
 type Request struct {
 	Model           string          `json:"model"`
-	Messages        []apiMessage    `json:"messages"`
+	Messages        []message       `json:"messages"`
 	Tools           []apiTool       `json:"tools,omitempty"`
 	Stream          bool            `json:"stream,omitempty"`
 	StreamOptions   *streamOptions  `json:"stream_options,omitempty"`
@@ -88,7 +112,7 @@ type usageWireDetails struct {
 // the whole prompt, so cache reads and writes come out of it. The total is
 // recomputed instead of trusted, because providers that report a gross
 // prompt_tokens disagree about what their total_tokens already includes.
-func normalizeUsage(w usageWire) llm.Usage {
+func normalizeUsage(w usageWire) core.Usage {
 	cacheRead := w.PromptCacheHitTokens
 	cacheWrite := 0
 	if d := w.PromptTokensDetails; d != nil {
@@ -97,12 +121,12 @@ func normalizeUsage(w usageWire) llm.Usage {
 		cacheRead = max(cacheRead, d.CachedTokens)
 		cacheWrite = d.CacheWriteTokens
 	}
-	usage := llm.Usage{
+	usage := core.Usage{
 		CompletionTokens: w.CompletionTokens,
 		PromptTokens:     max(w.PromptTokens-cacheRead-cacheWrite, 0),
 	}
 	if cacheRead > 0 || cacheWrite > 0 {
-		usage.PromptTokensDetails = &llm.PromptTokensDetails{
+		usage.PromptTokensDetails = &core.PromptTokensDetails{
 			CachedTokens:     cacheRead,
 			CacheWriteTokens: cacheWrite,
 		}
@@ -112,29 +136,54 @@ func normalizeUsage(w usageWire) llm.Usage {
 }
 
 type streamChoice struct {
-	Delta   llm.StreamDelta `json:"delta"`
-	Message *llm.Message    `json:"message,omitempty"`
+	Delta   streamDelta `json:"delta"`
+	Message *message    `json:"message,omitempty"`
 }
 
-// wireToolCalls drops Gemini's thought signature, which this wire marshals
-// verbatim otherwise: a session that switches from Gemini to an
-// OpenAI-compatible model would send an unknown field on every replayed call.
-func wireToolCalls(calls []llm.ToolCall) []llm.ToolCall {
-	if !slices.ContainsFunc(calls, func(c llm.ToolCall) bool { return c.ThoughtSignature != "" }) {
-		return calls
-	}
-	out := slices.Clone(calls)
-	for i := range out {
-		out[i].ThoughtSignature = ""
+type streamDelta struct {
+	Role             string        `json:"role,omitempty"`
+	Content          string        `json:"content,omitempty"`
+	ReasoningContent string        `json:"reasoning_content,omitempty"`
+	ToolCalls        []apiToolCall `json:"tool_calls,omitempty"`
+}
+
+func (d streamDelta) domain() core.StreamDelta {
+	out := core.StreamDelta{Role: core.Role(d.Role), Content: d.Content, ReasoningContent: d.ReasoningContent}
+	for _, call := range d.ToolCalls {
+		out.ToolCalls = append(out.ToolCalls, domainToolCall(call))
 	}
 	return out
 }
 
-// toAPIMessage converts a normalized message. With attached images the
+func domainToolCall(call apiToolCall) core.ToolCall {
+	return core.ToolCall{
+		Index:    call.Index,
+		ID:       call.ID,
+		Type:     call.Type,
+		Function: core.Function{Name: call.Function.Name, Arguments: call.Function.Arguments},
+	}
+}
+
+// wireToolCalls builds the OpenAI wire shape and intentionally drops provider
+// state such as Gemini's thought signature.
+func wireToolCalls(calls []core.ToolCall) []apiToolCall {
+	out := make([]apiToolCall, 0, len(calls))
+	for _, call := range calls {
+		out = append(out, apiToolCall{
+			Index:    call.Index,
+			ID:       call.ID,
+			Type:     call.Type,
+			Function: apiFunction{Name: call.Function.Name, Arguments: call.Function.Arguments},
+		})
+	}
+	return out
+}
+
+// toMessage converts a normalized message. With attached images the
 // content becomes the OpenAI content-parts array (text + image_url data
 // URLs); otherwise it stays a plain string, keeping the wire shape stable.
-func toAPIMessage(m llm.Message) apiMessage {
-	out := apiMessage{
+func toMessage(m core.Message) message {
+	out := message{
 		Role:             m.Role,
 		ReasoningContent: m.ReasoningContent,
 		ToolCalls:        wireToolCalls(m.ToolCalls),
@@ -164,18 +213,22 @@ func toAPIMessage(m llm.Message) apiMessage {
 // The system prompt is prepended as a system message, mirroring the previous
 // in-client behavior. Vendor-specific fields (e.g. thinking options) belong
 // on model presets via RequestInterceptor, not here.
-func BuildRequest(cfg llm.ModelConfig, system string, messages []llm.Message, tools []llm.ToolDefinition) *Request {
-	msgs := make([]apiMessage, 0, len(messages)+1)
+func BuildRequest(cfg core.ModelConfig, system string, messages []core.Message, tools []core.ToolDefinition) *Request {
+	msgs := make([]message, 0, len(messages)+1)
 	if strings.TrimSpace(system) != "" {
-		msgs = append(msgs, apiMessage{Role: llm.RoleSystem, Content: system})
+		msgs = append(msgs, message{Role: core.RoleSystem, Content: system})
 	}
 	for _, m := range messages {
-		msgs = append(msgs, toAPIMessage(m))
+		msgs = append(msgs, toMessage(m))
 	}
 
 	apiTools := make([]apiTool, len(tools))
 	for i, t := range tools {
-		apiTools[i] = apiTool{Type: "function", Function: t}
+		apiTools[i] = apiTool{Type: "function", Function: apiToolSpec{
+			Name:        t.Name,
+			Description: t.Description,
+			Parameters:  llm.MarshalToolParams(t.Params, "null"),
+		}}
 	}
 
 	req := &Request{
@@ -190,7 +243,7 @@ func BuildRequest(cfg llm.ModelConfig, system string, messages []llm.Message, to
 }
 
 // ApplyThink shares reasoning settings between streaming and compaction.
-func (r *Request) ApplyThink(think llm.ThinkConfig) {
+func (r *Request) ApplyThink(think core.ThinkConfig) {
 	r.ReasoningEffort = ""
 	if think.Enabled {
 		r.ReasoningEffort = string(think.Mode)
@@ -216,10 +269,10 @@ func chatHeaders(apiKey string, stream bool) http.Header {
 }
 
 // NewCompactRequest builds a summary request with the streaming reasoning settings.
-func NewCompactRequest(cfg llm.ModelConfig, prompt string, maxTokens int) *Request {
+func NewCompactRequest(cfg core.ModelConfig, prompt string, maxTokens int) *Request {
 	req := &Request{
 		Model:     cfg.Name,
-		Messages:  []apiMessage{{Role: llm.RoleUser, Content: prompt}},
+		Messages:  []message{{Role: core.RoleUser, Content: prompt}},
 		MaxTokens: maxTokens,
 	}
 	req.ApplyThink(cfg.Think)
@@ -230,7 +283,7 @@ func NewCompactRequest(cfg llm.ModelConfig, prompt string, maxTokens int) *Reque
 func CompactRequest(
 	ctx context.Context,
 	httpClient *http.Client,
-	cfg llm.ModelConfig,
+	cfg core.ModelConfig,
 	req *Request,
 ) (llm.CompactResult, error) {
 	body, err := llm.MarshalRequest(req, cfg)
@@ -246,8 +299,8 @@ func CompactRequest(
 
 	var resp struct {
 		Choices []struct {
-			Message      llm.Message `json:"message"`
-			FinishReason string      `json:"finish_reason"`
+			Message      message `json:"message"`
+			FinishReason string  `json:"finish_reason"`
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(raw, &resp); err != nil {
@@ -257,8 +310,12 @@ func CompactRequest(
 	if len(resp.Choices) == 0 {
 		return llm.CompactResult{}, errors.New("LLM API error: empty choices")
 	}
+	msg, err := resp.Choices[0].Message.domain()
+	if err != nil {
+		return llm.CompactResult{}, err
+	}
 	return llm.CompactResult{
-		Text:      resp.Choices[0].Message.Content,
+		Text:      msg.Content,
 		Truncated: resp.Choices[0].FinishReason == finishReasonLength,
 	}, nil
 }
@@ -267,31 +324,31 @@ func CompactRequest(
 func StreamChatCompletion(
 	ctx context.Context,
 	httpClient *http.Client,
-	cfg llm.ModelConfig,
+	cfg core.ModelConfig,
 	payload any,
-) iter.Seq2[llm.StreamEvent, error] {
-	return func(yield func(llm.StreamEvent, error) bool) {
+) iter.Seq2[core.StreamEvent, error] {
+	return func(yield func(core.StreamEvent, error) bool) {
 		body, err := llm.MarshalRequest(payload, cfg)
 		if err != nil {
-			yield(llm.StreamEvent{}, err)
+			yield(core.StreamEvent{}, err)
 			return
 		}
 
 		httpResp, err := llm.Post(ctx, httpClient, "LLM",
 			chatCompletionsURL(cfg.BaseURL), body, chatHeaders(cfg.APIKey, true))
 		if err != nil {
-			yield(llm.StreamEvent{}, err)
+			yield(core.StreamEvent{}, err)
 			return
 		}
 		defer httpResp.Body.Close()
 
-		var usage llm.Usage
+		var usage core.Usage
 
 		acc := newStreamAccumulator()
 
 		for data, parseErr := range util.ParseDataStream(httpResp.Body) {
 			if parseErr != nil {
-				yield(llm.StreamEvent{}, parseErr)
+				yield(core.StreamEvent{}, parseErr)
 				return
 			}
 			payloadLine := bytes.TrimSpace(data)
@@ -318,15 +375,22 @@ func StreamChatCompletion(
 			}
 
 			sc := chunk.Choices[0]
-			delta := sc.Delta
+			delta := sc.Delta.domain()
 			acc.applyDelta(delta)
+			var msg *core.Message
 			if sc.Message != nil {
-				acc.applyMessage(sc.Message)
+				whole, err := sc.Message.domain()
+				if err != nil {
+					yield(core.StreamEvent{}, err)
+					return
+				}
+				msg = &whole
+				acc.applyMessage(msg)
 			}
 
-			if hasStreamDelta(delta, sc.Message) {
-				if !yield(llm.StreamEvent{
-					Type:  llm.StreamEventTypeDelta,
+			if hasStreamDelta(delta, msg) {
+				if !yield(core.StreamEvent{
+					Type:  core.StreamEventTypeDelta,
 					Delta: delta,
 					Usage: usage,
 				}, nil) {
@@ -337,11 +401,11 @@ func StreamChatCompletion(
 
 		msg := acc.message()
 		msg.Usage = usage
-		yield(llm.StreamEvent{Type: llm.StreamEventTypeDone, Final: &msg}, nil)
+		yield(core.StreamEvent{Type: core.StreamEventTypeDone, Final: &msg}, nil)
 	}
 }
 
-func hasStreamDelta(delta llm.StreamDelta, msg *llm.Message) bool {
+func hasStreamDelta(delta core.StreamDelta, msg *core.Message) bool {
 	if delta.Content != "" || delta.ReasoningContent != "" || delta.Role != "" || len(delta.ToolCalls) > 0 {
 		return true
 	}
@@ -351,4 +415,25 @@ func hasStreamDelta(delta llm.StreamDelta, msg *llm.Message) bool {
 	return strings.TrimSpace(msg.Content) != "" ||
 		strings.TrimSpace(msg.ReasoningContent) != "" ||
 		len(msg.ToolCalls) > 0
+}
+
+// domain converts a wire message back to the normalized shape. Content is a
+// string on every OpenAI-compatible endpoint phi targets (content parts only
+// travel host→provider), so any other shape is a protocol violation and is
+// reported rather than read as an empty reply.
+func (m message) domain() (core.Message, error) {
+	content, ok := m.Content.(string)
+	if !ok && m.Content != nil {
+		return core.Message{}, fmt.Errorf("LLM API error: message content is %T, want string", m.Content)
+	}
+	out := core.Message{
+		Role:             m.Role,
+		Content:          content,
+		ReasoningContent: m.ReasoningContent,
+		ToolCallID:       m.ToolCallID,
+	}
+	for _, call := range m.ToolCalls {
+		out.ToolCalls = append(out.ToolCalls, domainToolCall(call))
+	}
+	return out, nil
 }

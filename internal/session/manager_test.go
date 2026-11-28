@@ -7,10 +7,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/pulseaiclub/phi/internal/llm"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
 func TestNewSessionManager(t *testing.T) {
@@ -41,20 +41,20 @@ func TestGetBranch(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	id1, err := manager.Append(llm.Message{
-		Role:    llm.RoleUser,
+	id1, err := manager.Append(core.Message{
+		Role:    core.RoleUser,
 		Content: "Hello",
 	})
 	require.NoError(t, err)
 
-	id2, err := manager.Append(llm.Message{
-		Role:    llm.RoleAssistant,
+	id2, err := manager.Append(core.Message{
+		Role:    core.RoleAssistant,
 		Content: "Hi there!",
 	})
 	require.NoError(t, err)
 
-	id3, err := manager.Append(llm.Message{
-		Role:    llm.RoleUser,
+	id3, err := manager.Append(core.Message{
+		Role:    core.RoleUser,
 		Content: "How are you?",
 	})
 	require.NoError(t, err)
@@ -77,14 +77,14 @@ func TestAppendEntry(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		_, err = manager.Append(llm.Message{
-			Role:    llm.RoleUser,
+		_, err = manager.Append(core.Message{
+			Role:    core.RoleUser,
 			Content: "Hello",
 		})
 		require.NoError(t, err)
 
-		_, err = manager.Append(llm.Message{
-			Role:    llm.RoleAssistant,
+		_, err = manager.Append(core.Message{
+			Role:    core.RoleAssistant,
 			Content: "Hi there!",
 		})
 		require.NoError(t, err)
@@ -104,8 +104,8 @@ func TestAppendEntry(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		id, err := manager.Append(llm.Message{
-			Role:    llm.RoleUser,
+		id, err := manager.Append(core.Message{
+			Role:    core.RoleUser,
 			Content: "test",
 		})
 		require.NoError(t, err)
@@ -121,8 +121,8 @@ func TestBuildSessionContext(t *testing.T) {
 				Type: EntryMessage,
 				ID:   "msg1",
 			},
-			Message: llm.Message{
-				Role:    llm.RoleUser,
+			Message: core.Message{
+				Role:    core.RoleUser,
 				Content: "hello",
 			},
 		}
@@ -132,8 +132,8 @@ func TestBuildSessionContext(t *testing.T) {
 				ID:       "msg2",
 				ParentID: &entry1.ID,
 			},
-			Message: llm.Message{
-				Role:    llm.RoleAssistant,
+			Message: core.Message{
+				Role:    core.RoleAssistant,
 				Content: "hi",
 			},
 		}
@@ -143,8 +143,8 @@ func TestBuildSessionContext(t *testing.T) {
 				ID:       "msg3",
 				ParentID: &entry2.ID,
 			},
-			Message: llm.Message{
-				Role:    llm.RoleUser,
+			Message: core.Message{
+				Role:    core.RoleUser,
 				Content: "how are you?",
 			},
 		}
@@ -170,8 +170,8 @@ func TestBuildSessionContext(t *testing.T) {
 				Type: EntryMessage,
 				ID:   "msg1",
 			},
-			Message: llm.Message{
-				Role:    llm.RoleUser,
+			Message: core.Message{
+				Role:    core.RoleUser,
 				Content: "hello",
 			},
 		}
@@ -181,8 +181,8 @@ func TestBuildSessionContext(t *testing.T) {
 				ID:       "msg2",
 				ParentID: &entry1.ID,
 			},
-			Message: llm.Message{
-				Role:    llm.RoleAssistant,
+			Message: core.Message{
+				Role:    core.RoleAssistant,
 				Content: "hi",
 			},
 		}
@@ -203,8 +203,8 @@ func TestBuildSessionContext(t *testing.T) {
 				ID:       "msg3",
 				ParentID: &compaction.ID,
 			},
-			Message: llm.Message{
-				Role:    llm.RoleUser,
+			Message: core.Message{
+				Role:    core.RoleUser,
 				Content: "after compaction",
 			},
 		}
@@ -455,15 +455,15 @@ func TestReplaySnapshotEmpty(t *testing.T) {
 func TestReplaySnapshotMessages(t *testing.T) {
 	m := NewManager(t.TempDir())
 
-	userID, err := m.Append(llm.Message{
-		Role:    llm.RoleUser,
+	userID, err := m.Append(core.Message{
+		Role:    core.RoleUser,
 		Content: "hello",
-		Images:  []llm.Image{{Data: "aW1n", MimeType: "image/png"}},
+		Images:  []core.Image{{Data: "aW1n", MimeType: "image/png"}},
 	})
 	require.NoError(t, err)
 
-	asstID, err := m.Append(llm.Message{
-		Role:             llm.RoleAssistant,
+	asstID, err := m.Append(core.Message{
+		Role:             core.RoleAssistant,
 		Content:          "hi there",
 		ReasoningContent: "thought about it",
 	})
@@ -476,7 +476,7 @@ func TestReplaySnapshotMessages(t *testing.T) {
 	assert.Equal(t, userID, user.ID)
 	assert.Equal(t, RoleUser, user.Role)
 	assert.Equal(t, "hello", user.Text)
-	assert.Equal(t, []llm.Image{{Data: "aW1n", MimeType: "image/png"}}, user.Images)
+	assert.Equal(t, []core.Image{{Data: "aW1n", MimeType: "image/png"}}, user.Images)
 
 	asst := snap.Messages[1]
 	assert.Equal(t, asstID, asst.ID)
@@ -489,19 +489,39 @@ func TestReplaySnapshotMessages(t *testing.T) {
 	}, asst.Content)
 }
 
+func TestSessionPersistsThoughtSignature(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	require.NoError(t, err)
+	_, err = m.Append(core.Message{
+		Role: core.RoleAssistant,
+		ToolCalls: []core.ToolCall{{
+			ID: "read", Function: core.Function{Name: "read", Arguments: `{}`},
+			ThoughtSignature: "sig-a",
+		}},
+	})
+	require.NoError(t, err)
+
+	loaded, err := OpenSession(m.File())
+	require.NoError(t, err)
+	entry := loaded.BuildContext()[0].(SessionMessageEntry)
+	require.Len(t, entry.Message.ToolCalls, 1)
+	assert.Equal(t, "sig-a", entry.Message.ToolCalls[0].ThoughtSignature)
+}
+
 func TestReplaySnapshotTools(t *testing.T) {
 	m := NewManager(t.TempDir())
 
-	_, err := m.Append(llm.Message{Role: llm.RoleUser, Content: "read the file"})
+	_, err := m.Append(core.Message{Role: core.RoleUser, Content: "read the file"})
 	require.NoError(t, err)
 
-	_, err = m.Append(llm.Message{
-		Role:    llm.RoleAssistant,
+	_, err = m.Append(core.Message{
+		Role:    core.RoleAssistant,
 		Content: "calling tool",
-		ToolCalls: []llm.ToolCall{{
+		ToolCalls: []core.ToolCall{{
 			ID:   "t1",
 			Type: "function",
-			Function: llm.Function{
+			Function: core.Function{
 				Name:      "Read",
 				Arguments: `{"path":"a.go"}`,
 			},
@@ -509,8 +529,8 @@ func TestReplaySnapshotTools(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = m.Append(llm.Message{
-		Role:       llm.RoleTool,
+	_, err = m.Append(core.Message{
+		Role:       core.RoleTool,
 		ToolCallID: "t1",
 		Content:    "package main",
 	})
@@ -550,11 +570,11 @@ func TestReplaySnapshotTools(t *testing.T) {
 func TestReplaySnapshotCompactionDropsOldMessages(t *testing.T) {
 	m := NewManager(t.TempDir())
 
-	_, err := m.Append(llm.Message{Role: llm.RoleUser, Content: "old question"})
+	_, err := m.Append(core.Message{Role: core.RoleUser, Content: "old question"})
 	require.NoError(t, err)
-	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "old answer"})
+	_, err = m.Append(core.Message{Role: core.RoleAssistant, Content: "old answer"})
 	require.NoError(t, err)
-	keptID, err := m.Append(llm.Message{Role: llm.RoleUser, Content: "still here"})
+	keptID, err := m.Append(core.Message{Role: core.RoleUser, Content: "still here"})
 	require.NoError(t, err)
 	compactionID, err := m.AppendCompaction(Compaction{
 		Summary:          "summary of the past",
@@ -585,8 +605,8 @@ func TestManagerConcurrentAccess(t *testing.T) {
 		go func(w int) {
 			defer wg.Done()
 			for i := range 50 {
-				msg := llm.Message{
-					Role:    llm.RoleUser,
+				msg := core.Message{
+					Role:    core.RoleUser,
 					Content: fmt.Sprintf("w%d-%d", w, i),
 				}
 				id, err := m.Append(msg)

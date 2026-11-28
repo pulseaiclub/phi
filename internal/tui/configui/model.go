@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/project/model"
 )
@@ -156,19 +156,19 @@ type fieldSpec struct {
 var (
 	apiOptions = []option{
 		opt("", "auto", "infer from the model name"),
-		opt(string(llm.OpenAI), "OpenAI", "chat completions"),
-		opt(string(llm.OpenAIResponses), "OpenAI Responses", "responses API"),
-		opt(string(llm.Anthropic), "Anthropic", "messages API"),
-		opt(string(llm.Gemini), "Gemini", "generateContent"),
+		opt(string(core.OpenAI), "OpenAI", "chat completions"),
+		opt(string(core.OpenAIResponses), "OpenAI Responses", "responses API"),
+		opt(string(core.Anthropic), "Anthropic", "messages API"),
+		opt(string(core.Gemini), "Gemini", "generateContent"),
 	}
-	thinkDescriptions = map[llm.ThinkMode]string{
-		llm.Off:     "no reasoning",
-		llm.Minimal: "shortest reasoning",
-		llm.Low:     "light reasoning",
-		llm.Medium:  "balanced",
-		llm.High:    "deep reasoning",
-		llm.XHigh:   "deeper still",
-		llm.Max:     "provider maximum",
+	thinkDescriptions = map[core.ThinkMode]string{
+		core.Off:     "no reasoning",
+		core.Minimal: "shortest reasoning",
+		core.Low:     "light reasoning",
+		core.Medium:  "balanced",
+		core.High:    "deep reasoning",
+		core.XHigh:   "deeper still",
+		core.Max:     "provider maximum",
 	}
 )
 
@@ -230,7 +230,7 @@ func (e *ConfigEditor) buildModels() {
 }
 
 // Placeholders show resolved defaults, falling back to generic values for unknown presets.
-func modelSpecs(cfg llm.ModelConfig) []fieldSpec {
+func modelSpecs(cfg core.ModelConfig) []fieldSpec {
 	baseURL := defaultBaseURL
 	if cfg.BaseURL != "" {
 		baseURL = cfg.BaseURL
@@ -490,7 +490,7 @@ func (e *ConfigEditor) modelAt(index int) *project.ModelDoc {
 	return &e.doc.Models[index]
 }
 
-func modelNote(m project.ModelDoc, cfg llm.ModelConfig) string {
+func modelNote(m project.ModelDoc, cfg core.ModelConfig) string {
 	api := m.API
 	window := 0
 	if m.ContextWindow != nil {

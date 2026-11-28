@@ -8,11 +8,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/ext/go/pxb"
+	domain "github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/extension/core"
 	"github.com/pulseaiclub/phi/internal/extension/create"
 
-	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/project"
 )
 
@@ -56,7 +56,7 @@ func loadResolveModelRunner(t *testing.T) *core.Runner {
 
 func testConfig() *project.Config {
 	return &project.Config{
-		Models: []llm.ModelConfig{{
+		Models: []domain.ModelConfig{{
 			Name: "primary", APIKey: "sk-p", BaseURL: "http://primary.example/v1", ContextWindow: 8,
 		}},
 		SkillPaths: []string{"/skills"},
@@ -74,7 +74,7 @@ func TestResolveModelConfigExtensionShadowing(t *testing.T) {
 	assert.Equal(t, "echo", m.Name)
 	assert.Equal(t, 1000, m.ContextWindow)
 	assert.True(t, m.ImageEnabled)
-	assert.Equal(t, llm.High, m.Think.Mode)
+	assert.Equal(t, domain.High, m.Think.Mode)
 	assert.True(t, m.Think.Enabled)
 	assert.Equal(t, []string{"/skills"}, m.SkillPaths)
 
@@ -82,7 +82,7 @@ func TestResolveModelConfigExtensionShadowing(t *testing.T) {
 	m, err = resolveModelConfig(cfg, r, "gw")
 	require.NoError(t, err)
 	assert.Equal(t, "http://127.0.0.1:9", m.BaseURL)
-	assert.Equal(t, llm.Anthropic, m.API)
+	assert.Equal(t, domain.Anthropic, m.API)
 	assert.Equal(t, "k", m.APIKey)
 	assert.Equal(t, 42, m.ContextWindow)
 
@@ -108,32 +108,32 @@ func TestResolveModelConfigExtensionShadowing(t *testing.T) {
 	// Switching an unconfigured model onto a primary connection clears any old
 	// preset binding and falls back when the primary ThinkMode is unsupported.
 	offPrimary := &project.Config{
-		Models: []llm.ModelConfig{{
+		Models: []domain.ModelConfig{{
 			Name: "claude-sonnet-4-6", Preset: "claude-sonnet-4-6",
-			API: llm.Anthropic, BaseURL: "https://api.anthropic.com", APIKey: "sk-ant",
-			Think: llm.ThinkConfig{Enabled: false, Mode: llm.Off},
+			API: domain.Anthropic, BaseURL: "https://api.anthropic.com", APIKey: "sk-ant",
+			Think: domain.ThinkConfig{Enabled: false, Mode: domain.Off},
 		}},
 	}
 	m, err = resolveModelConfig(offPrimary, nil, "claude-opus-5-5")
 	require.NoError(t, err)
 	assert.Empty(t, m.Preset)
-	assert.Equal(t, llm.ThinkConfig{Enabled: true, Mode: llm.High}, m.Think)
+	assert.Equal(t, domain.ThinkConfig{Enabled: true, Mode: domain.High}, m.Think)
 
 	// Unrecognized gateway names keep the primary connection's preset binding.
 	m, err = resolveModelConfig(offPrimary, nil, "opaque-route-v2")
 	require.NoError(t, err)
 	assert.Equal(t, "claude-sonnet-4-6", m.Preset)
-	assert.Equal(t, llm.ThinkConfig{Enabled: false, Mode: llm.Off}, m.Think)
+	assert.Equal(t, domain.ThinkConfig{Enabled: false, Mode: domain.Off}, m.Think)
 
 	xhighPrimary := &project.Config{
-		Models: []llm.ModelConfig{{
-			Name: "claude-opus-5-5", API: llm.Anthropic, BaseURL: "https://api.anthropic.com", APIKey: "sk-ant",
-			Think: llm.ThinkConfig{Enabled: true, Mode: llm.XHigh},
+		Models: []domain.ModelConfig{{
+			Name: "claude-opus-5-5", API: domain.Anthropic, BaseURL: "https://api.anthropic.com", APIKey: "sk-ant",
+			Think: domain.ThinkConfig{Enabled: true, Mode: domain.XHigh},
 		}},
 	}
 	m, err = resolveModelConfig(xhighPrimary, nil, "claude-sonnet-4-6")
 	require.NoError(t, err)
-	assert.Equal(t, llm.ThinkConfig{Enabled: true, Mode: llm.High}, m.Think)
+	assert.Equal(t, domain.ThinkConfig{Enabled: true, Mode: domain.High}, m.Think)
 }
 
 func TestExtensionModelConfigValidation(t *testing.T) {

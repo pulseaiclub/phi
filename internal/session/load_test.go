@@ -6,12 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
 func TestSessionPersistRoundTrip(t *testing.T) {
@@ -19,9 +20,9 @@ func TestSessionPersistRoundTrip(t *testing.T) {
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
-	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "read foo.go"})
+	_, err = m.Append(core.Message{Role: core.RoleUser, Content: "read foo.go"})
 	require.NoError(t, err)
-	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "done reading"})
+	_, err = m.Append(core.Message{Role: core.RoleAssistant, Content: "done reading"})
 	require.NoError(t, err)
 
 	path := m.File()
@@ -38,9 +39,9 @@ func TestSessionPersistRoundTrip(t *testing.T) {
 	assert.Equal(t, orig, got)
 
 	// Append continues on the same file.
-	_, err = loaded.Append(llm.Message{Role: llm.RoleUser, Content: "continue"})
+	_, err = loaded.Append(core.Message{Role: core.RoleUser, Content: "continue"})
 	require.NoError(t, err)
-	_, err = loaded.Append(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+	_, err = loaded.Append(core.Message{Role: core.RoleAssistant, Content: "ok"})
 	require.NoError(t, err)
 
 	info, err := os.Stat(path)
@@ -58,9 +59,9 @@ func TestSessionModelChangesAppendOnly(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "model-a", m.ModelName())
 
-	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "hello"})
+	_, err = m.Append(core.Message{Role: core.RoleUser, Content: "hello"})
 	require.NoError(t, err)
-	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "done"})
+	_, err = m.Append(core.Message{Role: core.RoleAssistant, Content: "done"})
 	require.NoError(t, err)
 	before, err := os.ReadFile(m.File())
 	require.NoError(t, err)
@@ -99,7 +100,7 @@ func TestSessionWithoutModelRemainsLoadable(t *testing.T) {
 	dir := t.TempDir()
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
-	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "done"})
+	_, err = m.Append(core.Message{Role: core.RoleAssistant, Content: "done"})
 	require.NoError(t, err)
 
 	loaded, err := OpenSession(m.File())
@@ -112,19 +113,19 @@ func TestSessionPersistUsageRoundTrip(t *testing.T) {
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
-	_, err = m.Append(llm.Message{
-		Role:    llm.RoleAssistant,
+	_, err = m.Append(core.Message{
+		Role:    core.RoleAssistant,
 		Content: "done",
-		Usage: llm.Usage{
+		Usage: core.Usage{
 			PromptTokens:        7,
 			CompletionTokens:    7,
 			TotalTokens:         19,
-			PromptTokensDetails: &llm.PromptTokensDetails{CachedTokens: 5},
+			PromptTokensDetails: &core.PromptTokensDetails{CachedTokens: 5},
 		},
 	})
 	require.NoError(t, err)
 
-	// In memory the wrapper mirrors msg.Usage (llm.Message.Usage is json:"-").
+	// In memory the wrapper mirrors msg.Usage (core.Message.Usage is json:"-").
 	inMem := m.BuildContext()[0].(SessionMessageEntry)
 	assert.Equal(t, 19, inMem.Usage.TotalTokens)
 
@@ -140,23 +141,144 @@ func TestSessionPersistUsageRoundTrip(t *testing.T) {
 	assert.Equal(t, 5, entry.Usage.CachedTokens())
 }
 
+// ProviderState, thought signatures, and cache-write usage only survive a
+// reload because SessionMessageEntry spells out its own JSON methods.
+func TestSessionMessageEntryJSONRoundTrip(t *testing.T) {
+	orig := SessionMessageEntry{
+		SessionBaseEntry: SessionBaseEntry{
+			Type: EntryMessage, ID: "m1",
+			Timestamp: time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC),
+		},
+		Message: core.Message{
+			Role:             core.RoleAssistant,
+			Content:          "done",
+			ReasoningContent: "thinking",
+			ToolCalls: []core.ToolCall{{
+				Index: 0, ID: "call_1", Type: "function",
+				Function:         core.Function{Name: "read", Arguments: `{"path":"foo.go"}`},
+				ThoughtSignature: "sig",
+			}},
+			Images: []core.Image{{Data: "QUJD", MimeType: "image/png"}},
+			ProviderState: &core.ProviderState{
+				Provider: core.ProviderAnthropic,
+				Model:    "claude-sonnet-4-5",
+				Endpoint: "https://api.anthropic.com",
+				Data: core.ProviderData{
+					Prefix: "abc",
+					Items:  []json.RawMessage{json.RawMessage(`{"type":"text","text":"hi"}`)},
+				},
+			},
+		},
+		Usage: core.Usage{
+			CompletionTokens: 3, PromptTokens: 5, TotalTokens: 11,
+			PromptTokensDetails: &core.PromptTokensDetails{CachedTokens: 2, CacheWriteTokens: 1},
+		},
+	}
+
+	body, err := json.Marshal(orig)
+	require.NoError(t, err)
+	for _, key := range []string{
+		`"thought_signature":"sig"`, `"provider_state"`, `"cache_write_tokens":1`, `"mimeType":"image/png"`,
+	} {
+		assert.Contains(t, string(body), key)
+	}
+
+	var got SessionMessageEntry
+	require.NoError(t, json.Unmarshal(body, &got))
+	assert.Equal(t, orig, got)
+}
+
+// Session files written before the core split embedded llm.Message with JSON
+// tags; the explicit wire DTO must keep decoding that shape byte for byte.
+func TestSessionMessageEntryDecodesLegacyFormat(t *testing.T) {
+	const legacy = `{"type":"EntryMessage","id":"m1","parentID":null,"timestamp":"2025-01-02T03:04:05Z",` +
+		`"message":{"role":"assistant","content":"done","reasoning_content":"thinking",` +
+		`"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read","arguments":"{}"},` +
+		`"thought_signature":"sig"}],"provider_state":{"provider":"Anthropic","model":"claude-sonnet-4-5",` +
+		`"endpoint":"https://api.anthropic.com","data":{"prefix":"abc","items":[{"type":"text","text":"hi"}]}}},` +
+		`"usage":{"completion_tokens":3,"prompt_tokens":5,"total_tokens":11,` +
+		`"prompt_tokens_details":{"cached_tokens":2,"cache_write_tokens":1}}}`
+
+	var entry SessionMessageEntry
+	require.NoError(t, json.Unmarshal([]byte(legacy), &entry))
+	assert.Equal(t, EntryMessage, entry.GetType())
+	assert.Equal(t, "m1", entry.GetID())
+	assert.Nil(t, entry.GetParent())
+	assert.Equal(t, time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC), entry.Timestamp)
+
+	msg := entry.Message
+	assert.Equal(t, core.RoleAssistant, msg.Role)
+	assert.Equal(t, "thinking", msg.ReasoningContent)
+	require.Len(t, msg.ToolCalls, 1)
+	assert.Equal(t, core.ToolCall{
+		Index: 0, ID: "call_1", Type: "function",
+		Function:         core.Function{Name: "read", Arguments: "{}"},
+		ThoughtSignature: "sig",
+	}, msg.ToolCalls[0])
+	require.NotNil(t, msg.ProviderState)
+	assert.Equal(t, core.ProviderAnthropic, msg.ProviderState.Provider)
+	assert.Equal(t, "claude-sonnet-4-5", msg.ProviderState.Model)
+	assert.Equal(t, core.ProviderData{
+		Prefix: "abc",
+		Items:  []json.RawMessage{json.RawMessage(`{"type":"text","text":"hi"}`)},
+	}, msg.ProviderState.Data)
+
+	assert.Equal(t, 11, entry.Usage.TotalTokens)
+	assert.Equal(t, 2, entry.Usage.CachedTokens())
+	assert.Equal(t, 1, entry.Usage.CacheWriteTokens())
+}
+
+// The manager writes entries through an interface value, so this pins that
+// the value-receiver MarshalJSON is reached on the real persist path.
+func TestSessionPersistProviderStateRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	require.NoError(t, err)
+
+	_, err = m.Append(core.Message{
+		Role:    core.RoleAssistant,
+		Content: "done",
+		ToolCalls: []core.ToolCall{{
+			ID: "call_1", Type: "function",
+			Function:         core.Function{Name: "read", Arguments: "{}"},
+			ThoughtSignature: "sig",
+		}},
+		ProviderState: &core.ProviderState{
+			Provider: core.ProviderAnthropic,
+			Model:    "claude-sonnet-4-5",
+			Endpoint: "https://api.anthropic.com",
+			Data: core.ProviderData{
+				Prefix: "abc",
+				Items:  []json.RawMessage{json.RawMessage(`{"type":"text","text":"hi"}`)},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	loaded, err := OpenSession(m.File())
+	require.NoError(t, err)
+	ctx := loaded.BuildContext()
+	require.Len(t, ctx, 1)
+	assert.Equal(t, m.BuildContext()[0].(SessionMessageEntry).Message, ctx[0].(SessionMessageEntry).Message)
+}
+
 // A resumed session must show its own token counts, so replay has to read
-// usage from the entry (llm.Message.Usage does not survive a reload).
+// usage from the entry (core.Message.Usage does not survive a reload).
 func TestReplaySnapshotUsageAfterReload(t *testing.T) {
 	dir := t.TempDir()
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
-	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "hello"})
+	_, err = m.Append(core.Message{Role: core.RoleUser, Content: "hello"})
 	require.NoError(t, err)
-	_, err = m.Append(llm.Message{
-		Role:    llm.RoleAssistant,
+	_, err = m.Append(core.Message{
+		Role:    core.RoleAssistant,
 		Content: "done",
-		Usage: llm.Usage{
+		Usage: core.Usage{
 			PromptTokens:        7,
 			CompletionTokens:    7,
 			TotalTokens:         19,
-			PromptTokensDetails: &llm.PromptTokensDetails{CachedTokens: 5},
+			PromptTokensDetails: &core.PromptTokensDetails{CachedTokens: 5},
 		},
 	})
 	require.NoError(t, err)
@@ -182,9 +304,9 @@ func TestSessionPersistCompaction(t *testing.T) {
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
-	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "old"})
+	_, err = m.Append(core.Message{Role: core.RoleUser, Content: "old"})
 	require.NoError(t, err)
-	keptID, err := m.Append(llm.Message{Role: llm.RoleAssistant, Content: "kept"})
+	keptID, err := m.Append(core.Message{Role: core.RoleAssistant, Content: "kept"})
 	require.NoError(t, err)
 	_, err = m.AppendCompaction(Compaction{
 		Summary:          "conversation summary",
@@ -195,7 +317,7 @@ func TestSessionPersistCompaction(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "after"})
+	_, err = m.Append(core.Message{Role: core.RoleUser, Content: "after"})
 	require.NoError(t, err)
 
 	loaded, err := OpenSession(m.File())
@@ -221,7 +343,7 @@ func TestReplaySnapshotCompactionTokensBefore(t *testing.T) {
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
-	keptID, err := m.Append(llm.Message{Role: llm.RoleAssistant, Content: "kept"})
+	keptID, err := m.Append(core.Message{Role: core.RoleAssistant, Content: "kept"})
 	require.NoError(t, err)
 	_, err = m.AppendCompaction(Compaction{
 		Summary:          "conversation summary",
@@ -252,7 +374,7 @@ func TestReplaySnapshotCompactionSummary(t *testing.T) {
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
-	keptID, err := m.Append(llm.Message{Role: llm.RoleAssistant, Content: "kept"})
+	keptID, err := m.Append(core.Message{Role: core.RoleAssistant, Content: "kept"})
 	require.NoError(t, err)
 	compactionID, err := m.AppendCompaction(Compaction{
 		Summary:          "conversation summary",
@@ -323,9 +445,9 @@ func TestListSessions(t *testing.T) {
 	dir := t.TempDir()
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
-	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "list me please"})
+	_, err = m.Append(core.Message{Role: core.RoleUser, Content: "list me please"})
 	require.NoError(t, err)
-	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+	_, err = m.Append(core.Message{Role: core.RoleAssistant, Content: "ok"})
 	require.NoError(t, err)
 
 	list, err := ListSessions(dir)

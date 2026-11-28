@@ -1,6 +1,6 @@
 package session
 
-import "github.com/pulseaiclub/phi/internal/llm"
+import "github.com/pulseaiclub/phi/internal/core"
 
 // ToolDetail resolves a friendly one-line display detail for a tool call's raw
 // JSON arguments, mirroring the live executor's DetailFromArgs. It returns ""
@@ -41,16 +41,16 @@ func replayEntry(snap Snapshot, entry SessionMessageEntry, detail ToolDetail) Sn
 		return replayBash(snap, entry)
 	}
 	switch msg.Role {
-	case llm.RoleUser:
-		images := make([]llm.Image, 0, len(msg.Images))
+	case core.RoleUser:
+		images := make([]core.Image, 0, len(msg.Images))
 		return Apply(snap, UserAppend{
 			ID:     entry.GetID(),
 			Text:   msg.Content,
 			Images: append(images, msg.Images...),
 		})
-	case llm.RoleAssistant:
+	case core.RoleAssistant:
 		return Apply(snap, AssistantMessageUpdate{Message: replayAssistant(entry.GetID(), entry, detail)})
-	case llm.RoleTool:
+	case core.RoleTool:
 		// The persisted result is the model-facing content; Name/Detail of the
 		// run are carried over from the tool_use block by Apply's merge.
 		return Apply(snap, ToolData{Run: ToolRun{
@@ -87,7 +87,7 @@ func replayBash(snap Snapshot, entry SessionMessageEntry) Snapshot {
 	}})
 }
 
-// replayAssistant converts a persisted assistant llm.Message into a session
+// replayAssistant converts a persisted assistant core.Message into a session
 // Message. Usage comes from the entry because it is persisted separately.
 func replayAssistant(id string, entry SessionMessageEntry, detail ToolDetail) Message {
 	msg := entry.Message
@@ -103,7 +103,7 @@ func replayAssistant(id string, entry SessionMessageEntry, detail ToolDetail) Me
 // content block and tool argument rules.
 func ProjectAssistant(
 	id string,
-	msg llm.Message,
+	msg core.Message,
 	detail ToolDetail,
 	state State,
 	reason StopReason,
@@ -127,7 +127,7 @@ func ProjectAssistant(
 
 // replayToolInput prefers the friendly detail (matching the live turn) and
 // falls back to the raw JSON arguments.
-func replayToolInput(call llm.ToolCall, detail ToolDetail) string {
+func replayToolInput(call core.ToolCall, detail ToolDetail) string {
 	if detail != nil {
 		if d := detail(call.Function.Name, call.Function.Arguments); d != "" {
 			return d

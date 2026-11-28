@@ -7,6 +7,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/project/model"
@@ -16,7 +17,7 @@ import (
 // All models live in one flat list under the models key; DefaultModel names
 // the entry used to start sessions (empty → the first entry).
 type Config struct {
-	Models       []llm.ModelConfig
+	Models       []core.ModelConfig
 	DefaultModel string // name of the default model; "" → first entry
 	// SkillPath is the configured skill_path with "~" expanded; empty falls
 	// back to ~/.phi/skills.
@@ -73,7 +74,7 @@ func (m AgentsRoleModels) RoleOverrides() map[job.Role]string {
 
 // Model returns the default model config with the skill roots and budget applied, ready
 // for agent.NewEngine.
-func (c *Config) Model() llm.ModelConfig {
+func (c *Config) Model() core.ModelConfig {
 	m := *c.defaultEntry()
 	m.SkillPaths = c.SkillPaths
 	return m
@@ -81,8 +82,8 @@ func (c *Config) Model() llm.ModelConfig {
 
 // AllModels returns every configured model with the skill roots and budget applied — the
 // complete set of switchable models.
-func (c *Config) AllModels() []llm.ModelConfig {
-	all := make([]llm.ModelConfig, len(c.Models))
+func (c *Config) AllModels() []core.ModelConfig {
+	all := make([]core.ModelConfig, len(c.Models))
 	copy(all, c.Models)
 	for i := range all {
 		all[i].SkillPaths = c.SkillPaths
@@ -92,19 +93,19 @@ func (c *Config) AllModels() []llm.ModelConfig {
 
 // FindModel returns the configured model whose name matches, so callers can
 // switch to it with its own api_key/base_url/context_window.
-func (c *Config) FindModel(name string) (llm.ModelConfig, bool) {
+func (c *Config) FindModel(name string) (core.ModelConfig, bool) {
 	for _, m := range c.AllModels() {
 		if m.Name == name {
 			return m, true
 		}
 	}
-	return llm.ModelConfig{}, false
+	return core.ModelConfig{}, false
 }
 
 // defaultEntry returns the default model entry (DefaultModel by name, else
 // the first entry), creating one if the config has no models yet so env-only
 // setups can still apply PHI_* overrides.
-func (c *Config) defaultEntry() *llm.ModelConfig {
+func (c *Config) defaultEntry() *core.ModelConfig {
 	if c.DefaultModel != "" {
 		for i := range c.Models {
 			if c.Models[i].Name == c.DefaultModel {
@@ -115,7 +116,7 @@ func (c *Config) defaultEntry() *llm.ModelConfig {
 	if len(c.Models) > 0 {
 		return &c.Models[0]
 	}
-	c.Models = append(c.Models, llm.ModelConfig{})
+	c.Models = append(c.Models, core.ModelConfig{})
 	return &c.Models[0]
 }
 
@@ -200,16 +201,16 @@ func parseConfigFileWithEnv(path string, withEnv bool) (*Config, error) {
 }
 
 // ResolveModelDoc resolves defaults and validates overrides for the runtime and editor.
-func ResolveModelDoc(m ModelDoc) (llm.ModelConfig, error) {
-	cfg := llm.ModelConfig{
+func ResolveModelDoc(m ModelDoc) (core.ModelConfig, error) {
+	cfg := core.ModelConfig{
 		Name: m.Name, Preset: m.Preset, APIKey: m.APIKey, BaseURL: m.BaseURL,
-		API:               llm.RouterType(m.API),
+		API:               core.RouterType(m.API),
 		RequestParameters: m.RequestParameters,
 	}
 	// Explicit fields below override preset defaults.
 	preset, ok := model.LookupBound(m.Preset, m.Name)
 	if m.Preset != "" && !ok {
-		return llm.ModelConfig{}, fmt.Errorf("unknown preset %q; use a built-in model name", m.Preset)
+		return core.ModelConfig{}, fmt.Errorf("unknown preset %q; use a built-in model name", m.Preset)
 	}
 	if ok {
 		pc := preset.Config
@@ -249,12 +250,12 @@ func ResolveModelDoc(m ModelDoc) (llm.ModelConfig, error) {
 	if m.ThinkEnabled != nil {
 		cfg.Think.Enabled = *m.ThinkEnabled
 		if !cfg.Think.Enabled {
-			cfg.Think.Mode = llm.Off
+			cfg.Think.Mode = core.Off
 		}
 	}
 	if m.ThinkLevel != "" {
-		cfg.Think.Mode = llm.ThinkMode(m.ThinkLevel)
-		cfg.Think.Enabled = cfg.Think.Mode != llm.Off
+		cfg.Think.Mode = core.ThinkMode(m.ThinkLevel)
+		cfg.Think.Enabled = cfg.Think.Mode != core.Off
 	}
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = "https://api.openai.com/v1"
@@ -262,7 +263,7 @@ func ResolveModelDoc(m ModelDoc) (llm.ModelConfig, error) {
 	if err := model.ValidateThinking(cfg); err != nil {
 		return cfg, err
 	}
-	if err := cfg.RequestParameters.Validate(cfg.API); err != nil {
+	if err := llm.ValidateRequestParameters(cfg.RequestParameters, cfg.API); err != nil {
 		return cfg, err
 	}
 	return cfg, nil

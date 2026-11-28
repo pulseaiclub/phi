@@ -3,11 +3,11 @@ package openai
 import (
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
 type streamAccumulator struct {
-	role      llm.Role
+	role      core.Role
 	content   strings.Builder
 	reasoning strings.Builder
 	toolCalls map[int]*toolCallAcc
@@ -28,9 +28,9 @@ func newStreamAccumulator() *streamAccumulator {
 	}
 }
 
-func (s *streamAccumulator) applyDelta(delta llm.StreamDelta) {
+func (s *streamAccumulator) applyDelta(delta core.StreamDelta) {
 	if delta.Role != "" {
-		s.role = llm.Role(delta.Role)
+		s.role = delta.Role
 	}
 	if delta.Content != "" {
 		s.content.WriteString(delta.Content)
@@ -43,7 +43,7 @@ func (s *streamAccumulator) applyDelta(delta llm.StreamDelta) {
 	}
 }
 
-func (s *streamAccumulator) applyMessage(msg *llm.Message) {
+func (s *streamAccumulator) applyMessage(msg *core.Message) {
 	if msg == nil {
 		return
 	}
@@ -60,7 +60,7 @@ func (s *streamAccumulator) applyMessage(msg *llm.Message) {
 	}
 }
 
-func (s *streamAccumulator) applyToolCallDelta(tc llm.ToolCall) {
+func (s *streamAccumulator) applyToolCallDelta(tc core.ToolCall) {
 	if tc.Index > s.maxIndex {
 		s.maxIndex = tc.Index
 	}
@@ -83,12 +83,12 @@ func (s *streamAccumulator) applyToolCallDelta(tc llm.ToolCall) {
 	}
 }
 
-func (s *streamAccumulator) message() llm.Message {
+func (s *streamAccumulator) message() core.Message {
 	role := s.role
 	if role == "" {
-		role = llm.RoleAssistant
+		role = core.RoleAssistant
 	}
-	return llm.Message{
+	return core.Message{
 		Role:             role,
 		Content:          s.content.String(),
 		ReasoningContent: s.reasoning.String(),
@@ -96,21 +96,21 @@ func (s *streamAccumulator) message() llm.Message {
 	}
 }
 
-func (s *streamAccumulator) orderedToolCalls() []llm.ToolCall {
+func (s *streamAccumulator) orderedToolCalls() []core.ToolCall {
 	if s.maxIndex < 0 {
 		return nil
 	}
-	out := make([]llm.ToolCall, 0, s.maxIndex+1)
+	out := make([]core.ToolCall, 0, s.maxIndex+1)
 	for i := 0; i <= s.maxIndex; i++ {
 		acc, ok := s.toolCalls[i]
 		if !ok {
 			continue
 		}
-		out = append(out, llm.ToolCall{
+		out = append(out, core.ToolCall{
 			Index: i,
 			ID:    acc.id,
 			Type:  acc.typ,
-			Function: llm.Function{
+			Function: core.Function{
 				Name:      acc.name,
 				Arguments: acc.args.String(),
 			},

@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
@@ -33,21 +33,21 @@ const (
 // nil keeps ls file-only.
 func LsTool(pool *mcp.Pool) tooldef.Tool {
 	return tooldef.NewTool(
-		tooldef.WithDefinition(llm.ToolDefinition{
+		tooldef.WithDefinition(core.ToolDefinition{
 			Name:        "ls",
 			Description: lsDescription,
-			Params: &llm.FunctionParameters{
+			Params: &core.FunctionParameters{
 				Type: "object",
-				Properties: llm.Object{
-					"path": llm.Object{
+				Properties: core.Object{
+					"path": core.Object{
 						"type":        "string",
 						"description": "Directory to list. Example: . or src, or mcp:// / mcp://<server>/tools/ for MCP",
 					},
-					"limit": llm.Object{
+					"limit": core.Object{
 						"type":        "integer",
 						"description": "Max files to scan. Example: 100 (default: 500)",
 					},
-					"max_depth": llm.Object{
+					"max_depth": core.Object{
 						"type":        "integer",
 						"description": "Max directory depth to expand. Example: 2 (default: 3)",
 					},

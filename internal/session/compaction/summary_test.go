@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/llm"
 )
 
@@ -51,7 +52,7 @@ func TestGenerateTurnPrefixSummary_IncludesPrompt(t *testing.T) {
 	got, err := generateTurnPrefixSummary(
 		t.Context(),
 		c,
-		[]llm.Message{{Role: llm.RoleUser, Content: "fix the parser"}},
+		[]core.Message{{Role: core.RoleUser, Content: "fix the parser"}},
 		OutputLimits{MaxTokens: 1024},
 	)
 
@@ -71,7 +72,7 @@ func TestGenerateSummary_IncludesPrompt(t *testing.T) {
 	_, err := generateSummary(
 		t.Context(),
 		c,
-		[]llm.Message{{Role: llm.RoleUser, Content: "hello"}},
+		[]core.Message{{Role: core.RoleUser, Content: "hello"}},
 		"",
 		OutputLimits{MaxTokens: 2048},
 	)
@@ -92,7 +93,7 @@ func TestGenerateSummary_Truncated_ReturnsError(t *testing.T) {
 	_, err := generateSummary(
 		t.Context(),
 		c,
-		[]llm.Message{{Role: llm.RoleUser, Content: "hi"}},
+		[]core.Message{{Role: core.RoleUser, Content: "hi"}},
 		"",
 		OutputLimits{MaxTokens: 2048},
 	)
@@ -107,7 +108,7 @@ func TestGenerateTurnPrefixSummary_Truncated_ReturnsError(t *testing.T) {
 	_, err := generateTurnPrefixSummary(
 		t.Context(),
 		c,
-		[]llm.Message{{Role: llm.RoleUser, Content: "hi"}},
+		[]core.Message{{Role: core.RoleUser, Content: "hi"}},
 		OutputLimits{MaxTokens: 1024},
 	)
 
@@ -128,7 +129,7 @@ func TestGenerateSummary_BlankText_ReturnsError(t *testing.T) {
 				_, err := generateSummary(
 					t.Context(),
 					c,
-					[]llm.Message{{Role: llm.RoleUser, Content: "hi"}},
+					[]core.Message{{Role: core.RoleUser, Content: "hi"}},
 					previousSummary,
 					OutputLimits{MaxTokens: 2048},
 				)
@@ -147,7 +148,7 @@ func TestGenerateTurnPrefixSummary_BlankText_ReturnsError(t *testing.T) {
 		_, err := generateTurnPrefixSummary(
 			t.Context(),
 			c,
-			[]llm.Message{{Role: llm.RoleUser, Content: "hi"}},
+			[]core.Message{{Role: core.RoleUser, Content: "hi"}},
 			OutputLimits{MaxTokens: 1024},
 		)
 
@@ -161,8 +162,8 @@ func TestSummarizeMidTurnCut_CapsEachSummary(t *testing.T) {
 	c := &captureCompactor{}
 
 	summary, err := summarizeMidTurnCut(t.Context(), CompactionPreparation{
-		MessagesToSummarize: []llm.Message{{Role: llm.RoleUser, Content: "older history"}},
-		TurnPrefixMessages:  []llm.Message{{Role: llm.RoleUser, Content: "turn prefix"}},
+		MessagesToSummarize: []core.Message{{Role: core.RoleUser, Content: "older history"}},
+		TurnPrefixMessages:  []core.Message{{Role: core.RoleUser, Content: "turn prefix"}},
 		ReserveTokens:       16384,
 		Limits:              OutputLimits{MaxTokens: 50_000},
 	}, c)
@@ -241,8 +242,8 @@ func TestCompact_MidTurnCut_BlankBucketSummary_ReturnsError(t *testing.T) {
 				t.Run(name, func(t *testing.T) {
 					prep := CompactionPreparation{
 						IsMidTurnCut:        true,
-						MessagesToSummarize: []llm.Message{{Role: llm.RoleUser, Content: "older history"}},
-						TurnPrefixMessages:  []llm.Message{{Role: llm.RoleUser, Content: "turn prefix"}},
+						MessagesToSummarize: []core.Message{{Role: core.RoleUser, Content: "older history"}},
+						TurnPrefixMessages:  []core.Message{{Role: core.RoleUser, Content: "turn prefix"}},
 						ReserveTokens:       16384,
 					}
 					if withFileOps {
@@ -285,7 +286,7 @@ func TestCompact_EmptyHistory(t *testing.T) {
 				}
 				wantCalls := 0
 				if midTurn {
-					prep.TurnPrefixMessages = []llm.Message{{Role: llm.RoleUser, Content: "fix the parser"}}
+					prep.TurnPrefixMessages = []core.Message{{Role: core.RoleUser, Content: "fix the parser"}}
 					want += "\n\n---\n\n**Turn Context (mid-turn cut):**\n\nCurrent turn context."
 					wantCalls = 1
 				}

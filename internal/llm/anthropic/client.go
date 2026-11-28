@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/util"
 )
@@ -45,10 +46,10 @@ func normalizeBaseURL(baseURL string) string {
 // messages become one user message with tool_result blocks; prompt caching
 // is pinned to the tail of the request.
 func BuildRequest(
-	cfg llm.ModelConfig,
+	cfg core.ModelConfig,
 	system string,
-	messages []llm.Message,
-	tools []llm.ToolDefinition,
+	messages []core.Message,
+	tools []core.ToolDefinition,
 ) AnthropicRequest {
 	cc := &cacheControl{Type: "ephemeral", TTL: "1h"}
 
@@ -67,9 +68,9 @@ func BuildRequest(
 	if strings.TrimSpace(system) != "" {
 		systemText.WriteString(system)
 	}
-	var msgs []llm.Message
+	var msgs []core.Message
 	for _, m := range messages {
-		if m.Role == llm.RoleSystem {
+		if m.Role == core.RoleSystem {
 			if systemText.Len() > 0 {
 				systemText.WriteByte('\n')
 			}
@@ -103,7 +104,7 @@ func BuildRequest(
 	for i := 0; i < len(msgs); i++ {
 		m := msgs[i]
 		switch m.Role {
-		case llm.RoleUser:
+		case core.RoleUser:
 			msg := anthropicMessage{Role: "user"}
 			if len(m.Images) > 0 {
 				blocks := make([]anthropicContentBlock, 0, len(m.Images)+1)
@@ -126,10 +127,10 @@ func BuildRequest(
 			}
 			req.Messages = append(req.Messages, msg)
 
-		case llm.RoleAssistant:
+		case core.RoleAssistant:
 			msg := anthropicMessage{Role: "assistant"}
 			state := m.ProviderState
-			if state != nil && state.Provider == llm.Anthropic &&
+			if state != nil && state.Provider == core.ProviderAnthropic &&
 				state.Model == cfg.Name && state.Endpoint == endpoint && req.Thinking != nil &&
 				len(state.Data.Items) > 0 && state.Data.Prefix != "" && state.Data.Prefix == prefix.sum(&req) {
 				items := make([]json.RawMessage, len(state.Data.Items))
@@ -163,9 +164,9 @@ func BuildRequest(
 			}
 			req.Messages = append(req.Messages, msg)
 
-		case llm.RoleTool:
+		case core.RoleTool:
 			blocks := make([]anthropicContentBlock, 0, 1)
-			for i < len(msgs) && msgs[i].Role == llm.RoleTool {
+			for i < len(msgs) && msgs[i].Role == core.RoleTool {
 				tm := msgs[i]
 				id, ok := toolIDs[tm.ToolCallID]
 				if !ok {
@@ -213,11 +214,11 @@ func BuildRequest(
 
 	if prefix.hash != nil {
 		if sum := prefix.sum(&req); sum != "" {
-			req.native = &llm.ProviderState{
-				Provider: llm.Anthropic,
+			req.native = &core.ProviderState{
+				Provider: core.ProviderAnthropic,
 				Model:    cfg.Name,
 				Endpoint: endpoint,
-				Data:     llm.ProviderData{Prefix: sum},
+				Data:     core.ProviderData{Prefix: sum},
 			}
 		}
 	} else {
@@ -276,17 +277,17 @@ const minThinkingBudget = 1024
 // buildThinkingConfig maps a ThinkMode to Anthropic's thinking parameter.
 // Adaptive ("adaptive") lets the model decide the effort level;
 // budget-based sets a fixed token cap per thinking level.
-func buildThinkingConfig(mode llm.ThinkMode) *thinkingConfig {
+func buildThinkingConfig(mode core.ThinkMode) *thinkingConfig {
 	switch mode {
-	case llm.Off:
+	case core.Off:
 		return nil
-	case llm.Minimal, llm.Low:
+	case core.Minimal, core.Low:
 		budget := minThinkingBudget
 		return &thinkingConfig{Type: "enabled", BudgetTokens: &budget}
-	case llm.Medium:
+	case core.Medium:
 		budget := 8192
 		return &thinkingConfig{Type: "enabled", BudgetTokens: &budget}
-	case llm.High, llm.XHigh, llm.Max:
+	case core.High, core.XHigh, core.Max:
 		budget := 16384
 		return &thinkingConfig{Type: "enabled", BudgetTokens: &budget}
 	default:
@@ -340,7 +341,7 @@ func validateThinking(req *AnthropicRequest) error {
 
 // messagesHeaders returns the auth/version headers for the Messages API; a
 // streaming request additionally advertises SSE.
-func messagesHeaders(cfg llm.ModelConfig, stream bool) http.Header {
+func messagesHeaders(cfg core.ModelConfig, stream bool) http.Header {
 	h := http.Header{}
 	h.Set("X-Api-Key", cfg.APIKey)
 	h.Set("Anthropic-Version", apiVersion)
@@ -355,13 +356,13 @@ func messagesHeaders(cfg llm.ModelConfig, stream bool) http.Header {
 func Stream(
 	ctx context.Context,
 	httpClient *http.Client,
-	cfg llm.ModelConfig,
+	cfg core.ModelConfig,
 	req *AnthropicRequest,
-) iter.Seq2[llm.StreamEvent, error] {
-	return func(yield func(llm.StreamEvent, error) bool) {
+) iter.Seq2[core.StreamEvent, error] {
+	return func(yield func(core.StreamEvent, error) bool) {
 		body, err := marshalRequest(req, cfg)
 		if err != nil {
-			yield(llm.StreamEvent{}, err)
+			yield(core.StreamEvent{}, err)
 			return
 		}
 		native := req.native
@@ -374,14 +375,14 @@ func Stream(
 		httpResp, err := llm.Post(ctx, httpClient, "anthropic",
 			normalizeBaseURL(cfg.BaseURL)+messagesPath, body, messagesHeaders(cfg, true))
 		if err != nil {
-			yield(llm.StreamEvent{}, err)
+			yield(core.StreamEvent{}, err)
 			return
 		}
 		defer httpResp.Body.Close()
 
-		processStream(httpResp.Body, func(ev llm.StreamEvent, err error) bool {
+		processStream(httpResp.Body, func(ev core.StreamEvent, err error) bool {
 			if ev.Final != nil && ev.Final.ProviderState != nil {
-				var state *llm.ProviderState
+				var state *core.ProviderState
 				if native != nil {
 					copy := *native
 					state = &copy
@@ -425,7 +426,7 @@ type streamUsage struct {
 	OutputTokens *int `json:"output_tokens"`
 }
 
-func (u streamUsage) apply(usage *llm.Usage) {
+func (u streamUsage) apply(usage *core.Usage) {
 	if u.InputTokens != nil {
 		usage.PromptTokens = *u.InputTokens
 	}
@@ -433,7 +434,7 @@ func (u streamUsage) apply(usage *llm.Usage) {
 		usage.CompletionTokens = *u.OutputTokens
 	}
 	if u.CacheRead != nil || u.CacheCreate != nil {
-		var details llm.PromptTokensDetails
+		var details core.PromptTokensDetails
 		if usage.PromptTokensDetails != nil {
 			details = *usage.PromptTokensDetails
 		}
@@ -447,13 +448,13 @@ func (u streamUsage) apply(usage *llm.Usage) {
 	}
 }
 
-func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
+func processStream(body io.Reader, yield func(core.StreamEvent, error) bool) {
 	var (
 		content     strings.Builder
 		reasoning   strings.Builder
-		usage       llm.Usage
-		toolCalls   []llm.ToolCall
-		currentTool *llm.ToolCall
+		usage       core.Usage
+		toolCalls   []core.ToolCall
+		currentTool *core.ToolCall
 		toolArgs    strings.Builder
 		native      nativeCapture
 		stopped     bool
@@ -462,7 +463,7 @@ func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 stream:
 	for data, parseErr := range util.ParseDataStream(body) {
 		if parseErr != nil {
-			yield(llm.StreamEvent{Type: llm.StreamEventTypeError, Err: parseErr.Error()}, parseErr)
+			yield(core.StreamEvent{Type: core.StreamEventTypeError, Err: parseErr.Error()}, parseErr)
 			return
 		}
 		payloadLine := bytes.TrimSpace(data)
@@ -505,11 +506,11 @@ stream:
 				continue
 			}
 			if start.Type == "tool_use" {
-				currentTool = &llm.ToolCall{
+				currentTool = &core.ToolCall{
 					Index: ev.Index,
 					ID:    start.ID,
 					Type:  "function",
-					Function: llm.Function{
+					Function: core.Function{
 						Name:      start.Name,
 						Arguments: string(start.Input),
 					},
@@ -517,9 +518,9 @@ stream:
 			}
 			content.WriteString(start.Text)
 			reasoning.WriteString(start.Thinking)
-			if (start.Text != "" || start.Thinking != "") && !yield(llm.StreamEvent{
-				Type:  llm.StreamEventTypeDelta,
-				Delta: llm.StreamDelta{Content: start.Text, ReasoningContent: start.Thinking},
+			if (start.Text != "" || start.Thinking != "") && !yield(core.StreamEvent{
+				Type:  core.StreamEventTypeDelta,
+				Delta: core.StreamDelta{Content: start.Text, ReasoningContent: start.Thinking},
 				Usage: usage,
 			}, nil) {
 				return
@@ -531,9 +532,9 @@ stream:
 			case "text_delta":
 				native.delta(ev.Index, delta.Type, delta.Text)
 				content.WriteString(delta.Text)
-				if !yield(llm.StreamEvent{
-					Type:  llm.StreamEventTypeDelta,
-					Delta: llm.StreamDelta{Content: delta.Text},
+				if !yield(core.StreamEvent{
+					Type:  core.StreamEventTypeDelta,
+					Delta: core.StreamDelta{Content: delta.Text},
 					Usage: usage,
 				}, nil) {
 					return
@@ -542,9 +543,9 @@ stream:
 			case "thinking_delta":
 				native.delta(ev.Index, delta.Type, delta.Thinking)
 				reasoning.WriteString(delta.Thinking)
-				if !yield(llm.StreamEvent{
-					Type:  llm.StreamEventTypeDelta,
-					Delta: llm.StreamDelta{ReasoningContent: delta.Thinking},
+				if !yield(core.StreamEvent{
+					Type:  core.StreamEventTypeDelta,
+					Delta: core.StreamDelta{ReasoningContent: delta.Thinking},
 					Usage: usage,
 				}, nil) {
 					return
@@ -560,14 +561,14 @@ stream:
 				}
 				toolArgs.WriteString(delta.PartialJSON)
 				currentTool.Function.Arguments = toolArgs.String()
-				if !yield(llm.StreamEvent{
-					Type: llm.StreamEventTypeDelta,
-					Delta: llm.StreamDelta{ToolCalls: []llm.ToolCall{
+				if !yield(core.StreamEvent{
+					Type: core.StreamEventTypeDelta,
+					Delta: core.StreamDelta{ToolCalls: []core.ToolCall{
 						{
 							Index: currentTool.Index,
 							ID:    currentTool.ID,
 							Type:  currentTool.Type,
-							Function: llm.Function{
+							Function: core.Function{
 								Name:      currentTool.Function.Name,
 								Arguments: currentTool.Function.Arguments,
 							},
@@ -600,7 +601,7 @@ stream:
 			u.apply(&usage)
 		case "error":
 			err := fmt.Errorf("anthropic stream error: %s", llm.APIErrorMessage(payloadLine))
-			yield(llm.StreamEvent{Type: llm.StreamEventTypeError, Err: err.Error()}, err)
+			yield(core.StreamEvent{Type: core.StreamEventTypeError, Err: err.Error()}, err)
 			return
 		case "message_stop":
 			stopped = true
@@ -612,8 +613,8 @@ stream:
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens + usage.CachedTokens() + usage.CacheWriteTokens()
 	done := llm.AssistantDone(content.String(), reasoning.String(), toolCalls, usage)
 	if native.hasThinking && !native.invalid && native.block == nil && stopped {
-		done.Final.ProviderState = &llm.ProviderState{
-			Data: llm.ProviderData{Items: native.items},
+		done.Final.ProviderState = &core.ProviderState{
+			Data: core.ProviderData{Items: native.items},
 		}
 	}
 	yield(done, nil)
@@ -640,7 +641,7 @@ func NewCompactRequest(model, prompt string, maxTokens int) *AnthropicRequest {
 func CompactRequest(
 	ctx context.Context,
 	httpClient *http.Client,
-	cfg llm.ModelConfig,
+	cfg core.ModelConfig,
 	req *AnthropicRequest,
 ) (llm.CompactResult, error) {
 	body, err := marshalRequest(req, cfg)
@@ -680,7 +681,7 @@ func CompactRequest(
 	}, nil
 }
 
-func marshalRequest(req *AnthropicRequest, cfg llm.ModelConfig) ([]byte, error) {
+func marshalRequest(req *AnthropicRequest, cfg core.ModelConfig) ([]byte, error) {
 	body, err := llm.MarshalRequest(req, cfg)
 	if err != nil {
 		return nil, err

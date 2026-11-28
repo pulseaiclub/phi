@@ -8,8 +8,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/extension"
-	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
@@ -47,9 +47,9 @@ func NewExecutor(registry tooldef.Registry, cwd string, extRunner extension.Exte
 // sequential execution. Results always come back in call order.
 func (e *Executor) Run(
 	ctx context.Context,
-	calls []llm.ToolCall,
+	calls []core.ToolCall,
 	emit func(session.ToolData) bool,
-) (msgs []llm.Message, stop bool, stopReason string) {
+) (msgs []core.Message, stop bool, stopReason string) {
 	if e.readableBatch(calls) {
 		return e.runConcurrent(ctx, calls, emit)
 	}
@@ -58,7 +58,7 @@ func (e *Executor) Run(
 
 // readableBatch reports whether every call targets a registered read-only
 // tool. Unknown tools are treated as unsafe (a typo'd name could be a write).
-func (e *Executor) readableBatch(calls []llm.ToolCall) bool {
+func (e *Executor) readableBatch(calls []core.ToolCall) bool {
 	if len(calls) < 2 {
 		return false
 	}
@@ -74,10 +74,10 @@ func (e *Executor) readableBatch(calls []llm.ToolCall) bool {
 // runSequential executes calls one at a time, stopping at the first halt.
 func (e *Executor) runSequential(
 	ctx context.Context,
-	calls []llm.ToolCall,
+	calls []core.ToolCall,
 	emit func(session.ToolData) bool,
-) (msgs []llm.Message, stop bool, stopReason string) {
-	results := make([]llm.Message, 0, len(calls))
+) (msgs []core.Message, stop bool, stopReason string) {
+	results := make([]core.Message, 0, len(calls))
 	for _, call := range calls {
 		if ctx.Err() != nil {
 			results = append(results, e.cancelResult(call, emit))
@@ -99,11 +99,11 @@ func (e *Executor) runSequential(
 // safe to drop.
 func (e *Executor) runConcurrent(
 	ctx context.Context,
-	calls []llm.ToolCall,
+	calls []core.ToolCall,
 	emit func(session.ToolData) bool,
-) (msgs []llm.Message, stop bool, stopReason string) {
+) (msgs []core.Message, stop bool, stopReason string) {
 	type outcome struct {
-		msg    llm.Message
+		msg    core.Message
 		halt   bool
 		reason string
 	}
@@ -133,7 +133,7 @@ func (e *Executor) runConcurrent(
 	}
 	wg.Wait()
 
-	msgs = make([]llm.Message, 0, len(calls))
+	msgs = make([]core.Message, 0, len(calls))
 	for _, o := range outcomes {
 		msgs = append(msgs, o.msg)
 		if o.halt {
@@ -145,9 +145,9 @@ func (e *Executor) runConcurrent(
 
 func (e *Executor) runOne(
 	ctx context.Context,
-	call llm.ToolCall,
+	call core.ToolCall,
 	emit func(session.ToolData) bool,
-) (llm.Message, bool, string) {
+) (core.Message, bool, string) {
 	ctx = tooldef.WithCwd(ctx, e.cwd)
 	tool, ok := e.registry[call.Function.Name]
 	args := json.RawMessage(call.Function.Arguments)
@@ -258,15 +258,15 @@ func (e *Executor) runOne(
 }
 
 func (e *Executor) rejectResult(
-	call llm.ToolCall,
+	call core.ToolCall,
 	detail, reason string,
 	emit func(session.ToolData) bool,
-) llm.Message {
+) core.Message {
 	_ = emit(session.ToolData{Run: e.toolRun(call, session.ToolRejected, detail, reason, "")})
 	return e.toolMessage(call.ID, reason)
 }
 
-func (e *Executor) cancelResult(call llm.ToolCall, emit func(session.ToolData) bool) llm.Message {
+func (e *Executor) cancelResult(call core.ToolCall, emit func(session.ToolData) bool) core.Message {
 	detail := call.Function.Arguments
 	if tool, ok := e.registry[call.Function.Name]; ok && tool.DetailFromArgs != nil {
 		if d := tool.DetailFromArgs(json.RawMessage(call.Function.Arguments)); d != "" {
@@ -280,7 +280,7 @@ func (e *Executor) cancelResult(call llm.ToolCall, emit func(session.ToolData) b
 // toolRun builds a ToolData payload with Name always set so headless JSONL
 // and stderr logs never omit toolName.
 func (*Executor) toolRun(
-	call llm.ToolCall,
+	call core.ToolCall,
 	status session.ToolStatus,
 	detail, errText, output string,
 ) session.ToolRun {
@@ -294,9 +294,9 @@ func (*Executor) toolRun(
 	}
 }
 
-func (*Executor) toolMessage(id, content string) llm.Message {
-	return llm.Message{
-		Role:       llm.RoleTool,
+func (*Executor) toolMessage(id, content string) core.Message {
+	return core.Message{
+		Role:       core.RoleTool,
 		ToolCallID: id,
 		Content:    content,
 	}

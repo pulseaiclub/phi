@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/job"
-	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"github.com/pulseaiclub/phi/internal/util"
 )
@@ -84,34 +84,34 @@ func AgentTools(opts ...AgentOption) []tooldef.Tool {
 
 func agentSpawnTool(cfg agentConfig) tooldef.Tool {
 	return tooldef.NewTool(
-		tooldef.WithDefinition(llm.ToolDefinition{
+		tooldef.WithDefinition(core.ToolDefinition{
 			Name: "agent_spawn",
 			Description: fmt.Sprintf(agentLaunchGuidance+`
 
 Starts asynchronously and returns job_id immediately. Use agent_wait with only job_id for the summary. Best for parallel jobs.
 
 Concurrency cap: at most %d sub-agents run concurrently; spawning more fails (jobs are not queued).`, cfg.manager.MaxConcurrent()),
-			Params: &llm.FunctionParameters{
+			Params: &core.FunctionParameters{
 				Type: "object",
-				Properties: llm.Object{
-					"prompt": llm.Object{
+				Properties: core.Object{
+					"prompt": core.Object{
 						"type":        "string",
 						"description": "Self-contained task. Include context, scope, and exactly what the final summary must return. The sub-agent cannot ask follow-ups.",
 					},
-					"description": llm.Object{
+					"description": core.Object{
 						"type":        "string",
 						"description": "Very short label for the UI / job list (e.g. \"find auth config\").",
 					},
-					"role": llm.Object{
+					"role": core.Object{
 						"type":        "string",
 						"description": "explore (default) | review | worker. See tool description for when to pick each.",
 						"enum":        []string{"explore", "review", "worker"},
 					},
-					"workdir": llm.Object{
+					"workdir": core.Object{
 						"type":        "string",
 						"description": "Working directory for the sub-agent (default: parent session cwd).",
 					},
-					"timeout_sec": llm.Object{
+					"timeout_sec": core.Object{
 						"type":        "integer",
 						"description": "Optional run timeout in seconds for the job itself (not wait).",
 					},
@@ -208,7 +208,7 @@ func roleDetail(role, rest string) string {
 
 func agentWaitTool(cfg agentConfig) tooldef.Tool {
 	return tooldef.NewTool(
-		tooldef.WithDefinition(llm.ToolDefinition{
+		tooldef.WithDefinition(core.ToolDefinition{
 			Name: "agent_wait",
 			Description: `Wait for a sub-agent to finish and return its complete result.md summary.
 
@@ -217,14 +217,14 @@ Normally call with only job_id: {"job_id":"..."}. With timeout_sec omitted or 0,
 Do independent work before waiting. For parallel jobs, spawn all first, then wait for each result you need.
 Set timeout_sec only when you need control back before completion. If it returns a non-terminal status, the job is still running; omit timeout_sec on the next wait to receive the result.
 A wait timeout or interrupted wait does NOT cancel the job; it keeps running until the session ends.`,
-			Params: &llm.FunctionParameters{
+			Params: &core.FunctionParameters{
 				Type: "object",
-				Properties: llm.Object{
-					"job_id": llm.Object{
+				Properties: core.Object{
+					"job_id": core.Object{
 						"type":        "string",
 						"description": "Job id from agent_spawn.",
 					},
-					"timeout_sec": llm.Object{
+					"timeout_sec": core.Object{
 						"type":        "integer",
 						"description": "Omit or use 0 to wait until completion (recommended). Positive seconds limit only this wait, not the job. Avoid short polling timeouts.",
 					},

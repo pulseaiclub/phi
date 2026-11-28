@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/util"
 )
 
@@ -106,7 +106,7 @@ func readSessionMeta(path string, e os.DirEntry) (SessionMeta, error) {
 			meta.Cwd = e.Cwd
 			meta.Parent = e.ParentSession
 		case SessionMessageEntry:
-			if e.Message.Role == llm.RoleUser && strings.TrimSpace(e.Message.Content) != "" {
+			if e.Message.Role == core.RoleUser && strings.TrimSpace(e.Message.Content) != "" {
 				meta.Preview = truncatePreview(e.Message.Content, 72)
 			}
 		}
@@ -254,7 +254,7 @@ func OpenSession(path string) (*Manager, error) {
 			byIDs[id] = entry
 			entries = append(entries, entry)
 			leafID = &id
-			if msg, ok := entry.(SessionMessageEntry); ok && msg.Message.Role == llm.RoleAssistant {
+			if msg, ok := entry.(SessionMessageEntry); ok && msg.Message.Role == core.RoleAssistant {
 				hasAssistantMsg = true
 			}
 		}

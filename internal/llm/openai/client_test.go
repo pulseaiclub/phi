@@ -2,21 +2,23 @@ package openai
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
 func TestBuildRequestImages(t *testing.T) {
-	cfg := llm.ModelConfig{Name: "gpt-4o", APIKey: "k", BaseURL: "https://api.openai.com/v1"}
-	req := BuildRequest(cfg, "sys", []llm.Message{
+	cfg := core.ModelConfig{Name: "gpt-4o", APIKey: "k", BaseURL: "https://api.openai.com/v1"}
+	req := BuildRequest(cfg, "sys", []core.Message{
 		{
-			Role:    llm.RoleUser,
+			Role:    core.RoleUser,
 			Content: "what is this?",
-			Images: []llm.Image{
+			Images: []core.Image{
 				{Data: "QUJD", MimeType: "image/png"},
 			},
 		},
@@ -42,9 +44,17 @@ func TestBuildRequestImages(t *testing.T) {
 	assert.NotContains(t, string(body), `"images"`)
 }
 
+func TestBuildRequestNilToolParameters(t *testing.T) {
+	req := BuildRequest(core.ModelConfig{Name: "gpt-4o"}, "", nil, []core.ToolDefinition{{Name: "read"}})
+	body, err := json.Marshal(req)
+	require.NoError(t, err)
+	assert.Contains(t, string(body), `"parameters":null`)
+	assert.Contains(t, string(body), `"description":""`, "definition fields stay present when empty")
+}
+
 func TestBuildRequestNoImagesKeepsStringContent(t *testing.T) {
-	cfg := llm.ModelConfig{Name: "gpt-4o", APIKey: "k", BaseURL: "https://api.openai.com/v1"}
-	req := BuildRequest(cfg, "", []llm.Message{{Role: llm.RoleUser, Content: "hi"}}, nil)
+	cfg := core.ModelConfig{Name: "gpt-4o", APIKey: "k", BaseURL: "https://api.openai.com/v1"}
+	req := BuildRequest(cfg, "", []core.Message{{Role: core.RoleUser, Content: "hi"}}, nil)
 
 	body, err := json.Marshal(req)
 	require.NoError(t, err)
@@ -65,7 +75,7 @@ func TestNormalizeUsageSplitsCacheBuckets(t *testing.T) {
 	t.Parallel()
 	tests := map[string]struct {
 		wire usageWire
-		want llm.Usage
+		want core.Usage
 	}{
 		"openai details": {
 			wire: usageWire{
@@ -73,16 +83,16 @@ func TestNormalizeUsageSplitsCacheBuckets(t *testing.T) {
 				PromptTokensDetails: &usageWireDetails{CachedTokens: 4},
 			},
 			// 10 - 4 cached, plus the 5-token reply.
-			want: llm.Usage{
+			want: core.Usage{
 				PromptTokens: 6, CompletionTokens: 5, TotalTokens: 15,
-				PromptTokensDetails: &llm.PromptTokensDetails{CachedTokens: 4},
+				PromptTokensDetails: &core.PromptTokensDetails{CachedTokens: 4},
 			},
 		},
 		"deepseek hit field": {
 			wire: usageWire{PromptTokens: 100, CompletionTokens: 20, PromptCacheHitTokens: 80},
-			want: llm.Usage{
+			want: core.Usage{
 				PromptTokens: 20, CompletionTokens: 20, TotalTokens: 120,
-				PromptTokensDetails: &llm.PromptTokensDetails{CachedTokens: 80},
+				PromptTokensDetails: &core.PromptTokensDetails{CachedTokens: 80},
 			},
 		},
 		"cache write": {
@@ -90,9 +100,9 @@ func TestNormalizeUsageSplitsCacheBuckets(t *testing.T) {
 				PromptTokens: 100, CompletionTokens: 10,
 				PromptTokensDetails: &usageWireDetails{CachedTokens: 30, CacheWriteTokens: 20},
 			},
-			want: llm.Usage{
+			want: core.Usage{
 				PromptTokens: 50, CompletionTokens: 10, TotalTokens: 110,
-				PromptTokensDetails: &llm.PromptTokensDetails{CachedTokens: 30, CacheWriteTokens: 20},
+				PromptTokensDetails: &core.PromptTokensDetails{CachedTokens: 30, CacheWriteTokens: 20},
 			},
 		},
 		"hit field and details agree": {
@@ -100,9 +110,9 @@ func TestNormalizeUsageSplitsCacheBuckets(t *testing.T) {
 				PromptTokens: 100, CompletionTokens: 1, PromptCacheHitTokens: 60,
 				PromptTokensDetails: &usageWireDetails{CachedTokens: 60},
 			},
-			want: llm.Usage{
+			want: core.Usage{
 				PromptTokens: 40, CompletionTokens: 1, TotalTokens: 101,
-				PromptTokensDetails: &llm.PromptTokensDetails{CachedTokens: 60},
+				PromptTokensDetails: &core.PromptTokensDetails{CachedTokens: 60},
 			},
 		},
 		"cache larger than prompt clamps at zero": {
@@ -110,12 +120,12 @@ func TestNormalizeUsageSplitsCacheBuckets(t *testing.T) {
 				PromptTokens: 3, CompletionTokens: 1,
 				PromptTokensDetails: &usageWireDetails{CachedTokens: 9},
 			},
-			want: llm.Usage{
+			want: core.Usage{
 				PromptTokens: 0, CompletionTokens: 1, TotalTokens: 10,
-				PromptTokensDetails: &llm.PromptTokensDetails{CachedTokens: 9},
+				PromptTokensDetails: &core.PromptTokensDetails{CachedTokens: 9},
 			},
 		},
-		"no usage": {wire: usageWire{}, want: llm.Usage{}},
+		"no usage": {wire: usageWire{}, want: core.Usage{}},
 	}
 	for name, tt := range tests {
 		assert.Equal(t, tt.want, normalizeUsage(tt.wire), name)
@@ -123,21 +133,21 @@ func TestNormalizeUsageSplitsCacheBuckets(t *testing.T) {
 }
 
 func TestBuildRequestDoesNotInferDeepSeekThinking(t *testing.T) {
-	cfg := llm.ModelConfig{Name: "deepseek-flash", Think: llm.ThinkConfig{Enabled: true, Mode: llm.High}}
-	req := BuildRequest(cfg, "", []llm.Message{{Role: llm.RoleUser, Content: "hi"}}, nil)
+	cfg := core.ModelConfig{Name: "deepseek-flash", Think: core.ThinkConfig{Enabled: true, Mode: core.High}}
+	req := BuildRequest(cfg, "", []core.Message{{Role: core.RoleUser, Content: "hi"}}, nil)
 	assert.Nil(t, req.Thinking)
 	assert.Equal(t, "high", req.ReasoningEffort)
 }
 
 func TestBuildRequestDropsThoughtSignature(t *testing.T) {
-	cfg := llm.ModelConfig{Name: "gpt-4o", APIKey: "k", BaseURL: "https://api.openai.com/v1"}
-	calls := []llm.ToolCall{{
+	cfg := core.ModelConfig{Name: "gpt-4o", APIKey: "k", BaseURL: "https://api.openai.com/v1"}
+	calls := []core.ToolCall{{
 		ID: "read", Type: "function", ThoughtSignature: "sig-a",
-		Function: llm.Function{Name: "read", Arguments: `{"path":"a.go"}`},
+		Function: core.Function{Name: "read", Arguments: `{"path":"a.go"}`},
 	}}
-	req := BuildRequest(cfg, "", []llm.Message{
-		{Role: llm.RoleUser, Content: "hi"},
-		{Role: llm.RoleAssistant, ToolCalls: calls},
+	req := BuildRequest(cfg, "", []core.Message{
+		{Role: core.RoleUser, Content: "hi"},
+		{Role: core.RoleAssistant, ToolCalls: calls},
 	}, nil)
 
 	body, err := json.Marshal(req)
@@ -145,4 +155,51 @@ func TestBuildRequestDropsThoughtSignature(t *testing.T) {
 	assert.NotContains(t, string(body), "thought_signature")
 	assert.Contains(t, string(body), `"name":"read"`)
 	assert.Equal(t, "sig-a", calls[0].ThoughtSignature, "the session's copy keeps its signature")
+}
+
+// Some gateways answer with content parts even for plain text; that must fail
+// loudly instead of persisting an empty summary.
+func TestCompactRequestRejectsNonStringContent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(
+			[]byte(`{"choices":[{"message":{"role":"assistant","content":[{"type":"text","text":"summary"}]},` +
+				`"finish_reason":"stop"}]}`),
+		)
+	}))
+	defer srv.Close()
+
+	cfg := core.ModelConfig{Name: "gateway-model", BaseURL: srv.URL}
+	_, err := CompactRequest(t.Context(), srv.Client(), cfg, NewCompactRequest(cfg, "summarize", 0))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "message content is []interface {}, want string")
+}
+
+func TestMessageDomainContent(t *testing.T) {
+	withCalls := message{
+		Role:    core.RoleAssistant,
+		Content: "hi",
+		ToolCalls: []apiToolCall{{
+			ID: "c1", Type: "function", Function: apiFunction{Name: "read", Arguments: "{}"},
+		}},
+	}
+	got, err := withCalls.domain()
+	require.NoError(t, err)
+	assert.Equal(t, core.Message{
+		Role:    core.RoleAssistant,
+		Content: "hi",
+		ToolCalls: []core.ToolCall{{
+			ID: "c1", Type: "function", Function: core.Function{Name: "read", Arguments: "{}"},
+		}},
+	}, got)
+
+	// A tool-call-only reply carries content: null, which is an empty string.
+	toolOnly := message{Content: nil}
+	got, err = toolOnly.domain()
+	require.NoError(t, err)
+	assert.Empty(t, got.Content)
+
+	parts := message{Content: []any{map[string]any{"type": "text", "text": "summary"}}}
+	_, err = parts.domain()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "message content is []interface {}, want string")
 }

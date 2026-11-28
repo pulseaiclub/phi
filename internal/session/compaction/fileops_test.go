@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/session"
 )
 
@@ -52,10 +52,10 @@ func TestExtractPathsFromArgs(t *testing.T) {
 func TestFileOperation_extractMessageContent(t *testing.T) {
 	t.Run("skip non-assistant messages", func(t *testing.T) {
 		f := &FileOperation{}
-		msg := llm.Message{
-			Role: llm.RoleUser,
-			ToolCalls: []llm.ToolCall{{
-				Function: llm.Function{Name: "read", Arguments: `{"path":"x"}`},
+		msg := core.Message{
+			Role: core.RoleUser,
+			ToolCalls: []core.ToolCall{{
+				Function: core.Function{Name: "read", Arguments: `{"path":"x"}`},
 			}},
 		}
 		f.extractMessageContent(msg)
@@ -66,21 +66,21 @@ func TestFileOperation_extractMessageContent(t *testing.T) {
 
 	t.Run("skip when no ToolCalls", func(t *testing.T) {
 		f := &FileOperation{}
-		msg := llm.Message{Role: llm.RoleAssistant, ToolCalls: nil}
+		msg := core.Message{Role: core.RoleAssistant, ToolCalls: nil}
 		f.extractMessageContent(msg)
 		assert.Empty(t, f.read)
 	})
 
 	t.Run("categorize paths by tool name", func(t *testing.T) {
 		f := &FileOperation{}
-		msg := llm.Message{
-			Role: llm.RoleAssistant,
-			ToolCalls: []llm.ToolCall{
-				{Function: llm.Function{Name: "read", Arguments: `{"path":"a.go"}`}},
-				{Function: llm.Function{Name: "read", Arguments: `{"path":"b.go"}`}},
-				{Function: llm.Function{Name: "write", Arguments: `{"file_path":"c.go","content":"x"}`}},
+		msg := core.Message{
+			Role: core.RoleAssistant,
+			ToolCalls: []core.ToolCall{
+				{Function: core.Function{Name: "read", Arguments: `{"path":"a.go"}`}},
+				{Function: core.Function{Name: "read", Arguments: `{"path":"b.go"}`}},
+				{Function: core.Function{Name: "write", Arguments: `{"file_path":"c.go","content":"x"}`}},
 				{
-					Function: llm.Function{
+					Function: core.Function{
 						Name:      "edit",
 						Arguments: `{"payload":"*** SM:EDIT d.go\n*** SM:FIND\nx\n*** SM:PUT\ny\n"}`,
 					},
@@ -95,11 +95,11 @@ func TestFileOperation_extractMessageContent(t *testing.T) {
 
 	t.Run("skip tool calls without path", func(t *testing.T) {
 		f := &FileOperation{}
-		msg := llm.Message{
-			Role: llm.RoleAssistant,
-			ToolCalls: []llm.ToolCall{
-				{Function: llm.Function{Name: "read", Arguments: `{}`}},
-				{Function: llm.Function{Name: "read", Arguments: `{"path":"ok.go"}`}},
+		msg := core.Message{
+			Role: core.RoleAssistant,
+			ToolCalls: []core.ToolCall{
+				{Function: core.Function{Name: "read", Arguments: `{}`}},
+				{Function: core.Function{Name: "read", Arguments: `{"path":"ok.go"}`}},
 			},
 		}
 		f.extractMessageContent(msg)
@@ -108,11 +108,11 @@ func TestFileOperation_extractMessageContent(t *testing.T) {
 
 	t.Run("skip non-file tools", func(t *testing.T) {
 		f := &FileOperation{}
-		msg := llm.Message{
-			Role: llm.RoleAssistant,
-			ToolCalls: []llm.ToolCall{
-				{Function: llm.Function{Name: "search", Arguments: `{"path":"x"}`}},
-				{Function: llm.Function{Name: "bash", Arguments: `{}`}},
+		msg := core.Message{
+			Role: core.RoleAssistant,
+			ToolCalls: []core.ToolCall{
+				{Function: core.Function{Name: "search", Arguments: `{"path":"x"}`}},
+				{Function: core.Function{Name: "bash", Arguments: `{}`}},
 			},
 		}
 		f.extractMessageContent(msg)
@@ -123,16 +123,16 @@ func TestFileOperation_extractMessageContent(t *testing.T) {
 
 	t.Run("accumulate across multiple calls", func(t *testing.T) {
 		f := &FileOperation{}
-		f.extractMessageContent(llm.Message{
-			Role: llm.RoleAssistant,
-			ToolCalls: []llm.ToolCall{
-				{Function: llm.Function{Name: "read", Arguments: `{"path":"first.go"}`}},
+		f.extractMessageContent(core.Message{
+			Role: core.RoleAssistant,
+			ToolCalls: []core.ToolCall{
+				{Function: core.Function{Name: "read", Arguments: `{"path":"first.go"}`}},
 			},
 		})
-		f.extractMessageContent(llm.Message{
-			Role: llm.RoleAssistant,
-			ToolCalls: []llm.ToolCall{
-				{Function: llm.Function{Name: "read", Arguments: `{"path":"second.go"}`}},
+		f.extractMessageContent(core.Message{
+			Role: core.RoleAssistant,
+			ToolCalls: []core.ToolCall{
+				{Function: core.Function{Name: "read", Arguments: `{"path":"second.go"}`}},
 			},
 		})
 		assert.Equal(t, []string{"first.go", "second.go"}, f.read)
@@ -143,11 +143,11 @@ func TestExtractFileOperations(t *testing.T) {
 	ts := time.Now()
 
 	t.Run("no previous compaction", func(t *testing.T) {
-		messages := []llm.Message{
+		messages := []core.Message{
 			{
-				Role: llm.RoleAssistant,
-				ToolCalls: []llm.ToolCall{
-					{Function: llm.Function{Name: "read", Arguments: `{"path":"a.go"}`}},
+				Role: core.RoleAssistant,
+				ToolCalls: []core.ToolCall{
+					{Function: core.Function{Name: "read", Arguments: `{"path":"a.go"}`}},
 				},
 			},
 		}
@@ -187,13 +187,13 @@ func TestExtractFileOperations(t *testing.T) {
 				},
 			},
 		}
-		messages := []llm.Message{
+		messages := []core.Message{
 			{
-				Role: llm.RoleAssistant,
-				ToolCalls: []llm.ToolCall{
-					{Function: llm.Function{Name: "read", Arguments: `{"path":"msg_read.go"}`}},
+				Role: core.RoleAssistant,
+				ToolCalls: []core.ToolCall{
+					{Function: core.Function{Name: "read", Arguments: `{"path":"msg_read.go"}`}},
 					{
-						Function: llm.Function{
+						Function: core.Function{
 							Name:      "edit",
 							Arguments: `{"payload":"*** SM:EDIT msg_edit.go\n*** SM:FIND\nx\n*** SM:PUT\ny\n"}`,
 						},

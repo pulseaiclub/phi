@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/job"
-	"github.com/pulseaiclub/phi/internal/llm"
 )
 
 // discoverInTempHome runs Discover("") with HOME redirected to a temp dir so
@@ -469,7 +469,7 @@ models:
 	noThink, ok := cfg.FindModel("deepseek-flash-no-think")
 	require.True(t, ok)
 	assert.False(t, noThink.Think.Enabled)
-	assert.Equal(t, llm.Off, noThink.Think.Mode, "think_enabled: false sets mode to off")
+	assert.Equal(t, core.Off, noThink.Think.Mode, "think_enabled: false sets mode to off")
 
 	// gpt-5.5 inherits both total context window and tighter input limit;
 	// restating or tightening above InputLimit preserves it, while expanding

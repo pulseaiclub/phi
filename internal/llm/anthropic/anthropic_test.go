@@ -11,13 +11,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
 func TestBuildRequestSystemIsArray(t *testing.T) {
-	cfg := llm.ModelConfig{Name: "claude-sonnet-4-20250514", APIKey: "k", BaseURL: "https://api.anthropic.com"}
-	req := BuildRequest(cfg, "You are helpful.", []llm.Message{
-		{Role: llm.RoleUser, Content: "Hi"},
+	cfg := core.ModelConfig{Name: "claude-sonnet-4-20250514", APIKey: "k", BaseURL: "https://api.anthropic.com"}
+	req := BuildRequest(cfg, "You are helpful.", []core.Message{
+		{Role: core.RoleUser, Content: "Hi"},
 	}, nil)
 
 	body, err := json.Marshal(req)
@@ -38,20 +38,20 @@ func TestBuildRequestSystemIsArray(t *testing.T) {
 }
 
 func TestBuildRequestMergesToolResults(t *testing.T) {
-	cfg := llm.ModelConfig{Name: "claude-sonnet-4-20250514", APIKey: "k", BaseURL: "https://api.anthropic.com"}
-	req := BuildRequest(cfg, "", []llm.Message{
-		{Role: llm.RoleUser, Content: "run tools"},
+	cfg := core.ModelConfig{Name: "claude-sonnet-4-20250514", APIKey: "k", BaseURL: "https://api.anthropic.com"}
+	req := BuildRequest(cfg, "", []core.Message{
+		{Role: core.RoleUser, Content: "run tools"},
 		{
-			Role: llm.RoleAssistant,
-			ToolCalls: []llm.ToolCall{
-				{ID: "call_01", Function: llm.Function{Name: "read", Arguments: `{"path":"a.go"}`}},
-				{ID: "call_02", Function: llm.Function{Name: "read", Arguments: `{"path":"b.go"}`}},
-				{ID: "call_03", Function: llm.Function{Name: "read", Arguments: `{"path":"c.go"}`}},
+			Role: core.RoleAssistant,
+			ToolCalls: []core.ToolCall{
+				{ID: "call_01", Function: core.Function{Name: "read", Arguments: `{"path":"a.go"}`}},
+				{ID: "call_02", Function: core.Function{Name: "read", Arguments: `{"path":"b.go"}`}},
+				{ID: "call_03", Function: core.Function{Name: "read", Arguments: `{"path":"c.go"}`}},
 			},
 		},
-		{Role: llm.RoleTool, ToolCallID: "call_01", Content: "a"},
-		{Role: llm.RoleTool, ToolCallID: "call_02", Content: "b"},
-		{Role: llm.RoleTool, ToolCallID: "call_03", Content: "c"},
+		{Role: core.RoleTool, ToolCallID: "call_01", Content: "a"},
+		{Role: core.RoleTool, ToolCallID: "call_02", Content: "b"},
+		{Role: core.RoleTool, ToolCallID: "call_03", Content: "c"},
 	}, nil)
 
 	require.Len(t, req.Messages, 3)
@@ -72,12 +72,12 @@ func TestBuildRequestMergesToolResults(t *testing.T) {
 }
 
 func TestBuildRequestUserImages(t *testing.T) {
-	cfg := llm.ModelConfig{Name: "claude-sonnet-4-20250514", APIKey: "k", BaseURL: "https://api.anthropic.com"}
-	req := BuildRequest(cfg, "", []llm.Message{
+	cfg := core.ModelConfig{Name: "claude-sonnet-4-20250514", APIKey: "k", BaseURL: "https://api.anthropic.com"}
+	req := BuildRequest(cfg, "", []core.Message{
 		{
-			Role:    llm.RoleUser,
+			Role:    core.RoleUser,
 			Content: "what is this?",
-			Images: []llm.Image{
+			Images: []core.Image{
 				{Data: "QUJD", MimeType: "image/png"},
 				{Data: "REVG", MimeType: "image/jpeg"},
 			},
@@ -120,18 +120,18 @@ func TestBuildRequestUserImages(t *testing.T) {
 }
 
 func TestBuildRequestToolsSchema(t *testing.T) {
-	cfg := llm.ModelConfig{Name: "claude-sonnet-4-20250514", APIKey: "k", BaseURL: "https://api.anthropic.com"}
-	tools := []llm.ToolDefinition{{
+	cfg := core.ModelConfig{Name: "claude-sonnet-4-20250514", APIKey: "k", BaseURL: "https://api.anthropic.com"}
+	tools := []core.ToolDefinition{{
 		Name:        "read",
 		Description: "read a file",
-		Params: &llm.FunctionParameters{
+		Params: &core.FunctionParameters{
 			Type:       "object",
-			Properties: llm.Object{"path": llm.Object{"type": "string"}},
+			Properties: core.Object{"path": core.Object{"type": "string"}},
 			Required:   []string{"path"},
 		},
 	}}
 
-	req := BuildRequest(cfg, "", []llm.Message{{Role: llm.RoleUser, Content: "hi"}}, tools)
+	req := BuildRequest(cfg, "", []core.Message{{Role: core.RoleUser, Content: "hi"}}, tools)
 	require.Len(t, req.Tools, 1)
 	require.Equal(t, "read", req.Tools[0].Name)
 	require.Contains(t, string(req.Tools[0].InputSchema), `"required"`)
@@ -157,13 +157,13 @@ func TestProcessStreamTextAndUsage(t *testing.T) {
 	events := processForTest(sse)
 
 	var text strings.Builder
-	var done *llm.StreamEvent
+	var done *core.StreamEvent
 	for _, ev := range events {
-		require.NotEqual(t, llm.StreamEventTypeError, ev.Type, "stream error: %s", ev.Err)
+		require.NotEqual(t, core.StreamEventTypeError, ev.Type, "stream error: %s", ev.Err)
 		switch ev.Type {
-		case llm.StreamEventTypeDelta:
+		case core.StreamEventTypeDelta:
 			text.WriteString(ev.Delta.Content)
-		case llm.StreamEventTypeDone:
+		case core.StreamEventTypeDone:
 			done = &ev
 		}
 	}
@@ -253,7 +253,7 @@ func TestProcessStreamMalformedEventDropsNativeState(t *testing.T) {
 	t.Run("clean stream keeps the state", func(t *testing.T) {
 		events := processForTest(thinkingStream(""))
 		done := events[len(events)-1]
-		require.Equal(t, llm.StreamEventTypeDone, done.Type)
+		require.Equal(t, core.StreamEventTypeDone, done.Type)
 		require.NotNil(t, done.Final)
 		require.NotNil(t, done.Final.ProviderState, "a clean thinking turn is replayable")
 	})
@@ -261,7 +261,7 @@ func TestProcessStreamMalformedEventDropsNativeState(t *testing.T) {
 	t.Run("bad line drops it", func(t *testing.T) {
 		events := processForTest(thinkingStream("data: {not json}"))
 		done := events[len(events)-1]
-		require.Equal(t, llm.StreamEventTypeDone, done.Type)
+		require.Equal(t, core.StreamEventTypeDone, done.Type)
 		require.NotNil(t, done.Final)
 		assert.Nil(t, done.Final.ProviderState)
 	})
@@ -288,16 +288,16 @@ func TestProcessStreamToolUseAndThinking(t *testing.T) {
 	events := processForTest(sse)
 
 	var thinking, args string
-	var done *llm.StreamEvent
+	var done *core.StreamEvent
 	for _, ev := range events {
-		require.NotEqual(t, llm.StreamEventTypeError, ev.Type, "stream error: %s", ev.Err)
+		require.NotEqual(t, core.StreamEventTypeError, ev.Type, "stream error: %s", ev.Err)
 		switch ev.Type {
-		case llm.StreamEventTypeDelta:
+		case core.StreamEventTypeDelta:
 			thinking += ev.Delta.ReasoningContent
 			for _, tc := range ev.Delta.ToolCalls {
 				args = tc.Function.Arguments
 			}
-		case llm.StreamEventTypeDone:
+		case core.StreamEventTypeDone:
 			done = &ev
 		}
 	}
@@ -340,9 +340,9 @@ func TestStreamErrorInsideSuccessfulResponse(t *testing.T) {
 		_, _ = io.WriteString(w, sse)
 	}))
 	defer server.Close()
-	cfg := llm.ModelConfig{Name: "claude", BaseURL: server.URL}
-	req := BuildRequest(cfg, "", []llm.Message{{Role: llm.RoleUser, Content: "hi"}}, nil)
-	var events []llm.StreamEvent
+	cfg := core.ModelConfig{Name: "claude", BaseURL: server.URL}
+	req := BuildRequest(cfg, "", []core.Message{{Role: core.RoleUser, Content: "hi"}}, nil)
+	var events []core.StreamEvent
 	var streamErr error
 	for ev, err := range Stream(t.Context(), server.Client(), cfg, &req) {
 		events = append(events, ev)
@@ -351,17 +351,17 @@ func TestStreamErrorInsideSuccessfulResponse(t *testing.T) {
 	require.EqualError(t, streamErr, "anthropic stream error: Overloaded")
 	require.Len(t, events, 2)
 	assert.Equal(t, "partial", events[0].Delta.Content)
-	assert.Equal(t, llm.StreamEventTypeError, events[1].Type)
+	assert.Equal(t, core.StreamEventTypeError, events[1].Type)
 	assert.Equal(t, streamErr.Error(), events[1].Err)
 	assert.Nil(t, events[1].Final, "stream failure must not produce an assistant completion")
 }
 
 // processForTest runs processStream and returns the yielded events.
-func processForTest(sse string) []llm.StreamEvent {
-	var events []llm.StreamEvent
-	processStream(strings.NewReader(sse), func(ev llm.StreamEvent, err error) bool {
+func processForTest(sse string) []core.StreamEvent {
+	var events []core.StreamEvent
+	processStream(strings.NewReader(sse), func(ev core.StreamEvent, err error) bool {
 		if err != nil {
-			events = append(events, llm.StreamEvent{Type: llm.StreamEventTypeError, Err: err.Error()})
+			events = append(events, core.StreamEvent{Type: core.StreamEventTypeError, Err: err.Error()})
 			return false
 		}
 		events = append(events, ev)
@@ -376,26 +376,26 @@ func processForTest(sse string) []llm.StreamEvent {
 func TestBuildRequestThinkingBudget(t *testing.T) {
 	cases := []struct {
 		name          string
-		think         llm.ThinkConfig
+		think         core.ThinkConfig
 		wantType      string // "" means no thinking field on the wire
 		wantBudget    int    // 0 means no budget_tokens field
 		wantMaxTokens int
 	}{
-		{"disabled", llm.ThinkConfig{}, "", 0, defaultMaxTokens},
-		{"off", llm.ThinkConfig{Enabled: true, Mode: llm.Off}, "", 0, defaultMaxTokens},
-		{"minimal", llm.ThinkConfig{Enabled: true, Mode: llm.Minimal}, "enabled", 1024, defaultMaxTokens + 1024},
-		{"low", llm.ThinkConfig{Enabled: true, Mode: llm.Low}, "enabled", 1024, defaultMaxTokens + 1024},
-		{"medium", llm.ThinkConfig{Enabled: true, Mode: llm.Medium}, "enabled", 8192, defaultMaxTokens + 8192},
-		{"high", llm.ThinkConfig{Enabled: true, Mode: llm.High}, "enabled", 16384, defaultMaxTokens + 16384},
-		{"xhigh", llm.ThinkConfig{Enabled: true, Mode: llm.XHigh}, "enabled", 16384, defaultMaxTokens + 16384},
-		{"max", llm.ThinkConfig{Enabled: true, Mode: llm.Max}, "enabled", 16384, defaultMaxTokens + 16384},
-		{"empty-is-adaptive", llm.ThinkConfig{Enabled: true}, "adaptive", 0, defaultMaxTokens},
-		{"unknown-is-adaptive", llm.ThinkConfig{Enabled: true, Mode: "bogus"}, "adaptive", 0, defaultMaxTokens},
+		{"disabled", core.ThinkConfig{}, "", 0, defaultMaxTokens},
+		{"off", core.ThinkConfig{Enabled: true, Mode: core.Off}, "", 0, defaultMaxTokens},
+		{"minimal", core.ThinkConfig{Enabled: true, Mode: core.Minimal}, "enabled", 1024, defaultMaxTokens + 1024},
+		{"low", core.ThinkConfig{Enabled: true, Mode: core.Low}, "enabled", 1024, defaultMaxTokens + 1024},
+		{"medium", core.ThinkConfig{Enabled: true, Mode: core.Medium}, "enabled", 8192, defaultMaxTokens + 8192},
+		{"high", core.ThinkConfig{Enabled: true, Mode: core.High}, "enabled", 16384, defaultMaxTokens + 16384},
+		{"xhigh", core.ThinkConfig{Enabled: true, Mode: core.XHigh}, "enabled", 16384, defaultMaxTokens + 16384},
+		{"max", core.ThinkConfig{Enabled: true, Mode: core.Max}, "enabled", 16384, defaultMaxTokens + 16384},
+		{"empty-is-adaptive", core.ThinkConfig{Enabled: true}, "adaptive", 0, defaultMaxTokens},
+		{"unknown-is-adaptive", core.ThinkConfig{Enabled: true, Mode: "bogus"}, "adaptive", 0, defaultMaxTokens},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := llm.ModelConfig{Name: "claude-sonnet-4-20250514", Think: tc.think}
-			req := BuildRequest(cfg, "", []llm.Message{{Role: llm.RoleUser, Content: "hi"}}, nil)
+			cfg := core.ModelConfig{Name: "claude-sonnet-4-20250514", Think: tc.think}
+			req := BuildRequest(cfg, "", []core.Message{{Role: core.RoleUser, Content: "hi"}}, nil)
 
 			require.Equal(t, tc.wantMaxTokens, req.MaxTokens)
 			if tc.wantType == "" {
@@ -452,21 +452,21 @@ func TestApplyAdaptiveThinking(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		compact    bool
-		think      llm.ThinkConfig
+		think      core.ThinkConfig
 		forced     bool
 		allowXHigh bool
 		wantType   string
 		wantEffort string
 	}{
-		{"forced_high", false, llm.ThinkConfig{Enabled: true, Mode: llm.High}, true, true, "adaptive", "high"},
-		{"forced_xhigh", false, llm.ThinkConfig{Enabled: true, Mode: llm.XHigh}, true, true, "adaptive", "xhigh"},
-		{"forced_max", false, llm.ThinkConfig{Enabled: true, Mode: llm.Max}, true, true, "adaptive", "max"},
-		{"forced_minimal", false, llm.ThinkConfig{Enabled: true, Mode: llm.Minimal}, true, true, "adaptive", "low"},
-		{"forced_disabled", false, llm.ThinkConfig{Enabled: false}, true, true, "adaptive", "low"},
-		{"optional_disabled", false, llm.ThinkConfig{Enabled: false}, false, false, "disabled", ""},
-		{"optional_xhigh_capped", false, llm.ThinkConfig{Enabled: true, Mode: llm.XHigh}, false, false, "adaptive", "high"},
-		{"compact_optional", true, llm.ThinkConfig{Enabled: true, Mode: llm.High}, false, true, "disabled", ""},
-		{"compact_forced", true, llm.ThinkConfig{Enabled: true, Mode: llm.Max}, true, true, "adaptive", "low"},
+		{"forced_high", false, core.ThinkConfig{Enabled: true, Mode: core.High}, true, true, "adaptive", "high"},
+		{"forced_xhigh", false, core.ThinkConfig{Enabled: true, Mode: core.XHigh}, true, true, "adaptive", "xhigh"},
+		{"forced_max", false, core.ThinkConfig{Enabled: true, Mode: core.Max}, true, true, "adaptive", "max"},
+		{"forced_minimal", false, core.ThinkConfig{Enabled: true, Mode: core.Minimal}, true, true, "adaptive", "low"},
+		{"forced_disabled", false, core.ThinkConfig{Enabled: false}, true, true, "adaptive", "low"},
+		{"optional_disabled", false, core.ThinkConfig{Enabled: false}, false, false, "disabled", ""},
+		{"optional_xhigh_capped", false, core.ThinkConfig{Enabled: true, Mode: core.XHigh}, false, false, "adaptive", "high"},
+		{"compact_optional", true, core.ThinkConfig{Enabled: true, Mode: core.High}, false, true, "disabled", ""},
+		{"compact_forced", true, core.ThinkConfig{Enabled: true, Mode: core.Max}, true, true, "adaptive", "low"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var req *AnthropicRequest
@@ -474,9 +474,9 @@ func TestApplyAdaptiveThinking(t *testing.T) {
 				req = NewCompactRequest("claude-opus-5-5", "summarize", 256)
 			} else {
 				built := BuildRequest(
-					llm.ModelConfig{Name: "claude-opus-5-5", Think: tc.think},
+					core.ModelConfig{Name: "claude-opus-5-5", Think: tc.think},
 					"",
-					[]llm.Message{{Role: llm.RoleUser, Content: "hi"}},
+					[]core.Message{{Role: core.RoleUser, Content: "hi"}},
 					nil,
 				)
 				req = &built
@@ -511,9 +511,9 @@ func TestCompactRequestHasNoThinking(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cfg := llm.ModelConfig{
+	cfg := core.ModelConfig{
 		Name: "claude-sonnet-4-20250514", BaseURL: srv.URL, APIKey: "k",
-		Think: llm.ThinkConfig{Enabled: true, Mode: llm.Max},
+		Think: core.ThinkConfig{Enabled: true, Mode: core.Max},
 	}
 	_, err := CompactRequest(
 		t.Context(),

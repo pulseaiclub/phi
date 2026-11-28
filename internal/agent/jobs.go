@@ -3,9 +3,9 @@ package agent
 import (
 	"errors"
 
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/job"
-	"github.com/pulseaiclub/phi/internal/llm"
 )
 
 // NewJobManager creates a process-level job manager whose runner drives child Engines.
@@ -13,7 +13,7 @@ import (
 // getter so TUI reload updates sub-agents too.
 func NewJobManager(
 	root string,
-	models map[job.Role]llm.ModelConfig,
+	models map[job.Role]core.ModelConfig,
 	extensionsFn func() extension.Extensions,
 ) (*job.Manager, error) {
 	if root == "" {

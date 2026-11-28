@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
 // Manager is the single source of truth for session messages.
@@ -177,7 +177,7 @@ func (sm *Manager) BuildContext() []MessageEntry {
 }
 
 // Append adds a message as a new leaf and returns its entry ID.
-func (sm *Manager) Append(msg llm.Message) (string, error) {
+func (sm *Manager) Append(msg core.Message) (string, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -211,8 +211,8 @@ func (sm *Manager) AppendBash(command, output string, exitCode int, cancelled bo
 			ParentID:  sm.leafID,
 			Timestamp: time.Now(),
 		},
-		Message: llm.Message{
-			Role:    llm.RoleUser,
+		Message: core.Message{
+			Role:    core.RoleUser,
 			Content: BashContextText(command, output, exitCode, cancelled),
 		},
 		Bash: &BashExecution{
@@ -369,7 +369,7 @@ func (sm *Manager) appendEntry(entry MessageEntry) error {
 		return nil
 	}
 
-	if msgEntry, ok := entry.(SessionMessageEntry); ok && msgEntry.Message.Role == llm.RoleAssistant {
+	if msgEntry, ok := entry.(SessionMessageEntry); ok && msgEntry.Message.Role == core.RoleAssistant {
 		sm.hasAssistantMsg = true
 	}
 	if !sm.hasAssistantMsg && !sm.flushed {

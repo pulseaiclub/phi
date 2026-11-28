@@ -22,6 +22,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Compaction: fail with a clear error when an OpenAI-compatible gateway answers
+  with content parts instead of a string, instead of reporting an empty summary.
 - Gemini: compaction summaries no longer include `thought` parts; a summary
   made only of thoughts counts as empty unless the response was truncated.
 - Models: switching to or restoring an unconfigured model drops a stale

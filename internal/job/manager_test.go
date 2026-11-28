@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/job"
-	"github.com/pulseaiclub/phi/internal/llm"
 )
 
 func newMgr(t *testing.T, runner job.Runner, root string, opts ...job.Option) *job.Manager {
@@ -141,14 +141,14 @@ func TestRoleModelsAreSpawnSnapshots(t *testing.T) {
 			<-release
 		}
 		return "ok", nil
-	}), t.TempDir(), job.WithRoleModels(map[job.Role]llm.ModelConfig{
+	}), t.TempDir(), job.WithRoleModels(map[job.Role]core.ModelConfig{
 		job.RoleExplore: {Name: "old"},
 	}))
 
 	first, err := m.Spawn(t.Context(), job.SpawnRequest{Prompt: "one", Description: "first"})
 	require.NoError(t, err)
 	<-started
-	m.SetRoleModels(map[job.Role]llm.ModelConfig{job.RoleExplore: {Name: "new"}})
+	m.SetRoleModels(map[job.Role]core.ModelConfig{job.RoleExplore: {Name: "new"}})
 	second, err := m.Spawn(t.Context(), job.SpawnRequest{Prompt: "two", Description: "second"})
 	require.NoError(t, err)
 	close(release)

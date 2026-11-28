@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
@@ -30,7 +31,7 @@ var compactionSeed = strings.Repeat("x", 12000*4)
 
 func newLoopEngine(
 	t *testing.T,
-	cfg llm.ModelConfig,
+	cfg core.ModelConfig,
 	sess *Session,
 	client llm.ChatClient,
 	tools ...tooldef.Tool,
@@ -42,7 +43,7 @@ func newLoopEngine(
 	return engine
 }
 
-func newHTTPLoopEngine(t *testing.T, cfg llm.ModelConfig, sess *Session, tools ...tooldef.Tool) *Engine {
+func newHTTPLoopEngine(t *testing.T, cfg core.ModelConfig, sess *Session, tools ...tooldef.Tool) *Engine {
 	t.Helper()
 	client := llmclient.NewClient(cfg, llmclient.Hooks{}, tooldef.Definitions(tools), "")
 	return newLoopEngine(t, cfg, sess, client, tools...)
@@ -87,10 +88,10 @@ func sseTextChunk(text string) string {
 
 func countingTool(runs *atomic.Int32) tooldef.Tool {
 	return tooldef.Tool{
-		Definition: llm.ToolDefinition{
+		Definition: core.ToolDefinition{
 			Name:        "count",
 			Description: "count tool executions",
-			Params:      &llm.FunctionParameters{Type: "object"},
+			Params:      &core.FunctionParameters{Type: "object"},
 		},
 		Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
 			runs.Add(1)
@@ -160,11 +161,11 @@ func TestRunCompactUsesModelOutputLimit(t *testing.T) {
 			sess, err := NewSession(WithCwd(t.TempDir()))
 			require.NoError(t, err)
 			require.NoError(t, sess.Append(
-				llm.Message{Role: llm.RoleUser, Content: compactionSeed},
-				llm.Message{Role: llm.RoleAssistant, Content: compactionSeed},
-				llm.Message{Role: llm.RoleUser, Content: compactionSeed},
+				core.Message{Role: core.RoleUser, Content: compactionSeed},
+				core.Message{Role: core.RoleAssistant, Content: compactionSeed},
+				core.Message{Role: core.RoleUser, Content: compactionSeed},
 			))
-			cfg := llm.ModelConfig{
+			cfg := core.ModelConfig{
 				Name: "fake", BaseURL: server.URL, APIKey: "x",
 				ContextWindow: tc.contextWindow, MaxTokens: tc.maxTokens,
 			}
@@ -199,13 +200,13 @@ func TestLoopOverflowCompactsAndRetries(t *testing.T) {
 	// usage, so the content has to be big: the last two messages alone must
 	// exceed the budget, leaving an older prefix to summarize.
 	require.NoError(t, sess.Append(
-		llm.Message{Role: llm.RoleUser, Content: compactionSeed, Usage: llm.Usage{TotalTokens: 12000}},
-		llm.Message{Role: llm.RoleAssistant, Content: compactionSeed, Usage: llm.Usage{TotalTokens: 24000}},
-		llm.Message{Role: llm.RoleUser, Content: compactionSeed, Usage: llm.Usage{TotalTokens: 36000}},
-		llm.Message{Role: llm.RoleAssistant, Content: compactionSeed, Usage: llm.Usage{TotalTokens: 50000}},
+		core.Message{Role: core.RoleUser, Content: compactionSeed, Usage: core.Usage{TotalTokens: 12000}},
+		core.Message{Role: core.RoleAssistant, Content: compactionSeed, Usage: core.Usage{TotalTokens: 24000}},
+		core.Message{Role: core.RoleUser, Content: compactionSeed, Usage: core.Usage{TotalTokens: 36000}},
+		core.Message{Role: core.RoleAssistant, Content: compactionSeed, Usage: core.Usage{TotalTokens: 50000}},
 	))
 
-	cfg := llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 200_000}
+	cfg := core.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 200_000}
 	engine := newHTTPLoopEngine(t, cfg, sess)
 
 	var lastErr error
@@ -255,13 +256,13 @@ func TestLoopOverflowFailsClosedAfterOneRetry(t *testing.T) {
 	sess, err := NewSession(WithCwd(t.TempDir()))
 	require.NoError(t, err)
 	require.NoError(t, sess.Append(
-		llm.Message{Role: llm.RoleUser, Content: compactionSeed, Usage: llm.Usage{TotalTokens: 12000}},
-		llm.Message{Role: llm.RoleAssistant, Content: compactionSeed, Usage: llm.Usage{TotalTokens: 24000}},
-		llm.Message{Role: llm.RoleUser, Content: compactionSeed, Usage: llm.Usage{TotalTokens: 36000}},
-		llm.Message{Role: llm.RoleAssistant, Content: compactionSeed, Usage: llm.Usage{TotalTokens: 50000}},
+		core.Message{Role: core.RoleUser, Content: compactionSeed, Usage: core.Usage{TotalTokens: 12000}},
+		core.Message{Role: core.RoleAssistant, Content: compactionSeed, Usage: core.Usage{TotalTokens: 24000}},
+		core.Message{Role: core.RoleUser, Content: compactionSeed, Usage: core.Usage{TotalTokens: 36000}},
+		core.Message{Role: core.RoleAssistant, Content: compactionSeed, Usage: core.Usage{TotalTokens: 50000}},
 	))
 
-	cfg := llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 200_000}
+	cfg := core.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 200_000}
 	engine := newHTTPLoopEngine(t, cfg, sess)
 
 	var lastErr error
@@ -307,13 +308,13 @@ func TestLoopOverflowRejectsCappedSummary(t *testing.T) {
 	sess, err := NewSession(WithCwd(t.TempDir()))
 	require.NoError(t, err)
 	require.NoError(t, sess.Append(
-		llm.Message{Role: llm.RoleUser, Content: compactionSeed, Usage: llm.Usage{TotalTokens: 12000}},
-		llm.Message{Role: llm.RoleAssistant, Content: compactionSeed, Usage: llm.Usage{TotalTokens: 24000}},
-		llm.Message{Role: llm.RoleUser, Content: compactionSeed, Usage: llm.Usage{TotalTokens: 36000}},
-		llm.Message{Role: llm.RoleAssistant, Content: compactionSeed, Usage: llm.Usage{TotalTokens: 50000}},
+		core.Message{Role: core.RoleUser, Content: compactionSeed, Usage: core.Usage{TotalTokens: 12000}},
+		core.Message{Role: core.RoleAssistant, Content: compactionSeed, Usage: core.Usage{TotalTokens: 24000}},
+		core.Message{Role: core.RoleUser, Content: compactionSeed, Usage: core.Usage{TotalTokens: 36000}},
+		core.Message{Role: core.RoleAssistant, Content: compactionSeed, Usage: core.Usage{TotalTokens: 50000}},
 	))
 
-	cfg := llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 200_000}
+	cfg := core.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 200_000}
 	engine := newHTTPLoopEngine(t, cfg, sess)
 
 	var lastErr error
@@ -370,13 +371,13 @@ func TestLoopOverflowRejectsBlankSummary(t *testing.T) {
 	sess, err := NewSession(WithCwd(t.TempDir()))
 	require.NoError(t, err)
 	require.NoError(t, sess.Append(
-		llm.Message{Role: llm.RoleUser, Content: compactionSeed, Usage: llm.Usage{TotalTokens: 12000}},
-		llm.Message{Role: llm.RoleAssistant, Content: compactionSeed, Usage: llm.Usage{TotalTokens: 24000}},
-		llm.Message{Role: llm.RoleUser, Content: compactionSeed, Usage: llm.Usage{TotalTokens: 36000}},
-		llm.Message{Role: llm.RoleAssistant, Content: compactionSeed, Usage: llm.Usage{TotalTokens: 50000}},
+		core.Message{Role: core.RoleUser, Content: compactionSeed, Usage: core.Usage{TotalTokens: 12000}},
+		core.Message{Role: core.RoleAssistant, Content: compactionSeed, Usage: core.Usage{TotalTokens: 24000}},
+		core.Message{Role: core.RoleUser, Content: compactionSeed, Usage: core.Usage{TotalTokens: 36000}},
+		core.Message{Role: core.RoleAssistant, Content: compactionSeed, Usage: core.Usage{TotalTokens: 50000}},
 	))
 
-	cfg := llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 200_000}
+	cfg := core.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 200_000}
 	engine := newHTTPLoopEngine(t, cfg, sess)
 
 	var lastErr error
@@ -405,12 +406,12 @@ func TestLoopOverflowRejectsBlankSummary(t *testing.T) {
 // stubChatClient supplies deterministic streams and records the context sent to
 // each request. Compact is unused by these loop tests.
 type stubChatClient struct {
-	streams []func(context.Context, []llm.Message) iter.Seq2[llm.StreamEvent, error]
-	calls   [][]llm.Message
+	streams []func(context.Context, []core.Message) iter.Seq2[core.StreamEvent, error]
+	calls   [][]core.Message
 }
 
-func (c *stubChatClient) Stream(ctx context.Context, messages []llm.Message) iter.Seq2[llm.StreamEvent, error] {
-	c.calls = append(c.calls, append([]llm.Message(nil), messages...))
+func (c *stubChatClient) Stream(ctx context.Context, messages []core.Message) iter.Seq2[core.StreamEvent, error] {
+	c.calls = append(c.calls, append([]core.Message(nil), messages...))
 	stream := c.streams[0]
 	c.streams = c.streams[1:]
 	return stream(ctx, messages)
@@ -420,18 +421,18 @@ func (*stubChatClient) Compact(context.Context, llm.CompactRequest) (llm.Compact
 	return llm.CompactResult{}, errors.New("stubChatClient: Compact is not used")
 }
 
-func stubMessageStream(message llm.Message) func(context.Context, []llm.Message) iter.Seq2[llm.StreamEvent, error] {
-	return func(_ context.Context, _ []llm.Message) iter.Seq2[llm.StreamEvent, error] {
-		return func(yield func(llm.StreamEvent, error) bool) {
-			yield(llm.StreamEvent{Type: llm.StreamEventTypeDone, Final: &message}, nil)
+func stubMessageStream(message core.Message) func(context.Context, []core.Message) iter.Seq2[core.StreamEvent, error] {
+	return func(_ context.Context, _ []core.Message) iter.Seq2[core.StreamEvent, error] {
+		return func(yield func(core.StreamEvent, error) bool) {
+			yield(core.StreamEvent{Type: core.StreamEventTypeDone, Final: &message}, nil)
 		}
 	}
 }
 
-func stubErrorStream(err error) func(context.Context, []llm.Message) iter.Seq2[llm.StreamEvent, error] {
-	return func(_ context.Context, _ []llm.Message) iter.Seq2[llm.StreamEvent, error] {
-		return func(yield func(llm.StreamEvent, error) bool) {
-			yield(llm.StreamEvent{}, err)
+func stubErrorStream(err error) func(context.Context, []core.Message) iter.Seq2[core.StreamEvent, error] {
+	return func(_ context.Context, _ []core.Message) iter.Seq2[core.StreamEvent, error] {
+		return func(yield func(core.StreamEvent, error) bool) {
+			yield(core.StreamEvent{}, err)
 		}
 	}
 }
@@ -449,11 +450,11 @@ func runLoop(t *testing.T, engine *Engine, ctx context.Context, prompt string, o
 func TestLoopResumeDoesNotAppendUserMessage(t *testing.T) {
 	sess, err := NewSession(WithCwd(t.TempDir()))
 	require.NoError(t, err)
-	client := &stubChatClient{streams: []func(context.Context, []llm.Message) iter.Seq2[llm.StreamEvent, error]{
+	client := &stubChatClient{streams: []func(context.Context, []core.Message) iter.Seq2[core.StreamEvent, error]{
 		stubErrorStream(errors.New("first attempt failed")),
-		stubMessageStream(llm.Message{Role: llm.RoleAssistant, Content: "recovered"}),
+		stubMessageStream(core.Message{Role: core.RoleAssistant, Content: "recovered"}),
 	}}
-	engine := newLoopEngine(t, llm.ModelConfig{Name: "stub"}, sess, client)
+	engine := newLoopEngine(t, core.ModelConfig{Name: "stub"}, sess, client)
 
 	var appended int
 	require.ErrorContains(t, runLoop(t, engine, t.Context(), "try this", LoopOpts{
@@ -469,7 +470,7 @@ func TestLoopResumeDoesNotAppendUserMessage(t *testing.T) {
 	messages := sess.BuildContext()
 	var users int
 	for _, message := range messages {
-		if message.Role == llm.RoleUser {
+		if message.Role == core.RoleUser {
 			users++
 		}
 	}
@@ -483,17 +484,17 @@ func TestLoopResumeReusesCompletedToolResult(t *testing.T) {
 	sess, err := NewSession(WithCwd(t.TempDir()))
 	require.NoError(t, err)
 	var runs atomic.Int32
-	client := &stubChatClient{streams: []func(context.Context, []llm.Message) iter.Seq2[llm.StreamEvent, error]{
-		stubMessageStream(llm.Message{
-			Role: llm.RoleAssistant,
-			ToolCalls: []llm.ToolCall{
-				{ID: "call_1", Type: "function", Function: llm.Function{Name: "count", Arguments: `{}`}},
+	client := &stubChatClient{streams: []func(context.Context, []core.Message) iter.Seq2[core.StreamEvent, error]{
+		stubMessageStream(core.Message{
+			Role: core.RoleAssistant,
+			ToolCalls: []core.ToolCall{
+				{ID: "call_1", Type: "function", Function: core.Function{Name: "count", Arguments: `{}`}},
 			},
 		}),
 		stubErrorStream(errors.New("second attempt failed")),
-		stubMessageStream(llm.Message{Role: llm.RoleAssistant, Content: "recovered"}),
+		stubMessageStream(core.Message{Role: core.RoleAssistant, Content: "recovered"}),
 	}}
-	engine := newLoopEngine(t, llm.ModelConfig{Name: "stub"}, sess, client, countingTool(&runs))
+	engine := newLoopEngine(t, core.ModelConfig{Name: "stub"}, sess, client, countingTool(&runs))
 
 	require.ErrorContains(t, runLoop(t, engine, t.Context(), "run it", LoopOpts{}), "second attempt failed")
 	require.NoError(t, runLoop(t, engine, t.Context(), "run it", LoopOpts{Resume: true}))
@@ -501,11 +502,11 @@ func TestLoopResumeReusesCompletedToolResult(t *testing.T) {
 
 	messages := sess.BuildContext()
 	require.Len(t, messages, 4)
-	require.Equal(t, llm.RoleUser, messages[0].Role)
-	require.Equal(t, llm.RoleAssistant, messages[1].Role)
-	require.Equal(t, llm.RoleTool, messages[2].Role)
+	require.Equal(t, core.RoleUser, messages[0].Role)
+	require.Equal(t, core.RoleAssistant, messages[1].Role)
+	require.Equal(t, core.RoleTool, messages[2].Role)
 	require.Equal(t, "ok", messages[2].Content)
-	require.Equal(t, llm.RoleAssistant, messages[3].Role)
+	require.Equal(t, core.RoleAssistant, messages[3].Role)
 	require.Len(t, client.calls, 3)
 	require.Equal(t, messages[:3], client.calls[2])
 }
@@ -513,10 +514,10 @@ func TestLoopResumeReusesCompletedToolResult(t *testing.T) {
 func TestLoopCanceledBeforeStartDoesNotAppendOrCallback(t *testing.T) {
 	sess, err := NewSession(WithCwd(t.TempDir()))
 	require.NoError(t, err)
-	client := &stubChatClient{streams: []func(context.Context, []llm.Message) iter.Seq2[llm.StreamEvent, error]{
-		stubMessageStream(llm.Message{Role: llm.RoleAssistant, Content: "unreachable"}),
+	client := &stubChatClient{streams: []func(context.Context, []core.Message) iter.Seq2[core.StreamEvent, error]{
+		stubMessageStream(core.Message{Role: core.RoleAssistant, Content: "unreachable"}),
 	}}
-	engine := newLoopEngine(t, llm.ModelConfig{Name: "stub"}, sess, client)
+	engine := newLoopEngine(t, core.ModelConfig{Name: "stub"}, sess, client)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
@@ -534,21 +535,21 @@ func TestLoopStopsAfterConsumerCancelsDuringPartialStreamError(t *testing.T) {
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	client := &stubChatClient{streams: []func(context.Context, []llm.Message) iter.Seq2[llm.StreamEvent, error]{
-		func(_ context.Context, _ []llm.Message) iter.Seq2[llm.StreamEvent, error] {
-			return func(yield func(llm.StreamEvent, error) bool) {
-				if !yield(llm.StreamEvent{
-					Type:  llm.StreamEventTypeDelta,
-					Delta: llm.StreamDelta{ReasoningContent: "thinking"},
+	client := &stubChatClient{streams: []func(context.Context, []core.Message) iter.Seq2[core.StreamEvent, error]{
+		func(_ context.Context, _ []core.Message) iter.Seq2[core.StreamEvent, error] {
+			return func(yield func(core.StreamEvent, error) bool) {
+				if !yield(core.StreamEvent{
+					Type:  core.StreamEventTypeDelta,
+					Delta: core.StreamDelta{ReasoningContent: "thinking"},
 				}, nil) {
 					return
 				}
 				cancel()
-				yield(llm.StreamEvent{}, errors.New("provider stopped"))
+				yield(core.StreamEvent{}, errors.New("provider stopped"))
 			}
 		},
 	}}
-	engine := newLoopEngine(t, llm.ModelConfig{Name: "stub"}, sess, client)
+	engine := newLoopEngine(t, core.ModelConfig{Name: "stub"}, sess, client)
 
 	var events int
 	engine.Loop(ctx, "stop this", LoopOpts{})(func(event session.Event, err error) bool {
@@ -570,9 +571,9 @@ type fakeCompactClient struct {
 	compact func(ctx context.Context) error
 }
 
-func (fakeCompactClient) Stream(context.Context, []llm.Message) iter.Seq2[llm.StreamEvent, error] {
-	return func(yield func(llm.StreamEvent, error) bool) {
-		yield(llm.StreamEvent{}, errors.New("fakeCompactClient: Stream is not used here"))
+func (fakeCompactClient) Stream(context.Context, []core.Message) iter.Seq2[core.StreamEvent, error] {
+	return func(yield func(core.StreamEvent, error) bool) {
+		yield(core.StreamEvent{}, errors.New("fakeCompactClient: Stream is not used here"))
 	}
 }
 
@@ -589,15 +590,15 @@ func runCompactWith(
 	sess, err = NewSession(WithCwd(t.TempDir()))
 	require.NoError(t, err)
 	require.NoError(t, sess.Append(
-		llm.Message{Role: llm.RoleUser, Content: compactionSeed},
-		llm.Message{Role: llm.RoleAssistant, Content: compactionSeed},
-		llm.Message{Role: llm.RoleUser, Content: compactionSeed},
+		core.Message{Role: core.RoleUser, Content: compactionSeed},
+		core.Message{Role: core.RoleAssistant, Content: compactionSeed},
+		core.Message{Role: core.RoleUser, Content: compactionSeed},
 	))
 	client := fakeCompactClient{compact: func(context.Context) error {
 		during(sess)
 		return nil
 	}}
-	engine := newLoopEngine(t, llm.ModelConfig{Name: "fake", ContextWindow: 200_000}, sess, client)
+	engine := newLoopEngine(t, core.ModelConfig{Name: "fake", ContextWindow: 200_000}, sess, client)
 	did, err = engine.compactNow(ctx, func(ev session.Event, _ error) bool {
 		if c, ok := ev.(session.CompactionComplete); ok {
 			complete = c
@@ -626,7 +627,7 @@ func TestRunCompactDropsSummaryAfterCancel(t *testing.T) {
 
 func TestRunCompactDropsSummaryWhenSessionAdvanced(t *testing.T) {
 	sess, did, failed, _, err := runCompactWith(t, t.Context(), func(sess *Session) {
-		require.NoError(t, sess.Append(llm.Message{Role: llm.RoleUser, Content: "raced"}))
+		require.NoError(t, sess.Append(core.Message{Role: core.RoleUser, Content: "raced"}))
 	})
 	require.ErrorContains(t, err, "session advanced")
 	require.False(t, did)
@@ -658,13 +659,13 @@ func TestCompactIgnoresThreshold(t *testing.T) {
 	sess, err := NewSession(WithCwd(t.TempDir()))
 	require.NoError(t, err)
 	require.NoError(t, sess.Append(
-		llm.Message{Role: llm.RoleUser, Content: compactionSeed},
-		llm.Message{Role: llm.RoleAssistant, Content: compactionSeed},
-		llm.Message{Role: llm.RoleUser, Content: compactionSeed},
+		core.Message{Role: core.RoleUser, Content: compactionSeed},
+		core.Message{Role: core.RoleAssistant, Content: compactionSeed},
+		core.Message{Role: core.RoleUser, Content: compactionSeed},
 	))
 	engine, err := NewEngine(
 		// A 1M window is far from the threshold: only a forced run compacts here.
-		llm.ModelConfig{Name: "fake", BaseURL: "http://unused.test", ContextWindow: 1_000_000},
+		core.ModelConfig{Name: "fake", BaseURL: "http://unused.test", ContextWindow: 1_000_000},
 		sess,
 		fakeCompactClient{},
 		NewExecutor(tooldef.NewRegistry(nil), sess.Cwd(), nil),
@@ -706,12 +707,12 @@ func TestCompactDropsSummaryAfterCancel(t *testing.T) {
 	sess, err := NewSession(WithCwd(t.TempDir()))
 	require.NoError(t, err)
 	require.NoError(t, sess.Append(
-		llm.Message{Role: llm.RoleUser, Content: compactionSeed},
-		llm.Message{Role: llm.RoleAssistant, Content: compactionSeed},
-		llm.Message{Role: llm.RoleUser, Content: compactionSeed},
+		core.Message{Role: core.RoleUser, Content: compactionSeed},
+		core.Message{Role: core.RoleAssistant, Content: compactionSeed},
+		core.Message{Role: core.RoleUser, Content: compactionSeed},
 	))
 	engine, err := NewEngine(
-		llm.ModelConfig{Name: "fake", BaseURL: "http://unused.test", ContextWindow: 1_000_000},
+		core.ModelConfig{Name: "fake", BaseURL: "http://unused.test", ContextWindow: 1_000_000},
 		sess,
 		fakeCompactClient{},
 		NewExecutor(tooldef.NewRegistry(nil), sess.Cwd(), nil),
@@ -745,10 +746,10 @@ func TestCompactDropsSummaryAfterCancel(t *testing.T) {
 func TestCompactReportsNothingToCompact(t *testing.T) {
 	sess, err := NewSession(WithCwd(t.TempDir()))
 	require.NoError(t, err)
-	require.NoError(t, sess.Append(llm.Message{Role: llm.RoleUser, Content: "hi"}))
+	require.NoError(t, sess.Append(core.Message{Role: core.RoleUser, Content: "hi"}))
 
 	engine, err := NewEngine(
-		llm.ModelConfig{Name: "fake", BaseURL: "http://unused.test", ContextWindow: 1_000_000},
+		core.ModelConfig{Name: "fake", BaseURL: "http://unused.test", ContextWindow: 1_000_000},
 		sess,
 		fakeCompactClient{},
 		NewExecutor(tooldef.NewRegistry(nil), sess.Cwd(), nil),
@@ -773,7 +774,7 @@ func TestCompactEmptySessionDoesNotPanic(t *testing.T) {
 	sess, err := NewSession(WithCwd(t.TempDir()))
 	require.NoError(t, err)
 	engine, err := NewEngine(
-		llm.ModelConfig{Name: "fake", BaseURL: "http://unused.test", ContextWindow: 1_000_000},
+		core.ModelConfig{Name: "fake", BaseURL: "http://unused.test", ContextWindow: 1_000_000},
 		sess,
 		fakeCompactClient{},
 		NewExecutor(tooldef.NewRegistry(nil), sess.Cwd(), nil),
@@ -799,7 +800,7 @@ func TestLoopNonOverflowErrorDoesNotCompact(t *testing.T) {
 
 	sess, err := NewSession(WithCwd(t.TempDir()))
 	require.NoError(t, err)
-	cfg := llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x"}
+	cfg := core.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x"}
 	engine := newHTTPLoopEngine(t, cfg, sess)
 
 	var lastErr error
@@ -863,10 +864,10 @@ func sentContent(body map[string]any) string {
 // the threshold on its own.
 func bulkyTool() tooldef.Tool {
 	return tooldef.Tool{
-		Definition: llm.ToolDefinition{
+		Definition: core.ToolDefinition{
 			Name:        "count",
 			Description: "answer with a large payload",
-			Params:      &llm.FunctionParameters{Type: "object"},
+			Params:      &core.FunctionParameters{Type: "object"},
 		},
 		Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
 			return tooldef.Result{Content: strings.Repeat("y", 12000)}, nil
@@ -889,13 +890,21 @@ func TestLoopCompactsMidTurnBeforeNextRequest(t *testing.T) {
 	// last one (22k) sits below the threshold of a 40k window (23616), so nothing
 	// compacts until the tool result lands on top of it.
 	require.NoError(t, sess.Append(
-		llm.Message{Role: llm.RoleUser, Content: strings.Repeat("a", 48000), Usage: llm.Usage{TotalTokens: 6000}},
-		llm.Message{Role: llm.RoleAssistant, Content: strings.Repeat("b", 48000), Usage: llm.Usage{TotalTokens: 12000}},
-		llm.Message{Role: llm.RoleUser, Content: strings.Repeat("c", 48000), Usage: llm.Usage{TotalTokens: 18000}},
-		llm.Message{Role: llm.RoleAssistant, Content: strings.Repeat("d", 48000), Usage: llm.Usage{TotalTokens: 22000}},
+		core.Message{Role: core.RoleUser, Content: strings.Repeat("a", 48000), Usage: core.Usage{TotalTokens: 6000}},
+		core.Message{
+			Role:    core.RoleAssistant,
+			Content: strings.Repeat("b", 48000),
+			Usage:   core.Usage{TotalTokens: 12000},
+		},
+		core.Message{Role: core.RoleUser, Content: strings.Repeat("c", 48000), Usage: core.Usage{TotalTokens: 18000}},
+		core.Message{
+			Role:    core.RoleAssistant,
+			Content: strings.Repeat("d", 48000),
+			Usage:   core.Usage{TotalTokens: 22000},
+		},
 	))
 
-	cfg := llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 40_000}
+	cfg := core.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 40_000}
 	engine := newHTTPLoopEngine(t, cfg, sess, bulkyTool())
 
 	var lastErr error
@@ -970,14 +979,18 @@ func TestLoopCompactsAtInputLimitKeepingTotalContextWindow(t *testing.T) {
 			sess, err := NewSession(WithCwd(t.TempDir()))
 			require.NoError(t, err)
 			require.NoError(t, sess.Append(
-				llm.Message{Role: llm.RoleUser, Content: compactionSeed},
-				llm.Message{Role: llm.RoleAssistant, Content: compactionSeed},
-				llm.Message{Role: llm.RoleUser, Content: compactionSeed},
-				llm.Message{Role: llm.RoleAssistant, Content: compactionSeed, Usage: llm.Usage{TotalTokens: tt.usage}},
+				core.Message{Role: core.RoleUser, Content: compactionSeed},
+				core.Message{Role: core.RoleAssistant, Content: compactionSeed},
+				core.Message{Role: core.RoleUser, Content: compactionSeed},
+				core.Message{
+					Role:    core.RoleAssistant,
+					Content: compactionSeed,
+					Usage:   core.Usage{TotalTokens: tt.usage},
+				},
 			))
 
 			// InputLimit 50k => threshold 33,616; ContextWindow 1.05M => 128k output cap unclamped.
-			cfg := llm.ModelConfig{
+			cfg := core.ModelConfig{
 				Name:          "fake",
 				BaseURL:       server.URL,
 				APIKey:        "x",
@@ -1018,16 +1031,16 @@ func TestLoopStopsDuringCompaction(t *testing.T) {
 			sess, err := NewSession(WithCwd(t.TempDir()))
 			require.NoError(t, err)
 			require.NoError(t, sess.Append(
-				llm.Message{Role: llm.RoleUser, Content: compactionSeed},
-				llm.Message{Role: llm.RoleAssistant, Content: compactionSeed},
-				llm.Message{Role: llm.RoleUser, Content: compactionSeed},
+				core.Message{Role: core.RoleUser, Content: compactionSeed},
+				core.Message{Role: core.RoleAssistant, Content: compactionSeed},
+				core.Message{Role: core.RoleUser, Content: compactionSeed},
 			))
 			var compacts int
 			client := fakeCompactClient{compact: func(context.Context) error {
 				compacts++
 				return errors.New("summary failed")
 			}}
-			engine, err := NewEngine(llm.ModelConfig{Name: "stub", ContextWindow: 40_000}, sess, client,
+			engine, err := NewEngine(core.ModelConfig{Name: "stub", ContextWindow: 40_000}, sess, client,
 				NewExecutor(tooldef.NewRegistry(nil), sess.Cwd(), nil))
 			require.NoError(t, err)
 			var events int
@@ -1067,13 +1080,15 @@ func TestLoopStopsToolBatchWithoutRunningTools(t *testing.T) {
 			var runs atomic.Int32
 			tool := countingTool(&runs)
 			tool.Definition.Readable = readable
-			client := &stubChatClient{streams: []func(context.Context, []llm.Message) iter.Seq2[llm.StreamEvent, error]{
-				stubMessageStream(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
-					{ID: "first", Type: "function", Function: llm.Function{Name: "count", Arguments: `{}`}},
-					{ID: "second", Type: "function", Function: llm.Function{Name: "count", Arguments: `{}`}},
-				}}),
-			}}
-			engine, err := NewEngine(llm.ModelConfig{Name: "stub"}, sess, client,
+			client := &stubChatClient{
+				streams: []func(context.Context, []core.Message) iter.Seq2[core.StreamEvent, error]{
+					stubMessageStream(core.Message{Role: core.RoleAssistant, ToolCalls: []core.ToolCall{
+						{ID: "first", Type: "function", Function: core.Function{Name: "count", Arguments: `{}`}},
+						{ID: "second", Type: "function", Function: core.Function{Name: "count", Arguments: `{}`}},
+					}}),
+				},
+			}
+			engine, err := NewEngine(core.ModelConfig{Name: "stub"}, sess, client,
 				NewExecutor(tooldef.NewRegistry([]tooldef.Tool{tool}), sess.Cwd(), nil))
 			require.NoError(t, err)
 			var toolEvents int
@@ -1102,7 +1117,7 @@ func TestEngineConfigRegistersJobs(t *testing.T) {
 	sess, err := NewSession(WithCwd(t.TempDir()))
 	require.NoError(t, err)
 	eng, err := (EngineConfig{Jobs: mgr}).NewEngine(
-		llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
+		core.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
 		sess,
 	)
 	require.NoError(t, err)
@@ -1144,7 +1159,7 @@ func TestChildToolsAreReadonly(t *testing.T) {
 	assert.False(t, names["edit"])
 }
 
-var testModel = llm.ModelConfig{Name: "test", APIKey: "x", BaseURL: "http://127.0.0.1:9"}
+var testModel = core.ModelConfig{Name: "test", APIKey: "x", BaseURL: "http://127.0.0.1:9"}
 
 // MCP adds no tools: ls/read/write resolve mcp:// URLs through the executor's
 // pool, so the registry stays identical with and without a pool.

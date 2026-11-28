@@ -15,7 +15,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"github.com/pulseaiclub/phi/internal/util"
@@ -56,41 +56,41 @@ Use read for full untruncated line text. Prefer this over bash grep/rg.`,
 // GrepTool returns the grep (search) tool definition + handler.
 func GrepTool() tooldef.Tool {
 	return tooldef.NewTool(
-		tooldef.WithDefinition(llm.ToolDefinition{
+		tooldef.WithDefinition(core.ToolDefinition{
 			Name:        "grep",
 			Description: grepDescription,
-			Params: &llm.FunctionParameters{
+			Params: &core.FunctionParameters{
 				Type: "object",
-				Properties: llm.Object{
-					"pattern": llm.Object{
+				Properties: core.Object{
+					"pattern": core.Object{
 						"type":        "string",
 						"description": "Regex or literal string to search. Example: func Test.*",
 					},
-					"path": llm.Object{
+					"path": core.Object{
 						"type":        "string",
 						"description": "Directory or file to search. Example: ./src",
 					},
-					"glob": llm.Object{
+					"glob": core.Object{
 						"type":        "string",
 						"description": "File pattern filter. Example: *_test.go",
 					},
-					"include": llm.Object{
+					"include": core.Object{
 						"type":        "string",
 						"description": "Deprecated alias for glob; prefer glob.",
 					},
-					"ignoreCase": llm.Object{
+					"ignoreCase": core.Object{
 						"type":        "boolean",
 						"description": "true for case-insensitive search (default: false)",
 					},
-					"literal": llm.Object{
+					"literal": core.Object{
 						"type":        "boolean",
 						"description": "true to treat pattern as literal text (default: false)",
 					},
-					"context": llm.Object{
+					"context": core.Object{
 						"type":        "integer",
 						"description": "Lines of context around each match. Example: 2",
 					},
-					"limit": llm.Object{
+					"limit": core.Object{
 						"type": "integer",
 						"description": fmt.Sprintf(
 							"Maximum matches to return. Example: 50 (default: %d)",

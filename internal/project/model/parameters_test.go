@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/llm"
 	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
 	"github.com/pulseaiclub/phi/internal/llm/openai"
@@ -23,7 +24,7 @@ func (f parameterTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 func TestParameterAdaptationWire(t *testing.T) {
 	tests := []struct {
 		name, model, endpoint, thinking string
-		overrides                       llm.RequestParameters
+		overrides                       core.RequestParameters
 	}{
 		{
 			"glm alias native",
@@ -50,7 +51,7 @@ func TestParameterAdaptationWire(t *testing.T) {
 			"glm-5.3",
 			"https://api.z.ai/api/paas/v4",
 			`{"type":"enabled","clear_thinking":true}`,
-			llm.RequestParameters{"thinking": map[string]any{"clear_thinking": true}},
+			core.RequestParameters{"thinking": map[string]any{"clear_thinking": true}},
 		},
 	}
 	// Intercept HTTP so native endpoints receive no test traffic.
@@ -98,9 +99,9 @@ func TestParameterAdaptationWire(t *testing.T) {
 				}, nil
 			})
 			client := llmclient.NewClient(cfg, HooksFor(cfg.Name), nil, "")
-			for _, streamErr := range client.Stream(t.Context(), []llm.Message{
-				{Role: llm.RoleAssistant, Content: "prior answer", ReasoningContent: "prior reasoning"},
-				{Role: llm.RoleUser, Content: "continue"},
+			for _, streamErr := range client.Stream(t.Context(), []core.Message{
+				{Role: core.RoleAssistant, Content: "prior answer", ReasoningContent: "prior reasoning"},
+				{Role: core.RoleUser, Content: "continue"},
 			}) {
 				require.NoError(t, streamErr)
 			}
@@ -125,7 +126,7 @@ func TestEndpointRuleBoundaries(t *testing.T) {
 		t.Run(endpoint, func(t *testing.T) {
 			req := &openai.Request{}
 			hook := chatParameters{forced: true}
-			require.NoError(t, hook.Before(t.Context(), req, llm.ModelConfig{Name: "glm-5.3", BaseURL: endpoint}))
+			require.NoError(t, hook.Before(t.Context(), req, core.ModelConfig{Name: "glm-5.3", BaseURL: endpoint}))
 			require.NotNil(t, req.Thinking.ClearThinking)
 			assert.False(t, *req.Thinking.ClearThinking)
 		})
@@ -144,7 +145,7 @@ func TestEndpointRuleBoundaries(t *testing.T) {
 		t.Run(endpoint, func(t *testing.T) {
 			req := &openai.Request{}
 			hook := chatParameters{forced: true}
-			require.NoError(t, hook.Before(t.Context(), req, llm.ModelConfig{Name: "glm-5.3", BaseURL: endpoint}))
+			require.NoError(t, hook.Before(t.Context(), req, core.ModelConfig{Name: "glm-5.3", BaseURL: endpoint}))
 			require.NotNil(t, req.Thinking)
 			assert.Nil(t, req.Thinking.ClearThinking)
 		})
@@ -157,15 +158,15 @@ func TestModelMappingUsesExplicitAPIAndPresetBinding(t *testing.T) {
 	t.Cleanup(func() { httpClient.Transport = original })
 	for _, tc := range []struct {
 		preset             string
-		api                llm.RouterType
+		api                core.RouterType
 		endpoint, thinking string
 	}{
-		{"glm-5.3-flash", llm.Anthropic, "https://gateway.test/v1", "enabled"},
-		{"deepseek-flash", llm.Anthropic, "https://gateway.test/v1", "enabled"},
-		{"glm-5.3-flash", llm.OpenAIResponses, "https://gateway.test/v1", ""},
-		{"glm-5.3-flash", llm.Anthropic, "https://openrouter.ai/api", "adaptive"},
-		{"deepseek-flash", llm.Anthropic, "https://openrouter.ai/api/v1", "adaptive"},
-		{"deepseek-flash", llm.Anthropic, "https://openrouter.ai/api/v1", "disabled"},
+		{"glm-5.3-flash", core.Anthropic, "https://gateway.test/v1", "enabled"},
+		{"deepseek-flash", core.Anthropic, "https://gateway.test/v1", "enabled"},
+		{"glm-5.3-flash", core.OpenAIResponses, "https://gateway.test/v1", ""},
+		{"glm-5.3-flash", core.Anthropic, "https://openrouter.ai/api", "adaptive"},
+		{"deepseek-flash", core.Anthropic, "https://openrouter.ai/api/v1", "adaptive"},
+		{"deepseek-flash", core.Anthropic, "https://openrouter.ai/api/v1", "disabled"},
 	} {
 		presetName, api := tc.preset, tc.api
 		t.Run(presetName+"/"+string(api)+"/"+tc.endpoint+"/"+tc.thinking, func(t *testing.T) {
@@ -175,7 +176,7 @@ func TestModelMappingUsesExplicitAPIAndPresetBinding(t *testing.T) {
 			cfg.Name, cfg.Preset = "opaque-route", presetName
 			cfg.API, cfg.BaseURL = api, tc.endpoint
 			if tc.thinking == "disabled" {
-				cfg.Think = llm.ThinkConfig{Mode: llm.Off}
+				cfg.Think = core.ThinkConfig{Mode: core.Off}
 			}
 			calls := 0
 			httpClient.Transport = parameterTransport(func(r *http.Request) (*http.Response, error) {
@@ -186,7 +187,7 @@ func TestModelMappingUsesExplicitAPIAndPresetBinding(t *testing.T) {
 				assert.NotContains(t, body, "reasoning_effort")
 				stream := string(body["stream"]) == "true"
 				var response string
-				if api == llm.Anthropic {
+				if api == core.Anthropic {
 					path := "/v1/messages"
 					if strings.HasPrefix(tc.endpoint, "https://openrouter.ai/api") {
 						path = "/api/v1/messages"
@@ -225,7 +226,7 @@ func TestModelMappingUsesExplicitAPIAndPresetBinding(t *testing.T) {
 				}, nil
 			})
 			client := llmclient.NewClient(cfg, HooksForConfig(cfg), nil, "")
-			for _, err := range client.Stream(t.Context(), []llm.Message{{Role: llm.RoleUser, Content: "hi"}}) {
+			for _, err := range client.Stream(t.Context(), []core.Message{{Role: core.RoleUser, Content: "hi"}}) {
 				require.NoError(t, err)
 			}
 			result, err := client.Compact(t.Context(), llm.CompactRequest{Prompt: "sum", MaxTokens: 64})
@@ -240,7 +241,7 @@ func TestDeepSeekChatThinkingDisabled(t *testing.T) {
 	p, ok := Lookup("vendor/deepseek-flash")
 	require.True(t, ok)
 	cfg := p.Config
-	cfg.Think = llm.ThinkConfig{Mode: llm.Off}
+	cfg.Think = core.ThinkConfig{Mode: core.Off}
 	req := openai.BuildRequest(cfg, "", nil, nil)
 	require.NoError(t, p.Hooks.OpenAI.Before(t.Context(), req, cfg))
 	assert.Equal(t, "disabled", req.Thinking.Type)
@@ -292,19 +293,19 @@ func TestForcedAnthropicThinkingKeepsSignedReplayWhenThinkDisabled(t *testing.T)
 				}, nil
 			})
 
-			cfg := llm.ModelConfig{
+			cfg := core.ModelConfig{
 				Name:    tc.name,
 				BaseURL: tc.baseURL,
 				APIKey:  "sk-ant",
-				API:     llm.Anthropic,
-				Think:   llm.ThinkConfig{Enabled: false, Mode: llm.Off},
+				API:     core.Anthropic,
+				Think:   core.ThinkConfig{Enabled: false, Mode: core.Off},
 			}
-			tools := []llm.ToolDefinition{{Name: "read", Description: "read file"}}
+			tools := []core.ToolDefinition{{Name: "read", Description: "read file"}}
 			client := llmclient.NewClient(cfg, HooksForConfig(cfg), tools, "sys")
 
-			user := llm.Message{Role: llm.RoleUser, Content: "inspect"}
-			var assistant *llm.Message
-			for ev, err := range client.Stream(t.Context(), []llm.Message{user}) {
+			user := core.Message{Role: core.RoleUser, Content: "inspect"}
+			var assistant *core.Message
+			for ev, err := range client.Stream(t.Context(), []core.Message{user}) {
 				require.NoError(t, err)
 				if ev.Final != nil {
 					assistant = ev.Final
@@ -313,8 +314,8 @@ func TestForcedAnthropicThinkingKeepsSignedReplayWhenThinkDisabled(t *testing.T)
 			require.NotNil(t, assistant)
 			require.NotNil(t, assistant.ProviderState, "turn 1 must capture signed thinking blocks")
 
-			toolResult := llm.Message{Role: llm.RoleTool, ToolCallID: "toolu_1", Content: "package a"}
-			for _, err := range client.Stream(t.Context(), []llm.Message{user, *assistant, toolResult}) {
+			toolResult := core.Message{Role: core.RoleTool, ToolCallID: "toolu_1", Content: "package a"}
+			for _, err := range client.Stream(t.Context(), []core.Message{user, *assistant, toolResult}) {
 				require.NoError(t, err)
 			}
 			require.Len(t, bodies, 2)

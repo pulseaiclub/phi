@@ -3,10 +3,10 @@ package session
 import (
 	"testing"
 
-	"github.com/pulseaiclub/phi/internal/llm"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
 func TestBashContextText(t *testing.T) {
@@ -59,7 +59,7 @@ func TestAppendBashAddsUserContextAndReplaysAsBashRow(t *testing.T) {
 	require.Len(t, entries, 1)
 	entry := entries[0].(SessionMessageEntry)
 	assert.Equal(t, id, entry.GetID())
-	assert.Equal(t, llm.RoleUser, entry.Message.Role, "the model sees a user message")
+	assert.Equal(t, core.RoleUser, entry.Message.Role, "the model sees a user message")
 	assert.Equal(t, "Ran `git status`\n```\nclean\n```", entry.Message.Content)
 	require.NotNil(t, entry.Bash)
 

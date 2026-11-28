@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/tools/edittool/sloppy"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"github.com/pulseaiclub/phi/internal/util"
@@ -99,13 +99,13 @@ const A = ⟪1│2⟫
 // EditTool returns the edit (sloppy) tool definition + handler.
 func EditTool() tooldef.Tool {
 	return tooldef.NewTool(
-		tooldef.WithDefinition(llm.ToolDefinition{
+		tooldef.WithDefinition(core.ToolDefinition{
 			Name:        "edit",
 			Description: editDescription,
-			Params: &llm.FunctionParameters{
+			Params: &core.FunctionParameters{
 				Type: "object",
-				Properties: llm.Object{
-					"payload": llm.Object{
+				Properties: core.Object{
+					"payload": core.Object{
 						"type": "string",
 						"description": "The sloppy edit payload: *** SM:EDIT / *** SM:FIND / *** SM:PUT or *** " +
 							"SM:AFTER blocks. Example: *** SM:EDIT src/app.ts\n*** SM:FIND\nconst x = 1;\n" +

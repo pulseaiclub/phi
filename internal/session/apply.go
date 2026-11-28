@@ -5,7 +5,7 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
 // Apply returns a new snapshot with ev applied (immutable reducer).
@@ -25,7 +25,7 @@ func Apply(s Snapshot, ev Event) Snapshot {
 			ID:     id,
 			Role:   RoleUser,
 			Text:   e.Text,
-			Images: append([]llm.Image(nil), e.Images...),
+			Images: append([]core.Image(nil), e.Images...),
 		})
 	case LocalBashStart:
 		id := e.ID

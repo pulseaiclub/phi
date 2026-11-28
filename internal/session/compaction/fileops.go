@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools/edittool/sloppy"
 )
@@ -52,8 +52,8 @@ func extractPathsFromArgs(name, args string) []string {
 	return nil
 }
 
-func (f *FileOperation) extractMessageContent(message llm.Message) {
-	if message.Role != llm.RoleAssistant {
+func (f *FileOperation) extractMessageContent(message core.Message) {
+	if message.Role != core.RoleAssistant {
 		return
 	}
 	if len(message.ToolCalls) == 0 {
@@ -75,7 +75,7 @@ func (f *FileOperation) extractMessageContent(message llm.Message) {
 }
 
 func extractFileOperations(
-	messages []llm.Message,
+	messages []core.Message,
 	entries []session.MessageEntry,
 	prevCompactionIndex int,
 ) *FileOperation {

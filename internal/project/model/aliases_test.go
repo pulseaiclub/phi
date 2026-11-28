@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
 func TestModelAliasesInheritCapabilitiesWithoutChangingIdentity(t *testing.T) {
@@ -54,7 +54,7 @@ func TestModelAliasBoundariesAndSpecificity(t *testing.T) {
 		p, ok := Lookup(name)
 		require.True(t, ok, name)
 		assert.True(t, p.Config.ImageEnabled, name)
-		assert.Equal(t, llm.Max, p.Config.Think.Mode)
+		assert.Equal(t, core.Max, p.Config.Think.Mode)
 	}
 	p, ok := Lookup("clinepass/cline-pass/deepseek-v4.1-flash")
 	require.True(t, ok)

@@ -4,7 +4,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
 // Role is the speaker of a transcript message.
@@ -153,7 +153,7 @@ type Message struct {
 	State      State      // assistant
 	StopReason StopReason // assistant when complete
 	Text       string     // user visible text
-	Images     []llm.Image
+	Images     []core.Image
 	Content    []ContentBlock
 	// Usage is token consumption for the latest assistant turn (UI + diagnostics).
 	// Zero means unknown / not yet reported by the provider.
@@ -167,7 +167,7 @@ type Message struct {
 }
 
 // TokenUsage is a UI-facing copy of provider token counts for one completion.
-// The buckets mirror llm.Usage: PromptTokens is the input that missed the
+// The buckets mirror core.Usage: PromptTokens is the input that missed the
 // cache, and the cached counts are separate rather than a subset.
 type TokenUsage struct {
 	PromptTokens     int
@@ -178,7 +178,7 @@ type TokenUsage struct {
 }
 
 // TokenUsageFrom converts provider usage into the UI-facing copy.
-func TokenUsageFrom(u llm.Usage) TokenUsage {
+func TokenUsageFrom(u core.Usage) TokenUsage {
 	return TokenUsage{
 		PromptTokens:     u.PromptTokens,
 		CompletionTokens: u.CompletionTokens,
@@ -198,7 +198,7 @@ func (u TokenUsage) Reported() bool {
 // provider's total when it sent one, otherwise the sum of the disjoint buckets.
 // Deliberately not PromptTokens: that is only the uncached input, so a
 // cache-heavy turn would read as an almost empty window. Mirrors
-// llm.Usage.ContextTokens, and TestContextTokensMatchesProviderUsage keeps the
+// core.Usage.ContextTokens, and TestContextTokensMatchesProviderUsage keeps the
 // two from drifting apart.
 func (u TokenUsage) ContextTokens() int {
 	if u.TotalTokens > 0 {
@@ -234,7 +234,7 @@ type Event interface {
 type UserAppend struct {
 	ID     string
 	Text   string
-	Images []llm.Image
+	Images []core.Image
 }
 
 func (UserAppend) isSessionEvent() {}

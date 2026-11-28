@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
 var nativeSSE = strings.Join([]string{
@@ -35,12 +35,12 @@ var nativeSSE = strings.Join([]string{
 	`data: {"type":"message_stop"}`,
 }, "\n\n") + "\n\n"
 
-func nativeResponse(t *testing.T, cfg llm.ModelConfig, req AnthropicRequest) llm.Message {
+func nativeResponse(t *testing.T, cfg core.ModelConfig, req AnthropicRequest) core.Message {
 	t.Helper()
 	events := processForTest(nativeSSE)
 	require.NotEmpty(t, events)
 	done := events[len(events)-1]
-	require.Equal(t, llm.StreamEventTypeDone, done.Type)
+	require.Equal(t, core.StreamEventTypeDone, done.Type)
 	require.NotNil(t, done.Final.ProviderState)
 	state := nativeState(&req, cfg)
 	require.NotNil(t, state)
@@ -50,9 +50,9 @@ func nativeResponse(t *testing.T, cfg llm.ModelConfig, req AnthropicRequest) llm
 }
 
 func TestNativeContentOrder(t *testing.T) {
-	cfg := llm.ModelConfig{Name: "claude", Think: llm.ThinkConfig{Enabled: true}}
-	user := llm.Message{Role: llm.RoleUser, Content: "read"}
-	msg := nativeResponse(t, cfg, BuildRequest(cfg, "system", []llm.Message{user}, nil))
+	cfg := core.ModelConfig{Name: "claude", Think: core.ThinkConfig{Enabled: true}}
+	user := core.Message{Role: core.RoleUser, Content: "read"}
+	msg := nativeResponse(t, cfg, BuildRequest(cfg, "system", []core.Message{user}, nil))
 	assert.Equal(t, " start\nnext", msg.ReasoningContent)
 	assert.Equal(t, "beforeafter", msg.Content)
 	require.Len(t, msg.ProviderState.Data.Items, 5)
@@ -72,8 +72,8 @@ func TestNativeContentOrder(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(msg.ProviderState.Data.Items[2], &tool))
 	assert.Equal(t, json.Number("9007199254740993"), tool.Input.CacheControl)
-	result := llm.Message{Role: llm.RoleTool, ToolCallID: msg.ToolCalls[0].ID, Content: "file"}
-	req := BuildRequest(cfg, "system", []llm.Message{user, msg, result}, nil)
+	result := core.Message{Role: core.RoleTool, ToolCallID: msg.ToolCalls[0].ID, Content: "file"}
+	req := BuildRequest(cfg, "system", []core.Message{user, msg, result}, nil)
 	body, err := json.Marshal(req)
 	require.NoError(t, err)
 	assert.Contains(t, string(body), `"tool_use_id":"toolu.native"`)
@@ -90,13 +90,13 @@ func TestNativeContentOrder(t *testing.T) {
 }
 
 func TestNativePrefixFallback(t *testing.T) {
-	cfg := llm.ModelConfig{Name: "claude", Think: llm.ThinkConfig{Enabled: true}}
-	tools := []llm.ToolDefinition{{Name: "read", Description: "read a file"}}
-	user := llm.Message{Role: llm.RoleUser, Content: "read"}
-	msg := nativeResponse(t, cfg, BuildRequest(cfg, "system", []llm.Message{user}, tools))
+	cfg := core.ModelConfig{Name: "claude", Think: core.ThinkConfig{Enabled: true}}
+	tools := []core.ToolDefinition{{Name: "read", Description: "read a file"}}
+	user := core.Message{Role: core.RoleUser, Content: "read"}
+	msg := nativeResponse(t, cfg, BuildRequest(cfg, "system", []core.Message{user}, tools))
 	// Fingerprint from the eager implementation: saved sessions must still replay.
 	assert.Equal(t, "c189bdda1b23f631ec5f22d570231ec608be9405b230cce26749836f24731d43", msg.ProviderState.Data.Prefix)
-	result := llm.Message{Role: llm.RoleTool, ToolCallID: msg.ToolCalls[0].ID, Content: "file"}
+	result := core.Message{Role: core.RoleTool, ToolCallID: msg.ToolCalls[0].ID, Content: "file"}
 	cases := []struct {
 		name string
 		keep bool
@@ -114,8 +114,8 @@ func TestNativePrefixFallback(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			config, system := cfg, "system"
-			messages := []llm.Message{user, msg, result}
-			defs := append([]llm.ToolDefinition(nil), tools...)
+			messages := []core.Message{user, msg, result}
+			defs := append([]core.ToolDefinition(nil), tools...)
 			switch tc.name {
 			case "system":
 				system = "new"
@@ -132,7 +132,7 @@ func TestNativePrefixFallback(t *testing.T) {
 			case "thinking off":
 				config.Think.Enabled = false
 			case "budget":
-				config.Think.Mode = llm.High
+				config.Think.Mode = core.High
 			}
 			req := BuildRequest(config, system, messages, defs)
 			body, err := json.Marshal(req)
@@ -169,14 +169,14 @@ func TestNativeTextPrefixCompatibility(t *testing.T) {
 }
 
 func TestNativePrefixDoesNotLeaveGap(t *testing.T) {
-	cfg := llm.ModelConfig{Name: "claude", Think: llm.ThinkConfig{Enabled: true}}
-	messages := []llm.Message{{Role: llm.RoleUser, Content: "first"}}
+	cfg := core.ModelConfig{Name: "claude", Think: core.ThinkConfig{Enabled: true}}
+	messages := []core.Message{{Role: core.RoleUser, Content: "first"}}
 	for range 3 {
 		msg := nativeResponse(t, cfg, BuildRequest(cfg, "", messages, nil))
 		messages = append(
 			messages,
 			msg,
-			llm.Message{Role: llm.RoleTool, ToolCallID: msg.ToolCalls[0].ID, Content: "ok"},
+			core.Message{Role: core.RoleTool, ToolCallID: msg.ToolCalls[0].ID, Content: "ok"},
 		)
 	}
 	messages[3].ProviderState = nil
@@ -187,7 +187,7 @@ func TestNativePrefixDoesNotLeaveGap(t *testing.T) {
 
 	// A new response belongs to the degraded prefix and can be replayed normally.
 	msg := nativeResponse(t, cfg, req)
-	messages = append(messages, msg, llm.Message{Role: llm.RoleTool, ToolCallID: msg.ToolCalls[0].ID, Content: "new"})
+	messages = append(messages, msg, core.Message{Role: core.RoleTool, ToolCallID: msg.ToolCalls[0].ID, Content: "new"})
 	req = BuildRequest(cfg, "", messages, nil)
 	body, err = json.Marshal(req)
 	require.NoError(t, err)
@@ -205,7 +205,7 @@ func TestIncompleteNativeFallsBack(t *testing.T) {
 			events := processForTest(tc.sse)
 			require.NotEmpty(t, events)
 			done := events[len(events)-1]
-			require.Equal(t, llm.StreamEventTypeDone, done.Type)
+			require.Equal(t, core.StreamEventTypeDone, done.Type)
 			require.NotNil(t, done.Final)
 			assert.Nil(t, done.Final.ProviderState)
 			assert.Equal(t, "beforeafter", done.Final.Content)
@@ -217,17 +217,17 @@ func TestIncompleteNativeFallsBack(t *testing.T) {
 }
 
 func TestNativeOnlyAndLegacyHistory(t *testing.T) {
-	cfg := llm.ModelConfig{Name: "claude", Think: llm.ThinkConfig{Enabled: true}}
-	user := llm.Message{Role: llm.RoleUser, Content: "think"}
-	state := nativeResponse(t, cfg, BuildRequest(cfg, "", []llm.Message{user}, nil)).ProviderState
+	cfg := core.ModelConfig{Name: "claude", Think: core.ThinkConfig{Enabled: true}}
+	user := core.Message{Role: core.RoleUser, Content: "think"}
+	state := nativeResponse(t, cfg, BuildRequest(cfg, "", []core.Message{user}, nil)).ProviderState
 	state.Data.Items = []json.RawMessage{json.RawMessage(`{"type":"thinking","thinking":"","signature":"signed"}`)}
-	msg := llm.Message{Role: llm.RoleAssistant, ProviderState: state}
-	req := BuildRequest(cfg, "", []llm.Message{user, msg}, nil)
+	msg := core.Message{Role: core.RoleAssistant, ProviderState: state}
+	req := BuildRequest(cfg, "", []core.Message{user, msg}, nil)
 	require.Len(t, req.Messages, 2)
 	assert.Equal(t, state.Data.Items, req.Messages[1].Content)
 	msg.ProviderState = nil
 	msg.ReasoningContent = "legacy display text"
-	req = BuildRequest(cfg, "", []llm.Message{user, msg}, nil)
+	req = BuildRequest(cfg, "", []core.Message{user, msg}, nil)
 	assert.Len(t, req.Messages, 1, "legacy thinking has no signed wire content")
 }
 
@@ -237,19 +237,19 @@ func TestNativeStableRequestRewrite(t *testing.T) {
 		_, _ = io.WriteString(w, nativeSSE)
 	}))
 	defer server.Close()
-	cfg := llm.ModelConfig{Name: "alias", BaseURL: server.URL, Think: llm.ThinkConfig{Enabled: true}}
-	tools := []llm.ToolDefinition{{Name: "read", Params: &llm.FunctionParameters{Type: "object"}}}
+	cfg := core.ModelConfig{Name: "alias", BaseURL: server.URL, Think: core.ThinkConfig{Enabled: true}}
+	tools := []core.ToolDefinition{{Name: "read", Params: &core.FunctionParameters{Type: "object"}}}
 	for _, change := range []string{"unchanged", "model", "system", "tools", "schema", "history", "image", "tool input", "consumer mutation"} {
 		t.Run(change, func(t *testing.T) {
-			messages := []llm.Message{
-				{Role: llm.RoleUser, Content: "read", Images: []llm.Image{{MimeType: "image/png", Data: "Zmlyc3Q="}}},
-				{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "legacy", Function: llm.Function{
+			messages := []core.Message{
+				{Role: core.RoleUser, Content: "read", Images: []core.Image{{MimeType: "image/png", Data: "Zmlyc3Q="}}},
+				{Role: core.RoleAssistant, ToolCalls: []core.ToolCall{{ID: "legacy", Function: core.Function{
 					Name: "read", Arguments: `{"path":"a.go"}`,
 				}}}},
-				{Role: llm.RoleTool, ToolCallID: "legacy", Content: "file"},
-				{Role: llm.RoleUser, Content: "next"},
+				{Role: core.RoleTool, ToolCallID: "legacy", Content: "file"},
+				{Role: core.RoleUser, Content: "next"},
 			}
-			var previous *llm.Message
+			var previous *core.Message
 			for range 3 {
 				req := BuildRequest(cfg, "system", messages, tools)
 				cached := req.native
@@ -297,8 +297,8 @@ func TestNativeStableRequestRewrite(t *testing.T) {
 					assert.Equal(t, cached.Data.Prefix, previous.ProviderState.Data.Prefix)
 					assert.Empty(t, cached.Data.Items, "streaming must not mutate the cached prefix")
 				}
-				messages = append(messages, *previous, llm.Message{
-					Role: llm.RoleTool, ToolCallID: previous.ToolCalls[0].ID, Content: "file",
+				messages = append(messages, *previous, core.Message{
+					Role: core.RoleTool, ToolCallID: previous.ToolCalls[0].ID, Content: "file",
 				})
 			}
 		})

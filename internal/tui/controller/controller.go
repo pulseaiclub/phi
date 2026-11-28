@@ -16,12 +16,12 @@ import (
 	ext "github.com/pulseaiclub/phi/ext/go"
 	"github.com/pulseaiclub/phi/internal/agent"
 	"github.com/pulseaiclub/phi/internal/components/toast"
+	coretypes "github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/debuglog"
 	"github.com/pulseaiclub/phi/internal/extension/core"
 	"github.com/pulseaiclub/phi/internal/extension/ui"
 	"github.com/pulseaiclub/phi/internal/job"
 
-	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/project/model"
@@ -80,7 +80,7 @@ type EngineController struct {
 	sessionDir string
 	cwd        string
 	modelMu    sync.RWMutex // Protect engine/session/model snapshots read by background jobs and local bash.
-	modelCfg   llm.ModelConfig
+	modelCfg   coretypes.ModelConfig
 	// roleModels maps sub-agent role → model name. Empty → inherit modelCfg.
 	roleModels map[job.Role]string
 	jobs       *job.Manager
@@ -246,12 +246,12 @@ func lookupExtensionModel(extRunner extension.Extensions, name string) (core.Mod
 }
 
 func roleModelConfigs(
-	parent llm.ModelConfig,
+	parent coretypes.ModelConfig,
 	roleModels map[job.Role]string,
 	extRunner extension.Extensions,
 	config *project.Config,
-) map[job.Role]llm.ModelConfig {
-	models := map[job.Role]llm.ModelConfig{
+) map[job.Role]coretypes.ModelConfig {
+	models := map[job.Role]coretypes.ModelConfig{
 		job.RoleExplore: parent,
 		job.RoleReview:  parent,
 		job.RoleWorker:  parent,
@@ -447,7 +447,7 @@ func loadStartupExtensions(
 }
 
 func buildEngine(
-	cfg llm.ModelConfig,
+	cfg coretypes.ModelConfig,
 	extRunner extension.Extensions,
 	sess *agent.Session,
 	jobs *job.Manager,
@@ -630,9 +630,9 @@ func (c *EngineController) SetModel(name string) error {
 }
 
 // SetThinkLevel changes the thinking level for the current session.
-func (c *EngineController) SetThinkLevel(mode llm.ThinkMode) error {
+func (c *EngineController) SetThinkLevel(mode coretypes.ThinkMode) error {
 	cfg := c.modelSnapshot()
-	cfg.Think = llm.ThinkConfig{Mode: mode, Enabled: mode != llm.Off}
+	cfg.Think = coretypes.ThinkConfig{Mode: mode, Enabled: mode != coretypes.Off}
 	if err := model.ValidateThinking(cfg); err != nil {
 		return err
 	}
@@ -645,15 +645,15 @@ func (c *EngineController) SetThinkLevel(mode llm.ThinkMode) error {
 }
 
 // ThinkingModes returns the choices supported by the active model and endpoint.
-func (c *EngineController) ThinkingModes() []llm.ThinkMode {
+func (c *EngineController) ThinkingModes() []coretypes.ThinkMode {
 	return model.ThinkingModes(c.modelSnapshot())
 }
 
 // ThinkLevel returns the current thinking mode.
-func (c *EngineController) ThinkLevel() llm.ThinkMode {
+func (c *EngineController) ThinkLevel() coretypes.ThinkMode {
 	think := c.modelSnapshot().Think
 	if !think.Enabled && think.Mode != "" {
-		return llm.Off
+		return coretypes.Off
 	}
 	return think.Mode
 }
@@ -669,7 +669,7 @@ func (c *EngineController) ContextWindow() int {
 	return c.modelSnapshot().CompactionWindow()
 }
 
-func (c *EngineController) modelSnapshot() llm.ModelConfig {
+func (c *EngineController) modelSnapshot() coretypes.ModelConfig {
 	c.modelMu.RLock()
 	defer c.modelMu.RUnlock()
 	return c.modelCfg
@@ -817,7 +817,7 @@ func (c *EngineController) ForkSession() (string, error) {
 func (c *EngineController) activateSession(
 	eng *agent.Engine,
 	sess *agent.Session,
-	cfg llm.ModelConfig,
+	cfg coretypes.ModelConfig,
 	reason, prevID string,
 ) {
 	c.installEngine(eng, sess, cfg)
@@ -825,7 +825,7 @@ func (c *EngineController) activateSession(
 }
 
 // installEngine swaps the live engine and the session it is bound to as one unit.
-func (c *EngineController) installEngine(eng *agent.Engine, sess *agent.Session, cfg llm.ModelConfig) {
+func (c *EngineController) installEngine(eng *agent.Engine, sess *agent.Session, cfg coretypes.ModelConfig) {
 	c.modelMu.Lock()
 	defer c.modelMu.Unlock()
 	c.engine = eng
@@ -869,12 +869,12 @@ func (c *EngineController) commitSessionSwitch(reason, targetID string) {
 	c.sessionShutdown(reason, targetID)
 }
 
-func (c *EngineController) resolveModel() (llm.ModelConfig, error) {
+func (c *EngineController) resolveModel() (coretypes.ModelConfig, error) {
 	if cfg := c.modelSnapshot(); cfg.Name != "" {
 		return cfg, nil
 	}
 	if err := c.proj.LoadConfig(); err != nil {
-		return llm.ModelConfig{}, err
+		return coretypes.ModelConfig{}, err
 	}
 	return c.proj.Config().Model(), nil
 }
@@ -890,14 +890,14 @@ func (c *EngineController) switchRunnerSession(sess *agent.Session) {
 // jobs, extensions, MCP pool and hooks. Every session switch funnels through
 // here, so a forked session runs on exactly the wiring of a resumed one.
 func (c *EngineController) newEngine(
-	cfg llm.ModelConfig,
+	cfg coretypes.ModelConfig,
 	extRunner extension.Extensions,
 	sess *agent.Session,
 ) (*agent.Engine, error) {
 	return c.engineConfig(cfg, extRunner).NewEngine(cfg, sess)
 }
 
-func (c *EngineController) engineConfig(cfg llm.ModelConfig, r extension.Extensions) agent.EngineConfig {
+func (c *EngineController) engineConfig(cfg coretypes.ModelConfig, r extension.Extensions) agent.EngineConfig {
 	return agent.EngineConfig{Jobs: c.engineJobs(), Extensions: r, MCP: c.mcpPool, Hooks: model.HooksForConfig(cfg)}
 }
 
@@ -905,13 +905,13 @@ func (c *EngineController) ReplaySnapshot() session.Snapshot {
 	return session.ReplaySnapshot(c.sess.PathEntries(), c.engine.ToolDetail)
 }
 
-func (c *EngineController) StartPrompt(text string, pendingSkills []string, images []llm.Image) {
+func (c *EngineController) StartPrompt(text string, pendingSkills []string, images []coretypes.Image) {
 	c.streamMu.Lock()
 	defer c.streamMu.Unlock()
 	c.lastPrompt = LastPrompt{
 		Text:   text,
 		Skills: append([]string(nil), pendingSkills...),
-		Images: append([]llm.Image(nil), images...),
+		Images: append([]coretypes.Image(nil), images...),
 	}
 	c.promptAppended = false
 	c.startPromptLocked()

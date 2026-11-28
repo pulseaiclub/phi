@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/llm/anthropic"
 	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
 	"github.com/pulseaiclub/phi/internal/llm/openai"
@@ -15,7 +15,7 @@ type chatParameters struct {
 	forced bool
 }
 
-func (h chatParameters) Before(_ context.Context, req *openai.Request, cfg llm.ModelConfig) error {
+func (h chatParameters) Before(_ context.Context, req *openai.Request, cfg core.ModelConfig) error {
 	endpoint := NormalizeEndpoint(cfg.BaseURL)
 	if isOpenCodeChat(cfg.API, endpoint) {
 		req.Thinking = nil
@@ -45,9 +45,9 @@ type vendorMessagesParameters struct {
 	forced bool
 }
 
-func (h vendorMessagesParameters) EffectiveThinking(cfg llm.ModelConfig) llm.ThinkConfig {
-	if h.forced && !isOpenRouterAnthropic(cfg.BaseURL) && (!cfg.Think.Enabled || cfg.Think.Mode == llm.Off) {
-		return llm.ThinkConfig{Enabled: true, Mode: llm.Low}
+func (h vendorMessagesParameters) EffectiveThinking(cfg core.ModelConfig) core.ThinkConfig {
+	if h.forced && !isOpenRouterAnthropic(cfg.BaseURL) && (!cfg.Think.Enabled || cfg.Think.Mode == core.Off) {
+		return core.ThinkConfig{Enabled: true, Mode: core.Low}
 	}
 	return cfg.Think
 }
@@ -55,7 +55,7 @@ func (h vendorMessagesParameters) EffectiveThinking(cfg llm.ModelConfig) llm.Thi
 func (h vendorMessagesParameters) Before(
 	_ context.Context,
 	req *anthropic.AnthropicRequest,
-	cfg llm.ModelConfig,
+	cfg core.ModelConfig,
 ) error {
 	adaptive := isOpenRouterAnthropic(cfg.BaseURL)
 	req.ApplyVendorThinking(cfg.Think, h.forced && !adaptive, adaptive)
@@ -71,8 +71,8 @@ func isOpenRouterAnthropic(baseURL string) bool {
 	}
 }
 
-func isOpenCodeChat(api llm.RouterType, endpoint string) bool {
-	return (api == "" || api == llm.OpenAI) && endpoint == "https://opencode.ai/zen/go/v1"
+func isOpenCodeChat(api core.RouterType, endpoint string) bool {
+	return (api == "" || api == core.OpenAI) && endpoint == "https://opencode.ai/zen/go/v1"
 }
 
 // NormalizeEndpoint canonicalizes hosts and ports, treating base and Chat URLs alike.

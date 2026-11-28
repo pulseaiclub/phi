@@ -1,9 +1,11 @@
 package responses
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/llm"
 )
 
@@ -30,11 +32,11 @@ type Reasoning struct {
 
 // Tool is a Responses function tool (flat name/description, not nested under function).
 type Tool struct {
-	Type        string                  `json:"type"`
-	Name        string                  `json:"name"`
-	Description string                  `json:"description,omitempty"`
-	Parameters  *llm.FunctionParameters `json:"parameters,omitempty"`
-	Strict      bool                    `json:"strict"`
+	Type        string          `json:"type"`
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Parameters  json.RawMessage `json:"parameters,omitempty"`
+	Strict      bool            `json:"strict"`
 }
 
 // InputItem is one Responses input entry. Role-only messages and typed items
@@ -61,7 +63,7 @@ type contentPart struct {
 
 // BuildRequest converts normalized messages into a Responses create body.
 // System text uses role "developer" when thinking is enabled (OpenAI Responses behavior).
-func BuildRequest(cfg llm.ModelConfig, system string, messages []llm.Message, tools []llm.ToolDefinition) *Request {
+func BuildRequest(cfg core.ModelConfig, system string, messages []core.Message, tools []core.ToolDefinition) *Request {
 	input := make([]InputItem, 0, len(messages)+1)
 	if s := strings.TrimSpace(system); s != "" {
 		role := "system"
@@ -74,17 +76,17 @@ func BuildRequest(cfg llm.ModelConfig, system string, messages []llm.Message, to
 	msgIndex := 0
 	for _, m := range messages {
 		switch m.Role {
-		case llm.RoleSystem:
+		case core.RoleSystem:
 			role := "system"
 			if cfg.Think.Enabled {
 				role = "developer"
 			}
 			input = append(input, InputItem{Role: role, Content: m.Content})
-		case llm.RoleUser:
+		case core.RoleUser:
 			input = append(input, userItem(m))
-		case llm.RoleAssistant:
+		case core.RoleAssistant:
 			input = append(input, assistantItems(m, msgIndex)...)
-		case llm.RoleTool:
+		case core.RoleTool:
 			input = append(input, InputItem{
 				Type:   "function_call_output",
 				CallID: callID(m.ToolCallID),
@@ -100,7 +102,7 @@ func BuildRequest(cfg llm.ModelConfig, system string, messages []llm.Message, to
 			Type:        "function",
 			Name:        t.Name,
 			Description: t.Description,
-			Parameters:  t.Params,
+			Parameters:  llm.MarshalToolParams(t.Params, ""),
 			Strict:      false,
 		}
 	}
@@ -117,14 +119,14 @@ func BuildRequest(cfg llm.ModelConfig, system string, messages []llm.Message, to
 }
 
 // ApplyThink keeps streaming and compaction reasoning mappings identical.
-func (r *Request) ApplyThink(think llm.ThinkConfig) {
+func (r *Request) ApplyThink(think core.ThinkConfig) {
 	r.Reasoning = nil
 	if think.Enabled {
 		r.Reasoning = &Reasoning{Effort: string(think.Mode), Summary: "auto"}
 	}
 }
 
-func userItem(m llm.Message) InputItem {
+func userItem(m core.Message) InputItem {
 	if len(m.Images) == 0 {
 		return InputItem{
 			Role: "user",
@@ -148,7 +150,7 @@ func userItem(m llm.Message) InputItem {
 	return InputItem{Role: "user", Content: parts}
 }
 
-func assistantItems(m llm.Message, msgIndex int) []InputItem {
+func assistantItems(m core.Message, msgIndex int) []InputItem {
 	out := make([]InputItem, 0, 1+len(m.ToolCalls))
 	if m.Content != "" {
 		out = append(out, InputItem{
@@ -182,7 +184,7 @@ func callID(id string) string {
 }
 
 // NewCompactRequest builds a summary request with the streaming reasoning settings.
-func NewCompactRequest(cfg llm.ModelConfig, prompt string, maxTokens int) *Request {
+func NewCompactRequest(cfg core.ModelConfig, prompt string, maxTokens int) *Request {
 	req := &Request{
 		Model: cfg.Name,
 		Input: []InputItem{{

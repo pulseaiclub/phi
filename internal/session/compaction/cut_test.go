@@ -7,30 +7,30 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/session"
 )
 
 func TestEstimateMessageTokens(t *testing.T) {
 	tests := []struct {
 		name string
-		msg  llm.Message
+		msg  core.Message
 		want int
 	}{
-		{"empty message", llm.Message{}, 0},
-		{"rounds up to 4 chars per token", llm.Message{Role: llm.RoleUser, Content: "abcde"}, 2},
-		{"tool result content counts", llm.Message{Role: llm.RoleTool, Content: sizedContent(50)}, 50},
-		{"reasoning counts", llm.Message{Role: llm.RoleAssistant, ReasoningContent: strings.Repeat("t", 400)}, 100},
+		{"empty message", core.Message{}, 0},
+		{"rounds up to 4 chars per token", core.Message{Role: core.RoleUser, Content: "abcde"}, 2},
+		{"tool result content counts", core.Message{Role: core.RoleTool, Content: sizedContent(50)}, 50},
+		{"reasoning counts", core.Message{Role: core.RoleAssistant, ReasoningContent: strings.Repeat("t", 400)}, 100},
 		{
 			"tool call name and arguments count",
-			llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
-				{Function: llm.Function{Name: "read", Arguments: `{"path":"a.go"}`}},
+			core.Message{Role: core.RoleAssistant, ToolCalls: []core.ToolCall{
+				{Function: core.Function{Name: "read", Arguments: `{"path":"a.go"}`}},
 			}},
 			5, // 4 + 16 chars
 		},
 		{
 			"images use a fixed stand-in",
-			llm.Message{Role: llm.RoleUser, Images: []llm.Image{{Data: "x", MimeType: "image/png"}}},
+			core.Message{Role: core.RoleUser, Images: []core.Image{{Data: "x", MimeType: "image/png"}}},
 			estimatedImageChars / 4,
 		},
 	}
@@ -43,11 +43,11 @@ func TestEstimateMessageTokens(t *testing.T) {
 
 func TestFindCutIndex_ExceedsTokensChoosesNearestCutPoint(t *testing.T) {
 	entries := []session.MessageEntry{
-		msgEntry("e1", llm.RoleUser, 10, 0),
-		msgEntry("e2", llm.RoleUser, 10, 0),
+		msgEntry("e1", core.RoleUser, 10, 0),
+		msgEntry("e2", core.RoleUser, 10, 0),
 		session.CompactionEntry{}, // non-message, contributes no size
-		msgEntry("e3", llm.RoleUser, 10, 0),
-		msgEntry("e4", llm.RoleUser, 10, 0),
+		msgEntry("e3", core.RoleUser, 10, 0),
+		msgEntry("e4", core.RoleUser, 10, 0),
 	}
 	startIndex := 0
 	endIndex := len(entries)
@@ -62,9 +62,9 @@ func TestFindCutIndex_ExceedsTokensChoosesNearestCutPoint(t *testing.T) {
 
 func TestFindCutIndex_NotExceedTokensReturnsFirstCutPoint(t *testing.T) {
 	entries := []session.MessageEntry{
-		msgEntry("e1", llm.RoleUser, 10, 0),
-		msgEntry("e2", llm.RoleUser, 10, 0),
-		msgEntry("e3", llm.RoleUser, 10, 0),
+		msgEntry("e1", core.RoleUser, 10, 0),
+		msgEntry("e2", core.RoleUser, 10, 0),
+		msgEntry("e3", core.RoleUser, 10, 0),
 	}
 	startIndex := 0
 	endIndex := len(entries)
@@ -78,9 +78,9 @@ func TestFindCutIndex_NotExceedTokensReturnsFirstCutPoint(t *testing.T) {
 
 func TestFindCutIndex_BudgetReachedExactlyCutsThere(t *testing.T) {
 	entries := []session.MessageEntry{
-		msgEntry("e1", llm.RoleUser, 10, 0),
-		msgEntry("e2", llm.RoleAssistant, 20, 0),
-		msgEntry("e3", llm.RoleUser, 10, 0),
+		msgEntry("e1", core.RoleUser, 10, 0),
+		msgEntry("e2", core.RoleAssistant, 20, 0),
+		msgEntry("e3", core.RoleUser, 10, 0),
 	}
 
 	cutIndex := findCutIndex(entries, 0, len(entries), 30, []int{0, 1, 2})
@@ -99,10 +99,10 @@ func TestFindCutIndex_IgnoresCumulativeUsage(t *testing.T) {
 	entries := make([]session.MessageEntry, 0, messages)
 	cutPoints := make([]int, 0, messages)
 	for i := range messages {
-		role := llm.RoleUser
+		role := core.RoleUser
 		usage := 0
 		if i%2 == 1 {
-			role = llm.RoleAssistant
+			role = core.RoleAssistant
 			usage = 70000 + i // cumulative context, as real sessions report it
 		}
 		entries = append(entries, msgEntry(fmt.Sprintf("e%d", i), role, 100, usage))

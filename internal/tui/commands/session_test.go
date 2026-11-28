@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
@@ -15,9 +15,9 @@ func TestSessionCommands_ShowOpensPicker(t *testing.T) {
 	dir := t.TempDir()
 	m, err := session.NewSessionManager(dir, session.WithSessionDir(dir), session.WithShouldFlush(true))
 	require.NoError(t, err)
-	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "hello world"})
+	_, err = m.Append(core.Message{Role: core.RoleUser, Content: "hello world"})
 	require.NoError(t, err)
-	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+	_, err = m.Append(core.Message{Role: core.RoleAssistant, Content: "ok"})
 	require.NoError(t, err)
 
 	bus := controller.NewBus(nil)
@@ -87,15 +87,15 @@ func TestSessionCommands_DeleteRemovesAndRefreshes(t *testing.T) {
 	// gates flushing), so each fixture needs both roles to hit the disk.
 	current, err := session.NewSessionManager(dir, session.WithSessionDir(dir), session.WithShouldFlush(true))
 	require.NoError(t, err)
-	_, err = current.Append(llm.Message{Role: llm.RoleUser, Content: "keep me"})
+	_, err = current.Append(core.Message{Role: core.RoleUser, Content: "keep me"})
 	require.NoError(t, err)
-	_, err = current.Append(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+	_, err = current.Append(core.Message{Role: core.RoleAssistant, Content: "ok"})
 	require.NoError(t, err)
 	other, err := session.NewSessionManager(dir, session.WithSessionDir(dir), session.WithShouldFlush(true))
 	require.NoError(t, err)
-	_, err = other.Append(llm.Message{Role: llm.RoleUser, Content: "delete me"})
+	_, err = other.Append(core.Message{Role: core.RoleUser, Content: "delete me"})
 	require.NoError(t, err)
-	_, err = other.Append(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+	_, err = other.Append(core.Message{Role: core.RoleAssistant, Content: "ok"})
 	require.NoError(t, err)
 
 	bus := controller.NewBus(nil)
@@ -132,9 +132,9 @@ func TestSessionCommands_DeleteUnknownIdToastsAndKeepsList(t *testing.T) {
 	dir := t.TempDir()
 	m, err := session.NewSessionManager(dir, session.WithSessionDir(dir), session.WithShouldFlush(true))
 	require.NoError(t, err)
-	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "hi"})
+	_, err = m.Append(core.Message{Role: core.RoleUser, Content: "hi"})
 	require.NoError(t, err)
-	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+	_, err = m.Append(core.Message{Role: core.RoleAssistant, Content: "ok"})
 	require.NoError(t, err)
 
 	bus := controller.NewBus(nil)

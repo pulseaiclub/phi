@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/util"
 )
@@ -112,7 +113,7 @@ func (req *GeminiRequest) setThinkingConfig(tc *thinkingConfig) {
 }
 
 // ApplyBudgetThinking maps ThinkConfig to Gemini 2.x thinkingBudget.
-func (req *GeminiRequest) ApplyBudgetThinking(think llm.ThinkConfig) {
+func (req *GeminiRequest) ApplyBudgetThinking(think core.ThinkConfig) {
 	if !think.Enabled {
 		zero := 0
 		req.setThinkingConfig(&thinkingConfig{ThinkingBudget: &zero})
@@ -125,11 +126,11 @@ func (req *GeminiRequest) ApplyBudgetThinking(think llm.ThinkConfig) {
 // ApplyLevelThinking maps ThinkConfig to Gemini 3+/4 thinkingLevel.
 // offLevel is the floor used when thinking is disabled or below the model's
 // minimum level. allowXHigh maps xhigh/max to "XHIGH" on models that support it.
-func (req *GeminiRequest) ApplyLevelThinking(think llm.ThinkConfig, offLevel string, allowXHigh bool) {
+func (req *GeminiRequest) ApplyLevelThinking(think core.ThinkConfig, offLevel string, allowXHigh bool) {
 	if offLevel == "" {
 		offLevel = "MINIMAL"
 	}
-	if !think.Enabled || think.Mode == llm.Off {
+	if !think.Enabled || think.Mode == core.Off {
 		req.setThinkingConfig(&thinkingConfig{ThinkingLevel: offLevel})
 		return
 	}
@@ -141,15 +142,15 @@ func (req *GeminiRequest) ApplyLevelThinking(think llm.ThinkConfig, offLevel str
 }
 
 // mapThinkModeToGeminiLevel maps ThinkMode to Gemini 3+/4 thinkingLevel string.
-func mapThinkModeToGeminiLevel(mode llm.ThinkMode, allowXHigh bool) string {
+func mapThinkModeToGeminiLevel(mode core.ThinkMode, allowXHigh bool) string {
 	switch mode {
-	case llm.Minimal:
+	case core.Minimal:
 		return "MINIMAL"
-	case llm.Low:
+	case core.Low:
 		return "LOW"
-	case llm.Medium:
+	case core.Medium:
 		return "MEDIUM"
-	case llm.XHigh, llm.Max:
+	case core.XHigh, core.Max:
 		if allowXHigh {
 			return "XHIGH"
 		}
@@ -160,13 +161,13 @@ func mapThinkModeToGeminiLevel(mode llm.ThinkMode, allowXHigh bool) string {
 }
 
 // mapThinkModeToBudget maps ThinkMode to a token budget for Gemini 2.x.
-func mapThinkModeToBudget(mode llm.ThinkMode) int {
+func mapThinkModeToBudget(mode core.ThinkMode) int {
 	switch mode {
-	case llm.Minimal:
+	case core.Minimal:
 		return 1024
-	case llm.Low:
+	case core.Low:
 		return 2048
-	case llm.Medium:
+	case core.Medium:
 		return 8192
 	default: // high, xhigh, max, and anything else
 		return 16384
@@ -175,8 +176,8 @@ func mapThinkModeToBudget(mode llm.ThinkMode) int {
 
 func BuildRequest(
 	system string,
-	messages []llm.Message,
-	tools []llm.ToolDefinition,
+	messages []core.Message,
+	tools []core.ToolDefinition,
 ) GeminiRequest {
 	var req GeminiRequest
 
@@ -192,7 +193,7 @@ func BuildRequest(
 
 	for _, m := range messages {
 		switch m.Role {
-		case llm.RoleUser:
+		case core.RoleUser:
 			parts := make([]part, 0, len(m.Images)+1)
 			if m.Content != "" {
 				parts = append(parts, part{Text: m.Content})
@@ -201,7 +202,7 @@ func BuildRequest(
 				parts = append(parts, part{InlineData: &inlineData{MIMEType: img.MimeType, Data: img.Data}})
 			}
 			req.Contents = append(req.Contents, content{Role: "user", Parts: parts})
-		case llm.RoleTool:
+		case core.RoleTool:
 			name := "tool"
 			if m.ToolCallID != "" {
 				name = m.ToolCallID
@@ -219,7 +220,7 @@ func BuildRequest(
 			} else {
 				req.Contents = append(req.Contents, content{Role: "user", Parts: []part{resp}})
 			}
-		case llm.RoleAssistant:
+		case core.RoleAssistant:
 			c := toAssistantMessage(m)
 			req.Contents = append(req.Contents, c)
 		}
@@ -280,7 +281,7 @@ func lastFunctionResponseContent(contents []content) *content {
 	return nil
 }
 
-func toToolMessage(tools []llm.ToolDefinition) []functionDeclaration {
+func toToolMessage(tools []core.ToolDefinition) []functionDeclaration {
 	decls := make([]functionDeclaration, 0, len(tools))
 	for _, t := range tools {
 		decls = append(decls, functionDeclaration{
@@ -292,7 +293,7 @@ func toToolMessage(tools []llm.ToolDefinition) []functionDeclaration {
 	return decls
 }
 
-func toAssistantMessage(m llm.Message) content {
+func toAssistantMessage(m core.Message) content {
 	c := content{Role: "model"}
 	if m.Content != "" {
 		c.Parts = append(c.Parts, part{Text: m.Content})
@@ -365,13 +366,13 @@ func geminiHeaders(baseURL, apiKey string) http.Header {
 func Stream(
 	ctx context.Context,
 	client *http.Client,
-	config llm.ModelConfig,
+	config core.ModelConfig,
 	req *GeminiRequest,
-) iter.Seq2[llm.StreamEvent, error] {
-	return func(yield func(llm.StreamEvent, error) bool) {
+) iter.Seq2[core.StreamEvent, error] {
+	return func(yield func(core.StreamEvent, error) bool) {
 		body, err := llm.MarshalRequest(req, config)
 		if err != nil {
-			yield(llm.StreamEvent{}, err)
+			yield(core.StreamEvent{}, err)
 			return
 		}
 
@@ -379,7 +380,7 @@ func Stream(
 			getURL(config.Name, config.BaseURL, config.APIKey, true), body,
 			geminiHeaders(config.BaseURL, config.APIKey))
 		if err != nil {
-			yield(llm.StreamEvent{}, err)
+			yield(core.StreamEvent{}, err)
 			return
 		}
 		defer httpResp.Body.Close()
@@ -404,16 +405,16 @@ type chunk struct {
 	} `json:"usageMetadata"`
 }
 
-func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
+func processStream(body io.Reader, yield func(core.StreamEvent, error) bool) {
 	var (
 		text      strings.Builder
 		reasoning strings.Builder
-		toolCalls []llm.ToolCall
-		usage     llm.Usage
+		toolCalls []core.ToolCall
+		usage     core.Usage
 	)
 	for data, parseErr := range util.ParseDataStream(body) {
 		if parseErr != nil {
-			yield(llm.StreamEvent{Type: llm.StreamEventTypeError, Err: parseErr.Error()}, parseErr)
+			yield(core.StreamEvent{Type: core.StreamEventTypeError, Err: parseErr.Error()}, parseErr)
 			return
 		}
 		line := bytes.TrimSpace(data)
@@ -435,7 +436,7 @@ func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 			usage.CompletionTokens = u.CandidatesTokenCount + u.ThoughtsTokenCount
 			usage.TotalTokens = u.TotalTokenCount
 			if u.CachedContentTokenCount > 0 {
-				usage.PromptTokensDetails = &llm.PromptTokensDetails{CachedTokens: u.CachedContentTokenCount}
+				usage.PromptTokensDetails = &core.PromptTokensDetails{CachedTokens: u.CachedContentTokenCount}
 			}
 		}
 
@@ -445,9 +446,9 @@ func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 				// into visible content; surface them as reasoning instead.
 				if p.Thought && p.Text != "" {
 					reasoning.WriteString(p.Text)
-					if !yield(llm.StreamEvent{
-						Type:  llm.StreamEventTypeDelta,
-						Delta: llm.StreamDelta{ReasoningContent: p.Text},
+					if !yield(core.StreamEvent{
+						Type:  core.StreamEventTypeDelta,
+						Delta: core.StreamDelta{ReasoningContent: p.Text},
 					}, nil) {
 						return
 					}
@@ -455,9 +456,9 @@ func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 				}
 				if p.Text != "" {
 					text.WriteString(p.Text)
-					if !yield(llm.StreamEvent{
-						Type:  llm.StreamEventTypeDelta,
-						Delta: llm.StreamDelta{Content: p.Text},
+					if !yield(core.StreamEvent{
+						Type:  core.StreamEventTypeDelta,
+						Delta: core.StreamDelta{Content: p.Text},
 					}, nil) {
 						return
 					}
@@ -466,9 +467,9 @@ func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 				if p.FunctionCall != nil && p.FunctionCall.Name != "" {
 					call := toLLMToolCall(p, len(toolCalls))
 					toolCalls = append(toolCalls, call)
-					if !yield(llm.StreamEvent{
-						Type:  llm.StreamEventTypeDelta,
-						Delta: llm.StreamDelta{ToolCalls: []llm.ToolCall{call}},
+					if !yield(core.StreamEvent{
+						Type:  core.StreamEventTypeDelta,
+						Delta: core.StreamDelta{ToolCalls: []core.ToolCall{call}},
 					}, nil) {
 						return
 					}
@@ -479,13 +480,13 @@ func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 	yield(llm.AssistantDone(text.String(), reasoning.String(), toolCalls, usage), nil)
 }
 
-func toLLMToolCall(p part, index int) llm.ToolCall {
+func toLLMToolCall(p part, index int) core.ToolCall {
 	args, _ := json.Marshal(p.FunctionCall.Args)
-	toolCall := llm.ToolCall{
+	toolCall := core.ToolCall{
 		Index: index,
 		ID:    p.FunctionCall.Name,
 		Type:  "function",
-		Function: llm.Function{
+		Function: core.Function{
 			Name:      p.FunctionCall.Name,
 			Arguments: string(args),
 		},
@@ -498,7 +499,7 @@ func toLLMToolCall(p part, index int) llm.ToolCall {
 func CompactRequest(
 	ctx context.Context,
 	client *http.Client,
-	cfg llm.ModelConfig,
+	cfg core.ModelConfig,
 	req *GeminiRequest,
 ) (llm.CompactResult, error) {
 	body, err := llm.MarshalRequest(req, cfg)

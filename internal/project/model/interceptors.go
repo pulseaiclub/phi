@@ -3,7 +3,7 @@ package model
 import (
 	"context"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/llm/anthropic"
 	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
 	"github.com/pulseaiclub/phi/internal/llm/gemini"
@@ -14,8 +14,8 @@ import (
 // Responses models that default to medium when reasoning is omitted.
 type responsesNoneOff struct{}
 
-func (responsesNoneOff) Before(_ context.Context, req *responses.Request, cfg llm.ModelConfig) error {
-	if !cfg.Think.Enabled || cfg.Think.Mode == llm.Off {
+func (responsesNoneOff) Before(_ context.Context, req *responses.Request, cfg core.ModelConfig) error {
+	if !cfg.Think.Enabled || cfg.Think.Mode == core.Off {
 		req.Reasoning = &responses.Reasoning{Effort: "none"}
 	}
 	return nil
@@ -31,14 +31,14 @@ type claudeAdaptiveThinking struct {
 	allowXHigh bool
 }
 
-func (h claudeAdaptiveThinking) EffectiveThinking(cfg llm.ModelConfig) llm.ThinkConfig {
-	if h.forced && (!cfg.Think.Enabled || cfg.Think.Mode == llm.Off) {
-		return llm.ThinkConfig{Enabled: true, Mode: llm.Low}
+func (h claudeAdaptiveThinking) EffectiveThinking(cfg core.ModelConfig) core.ThinkConfig {
+	if h.forced && (!cfg.Think.Enabled || cfg.Think.Mode == core.Off) {
+		return core.ThinkConfig{Enabled: true, Mode: core.Low}
 	}
 	return cfg.Think
 }
 
-func (h claudeAdaptiveThinking) Before(_ context.Context, req *anthropic.AnthropicRequest, cfg llm.ModelConfig) error {
+func (h claudeAdaptiveThinking) Before(_ context.Context, req *anthropic.AnthropicRequest, cfg core.ModelConfig) error {
 	req.ApplyAdaptiveThinking(cfg.Think, h.forced, h.allowXHigh)
 	return nil
 }
@@ -50,7 +50,7 @@ func claudeAdaptiveHooks(forced, allowXHigh bool) llmclient.Hooks {
 // geminiBudgetThinking maps ThinkMode → thinkingBudget (Gemini 2.x).
 type geminiBudgetThinking struct{}
 
-func (geminiBudgetThinking) Before(_ context.Context, req *gemini.GeminiRequest, cfg llm.ModelConfig) error {
+func (geminiBudgetThinking) Before(_ context.Context, req *gemini.GeminiRequest, cfg core.ModelConfig) error {
 	req.ApplyBudgetThinking(cfg.Think)
 	return nil
 }
@@ -62,7 +62,7 @@ type geminiLevelThinking struct {
 	allowXHigh bool
 }
 
-func (h geminiLevelThinking) Before(_ context.Context, req *gemini.GeminiRequest, cfg llm.ModelConfig) error {
+func (h geminiLevelThinking) Before(_ context.Context, req *gemini.GeminiRequest, cfg core.ModelConfig) error {
 	req.ApplyLevelThinking(cfg.Think, h.offLevel, h.allowXHigh)
 	return nil
 }

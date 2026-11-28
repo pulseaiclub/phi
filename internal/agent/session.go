@@ -8,8 +8,8 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/job"
-	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/session"
 )
 
@@ -32,7 +32,7 @@ type Session struct {
 	mu                sync.Mutex
 	lastID            string
 	manager           *session.Manager
-	contextCache      []llm.Message
+	contextCache      []core.Message
 	contextCacheValid bool
 }
 
@@ -179,7 +179,7 @@ func (s *Session) SetModel(name string) error {
 }
 
 // Append records one or more messages.
-func (s *Session) Append(message ...llm.Message) error {
+func (s *Session) Append(message ...core.Message) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.contextCacheValid = false
@@ -243,14 +243,14 @@ func compactionSummaryContent(summary string) string {
 // BuildContext returns the messages for LLM inference, oldest first.
 // Compaction entries are projected as user messages carrying the summary in a
 // labeled block.
-func (s *Session) BuildContext() []llm.Message {
+func (s *Session) BuildContext() []core.Message {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.contextCacheValid {
 		return s.contextCache
 	}
 	entries := s.manager.BuildContext()
-	msgs := make([]llm.Message, 0, len(entries))
+	msgs := make([]core.Message, 0, len(entries))
 	var compactionID string
 	for _, entry := range entries {
 		if parent := entry.GetParent(); parent != nil && *parent == compactionID {
@@ -260,8 +260,8 @@ func (s *Session) BuildContext() []llm.Message {
 		case session.EntryCompaction:
 			m := entry.(session.CompactionEntry)
 			compactionID = m.ID
-			msgs = append(msgs, llm.Message{
-				Role:    llm.RoleUser,
+			msgs = append(msgs, core.Message{
+				Role:    core.RoleUser,
 				Content: compactionSummaryContent(m.Compaction.Summary),
 			})
 		case session.EntryMessage:
@@ -293,8 +293,8 @@ func (s *Session) LastID() string {
 
 // AddUser records a single user message for this chat turn.
 func (s *Session) AddUser(text string) error {
-	return s.Append(llm.Message{
-		Role:    llm.RoleUser,
+	return s.Append(core.Message{
+		Role:    core.RoleUser,
 		Content: text,
 	})
 }
@@ -316,8 +316,8 @@ func (s *Session) BuildHandoff() job.ParentContext {
 		msg := messages[i]
 		limit := handoffMessageBytes
 		switch msg.Role {
-		case llm.RoleUser, llm.RoleAssistant:
-		case llm.RoleTool:
+		case core.RoleUser, core.RoleAssistant:
+		case core.RoleTool:
 			limit = handoffToolBytes
 		default:
 			return
@@ -337,11 +337,11 @@ func (s *Session) BuildHandoff() job.ParentContext {
 	}
 
 	// The first user message is often the original goal or a compaction summary.
-	if len(messages) > 0 && messages[0].Role == llm.RoleUser {
+	if len(messages) > 0 && messages[0].Role == core.RoleUser {
 		add(0)
 	}
 	for i := range slices.Backward(messages) {
-		if i == 0 && messages[0].Role == llm.RoleUser {
+		if i == 0 && messages[0].Role == core.RoleUser {
 			continue
 		}
 		add(i)
@@ -365,13 +365,13 @@ func (s *Session) BuildHandoff() job.ParentContext {
 
 // A spawn runs before its tool batch has settled. Stop before that entire batch,
 // including completed siblings, so scheduling cannot change the snapshot.
-func handoffCompletePrefix(messages []llm.Message) int {
+func handoffCompletePrefix(messages []core.Message) int {
 	for i := 0; i < len(messages); i++ {
 		msg := messages[i]
-		if msg.Role == llm.RoleTool {
+		if msg.Role == core.RoleTool {
 			return i // Orphan results are not reliable background.
 		}
-		if msg.Role != llm.RoleAssistant || len(msg.ToolCalls) == 0 {
+		if msg.Role != core.RoleAssistant || len(msg.ToolCalls) == 0 {
 			continue
 		}
 		pending := make(map[string]bool, len(msg.ToolCalls))
@@ -382,7 +382,7 @@ func handoffCompletePrefix(messages []llm.Message) int {
 			pending[call.ID] = true
 		}
 		j := i + 1
-		for j < len(messages) && messages[j].Role == llm.RoleTool {
+		for j < len(messages) && messages[j].Role == core.RoleTool {
 			id := messages[j].ToolCallID
 			if !pending[id] {
 				return i

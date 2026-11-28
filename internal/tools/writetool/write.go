@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
@@ -20,17 +20,17 @@ Calling an MCP tool is also a write: path mcp://<server>/tools/<tool> and conten
 // invocations via mcp:// URLs; nil keeps write file-only.
 func WriteTool(pool *mcp.Pool) tooldef.Tool {
 	return tooldef.NewTool(
-		tooldef.WithDefinition(llm.ToolDefinition{
+		tooldef.WithDefinition(core.ToolDefinition{
 			Name:        "write",
 			Description: writeDescription,
-			Params: &llm.FunctionParameters{
+			Params: &core.FunctionParameters{
 				Type: "object",
-				Properties: llm.Object{
-					"path": llm.Object{
+				Properties: core.Object{
+					"path": core.Object{
 						"type":        "string",
 						"description": "File path to write (created or overwritten), or mcp://<server>/tools/<tool> to call an MCP tool. Example: src/new.go",
 					},
-					"content": llm.Object{
+					"content": core.Object{
 						"type":        "string",
 						"description": "Content to write to the file, or the MCP tool's JSON argument object when path is an mcp:// URL.",
 					},

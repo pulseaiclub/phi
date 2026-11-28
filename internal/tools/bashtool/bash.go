@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
@@ -24,17 +24,17 @@ tools. Large output is truncated with the retained output written to a temp file
 // BashTool returns the bash tool definition + handler.
 func BashTool() tooldef.Tool {
 	return tooldef.NewTool(
-		tooldef.WithDefinition(llm.ToolDefinition{
+		tooldef.WithDefinition(core.ToolDefinition{
 			Name:        "bash",
 			Description: bashDescription,
-			Params: &llm.FunctionParameters{
+			Params: &core.FunctionParameters{
 				Type: "object",
-				Properties: llm.Object{
-					"command": llm.Object{
+				Properties: core.Object{
+					"command": core.Object{
 						"type":        "string",
 						"description": "Shell command to run. Example: go test ./...",
 					},
-					"timeout": llm.Object{
+					"timeout": core.Object{
 						"type":        "integer",
 						"description": "Timeout in seconds, 1-3600. Example: 120 (default: 300).",
 					},

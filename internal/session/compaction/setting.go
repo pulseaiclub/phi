@@ -3,7 +3,7 @@ package compaction
 import (
 	"slices"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/session"
 )
 
@@ -42,7 +42,7 @@ func EstimateContextTokens(entries []session.MessageEntry) int {
 			continue
 		}
 		msgEntry := entries[i].(session.SessionMessageEntry)
-		if msgEntry.Message.Role == llm.RoleAssistant && msgEntry.Usage.ContextTokens() > 0 {
+		if msgEntry.Message.Role == core.RoleAssistant && msgEntry.Usage.ContextTokens() > 0 {
 			anchor = i
 			break
 		}

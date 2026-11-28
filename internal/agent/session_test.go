@@ -13,9 +13,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/job"
 
-	"github.com/pulseaiclub/phi/internal/llm"
 	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
 	"github.com/pulseaiclub/phi/internal/session"
 )
@@ -31,11 +31,11 @@ func TestSessionPersistFlush(t *testing.T) {
 	assert.NotEmpty(t, sess.ID())
 	assert.NotEmpty(t, sess.File())
 
-	require.NoError(t, sess.Append(llm.Message{Role: llm.RoleUser, Content: "hi"}))
+	require.NoError(t, sess.Append(core.Message{Role: core.RoleUser, Content: "hi"}))
 	_, err = os.Stat(sess.File())
 	assert.True(t, os.IsNotExist(err), "should not flush before first assistant")
 
-	require.NoError(t, sess.Append(llm.Message{Role: llm.RoleAssistant, Content: "hello"}))
+	require.NoError(t, sess.Append(core.Message{Role: core.RoleAssistant, Content: "hello"}))
 	require.FileExists(t, sess.File())
 
 	b, err := os.ReadFile(sess.File())
@@ -54,8 +54,8 @@ func TestSessionPersistFalseNoDisk(t *testing.T) {
 	sess, err := NewSession(WithCwd(t.TempDir()))
 	require.NoError(t, err)
 	assert.Empty(t, sess.File())
-	require.NoError(t, sess.Append(llm.Message{Role: llm.RoleUser, Content: "a"}))
-	require.NoError(t, sess.Append(llm.Message{Role: llm.RoleAssistant, Content: "b"}))
+	require.NoError(t, sess.Append(core.Message{Role: core.RoleUser, Content: "a"}))
+	require.NoError(t, sess.Append(core.Message{Role: core.RoleAssistant, Content: "b"}))
 	assert.Empty(t, sess.File())
 }
 
@@ -64,15 +64,15 @@ func TestSessionBuildContextLabelsCompactionSummary(t *testing.T) {
 	sess, err := NewSession(WithCwd(dir), WithSessionDir(dir))
 	require.NoError(t, err)
 
-	require.NoError(t, sess.Append(llm.Message{Role: llm.RoleUser, Content: "first"}))
-	require.NoError(t, sess.Append(llm.Message{Role: llm.RoleAssistant, Content: "answer"}))
+	require.NoError(t, sess.Append(core.Message{Role: core.RoleUser, Content: "first"}))
+	require.NoError(t, sess.Append(core.Message{Role: core.RoleAssistant, Content: "answer"}))
 	_, err = sess.AppendCompaction(session.Compaction{Summary: "we renamed the SDK"})
 	require.NoError(t, err)
-	require.NoError(t, sess.Append(llm.Message{Role: llm.RoleUser, Content: "carry on"}))
+	require.NoError(t, sess.Append(core.Message{Role: core.RoleUser, Content: "carry on"}))
 
 	msgs := sess.BuildContext()
 	require.Len(t, msgs, 2)
-	assert.Equal(t, llm.RoleUser, msgs[0].Role)
+	assert.Equal(t, core.RoleUser, msgs[0].Role)
 	assert.Equal(
 		t,
 		"The conversation history before this point was compacted into the following summary:\n\n<summary>\nwe renamed the SDK\n</summary>",
@@ -125,19 +125,19 @@ func TestSessionModelSelectionAdvancesCursor(t *testing.T) {
 func TestBuildHandoffProjectsTextAndKeepsSnapshot(t *testing.T) {
 	s, err := NewSession()
 	require.NoError(t, err)
-	private := &llm.ProviderState{Model: "private-model-state"}
+	private := &core.ProviderState{Model: "private-model-state"}
 	require.NoError(t, s.Append(
-		llm.Message{Role: llm.RoleUser, Content: "Keep error responses unchanged."},
-		llm.Message{
-			Role:             llm.RoleAssistant,
+		core.Message{Role: core.RoleUser, Content: "Keep error responses unchanged."},
+		core.Message{
+			Role:             core.RoleAssistant,
 			Content:          "Reuse the counter.",
 			ReasoningContent: "private reasoning",
 			ProviderState:    private,
-			ToolCalls: []llm.ToolCall{
-				{ID: "read-1", Function: llm.Function{Name: "read", Arguments: "private args"}},
+			ToolCalls: []core.ToolCall{
+				{ID: "read-1", Function: core.Function{Name: "read", Arguments: "private args"}},
 			},
 		},
-		llm.Message{Role: llm.RoleTool, ToolCallID: "read-1", Content: "Allow(key string) bool"},
+		core.Message{Role: core.RoleTool, ToolCallID: "read-1", Content: "Allow(key string) bool"},
 	))
 	before := s.BuildContext()
 	got := s.BuildHandoff()
@@ -154,17 +154,17 @@ func TestBuildHandoffProjectsTextAndKeepsSnapshot(t *testing.T) {
 }
 
 func TestBuildHandoffExcludesUnsettledBatch(t *testing.T) {
-	for _, results := range [][]llm.Message{
+	for _, results := range [][]core.Message{
 		nil,
-		{{Role: llm.RoleTool, ToolCallID: "read", Content: "sibling result"}},
-		{{Role: llm.RoleTool, ToolCallID: "unknown", Content: "orphan"}},
+		{{Role: core.RoleTool, ToolCallID: "read", Content: "sibling result"}},
+		{{Role: core.RoleTool, ToolCallID: "unknown", Content: "orphan"}},
 	} {
 		s, err := NewSession()
 		require.NoError(t, err)
 		require.NoError(t, s.AddUser("Original goal"))
-		require.NoError(t, s.Append(llm.Message{
-			Role: llm.RoleAssistant, Content: "Unsettled batch text",
-			ToolCalls: []llm.ToolCall{{ID: "read"}, {ID: "spawn"}},
+		require.NoError(t, s.Append(core.Message{
+			Role: core.RoleAssistant, Content: "Unsettled batch text",
+			ToolCalls: []core.ToolCall{{ID: "read"}, {ID: "spawn"}},
 		}))
 		require.NoError(t, s.Append(results...))
 		require.NoError(t, s.AddUser("After incomplete batch"))
@@ -195,7 +195,7 @@ func TestBuildHandoffBoundsUTF8AndPrefersRecentText(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, s.AddUser("Original constraints"))
 	for range 20 {
-		require.NoError(t, s.Append(llm.Message{Role: llm.RoleAssistant, Content: strings.Repeat("背景", 3000)}))
+		require.NoError(t, s.Append(core.Message{Role: core.RoleAssistant, Content: strings.Repeat("背景", 3000)}))
 	}
 	require.NoError(t, s.AddUser("Latest correction"))
 	got := s.BuildHandoff().Text
@@ -211,11 +211,11 @@ func TestBuildHandoffCompletedBatchAndBoundedToolResult(t *testing.T) {
 	s, err := NewSession()
 	require.NoError(t, err)
 	require.NoError(t, s.Append(
-		llm.Message{Role: llm.RoleUser, Content: "Inspect login"},
-		llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "a"}, {ID: "b"}}},
-		llm.Message{Role: llm.RoleTool, ToolCallID: "b", Content: strings.Repeat("日志", 2000) + "END-OF-LOG"},
-		llm.Message{Role: llm.RoleTool, ToolCallID: "a", Content: "Counter found"},
-		llm.Message{Role: llm.RoleUser, Content: "Proceed with the counter"},
+		core.Message{Role: core.RoleUser, Content: "Inspect login"},
+		core.Message{Role: core.RoleAssistant, ToolCalls: []core.ToolCall{{ID: "a"}, {ID: "b"}}},
+		core.Message{Role: core.RoleTool, ToolCallID: "b", Content: strings.Repeat("日志", 2000) + "END-OF-LOG"},
+		core.Message{Role: core.RoleTool, ToolCallID: "a", Content: "Counter found"},
+		core.Message{Role: core.RoleUser, Content: "Proceed with the counter"},
 	))
 	got := s.BuildHandoff().Text
 	assert.Contains(t, got, "Counter found")
@@ -245,8 +245,8 @@ func TestBuildHandoffEmptyAndNonText(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, job.ParentContext{Mode: job.ContextModeHandoff}, s.BuildHandoff())
 	require.NoError(t, s.Append(
-		llm.Message{Role: llm.RoleAssistant, ReasoningContent: "private"},
-		llm.Message{Role: llm.RoleUser, Images: []llm.Image{{Data: "private-image", MimeType: "image/png"}}},
+		core.Message{Role: core.RoleAssistant, ReasoningContent: "private"},
+		core.Message{Role: core.RoleUser, Images: []core.Image{{Data: "private-image", MimeType: "image/png"}}},
 	))
 	assert.Empty(t, s.BuildHandoff().Text)
 }
@@ -277,16 +277,16 @@ func TestSessionAnthropicContinuation(t *testing.T) {
 		_, _ = io.WriteString(w, sse)
 	}))
 	defer server.Close()
-	cfg := llm.ModelConfig{
-		Name: "claude", API: llm.Anthropic, APIKey: "test", BaseURL: server.URL,
-		Think: llm.ThinkConfig{Enabled: true},
+	cfg := core.ModelConfig{
+		Name: "claude", API: core.Anthropic, APIKey: "test", BaseURL: server.URL,
+		Think: core.ThinkConfig{Enabled: true},
 	}
 	client := llmclient.NewClient(cfg, llmclient.Hooks{}, nil, "system")
 	dir := t.TempDir()
 	sess, err := NewSession(WithCwd(dir), WithSessionDir(dir), WithPersist(true))
 	require.NoError(t, err)
-	require.NoError(t, sess.Append(llm.Message{Role: llm.RoleUser, Content: "read a.go"}))
-	var final *llm.Message
+	require.NoError(t, sess.Append(core.Message{Role: core.RoleUser, Content: "read a.go"}))
+	var final *core.Message
 	for ev, streamErr := range client.Stream(t.Context(), sess.BuildContext()) {
 		require.NoError(t, streamErr)
 		if ev.Final != nil {
@@ -305,8 +305,8 @@ func TestSessionAnthropicContinuation(t *testing.T) {
 	assert.Equal(t, final.ProviderState, history[1].ProviderState)
 	assert.Equal(t, final.Content, history[1].Content)
 	assert.Equal(t, final.ToolCalls, history[1].ToolCalls)
-	require.NoError(t, resumed.Append(llm.Message{
-		Role: llm.RoleTool, ToolCallID: final.ToolCalls[0].ID, Content: "package main",
+	require.NoError(t, resumed.Append(core.Message{
+		Role: core.RoleTool, ToolCallID: final.ToolCalls[0].ID, Content: "package main",
 	}))
 	for _, streamErr := range client.Stream(t.Context(), resumed.BuildContext()) {
 		require.NoError(t, streamErr)
@@ -339,10 +339,10 @@ func TestSessionNativeCompaction(t *testing.T) {
 	sess, err := NewSession(WithCwd(dir), WithSessionDir(dir), WithPersist(true))
 	require.NoError(t, err)
 	require.NoError(t, sess.AddUser("old"))
-	state := &llm.ProviderState{Provider: llm.Anthropic, Data: llm.ProviderData{Items: []json.RawMessage{
+	state := &core.ProviderState{Provider: core.ProviderAnthropic, Data: core.ProviderData{Items: []json.RawMessage{
 		json.RawMessage(`{"type":"thinking","thinking":"","signature":"signed"}`),
 	}}}
-	require.NoError(t, sess.Append(llm.Message{Role: llm.RoleAssistant, ProviderState: state}))
+	require.NoError(t, sess.Append(core.Message{Role: core.RoleAssistant, ProviderState: state}))
 	keep := sess.LastID()
 	require.NoError(t, sess.SetModel("before-compaction"))
 	_, err = sess.AppendCompaction(session.Compaction{
@@ -350,7 +350,7 @@ func TestSessionNativeCompaction(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NoError(t, sess.SetModel("after-compaction"))
-	require.NoError(t, sess.Append(llm.Message{Role: llm.RoleAssistant, ProviderState: state}))
+	require.NoError(t, sess.Append(core.Message{Role: core.RoleAssistant, ProviderState: state}))
 	resumed, err := NewSession(WithResumePath(sess.File()))
 	require.NoError(t, err)
 	for _, current := range []*Session{sess, resumed} {

@@ -8,19 +8,19 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/llm/client"
 )
 
 // compactRespBody renders a finished non-streaming answer carrying text for
 // one protocol, mirroring the fixtures in internal/llm/client.
-func compactRespBody(api llm.RouterType, text string) string {
+func compactRespBody(api core.RouterType, text string) string {
 	switch api {
-	case llm.Anthropic:
+	case core.Anthropic:
 		return `{"content":[{"type":"text","text":"` + text + `"}],"stop_reason":"end_turn"}`
-	case llm.OpenAIResponses:
+	case core.OpenAIResponses:
 		return `{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"` + text + `"}]}]}`
-	case llm.Gemini:
+	case core.Gemini:
 		return `{"candidates":[{"content":{"parts":[{"text":"` + text + `"}]},"finishReason":"STOP"}]}`
 	default:
 		return `{"choices":[{"message":{"role":"assistant","content":"` + text + `"},"finish_reason":"stop"}]}`
@@ -34,35 +34,35 @@ func compactRespBody(api llm.RouterType, text string) string {
 func TestCompactBlankSummaryAcrossProtocols(t *testing.T) {
 	cases := []struct {
 		name          string
-		api           llm.RouterType
+		api           core.RouterType
 		model         string
 		emptyTextWant string // expected error when the model returns ""
 		blankWant     string // expected error when the model returns "   "
 	}{
 		{
 			name:          "anthropic",
-			api:           llm.Anthropic,
+			api:           core.Anthropic,
 			model:         "claude-sonnet-4-20250514",
 			emptyTextWant: "anthropic API error: empty response",
 			blankWant:     "Summarization failed: model returned an empty summary",
 		},
 		{
 			name:          "chat-completions",
-			api:           llm.OpenAI,
+			api:           core.OpenAI,
 			model:         "gpt-4o",
 			emptyTextWant: "Summarization failed: model returned an empty summary",
 			blankWant:     "Summarization failed: model returned an empty summary",
 		},
 		{
 			name:          "responses",
-			api:           llm.OpenAIResponses,
+			api:           core.OpenAIResponses,
 			model:         "gpt-5",
 			emptyTextWant: "LLM API error: empty Responses output",
 			blankWant:     "Summarization failed: model returned an empty summary",
 		},
 		{
 			name:          "gemini",
-			api:           llm.Gemini,
+			api:           core.Gemini,
 			model:         "gemini-2.5-flash",
 			emptyTextWant: "gemini API error: empty response",
 			blankWant:     "Summarization failed: model returned an empty summary",
@@ -87,13 +87,13 @@ func TestCompactBlankSummaryAcrossProtocols(t *testing.T) {
 					defer srv.Close()
 
 					cli := client.NewClient(
-						llm.ModelConfig{Name: tc.model, BaseURL: srv.URL, APIKey: "sk-test", API: tc.api},
+						core.ModelConfig{Name: tc.model, BaseURL: srv.URL, APIKey: "sk-test", API: tc.api},
 						client.Hooks{},
 						nil,
 						"",
 					)
 					prep := CompactionPreparation{
-						MessagesToSummarize: []llm.Message{{Role: llm.RoleUser, Content: "history to summarize"}},
+						MessagesToSummarize: []core.Message{{Role: core.RoleUser, Content: "history to summarize"}},
 						ReserveTokens:       16384,
 					}
 

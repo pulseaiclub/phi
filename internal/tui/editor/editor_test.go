@@ -25,9 +25,9 @@ import (
 
 	ext "github.com/pulseaiclub/phi/ext/go"
 	"github.com/pulseaiclub/phi/internal/components/chrome"
+	domain "github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/extension/core"
 	"github.com/pulseaiclub/phi/internal/extension/loader"
-	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/session"
 )
@@ -872,7 +872,7 @@ func TestPaletteReopenReflectsThinkingSelectionAndModelSwitch(t *testing.T) {
 		require.Equal(t, title, p.Title)
 		return p
 	}
-	assertCurrent := func(p *palette.CommandPalette, current llm.ThinkMode) {
+	assertCurrent := func(p *palette.CommandPalette, current domain.ThinkMode) {
 		t.Helper()
 		for _, cmd := range p.Commands {
 			level := cmd.ID[len("think-"):]
@@ -881,14 +881,14 @@ func TestPaletteReopenReflectsThinkingSelectionAndModelSwitch(t *testing.T) {
 	}
 
 	p := openSettings("think", "Thinking Level")
-	assertCurrent(p, llm.Off)
+	assertCurrent(p, domain.Off)
 	key(xui.KeyDown) // minimal
 	key(xui.KeyDown) // low
 	key(xui.KeyEnter)
 	require.False(t, p.Picker.Open)
-	require.Equal(t, llm.Low, ctrl.ThinkLevel())
+	require.Equal(t, domain.Low, ctrl.ThinkLevel())
 	p = openSettings("think", "Thinking Level")
-	assertCurrent(p, llm.Low)
+	assertCurrent(p, domain.Low)
 	e.composer.HidePalette()
 
 	p = openSettings("settings model", "Select Model")
@@ -907,7 +907,7 @@ func TestPaletteReopenReflectsThinkingSelectionAndModelSwitch(t *testing.T) {
 	e.composer.HidePalette()
 
 	p = openSettings("think", "Thinking Level")
-	assertCurrent(p, llm.High)
+	assertCurrent(p, domain.High)
 }
 
 func TestPaletteRefreshesRegistryOnlyWhenOpening(t *testing.T) {
@@ -1016,7 +1016,7 @@ func TestModelPaletteSavesDefaultAndRestoresSession(t *testing.T) {
 	previous, err := session.NewSessionManager(cwd, session.WithSessionDir(ctrl.SessionDir()),
 		session.WithShouldFlush(true), session.WithModel("primary"))
 	require.NoError(t, err)
-	_, err = previous.Append(llm.Message{Role: llm.RoleAssistant, Content: "done"})
+	_, err = previous.Append(domain.Message{Role: domain.RoleAssistant, Content: "done"})
 	require.NoError(t, err)
 	firstID := previous.ID()
 	require.NoError(t, ctrl.NewSession())

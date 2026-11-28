@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/session"
 )
 
@@ -20,12 +20,12 @@ func seedSession(t *testing.T, turns int) (path string, live []session.MessageEn
 	require.NoError(t, err)
 
 	for i := range turns {
-		_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: sizedContent(10)})
+		_, err = m.Append(core.Message{Role: core.RoleUser, Content: sizedContent(10)})
 		require.NoError(t, err)
-		_, err = m.Append(llm.Message{
-			Role:    llm.RoleAssistant,
+		_, err = m.Append(core.Message{
+			Role:    core.RoleAssistant,
 			Content: sizedContent(10 * (i + 1)),
-			Usage:   llm.Usage{TotalTokens: 5000 * (i + 1)},
+			Usage:   core.Usage{TotalTokens: 5000 * (i + 1)},
 		})
 		require.NoError(t, err)
 	}
@@ -33,7 +33,7 @@ func seedSession(t *testing.T, turns int) (path string, live []session.MessageEn
 }
 
 // Compaction reads usage from the entry wrapper, which is the only copy that
-// survives persistence: reading llm.Message.Usage instead made every resumed
+// survives persistence: reading core.Message.Usage instead made every resumed
 // session look like it had spent zero tokens, so TokensBefore was lost. The cut
 // itself must come out identical in memory and after a reload.
 func TestPrepareCompact_ReloadedSessionMatchesInMemory(t *testing.T) {
@@ -90,9 +90,9 @@ func TestCompact_EmptyHistoryPreservesSummaryAfterReload(t *testing.T) {
 		Details: session.CompactionDetails{ReadFiles: []string{"notes.md"}, ModifiedFiles: []string{"a.go"}},
 	})
 	require.NoError(t, err)
-	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "fix the parser"})
+	_, err = m.Append(core.Message{Role: core.RoleUser, Content: "fix the parser"})
 	require.NoError(t, err)
-	keptID, err := m.Append(llm.Message{Role: llm.RoleAssistant, Content: sizedContent(30)})
+	keptID, err := m.Append(core.Message{Role: core.RoleAssistant, Content: sizedContent(30)})
 	require.NoError(t, err)
 	m, err = session.OpenSession(m.File())
 	require.NoError(t, err)

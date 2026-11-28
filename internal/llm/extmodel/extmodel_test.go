@@ -7,20 +7,21 @@ import (
 	"testing"
 
 	"github.com/pulseaiclub/phi/ext/go/pxb"
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/llm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func deltaEvents(seq iter.Seq2[llm.StreamEvent, error]) ([]llm.StreamEvent, error) {
-	var out []llm.StreamEvent
+func deltaEvents(seq iter.Seq2[core.StreamEvent, error]) ([]core.StreamEvent, error) {
+	var out []core.StreamEvent
 	for ev, err := range seq {
 		if err != nil {
 			return out, err
 		}
 		out = append(out, ev)
-		if ev.Type == llm.StreamEventTypeDone {
+		if ev.Type == core.StreamEventTypeDone {
 			return out, nil
 		}
 	}
@@ -32,40 +33,93 @@ func TestStreamAssemblesFinalMessage(t *testing.T) {
 		{Type: "delta", Reasoning: "thin"},
 		{Type: "delta", Reasoning: "king", Content: "hel"},
 		{Type: "delta", Content: "lo"},
-		{Type: "delta", ToolCalls: mustJSON(t, []llm.ToolCall{
-			{Index: 0, ID: "call1", Type: "function", Function: llm.Function{Name: "read", Arguments: `{"pa`}},
-		})},
-		{Type: "delta", ToolCalls: mustJSON(t, []llm.ToolCall{
-			{Index: 0, Function: llm.Function{Arguments: `th":"x"}`}},
-		})},
-		{Type: "done", UsageJSON: mustJSON(t, llm.Usage{PromptTokens: 3, CompletionTokens: 4, TotalTokens: 7})},
+		{
+			Type: "delta",
+			ToolCalls: []byte(
+				`[{"index":0,"id":"call1","type":"function","function":{"name":"read","arguments":"{\"pa"},"thought_signature":"signature"}]`,
+			),
+		},
+		{Type: "delta", ToolCalls: []byte(`[{"index":0,"function":{"arguments":"th\":\"x\"}"}}]`)},
+		{Type: "done", UsageJSON: mustUsageJSON(t, core.Usage{PromptTokens: 3, CompletionTokens: 4, TotalTokens: 7})},
 	}
 	c := New(
 		"echo",
 		func(context.Context, pxb.ModelInvoke) (iter.Seq2[pxb.ModelStreamEvent, error], error) {
 			return sliceSeq(frames), nil
 		},
-		llm.ModelConfig{Think: llm.ThinkConfig{Mode: llm.High, Enabled: true}},
+		core.ModelConfig{Think: core.ThinkConfig{Mode: core.High, Enabled: true}},
 		nil, "sys",
 	)
 
-	events, err := deltaEvents(c.Stream(t.Context(), []llm.Message{{Role: llm.RoleUser, Content: "hi"}}))
+	events, err := deltaEvents(c.Stream(t.Context(), []core.Message{{Role: core.RoleUser, Content: "hi"}}))
 	require.NoError(t, err)
 	require.NotEmpty(t, events)
 
-	var final llm.Message
+	var final core.Message
 	for _, ev := range events {
-		if ev.Type == llm.StreamEventTypeDone {
+		if ev.Type == core.StreamEventTypeDone {
 			final = *ev.Final
 		}
 	}
-	assert.Equal(t, llm.RoleAssistant, final.Role)
+	assert.Equal(t, core.RoleAssistant, final.Role)
 	assert.Equal(t, "hello", final.Content)
 	assert.Equal(t, "thinking", final.ReasoningContent)
 	require.Len(t, final.ToolCalls, 1)
 	assert.Equal(t, "read", final.ToolCalls[0].Function.Name)
+	assert.Equal(t, "signature", final.ToolCalls[0].ThoughtSignature)
 	assert.JSONEq(t, `{"path":"x"}`, final.ToolCalls[0].Function.Arguments)
 	assert.Equal(t, 7, final.Usage.TotalTokens)
+}
+
+func TestStreamPartialUsage(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		update string
+		want   core.Usage
+	}{
+		{"omitted fields", `{"completion_tokens":10}`, core.Usage{
+			PromptTokens: 100, CompletionTokens: 10,
+			PromptTokensDetails: &core.PromptTokensDetails{CachedTokens: 50, CacheWriteTokens: 20},
+		}},
+		{"nested fields", `{"prompt_tokens_details":{"cache_write_tokens":30}}`, core.Usage{
+			PromptTokens:        100,
+			PromptTokensDetails: &core.PromptTokensDetails{CachedTokens: 50, CacheWriteTokens: 30},
+		}},
+		{"explicit zero", `{"prompt_tokens":0,"prompt_tokens_details":{"cached_tokens":0}}`, core.Usage{
+			PromptTokensDetails: &core.PromptTokensDetails{CacheWriteTokens: 20},
+		}},
+		{"empty object", `{}`, core.Usage{
+			PromptTokens:        100,
+			PromptTokensDetails: &core.PromptTokensDetails{CachedTokens: 50, CacheWriteTokens: 20},
+		}},
+		{"null usage", `null`, core.Usage{
+			PromptTokens:        100,
+			PromptTokensDetails: &core.PromptTokensDetails{CachedTokens: 50, CacheWriteTokens: 20},
+		}},
+		{"null details", `{"prompt_tokens_details":null}`, core.Usage{PromptTokens: 100}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			frames := []pxb.ModelStreamEvent{
+				{
+					Type: "delta",
+					UsageJSON: []byte(
+						`{"prompt_tokens":100,"prompt_tokens_details":{"cached_tokens":50,"cache_write_tokens":20}}`,
+					),
+				},
+				{Type: "done", UsageJSON: []byte(tt.update)},
+			}
+			c := New("echo", func(context.Context, pxb.ModelInvoke) (iter.Seq2[pxb.ModelStreamEvent, error], error) {
+				return sliceSeq(frames), nil
+			}, core.ModelConfig{}, nil, "")
+			events, err := deltaEvents(c.Stream(t.Context(), nil))
+			require.NoError(t, err)
+			require.NotEmpty(t, events)
+			final := events[len(events)-1]
+			require.Equal(t, core.StreamEventTypeDone, final.Type)
+			require.NotNil(t, final.Final)
+			assert.Equal(t, tt.want, final.Final.Usage)
+		})
+	}
 }
 
 func TestStreamErrorAndProtocolViolations(t *testing.T) {
@@ -75,7 +129,7 @@ func TestStreamErrorAndProtocolViolations(t *testing.T) {
 			func(context.Context, pxb.ModelInvoke) (iter.Seq2[pxb.ModelStreamEvent, error], error) {
 				return sliceSeq([]pxb.ModelStreamEvent{{Type: "error", Error: "upstream 500"}}), nil
 			},
-			llm.ModelConfig{},
+			core.ModelConfig{},
 			nil,
 			"",
 		)
@@ -89,7 +143,7 @@ func TestStreamErrorAndProtocolViolations(t *testing.T) {
 			func(context.Context, pxb.ModelInvoke) (iter.Seq2[pxb.ModelStreamEvent, error], error) {
 				return sliceSeq([]pxb.ModelStreamEvent{{Type: "delta", Content: "x"}}), nil
 			},
-			llm.ModelConfig{},
+			core.ModelConfig{},
 			nil,
 			"",
 		)
@@ -105,7 +159,7 @@ func TestStreamErrorAndProtocolViolations(t *testing.T) {
 			func(context.Context, pxb.ModelInvoke) (iter.Seq2[pxb.ModelStreamEvent, error], error) {
 				return sliceSeq(nil), nil
 			},
-			llm.ModelConfig{},
+			core.ModelConfig{},
 			nil,
 			"",
 		)
@@ -125,12 +179,67 @@ func TestCompactCollectsText(t *testing.T) {
 		func(context.Context, pxb.ModelInvoke) (iter.Seq2[pxb.ModelStreamEvent, error], error) {
 			return sliceSeq(frames), nil
 		},
-		llm.ModelConfig{}, nil, "",
+		core.ModelConfig{}, nil, "",
 	)
 	res, err := c.Compact(t.Context(), llm.CompactRequest{Prompt: "summarize"})
 	require.NoError(t, err)
 	assert.Equal(t, "summary", res.Text)
 	assert.False(t, res.Truncated)
+}
+
+// The message shape is a public contract for extension authors (they decode
+// ModelInvoke.MessagesJSON themselves), so it is pinned literally, not only
+// round-tripped. It is intentionally not shared with the session file format.
+func TestMessageWireRoundTrip(t *testing.T) {
+	full := core.Message{
+		Role: core.RoleAssistant, Content: "done", ReasoningContent: "thinking",
+		ToolCalls: []core.ToolCall{{
+			ID: "call_1", Type: "function",
+			Function:         core.Function{Name: "read", Arguments: `{"path":"foo.go"}`},
+			ThoughtSignature: "sig",
+		}},
+		ProviderState: &core.ProviderState{
+			Provider: core.ProviderAnthropic,
+			Model:    "claude-sonnet-4-5",
+			Endpoint: "https://api.anthropic.com",
+			Data: core.ProviderData{
+				Prefix: "abc",
+				Items:  []json.RawMessage{json.RawMessage(`{"type":"text","text":"hi"}`)},
+			},
+		},
+	}
+	body, err := json.Marshal(messageToJSON(full))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"role":"assistant","content":"done","reasoning_content":"thinking",`+
+		`"tool_calls":[{"id":"call_1","type":"function","function":{"name":"read","arguments":"{\"path\":\"foo.go\"}"},`+
+		`"thought_signature":"sig"}],"provider_state":{"provider":"Anthropic","model":"claude-sonnet-4-5",`+
+		`"endpoint":"https://api.anthropic.com","data":{"prefix":"abc","items":[{"type":"text","text":"hi"}]}}}`,
+		string(body))
+
+	var got messageJSON
+	require.NoError(t, json.Unmarshal(body, &got))
+	assert.Equal(t, full, messageFromJSON(got))
+
+	withImage := core.Message{
+		Role:    core.RoleUser,
+		Content: "what is this?",
+		Images:  []core.Image{{Data: "QUJD", MimeType: "image/png"}},
+	}
+	body, err = json.Marshal(messageToJSON(withImage))
+	require.NoError(t, err)
+	assert.Contains(t, string(body), `"images"`)
+	assert.Contains(t, string(body), `"mimeType"`)
+	var gotImage messageJSON
+	require.NoError(
+		t,
+		json.Unmarshal(body, &gotImage),
+		"decode into a fresh value; Unmarshal merges into reused structs",
+	)
+	assert.Equal(t, withImage, messageFromJSON(gotImage))
+
+	body, err = json.Marshal(messageToJSON(core.Message{Role: core.RoleUser, Content: "hi"}))
+	require.NoError(t, err)
+	assert.NotContains(t, string(body), `"images"`)
 }
 
 func TestBuildInvoke(t *testing.T) {
@@ -141,44 +250,59 @@ func TestBuildInvoke(t *testing.T) {
 			got = req
 			return sliceSeq([]pxb.ModelStreamEvent{{Type: "done"}}), nil
 		},
-		llm.ModelConfig{Think: llm.ThinkConfig{Mode: llm.High, Enabled: true}},
-		[]llm.ToolDefinition{{Name: "read", Description: "Read a file"}},
+		core.ModelConfig{Think: core.ThinkConfig{Mode: core.High, Enabled: true}},
+		[]core.ToolDefinition{{
+			Name: "read", Description: "Read a file",
+			Params: &core.FunctionParameters{Type: "object"}, Readable: true,
+		}},
 		"be brief",
 	)
-	_, err := deltaEvents(c.Stream(t.Context(), []llm.Message{
-		{Role: llm.RoleUser, Content: "hi"},
-		{Role: llm.RoleAssistant, Content: "hey", ToolCalls: []llm.ToolCall{{
-			ID: "c1", Type: "function", Function: llm.Function{Name: "read", Arguments: "{}"},
+	_, err := deltaEvents(c.Stream(t.Context(), []core.Message{
+		{Role: core.RoleUser, Content: "hi"},
+		{Role: core.RoleAssistant, Content: "hey", ToolCalls: []core.ToolCall{{
+			ID: "c1", Type: "function", Function: core.Function{Name: "read", Arguments: "{}"},
 		}}},
-		{Role: llm.RoleTool, Content: "file body", ToolCallID: "c1"},
+		{Role: core.RoleTool, Content: "file body", ToolCallID: "c1"},
 	}))
 	require.NoError(t, err)
 
 	assert.Equal(t, "echo", got.Model)
 	assert.Equal(t, "high", got.Think)
 	assert.Equal(t, "be brief", got.SystemPrompt)
-	var msgs []llm.Message
+	var msgs []messageJSON
 	require.NoError(t, json.Unmarshal(got.MessagesJSON, &msgs))
 	require.Len(t, msgs, 3)
 	assert.Equal(t, "hi", msgs[0].Content)
 	require.Len(t, msgs[1].ToolCalls, 1)
 	assert.Equal(t, "read", msgs[1].ToolCalls[0].Function.Name)
 	assert.Equal(t, "c1", msgs[2].ToolCallID)
-	var tools []llm.ToolDefinition
+	var tools []struct {
+		Name       string `json:"name"`
+		Parameters struct {
+			Type string `json:"type"`
+		} `json:"parameters"`
+		Readable bool `json:"readable"`
+	}
 	require.NoError(t, json.Unmarshal(got.ToolsJSON, &tools))
 	require.Len(t, tools, 1)
 	assert.Equal(t, "read", tools[0].Name)
+	assert.Equal(t, "object", tools[0].Parameters.Type)
+	assert.False(t, tools[0].Readable)
+
+	invoke, err := buildInvoke("echo", []core.ToolDefinition{{Name: "bash"}}, "", "", nil)
+	require.NoError(t, err)
+	assert.JSONEq(t, `[{"name":"bash","description":"","parameters":null}]`, string(invoke.ToolsJSON))
 }
 
 func TestStreamAccumulatorFragments(t *testing.T) {
 	acc := newStreamAccumulator()
-	acc.apply(llm.StreamDelta{Content: "a", ReasoningContent: "r"})
-	acc.apply(llm.StreamDelta{ToolCalls: []llm.ToolCall{
-		{Index: 1, ID: "b", Type: "function", Function: llm.Function{Name: "bash", Arguments: `{"c`}},
+	acc.apply(core.StreamDelta{Content: "a", ReasoningContent: "r"})
+	acc.apply(core.StreamDelta{ToolCalls: []core.ToolCall{
+		{Index: 1, ID: "b", Type: "function", Function: core.Function{Name: "bash", Arguments: `{"c`}},
 	}})
-	acc.apply(llm.StreamDelta{ToolCalls: []llm.ToolCall{
-		{Index: 0, ID: "a", Type: "function", Function: llm.Function{Name: "read", Arguments: "{}"}},
-		{Index: 1, Function: llm.Function{Arguments: `ommand":"ls"}`}},
+	acc.apply(core.StreamDelta{ToolCalls: []core.ToolCall{
+		{Index: 0, ID: "a", Type: "function", Function: core.Function{Name: "read", Arguments: "{}"}},
+		{Index: 1, Function: core.Function{Arguments: `ommand":"ls"}`}},
 	}})
 	msg := acc.message()
 	assert.Equal(t, "a", msg.Content)
@@ -202,9 +326,9 @@ func sliceSeq(frames []pxb.ModelStreamEvent) iter.Seq2[pxb.ModelStreamEvent, err
 	}
 }
 
-func mustJSON(t *testing.T, v any) []byte {
+func mustUsageJSON(t *testing.T, usage core.Usage) []byte {
 	t.Helper()
-	b, err := json.Marshal(v)
+	data, err := marshalUsage(usage)
 	require.NoError(t, err)
-	return b
+	return data
 }

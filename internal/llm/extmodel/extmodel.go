@@ -4,7 +4,6 @@ package extmodel
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"iter"
@@ -12,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/pulseaiclub/phi/ext/go/pxb"
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/llm"
 )
 
@@ -26,12 +26,12 @@ type StreamFunc func(
 // llm.ChatClient. The extension owns the connection — proxy, gateway, or local
 // generation; the host serializes the provider-neutral request and the
 // extension answers with ModelStreamEvent frames that this client folds back
-// into llm.StreamEvent, assembling the final assistant message from deltas.
+// into core.StreamEvent, assembling the final assistant message from deltas.
 type Client struct {
 	model  string
 	stream StreamFunc
-	cfg    llm.ModelConfig
-	tools  []llm.ToolDefinition
+	cfg    core.ModelConfig
+	tools  []core.ToolDefinition
 	system string
 }
 
@@ -40,8 +40,8 @@ type Client struct {
 func New(
 	model string,
 	stream StreamFunc,
-	cfg llm.ModelConfig,
-	tools []llm.ToolDefinition,
+	cfg core.ModelConfig,
+	tools []core.ToolDefinition,
 	system string,
 ) *Client {
 	return &Client{model: model, stream: stream, cfg: cfg, tools: tools, system: system}
@@ -52,39 +52,39 @@ func New(
 // accumulation. A stream that ends without done is a transport error.
 func (c *Client) Stream(
 	ctx context.Context,
-	messages []llm.Message,
-) iter.Seq2[llm.StreamEvent, error] {
-	return func(yield func(llm.StreamEvent, error) bool) {
+	messages []core.Message,
+) iter.Seq2[core.StreamEvent, error] {
+	return func(yield func(core.StreamEvent, error) bool) {
 		invoke, err := c.buildInvoke(messages)
 		if err != nil {
-			yield(llm.StreamEvent{}, err)
+			yield(core.StreamEvent{}, err)
 			return
 		}
 		frames, err := c.stream(ctx, invoke)
 		if err != nil {
-			yield(llm.StreamEvent{}, err)
+			yield(core.StreamEvent{}, err)
 			return
 		}
 		acc := newStreamAccumulator()
 		for ev, ferr := range frames {
 			if ferr != nil {
-				yield(llm.StreamEvent{}, ferr)
+				yield(core.StreamEvent{}, ferr)
 				return
 			}
 			switch ev.Type {
 			case "delta":
 				delta, derr := decodeModelDelta(ev)
 				if derr != nil {
-					yield(llm.StreamEvent{}, derr)
+					yield(core.StreamEvent{}, derr)
 					return
 				}
 				if uerr := acc.applyUsage(ev); uerr != nil {
-					yield(llm.StreamEvent{}, uerr)
+					yield(core.StreamEvent{}, uerr)
 					return
 				}
 				acc.apply(delta)
 				if delta.Content != "" || delta.ReasoningContent != "" || len(delta.ToolCalls) > 0 {
-					if !yield(llm.StreamEvent{Type: llm.StreamEventTypeDelta, Delta: delta, Usage: acc.usage}, nil) {
+					if !yield(core.StreamEvent{Type: core.StreamEventTypeDelta, Delta: delta, Usage: acc.usage}, nil) {
 						return
 					}
 				}
@@ -93,19 +93,19 @@ func (c *Client) Stream(
 				if text == "" {
 					text = fmt.Sprintf("extension model %q stream failed", c.model)
 				}
-				yield(llm.StreamEvent{}, errors.New(text))
+				yield(core.StreamEvent{}, errors.New(text))
 				return
 			case "done":
 				if uerr := acc.applyUsage(ev); uerr != nil {
-					yield(llm.StreamEvent{}, uerr)
+					yield(core.StreamEvent{}, uerr)
 					return
 				}
 				msg := acc.message()
-				yield(llm.StreamEvent{Type: llm.StreamEventTypeDone, Final: &msg}, nil)
+				yield(core.StreamEvent{Type: core.StreamEventTypeDone, Final: &msg}, nil)
 				return
 			default:
 				yield(
-					llm.StreamEvent{},
+					core.StreamEvent{},
 					fmt.Errorf("extension model %q: unknown stream event %q", c.model, ev.Type),
 				)
 				return
@@ -115,10 +115,10 @@ func (c *Client) Stream(
 		// transport error like the HTTP providers do; anything else is a
 		// protocol violation.
 		if ctx.Err() != nil {
-			yield(llm.StreamEvent{}, ctx.Err())
+			yield(core.StreamEvent{}, ctx.Err())
 			return
 		}
-		yield(llm.StreamEvent{}, errors.New("extension model stream closed without done"))
+		yield(core.StreamEvent{}, errors.New("extension model stream closed without done"))
 	}
 }
 
@@ -128,7 +128,7 @@ func (c *Client) Stream(
 // have no output-cap signal. MaxTokens is advisory only, like the prompt.
 func (c *Client) Compact(ctx context.Context, req llm.CompactRequest) (llm.CompactResult, error) {
 	invoke, err := buildInvoke(
-		c.model, nil, "", "", []llm.Message{{Role: llm.RoleUser, Content: req.Prompt}},
+		c.model, nil, "", "", []core.Message{{Role: core.RoleUser, Content: req.Prompt}},
 	)
 	if err != nil {
 		return llm.CompactResult{}, err
@@ -158,10 +158,8 @@ func (c *Client) Compact(ctx context.Context, req llm.CompactRequest) (llm.Compa
 	return llm.CompactResult{}, errors.New("extension model compaction closed without done")
 }
 
-// buildInvoke serializes the neutral request. Messages reuse the session
-// serialization JSON tags, so extensions can decode conversations without
-// importing host internals.
-func (c *Client) buildInvoke(messages []llm.Message) (pxb.ModelInvoke, error) {
+// buildInvoke serializes domain messages through the extension wire DTO.
+func (c *Client) buildInvoke(messages []core.Message) (pxb.ModelInvoke, error) {
 	think := ""
 	if c.cfg.Think.Enabled {
 		think = string(c.cfg.Think.Mode)
@@ -171,18 +169,18 @@ func (c *Client) buildInvoke(messages []llm.Message) (pxb.ModelInvoke, error) {
 
 func buildInvoke(
 	model string,
-	tools []llm.ToolDefinition,
+	tools []core.ToolDefinition,
 	system string,
 	think string,
-	messages []llm.Message,
+	messages []core.Message,
 ) (pxb.ModelInvoke, error) {
-	msgs, err := json.Marshal(messages)
+	msgs, err := marshalMessages(messages)
 	if err != nil {
 		return pxb.ModelInvoke{}, fmt.Errorf("encode messages for extension model: %w", err)
 	}
 	var toolsJSON []byte
 	if len(tools) > 0 {
-		toolsJSON, err = json.Marshal(tools)
+		toolsJSON, err = marshalToolDefinitions(tools)
 		if err != nil {
 			return pxb.ModelInvoke{}, fmt.Errorf("encode tools for extension model: %w", err)
 		}
@@ -198,12 +196,14 @@ func buildInvoke(
 
 // decodeModelDelta converts one wire frame to a neutral delta. Tool call
 // fragments follow the OpenAI streaming convention the extension SDKs mirror.
-func decodeModelDelta(ev pxb.ModelStreamEvent) (llm.StreamDelta, error) {
-	delta := llm.StreamDelta{Content: ev.Content, ReasoningContent: ev.Reasoning}
+func decodeModelDelta(ev pxb.ModelStreamEvent) (core.StreamDelta, error) {
+	delta := core.StreamDelta{Content: ev.Content, ReasoningContent: ev.Reasoning}
 	if len(ev.ToolCalls) > 0 {
-		if err := json.Unmarshal(ev.ToolCalls, &delta.ToolCalls); err != nil {
-			return llm.StreamDelta{}, fmt.Errorf("decode extension tool call delta: %w", err)
+		calls, err := unmarshalToolCalls(ev.ToolCalls)
+		if err != nil {
+			return core.StreamDelta{}, fmt.Errorf("decode extension tool call delta: %w", err)
 		}
+		delta.ToolCalls = calls
 	}
 	return delta, nil
 }
@@ -214,16 +214,16 @@ func decodeModelDelta(ev pxb.ModelStreamEvent) (llm.StreamDelta, error) {
 type streamAccumulator struct {
 	content   strings.Builder
 	reasoning strings.Builder
-	calls     map[int]*llm.ToolCall
+	calls     map[int]*core.ToolCall
 	order     []int
-	usage     llm.Usage
+	usage     core.Usage
 }
 
 func newStreamAccumulator() *streamAccumulator {
-	return &streamAccumulator{calls: make(map[int]*llm.ToolCall)}
+	return &streamAccumulator{calls: make(map[int]*core.ToolCall)}
 }
 
-func (a *streamAccumulator) apply(delta llm.StreamDelta) {
+func (a *streamAccumulator) apply(delta core.StreamDelta) {
 	a.content.WriteString(delta.Content)
 	a.reasoning.WriteString(delta.ReasoningContent)
 	for _, tc := range delta.ToolCalls {
@@ -257,15 +257,15 @@ func (a *streamAccumulator) applyUsage(ev pxb.ModelStreamEvent) error {
 	if len(ev.UsageJSON) == 0 {
 		return nil
 	}
-	if err := json.Unmarshal(ev.UsageJSON, &a.usage); err != nil {
+	if err := unmarshalUsage(ev.UsageJSON, &a.usage); err != nil {
 		return fmt.Errorf("decode extension usage: %w", err)
 	}
 	return nil
 }
 
-func (a *streamAccumulator) message() llm.Message {
-	msg := llm.Message{
-		Role:             llm.RoleAssistant,
+func (a *streamAccumulator) message() core.Message {
+	msg := core.Message{
+		Role:             core.RoleAssistant,
 		Content:          a.content.String(),
 		ReasoningContent: a.reasoning.String(),
 		Usage:            a.usage,

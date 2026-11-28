@@ -19,8 +19,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/agent"
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/extension/loader"
-	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/session"
 
@@ -58,8 +58,8 @@ func TestModelLifecycle(t *testing.T) {
 	ctrl := newTestController(t, "http://127.0.0.1:9")
 	cwd := ctrl.cwd
 	flush := func() {
-		require.NoError(t, ctrl.sess.Append(llm.Message{Role: llm.RoleUser, Content: "hello"}))
-		require.NoError(t, ctrl.sess.Append(llm.Message{Role: llm.RoleAssistant, Content: "done"}))
+		require.NoError(t, ctrl.sess.Append(core.Message{Role: core.RoleUser, Content: "hello"}))
+		require.NoError(t, ctrl.sess.Append(core.Message{Role: core.RoleAssistant, Content: "done"}))
 	}
 
 	require.NoError(t, ctrl.SetModel("primary"))
@@ -145,10 +145,10 @@ func newTestController(t *testing.T, baseURL string) *EngineController {
 }
 
 func TestNewSessionRetainsThinking(t *testing.T) {
-	ctrl := newThinkingTestController(t, setupThinkingTest(t, llm.OpenAI, "http://127.0.0.1:9"))
-	require.NoError(t, ctrl.SetThinkLevel(llm.Low))
+	ctrl := newThinkingTestController(t, setupThinkingTest(t, core.OpenAI, "http://127.0.0.1:9"))
+	require.NoError(t, ctrl.SetThinkLevel(core.Low))
 	require.NoError(t, ctrl.NewSession())
-	assert.Equal(t, llm.Low, ctrl.ThinkLevel())
+	assert.Equal(t, core.Low, ctrl.ThinkLevel())
 }
 
 func TestModelSwitchUsesConfiguredThinking(t *testing.T) {
@@ -168,14 +168,14 @@ func TestModelSwitchUsesConfiguredThinking(t *testing.T) {
 		)
 	}))
 	defer server.Close()
-	cwd := setupThinkingTest(t, llm.OpenAI, server.URL)
+	cwd := setupThinkingTest(t, core.OpenAI, server.URL)
 	ctrl := newThinkingTestController(t, cwd)
 
 	for _, tc := range []struct {
 		model string
-		mode  llm.ThinkMode
-	}{{"secondary", llm.High}, {"primary", llm.Off}} {
-		require.NoError(t, ctrl.SetThinkLevel(llm.Low))
+		mode  core.ThinkMode
+	}{{"secondary", core.High}, {"primary", core.Off}} {
+		require.NoError(t, ctrl.SetThinkLevel(core.Low))
 		require.NoError(t, ctrl.SetModel(tc.model))
 		assert.Equal(t, tc.mode, ctrl.ThinkLevel())
 		for _, err := range ctrl.engine.Loop(t.Context(), "hello", agent.LoopOpts{}) {
@@ -184,7 +184,7 @@ func TestModelSwitchUsesConfiguredThinking(t *testing.T) {
 		select {
 		case body := <-requests:
 			assert.Equal(t, tc.model, body["model"])
-			if tc.mode == llm.Off {
+			if tc.mode == core.Off {
 				assert.NotContains(t, body, "reasoning_effort")
 			} else {
 				assert.Equal(t, string(tc.mode), body["reasoning_effort"])
@@ -197,18 +197,18 @@ func TestModelSwitchUsesConfiguredThinking(t *testing.T) {
 
 func TestModelSwitchExplicitHighRequestUnchanged(t *testing.T) {
 	for _, tc := range []struct {
-		api     llm.RouterType
+		api     core.RouterType
 		path    string
 		fixture string
 	}{
 		{
-			api:  llm.OpenAI,
+			api:  core.OpenAI,
 			path: "/chat/completions",
 			fixture: "data: {\"choices\":[{\"delta\":{\"content\":\"OK\"},\"finish_reason\":\"stop\"}]}\n\n" +
 				"data: [DONE]\n\n",
 		},
 		{
-			api:  llm.OpenAIResponses,
+			api:  core.OpenAIResponses,
 			path: "/responses",
 			fixture: "data: {\"type\":\"response.output_text.delta\",\"delta\":\"OK\"}\n\n" +
 				"data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":3," +
@@ -260,16 +260,16 @@ func TestModelSwitchExplicitHighRequestUnchanged(t *testing.T) {
 				sessionIDs = append(sessionIDs, ctrl.sess.ID())
 				// Seed identical history in fresh sessions so the extra setter is the only variable.
 				run(ctrl, "remember this exchange")
-				require.NoError(t, ctrl.SetThinkLevel(llm.Low))
-				require.Equal(t, llm.Low, ctrl.ThinkLevel())
+				require.NoError(t, ctrl.SetThinkLevel(core.Low))
+				require.Equal(t, core.Low, ctrl.ThinkLevel())
 				require.NoError(t, ctrl.SetModel("secondary"))
-				require.Equal(t, llm.High, ctrl.ThinkLevel())
+				require.Equal(t, core.High, ctrl.ThinkLevel())
 				if explicitHigh {
-					require.NoError(t, ctrl.SetThinkLevel(llm.High))
+					require.NoError(t, ctrl.SetThinkLevel(core.High))
 				}
 				body := run(ctrl, "hello")
 				require.Equal(t, "secondary", body["model"])
-				if tc.api == llm.OpenAI {
+				if tc.api == core.OpenAI {
 					require.Equal(t, "high", body["reasoning_effort"])
 				} else {
 					reasoning, ok := body["reasoning"].(map[string]any)
@@ -285,7 +285,7 @@ func TestModelSwitchExplicitHighRequestUnchanged(t *testing.T) {
 	}
 }
 
-func setupThinkingTest(t *testing.T, api llm.RouterType, baseURL string) string {
+func setupThinkingTest(t *testing.T, api core.RouterType, baseURL string) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -323,12 +323,12 @@ func newThinkingTestController(t *testing.T, cwd string) *EngineController {
 }
 
 func TestUnsupportedThinkingChangeKeepsSessionConfig(t *testing.T) {
-	ctrl := &EngineController{modelCfg: llm.ModelConfig{
-		Name: "group/auto-glm-5-3-flash", Think: llm.ThinkConfig{Enabled: true, Mode: llm.Max},
+	ctrl := &EngineController{modelCfg: core.ModelConfig{
+		Name: "group/auto-glm-5-3-flash", Think: core.ThinkConfig{Enabled: true, Mode: core.Max},
 	}}
-	require.ErrorContains(t, ctrl.SetThinkLevel(llm.Medium), "use low, high, max")
-	assert.Equal(t, llm.Max, ctrl.ThinkLevel())
-	assert.Equal(t, []llm.ThinkMode{llm.Low, llm.High, llm.Max}, ctrl.ThinkingModes())
+	require.ErrorContains(t, ctrl.SetThinkLevel(core.Medium), "use low, high, max")
+	assert.Equal(t, core.Max, ctrl.ThinkLevel())
+	assert.Equal(t, []core.ThinkMode{core.Low, core.High, core.Max}, ctrl.ThinkingModes())
 }
 
 func TestFinishLoopClassifiesCancellationAndProviderFailure(t *testing.T) {
@@ -413,7 +413,7 @@ func TestRetryLastPromptResumesWithoutDuplicateUserMessage(t *testing.T) {
 	}))
 	defer server.Close()
 
-	ctrl := newThinkingTestController(t, setupThinkingTest(t, llm.OpenAI, server.URL))
+	ctrl := newThinkingTestController(t, setupThinkingTest(t, core.OpenAI, server.URL))
 	_ = ctrl.bus.Drain()
 	requests = make(chan struct{}, 4)
 
@@ -453,7 +453,7 @@ func TestCancelInFlightPromptPublishesSilentCompletion(t *testing.T) {
 	}))
 	defer server.Close()
 
-	ctrl := newThinkingTestController(t, setupThinkingTest(t, llm.OpenAI, server.URL))
+	ctrl := newThinkingTestController(t, setupThinkingTest(t, core.OpenAI, server.URL))
 	_ = ctrl.bus.Drain()
 	ctrl.StartPrompt("cancel this", nil, nil)
 
@@ -512,11 +512,11 @@ func retryReady(ctrl *EngineController) bool {
 	return ctrl.retryReady
 }
 
-func userMessages(ctrl *EngineController) []llm.Message {
-	var users []llm.Message
+func userMessages(ctrl *EngineController) []core.Message {
+	var users []core.Message
 	for _, entry := range ctrl.sess.PathEntries() {
 		message, ok := entry.(session.SessionMessageEntry)
-		if ok && message.Message.Role == llm.RoleUser {
+		if ok && message.Message.Role == core.RoleUser {
 			users = append(users, message.Message)
 		}
 	}
@@ -697,10 +697,10 @@ func pathIDs(s *agent.Session) []string {
 // and the transcript has something to copy.
 func forkTestController(t *testing.T) *EngineController {
 	t.Helper()
-	ctrl := newThinkingTestController(t, setupThinkingTest(t, llm.OpenAI, "http://127.0.0.1:9"))
+	ctrl := newThinkingTestController(t, setupThinkingTest(t, core.OpenAI, "http://127.0.0.1:9"))
 	require.NoError(t, ctrl.sess.Append(
-		llm.Message{Role: llm.RoleUser, Content: "hello"},
-		llm.Message{Role: llm.RoleAssistant, Content: "hi"},
+		core.Message{Role: core.RoleUser, Content: "hello"},
+		core.Message{Role: core.RoleAssistant, Content: "hi"},
 	))
 	return ctrl
 }
@@ -786,7 +786,7 @@ func TestForkSessionFailureKeepsSourceActive(t *testing.T) {
 }
 
 func TestForkSessionOfEmptySession(t *testing.T) {
-	ctrl := newThinkingTestController(t, setupThinkingTest(t, llm.OpenAI, "http://127.0.0.1:9"))
+	ctrl := newThinkingTestController(t, setupThinkingTest(t, core.OpenAI, "http://127.0.0.1:9"))
 	require.Empty(t, ctrl.ReplaySnapshot().Messages)
 
 	newID, err := ctrl.ForkSession()
@@ -931,9 +931,9 @@ func TestCancelCancelsRunningCompaction(t *testing.T) {
 }
 
 func TestContextWindowUsesCompactionWindow(t *testing.T) {
-	ctrl := &EngineController{modelCfg: llm.ModelConfig{ContextWindow: 1_050_000, InputLimit: 922_000}}
+	ctrl := &EngineController{modelCfg: core.ModelConfig{ContextWindow: 1_050_000, InputLimit: 922_000}}
 	assert.Equal(t, 922_000, ctrl.ContextWindow())
 
-	ctrl.modelCfg = llm.ModelConfig{ContextWindow: 1_048_576}
+	ctrl.modelCfg = core.ModelConfig{ContextWindow: 1_048_576}
 	assert.Equal(t, 1_048_576, ctrl.ContextWindow())
 }

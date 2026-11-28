@@ -15,10 +15,10 @@ import (
 
 	ext "github.com/pulseaiclub/phi/ext/go"
 	"github.com/pulseaiclub/phi/internal/agent"
+	domain "github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/extension/core"
 	"github.com/pulseaiclub/phi/internal/job"
-	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/project/model"
@@ -43,7 +43,7 @@ type runOptions struct {
 // resolveRunModel picks the primary model for a headless run. An empty name
 // keeps the config default (which PHI_MODEL may already have overridden); a
 // non-empty name must match a configured model or the run fails fast.
-func resolveRunModel(cfg *project.Config, name string) (llm.ModelConfig, error) {
+func resolveRunModel(cfg *project.Config, name string) (domain.ModelConfig, error) {
 	if name == "" {
 		return cfg.Model(), nil
 	}
@@ -55,9 +55,9 @@ func resolveRunModel(cfg *project.Config, name string) (llm.ModelConfig, error) 
 		names = append(names, m.Name)
 	}
 	if len(names) == 0 {
-		return llm.ModelConfig{}, fmt.Errorf("unknown model %q (no models configured)", name)
+		return domain.ModelConfig{}, fmt.Errorf("unknown model %q (no models configured)", name)
 	}
-	return llm.ModelConfig{}, fmt.Errorf(
+	return domain.ModelConfig{}, fmt.Errorf(
 		"unknown model %q (configured models: %s)",
 		name,
 		strings.Join(names, ", "),
@@ -120,7 +120,7 @@ func runHeadless(opts runOptions) error {
 	// Jobs share the runner, so drain them before closing it.
 	defer func() { extRunner.Close() }()
 	if bs.Config.Agents.Enabled {
-		roleModels := make(map[job.Role]llm.ModelConfig, 3)
+		roleModels := make(map[job.Role]domain.ModelConfig, 3)
 		for _, role := range []job.Role{job.RoleExplore, job.RoleReview, job.RoleWorker} {
 			cfg := primary
 			if name := bs.Config.Agents.Models.ForRole(role); name != "" {

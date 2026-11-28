@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
 func TestModelChangesBeforeFirstFlush(t *testing.T) {
@@ -19,7 +19,7 @@ func TestModelChangesBeforeFirstFlush(t *testing.T) {
 	require.NoError(t, m.SetModel("second"))
 	require.NoError(t, m.SetModel("third"))
 	assert.NoFileExists(t, m.File(), "model selections retain lazy session persistence")
-	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "done"})
+	_, err = m.Append(core.Message{Role: core.RoleAssistant, Content: "done"})
 	require.NoError(t, err)
 	loaded, err := OpenSession(m.File())
 	require.NoError(t, err)
@@ -37,11 +37,11 @@ func TestModelChangePreservesOtherAppends(t *testing.T) {
 	dir := t.TempDir()
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true), WithModel("initial"))
 	require.NoError(t, err)
-	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "first"})
+	_, err = m.Append(core.Message{Role: core.RoleAssistant, Content: "first"})
 	require.NoError(t, err)
 	other, err := OpenSession(m.File())
 	require.NoError(t, err)
-	_, err = other.Append(llm.Message{Role: llm.RoleUser, Content: "appended by another reader"})
+	_, err = other.Append(core.Message{Role: core.RoleUser, Content: "appended by another reader"})
 	require.NoError(t, err)
 	before, err := os.ReadFile(m.File())
 	require.NoError(t, err)
@@ -59,7 +59,7 @@ func TestModelChangeAppendFailureIsRetryable(t *testing.T) {
 	dir := t.TempDir()
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true), WithModel("initial"))
 	require.NoError(t, err)
-	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "done"})
+	_, err = m.Append(core.Message{Role: core.RoleAssistant, Content: "done"})
 	require.NoError(t, err)
 	leaf, count := m.LeafID(), m.Len()
 	path := m.File()
@@ -80,10 +80,10 @@ func TestModelSelectionFollowsBranchAndSurvivesCompaction(t *testing.T) {
 	dir := t.TempDir()
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true), WithModel("initial"))
 	require.NoError(t, err)
-	base, err := m.Append(llm.Message{Role: llm.RoleAssistant, Content: "shared"})
+	base, err := m.Append(core.Message{Role: core.RoleAssistant, Content: "shared"})
 	require.NoError(t, err)
 	require.NoError(t, m.SetModel("other-branch"))
-	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "other"})
+	_, err = m.Append(core.Message{Role: core.RoleAssistant, Content: "other"})
 	require.NoError(t, err)
 	m.leafID = &base
 	assert.Equal(t, "initial", m.ModelName(), "off-branch model changes must be ignored")
@@ -110,7 +110,7 @@ func TestModelSelectionFollowsBranchAndSurvivesCompaction(t *testing.T) {
 
 	// The last physical EntryModelChange is off this new branch. Restoring must
 	// derive the model from the leaf's ancestry.
-	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "back at base"})
+	_, err = m.Append(core.Message{Role: core.RoleUser, Content: "back at base"})
 	require.NoError(t, err)
 	loaded, err = OpenSession(m.File())
 	require.NoError(t, err)

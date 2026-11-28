@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/core"
 )
 
 func TestModelPresetAndOverridesRoundTrip(t *testing.T) {
@@ -37,8 +37,8 @@ func TestModelPresetAndOverridesRoundTrip(t *testing.T) {
 			doc, err := ReadConfigDoc(path)
 			require.NoError(t, err)
 			require.NoError(t, doc.Validate())
-			assert.Equal(t, llm.RequestParameters{
-				"thinking": llm.RequestParameters{"clear_thinking": nil}, "enable_thinking": false, "temperature": 0,
+			assert.Equal(t, core.RequestParameters{
+				"thinking": core.RequestParameters{"clear_thinking": nil}, "enable_thinking": false, "temperature": 0,
 			}, doc.Models[0].RequestParameters)
 			// Saving an unrelated edit must preserve options the editor does not expose.
 			doc.Models[0].APIKey = "replacement"
@@ -53,11 +53,11 @@ func TestModelPresetAndOverridesRoundTrip(t *testing.T) {
 			assert.Equal(t, tc.preset, m.Preset)
 			assert.Equal(t, "replacement", m.APIKey)
 			assert.Equal(t, "http://127.0.0.1:3425/v1", m.BaseURL)
-			assert.Equal(t, llm.OpenAI, m.API)
+			assert.Equal(t, core.OpenAI, m.API)
 			assert.Equal(t, 123456, m.ContextWindow)
 			assert.False(t, m.ImageEnabled)
 			assert.True(t, m.Think.Enabled)
-			assert.Equal(t, llm.Low, m.Think.Mode)
+			assert.Equal(t, core.Low, m.Think.Mode)
 			assert.Equal(t, doc.Models[0].RequestParameters, m.RequestParameters)
 		})
 	}
@@ -69,7 +69,7 @@ func TestExplicitPresetBinding(t *testing.T) {
 	assert.Equal(t, "opaque-route", m.Name)
 	assert.Equal(t, "glm-5.3-flash", m.Preset)
 	assert.True(t, m.ImageEnabled)
-	assert.Equal(t, llm.Max, m.Think.Mode)
+	assert.Equal(t, core.Max, m.Think.Mode)
 	_, err = ResolveModelDoc(ModelDoc{Name: "opaque-route", Preset: "not-a-preset"})
 	require.ErrorContains(t, err, "unknown preset")
 }
@@ -91,7 +91,7 @@ func TestConfiguredModelWinsOverPHIModel(t *testing.T) {
 	assert.Equal(t, "old-model", m.Name)
 	assert.Equal(t, "https://new.example/v1", m.BaseURL)
 	assert.False(t, m.ImageEnabled)
-	assert.Equal(t, llm.Low, m.Think.Mode)
+	assert.Equal(t, core.Low, m.Think.Mode)
 	home, err := os.UserHomeDir()
 	require.NoError(t, err)
 	require.NotEmpty(t, m.SkillPaths)

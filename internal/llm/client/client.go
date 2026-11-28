@@ -5,6 +5,7 @@ import (
 	"iter"
 	"net/http"
 
+	"github.com/pulseaiclub/phi/internal/core"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/llm/anthropic"
 	"github.com/pulseaiclub/phi/internal/llm/gemini"
@@ -17,14 +18,14 @@ import (
 // default, or Anthropic / Gemini / OpenAI Responses when cfg.API is set.
 type Client struct {
 	httpClient *http.Client
-	cfg        llm.ModelConfig
+	cfg        core.ModelConfig
 	hooks      Hooks
-	tools      []llm.ToolDefinition
+	tools      []core.ToolDefinition
 	system     string
 }
 
 // NewClient builds a streaming chat client.
-func NewClient(cfg llm.ModelConfig, hooks Hooks, tools []llm.ToolDefinition, systemPrompt string) *Client {
+func NewClient(cfg core.ModelConfig, hooks Hooks, tools []core.ToolDefinition, systemPrompt string) *Client {
 	return &Client{
 		httpClient: util.DefaultHTTPClient(),
 		cfg:        cfg,
@@ -36,9 +37,9 @@ func NewClient(cfg llm.ModelConfig, hooks Hooks, tools []llm.ToolDefinition, sys
 
 // Stream runs a streaming chat completion over messages (+ optional system prompt / tools).
 // All providers validate overrides before network I/O.
-func (c *Client) Stream(ctx context.Context, messages []llm.Message) iter.Seq2[llm.StreamEvent, error] {
+func (c *Client) Stream(ctx context.Context, messages []core.Message) iter.Seq2[core.StreamEvent, error] {
 	switch c.cfg.API {
-	case llm.Anthropic:
+	case core.Anthropic:
 		cfg := c.cfg
 		if r, ok := c.hooks.Anthropic.(ThinkingResolver); ok {
 			cfg.Think = r.EffectiveThinking(cfg)
@@ -48,19 +49,19 @@ func (c *Client) Stream(ctx context.Context, messages []llm.Message) iter.Seq2[l
 			return errorSeq(err)
 		}
 		return anthropic.Stream(ctx, c.httpClient, c.cfg, &req)
-	case llm.Gemini:
+	case core.Gemini:
 		req := gemini.BuildRequest(c.system, messages, c.tools)
 		if err := c.applyGeminiThinking(ctx, &req); err != nil {
 			return errorSeq(err)
 		}
 		return gemini.Stream(ctx, c.httpClient, c.cfg, &req)
-	case llm.OpenAIResponses:
+	case core.OpenAIResponses:
 		req := responses.BuildRequest(c.cfg, c.system, messages, c.tools)
 		if err := applyHook(ctx, c.hooks.OpenAIResponses, req, c.cfg); err != nil {
 			return errorSeq(err)
 		}
 		return responses.Stream(ctx, c.httpClient, c.cfg, req)
-	default: // llm.OpenAI or empty — both route to OpenAI-compatible chat completions
+	default: // core.OpenAI or empty — both route to OpenAI-compatible chat completions
 		req := openai.BuildRequest(c.cfg, c.system, messages, c.tools)
 		if err := applyHook(ctx, c.hooks.OpenAI, req, c.cfg); err != nil {
 			return errorSeq(err)
@@ -73,20 +74,20 @@ func (c *Client) Stream(ctx context.Context, messages []llm.Message) iter.Seq2[l
 // assistant text. It satisfies llm.Compactor for session compaction.
 func (c *Client) Compact(ctx context.Context, req llm.CompactRequest) (llm.CompactResult, error) {
 	switch c.cfg.API {
-	case llm.Anthropic:
+	case core.Anthropic:
 		antReq := anthropic.NewCompactRequest(c.cfg.Name, req.Prompt, req.MaxTokens)
 		if err := applyHook(ctx, c.hooks.Anthropic, antReq, c.cfg); err != nil {
 			return llm.CompactResult{}, err
 		}
 		return anthropic.CompactRequest(ctx, c.httpClient, c.cfg, antReq)
-	case llm.Gemini:
-		greReq := gemini.BuildRequest("", []llm.Message{{Role: llm.RoleUser, Content: req.Prompt}}, nil)
+	case core.Gemini:
+		greReq := gemini.BuildRequest("", []core.Message{{Role: core.RoleUser, Content: req.Prompt}}, nil)
 		greReq.SetMaxOutputTokens(req.MaxTokens)
 		if err := c.applyGeminiThinking(ctx, &greReq); err != nil {
 			return llm.CompactResult{}, err
 		}
 		return gemini.CompactRequest(ctx, c.httpClient, c.cfg, &greReq)
-	case llm.OpenAIResponses:
+	case core.OpenAIResponses:
 		respReq := responses.NewCompactRequest(c.cfg, req.Prompt, req.MaxTokens)
 		if err := applyHook(ctx, c.hooks.OpenAIResponses, respReq, c.cfg); err != nil {
 			return llm.CompactResult{}, err
@@ -111,8 +112,8 @@ func (c *Client) applyGeminiThinking(ctx context.Context, req *gemini.GeminiRequ
 	return nil
 }
 
-func errorSeq(err error) iter.Seq2[llm.StreamEvent, error] {
-	return func(yield func(llm.StreamEvent, error) bool) {
-		yield(llm.StreamEvent{}, err)
+func errorSeq(err error) iter.Seq2[core.StreamEvent, error] {
+	return func(yield func(core.StreamEvent, error) bool) {
+		yield(core.StreamEvent{}, err)
 	}
 }

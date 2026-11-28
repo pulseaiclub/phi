@@ -29,7 +29,8 @@
 | `internal/components/toast/` | Transient top-overlay notifications |
 | `internal/components/transcript/` | Scrollable, virtualized message list |
 | `internal/components/tree/` | Box-drawing prefixes for nested TUI rows |
-| `internal/llm/`          | LLM clients (OpenAI-compatible + Anthropic + Gemini) and streaming |
+| `internal/core/`         | Provider-neutral domain types (`Message`, `ToolCall`, `Usage`, `StreamEvent`, `ModelConfig`) |
+| `internal/llm/`          | Client interfaces (`ChatClient`, `Compactor`), provider adapters (openai, anthropic, gemini), HTTP helpers |
 | `internal/llm/anthropic/` | Anthropic (Claude) Messages API client |
 | `internal/llm/client/` | LLM facade selecting OpenAI-compatible, Anthropic, or Gemini by model config |
 | `internal/llm/extmodel/` | Extension-served model connection adapted to `llm.ChatClient` |
